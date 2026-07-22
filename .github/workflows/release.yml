@@ -1,0 +1,70 @@
+---
+# .github/workflows/release.yml
+#
+# On a published GitHub release, build sdist + wheel, validate with
+# twine, and publish to the NetBox Labs internal CodeArtifact via the
+# shared reusable workflow at
+# netboxlabs/internal-workflows/.github/workflows/reusable-codeartifact-publish.yml.
+#
+# Required setup (per-plugin, one time):
+#   - Set the AWS_ACCOUNT_ID GitHub repository variable to the AWS account
+#     number provisioned for this plugin by the NetBox Labs infra team.
+#     A repository variable (not a secret) is used because account IDs
+#     are referenced from a reusable-workflow `with:` block, where the
+#     `secrets` context is not available per GitHub Actions context
+#     availability rules. The full per-plugin setup checklist
+#     (docs/post-copy-checklist.md) lives in the scaffold repo:
+#     https://github.com/netboxlabs/netbox-plugin-scaffold
+#   - The repository must have read access to netboxlabs/internal-workflows.
+
+name: Release
+
+"on":
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Setup Python
+        # actions/setup-python v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        run: python3 -m pip install -e '.[dev]'
+      - name: Build sdist and wheel
+        run: python3 -m build
+      - name: Validate built artifacts
+        run: python3 -m twine check dist/*
+      - name: Upload build artifacts
+        # actions/upload-artifact v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dist-packages
+          path: dist/
+
+  publish-codeartifact:
+    name: Publish to CodeArtifact
+    needs: build
+    uses: netboxlabs/internal-workflows/.github/workflows/reusable-codeartifact-publish.yml@develop  # yamllint disable-line rule:line-length
+    with:
+      package_type: pypi
+      artifact_name: dist-packages
+      repository: netbox-custom-scripts
+      role_to_assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/gh-oidc-ca-netbox-custom-scripts-repo-resources-netbox  # yamllint disable-line rule:line-length
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit

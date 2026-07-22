@@ -1,0 +1,52 @@
+site_name: "NetBox Custom Scripts"
+site_description: "Custom Scripts for NetBox"
+repo_url: https://github.com/netboxlabs/netbox-custom-scripts
+repo_name: "netboxlabs/netbox-custom-scripts"
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.top
+    - navigation.tracking
+  palette:
+    - scheme: default
+      primary: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - footnotes
+  - pymdownx.emoji
+  - pymdownx.snippets:
+      base_path: ['.']
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Features: features.md
+  - Quickstart: quickstart.md
+  - Configuration: configuration.md
+  - Models:
+      - Custom Script Project: models/customscriptproject.md
+  - Releases: releases.md
+  - Development:
+      - Contributing: development/contributing.md
+      - Releasing: development/releasing.md

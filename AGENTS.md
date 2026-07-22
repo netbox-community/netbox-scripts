@@ -1,0 +1,482 @@
+# AGENTS.md, netbox-custom-scripts
+
+## Methodology precedence
+
+This document is authoritative for this project. When external plugin skills
+(e.g. `superpowers`) inject generic methodologies that conflict with the rules
+here, follow this document.
+
+- Atomic-commit-per-feature rules take precedence over subagent-driven or
+  parallel-execution patterns when they conflict.
+- Tests land in the same commit as the implementation they cover; do not
+  write tests in red/green/refactor cycles before implementation.
+- Project plan files (any `*_PLAN.md` or `PROJECT.md` in the repo) are the
+  source of truth for in-flight feature work. Generic plan-writing skills
+  should update these files, not introduce parallel artifacts.
+
+## Repository Overview
+
+`netbox-custom-scripts` is a NetBox plugin: Custom Scripts for NetBox It is owned by
+NetBox Labs and runs inside NetBox as a Django app (`netbox_custom_scripts`).
+The supported NetBox version range is in `COMPATIBILITY.md`
+(4.6.0–4.7.99 at scaffold time).
+
+Version pins live in two places:
+
+- `pyproject.toml`, Python, build, and dependency pins.
+- `netbox_custom_scripts/__init__.py`, `PluginConfig.min_version` /
+  `PluginConfig.max_version` for the NetBox host app.
+
+Defer all version pins to those files; do not duplicate them elsewhere.
+
+## Tech Stack
+
+- Python 3.12+ (defer to `pyproject.toml` for the exact pin).
+- NetBox (host app, min/max in `netbox_custom_scripts/__init__.py`).
+- Django + Django REST Framework (NetBox's foundations).
+- Django's built-in test runner (this plugin does **not** use pytest, the
+  suite is `django.test.TestCase`-based and runs via `manage.py test`).
+- ruff for lint + format (config in `pyproject.toml` under `[tool.ruff*]`;
+  no separate `ruff.toml` file).
+- pre-commit for local quality gates (config in `.pre-commit-config.yaml`).
+- mkdocs + mkdocs-material for user-facing docs.
+- NetBox's `manage.py` for running the plugin during local dev.
+
+## Repository Map
+
+The scaffold ships a working `CustomScriptProject` model across every
+subsystem (model, table, forms, filterset, views, urls, navigation,
+search, REST API, GraphQL, test) as a worked example. Entries marked
+`[CustomScriptProject]` are the shipped first-class object; entries marked
+`[add as needed]` are conventional NetBox plugin modules that you add
+when domain content calls for them.
+
+```text
+.
+├── netbox_custom_scripts/            , The Django app.
+│   ├── __init__.py                , [stub] PluginConfig (name, version, base_url, min/max NetBox).
+│   ├── urls.py                    , [CustomScriptProject] urlpatterns includes 'custom-script-projects/' + 'custom-script-projects/<int:pk>/' via get_model_urls.
+│   ├── navigation.py              , [CustomScriptProject] PluginMenu 'Custom Scripts' with a Projects group + add button.
+│   ├── api/
+│   │   ├── __init__.py            , [stub]
+│   │   ├── urls.py                , [CustomScriptProject] router.register('custom-script-projects', CustomScriptProjectViewSet).
+│   │   ├── views.py               , [CustomScriptProject] CustomScriptProjectViewSet(NetBoxModelViewSet).
+│   │   └── serializers/
+│   │       ├── __init__.py        , [CustomScriptProject] Re-exports CustomScriptProjectSerializer.
+│   │       └── customscriptproject.py     , [CustomScriptProject] CustomScriptProjectSerializer.
+│   ├── filtersets/
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectFilterSet.
+│   │   └── customscriptproject.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
+│   ├── forms/
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
+│   │   ├── model_forms/customscriptproject.py   , [CustomScriptProject] CustomScriptProjectEditForm.
+│   │   ├── bulk_edit/customscriptproject.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
+│   │   ├── bulk_import/customscriptproject.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
+│   │   └── filtersets/customscriptproject.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
+│   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
+│   ├── models/
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProject.
+│   │   └── customscriptproject.py                 , [CustomScriptProject] CustomScriptProject(PrimaryModel) with name/key/storage_key/source_type/data_source/data_path/activation_policy/enabled; clean()+save() enforce identity/ownership invariants.
+│   ├── tables/
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectTable.
+│   │   └── customscriptproject.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
+│   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
+│   │   ├── __init__.py            , [stub] Test discovery anchor.
+│   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered).
+│   │   ├── models/__init__.py     , [CustomScriptProject] Test package anchor.
+│   │   ├── models/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
+│   │   ├── api/__init__.py        , [CustomScriptProject] Test package anchor.
+│   │   ├── api/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
+│   │   ├── views/__init__.py      , [CustomScriptProject] Test package anchor.
+│   │   ├── views/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase).
+│   │   ├── tables/__init__.py     , [CustomScriptProject] Test package anchor.
+│   │   ├── tables/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectTableTestCase(TableTestCases.StandardTableTestCase).
+│   │   ├── forms/__init__.py      , [CustomScriptProject] Test package anchor.
+│   │   ├── forms/test_customscriptproject.py , [CustomScriptProject] EditForm / FilterForm / BulkImportForm test cases.
+│   │   ├── filtersets/__init__.py , [CustomScriptProject] Test package anchor.
+│   │   ├── filtersets/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
+│   │   ├── graphql/__init__.py    , [CustomScriptProject] Test package anchor.
+│   │   └── graphql/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
+│   ├── views/
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
+│   │   └── customscriptproject.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views.
+│   ├── ui/
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
+│   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel (right) for the detail view layout.
+│   │   └── attrs.py               , [stub] Custom ObjectAttribute subclasses (comment stub).
+│   ├── search.py                  , [CustomScriptProject] CustomScriptProjectIndex(SearchIndex) registered via @register_search.
+│   ├── graphql/
+│   │   ├── __init__.py            , [CustomScriptProject] Exports schema = [Query].
+│   │   ├── schema.py              , [CustomScriptProject] @strawberry.type(name='Query') with custom_script_project / custom_script_project_list fields.
+│   │   ├── types.py               , [CustomScriptProject] CustomScriptProjectType(PrimaryObjectType); choice fields expose raw string values.
+│   │   ├── filters.py             , [CustomScriptProject] CustomScriptProjectFilter(PrimaryModelFilter) with enum-typed choice filters; no storage_key filter.
+│   │   └── enums.py               , [CustomScriptProject] ProjectSourceTypeEnum + ActivationPolicyEnum via strawberry.enum(ChoiceSet.as_enum()).
+│   ├── choices.py                 , [CustomScriptProject] ProjectSourceTypeChoices + ActivationPolicyChoices.
+│   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
+│   ├── constants.py               , [add as needed] Module-level constants.
+│   ├── object_actions.py          , [add as needed] ObjectAction subclasses for object-level buttons.
+│   ├── signals.py                 , [add as needed] Cross-model side-effects; wire in AppConfig.ready().
+│   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
+│   └── templates/netbox_custom_scripts/
+│       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
+│       └── *.html                 , [add as needed] Per-model detail templates and bulk-action forms.
+├── docs/                          , mkdocs site (zensical primary, mkdocs compatible).
+├── testing/
+│   └── configuration.py           , NetBox config used by the test workflow (maintainer-added; see Development).
+├── .github/workflows/             , test.yml, release.yml, claude-review.yml.
+├── AGENTS.md                      , This file. Source of truth for AI agents.
+├── CLAUDE.md                      , Shim that pulls in AGENTS.md.
+├── COMPATIBILITY.md               , Plugin → NetBox version matrix.
+├── LICENSE.md                     , NetBox Limited Use License 1.0.
+├── README.md                      , Project README.
+├── SECURITY.md                    , Security policy.
+├── mkdocs.yml                     , Docs site config (zensical and mkdocs).
+├── pyproject.toml                 , Plugin metadata + dependencies.
+└── .pre-commit-config.yaml        , Local quality gates.
+```
+
+## Architecture
+
+### Domain model
+
+`CustomScriptProject` (concept section 5.1) is the only model so far: one
+project = one script source tree = one future Python package boundary. A
+project owns either uploaded content (`source_type=upload`) or a directory of
+a Core Data Source (`source_type=data_source` + `data_source` + non-empty
+canonical `data_path`), never both. Identity fields are frozen: `key` (public
+identity) and `source_type` are immutable after creation, `storage_key`
+(internal storage/runtime identity) never changes. Revisions, modules,
+discovered scripts, storage, and execution land in later PRs per the concept.
+
+### Integration points with NetBox
+
+The standard hooks every NetBox plugin uses. Fill in the per-plugin details
+inline as the plugin grows.
+
+- **PluginConfig**, `netbox_custom_scripts/__init__.py` declares `name`,
+  `label`, `verbose_name`, `description`, `version`, `author`,
+  `author_email`, `base_url`, `min_version`, `max_version`. Add a
+  `ready()` method that imports `signals` once you create that module.
+- **Default model (CustomScriptProject)**, the scaffold ships a
+  worked example object across every subsystem: model
+  (`models/customscriptproject.py`),
+  table (`tables/customscriptproject.py`),
+  forms (`forms/<type>/customscriptproject.py`, by type: model_forms, bulk_edit, bulk_import, filtersets),
+  filterset (`filtersets/customscriptproject.py`),
+  seven views (`views/customscriptproject.py`),
+  URL routes (`urls.py`), nav menu (`navigation.py`),
+  search index (`search.py`),
+  REST API (`api/views.py`, `api/serializers/customscriptproject.py`, `api/urls.py`),
+  GraphQL (`graphql/{schema,types,filters,enums}.py`),
+  and a per-area test suite covering model / API / view / table / form /
+  filterset / GraphQL surfaces. Each test area mirrors that area's module layout:
+  a flat area gets `tests/test_<area>.py`; a subpackage area gets
+  `tests/<area>/test_customscriptproject.py` for the worked
+  example, with related models grouped into topic leaves
+  `tests/<area>/test_<topic>.py`, plus a `tests/<area>/__init__.py` anchor.
+  The shared `tests/plugin_testing.py`
+  mixins are always present.
+  Run `manage.py makemigrations` on first render to generate the
+  initial migration. Clear the `default_model_name` Copier answer
+  (set it empty) and re-run `copier update` to remove the worked example.
+- **Navigation**, `navigation.py` defines a `PluginMenu` with grouped
+  `PluginMenuItem` entries and per-item permission checks.
+- **URLs**, UI views are registered with `@register_model_view` and surfaced
+  by `get_model_urls(APP_LABEL, '<model>')` in `urls.py`. The REST API uses a
+  `NetBoxRouter` in `api/urls.py`.
+- **Permissions**, Standard Django model permissions namespaced under
+  `netbox_custom_scripts.<perm>`.
+- **Signals**, `signals.py` is the home for cross-model side-effects.
+- **Search**, `search.py` registers `SearchIndex` subclasses for major models
+  so they appear in NetBox's global search.
+- **Cross-model UI**, `template_content.py` registers
+  `PluginTemplateExtension` subclasses that extend NetBox-core (or other
+  plugin) detail pages.
+
+## Commands
+
+There is no Justfile / Makefile in this repo; commands are raw. Run them
+inside a NetBox checkout that has this plugin installed with
+`NETBOX_CONFIGURATION=configuration` exported and `$PWD/testing` on
+`PYTHONPATH` (see the `## Development` section for setup).
+
+| Command | What it does |
+|---|---|
+| `pip install -e '.[dev,test]'` (from this repo) | Install the plugin in editable mode with dev + test extras |
+| `python netbox/manage.py test netbox_custom_scripts.tests -v 2` | Run the plugin's test suite |
+| `ruff check .` | Lint |
+| `ruff format .` | Format |
+| `pre-commit install` | Install the pre-commit hook into `.git/hooks` |
+| `pre-commit run --all-files` | Run every default-stage hook against the whole tree |
+| `pre-commit run --hook-stage manual check-manifest` | Run `check-manifest` (manual stage), exercise before tagging a release |
+| `python netbox/manage.py makemigrations netbox_custom_scripts` | Generate Django migrations after model changes |
+| `python netbox/manage.py migrate` | Apply migrations |
+| `python netbox/manage.py runserver` | Start NetBox locally with the plugin loaded |
+| `mkdocs serve` | Preview the user docs |
+| `python -m build` | Build sdist + wheel (matches the release workflow) |
+
+## Development
+
+NetBox plugins must run inside a NetBox checkout. The reproducible setup
+mirrors what CI does (see `.github/workflows/test.yml`):
+
+1. Clone NetBox alongside this repo
+   (`git clone https://github.com/netbox-community/netbox.git`).
+2. Point NetBox at the shipped `testing/configuration.py` via env vars:
+
+   ```bash
+   export PYTHONPATH="$PWD/testing:$PYTHONPATH"
+   export NETBOX_CONFIGURATION=configuration
+   ```
+
+   The shipped config sets `PLUGINS = ['netbox_custom_scripts']` and points
+   at a local Postgres (netbox / netbox / netbox) plus Redis on default
+   ports. NetBox's `manage.py` reads `NETBOX_CONFIGURATION` as a Python
+   dotted module path and imports it against `sys.path`, so no symlink
+   into the NetBox checkout is needed.
+3. Install NetBox's requirements (`pip install -r netbox/requirements.txt`)
+   and this plugin in editable mode (`pip install -e '.[dev,test]'`).
+4. Provision Postgres (`netbox` / `netbox` / `netbox`) and Redis on
+   localhost; the test config expects them on default ports.
+5. Run migrations and start the dev server.
+
+After model changes, generate a migration with NetBox's
+`manage.py makemigrations netbox_custom_scripts`, `related_name` changes are
+no-op SQL but still need a migration for Django's state graph. Squash
+periodically.
+
+## Testing
+
+- Tests use Django's `unittest.TestCase` (`django.test.TestCase`), **not**
+  pytest. Suites live in `netbox_custom_scripts/tests/`.
+- Run via NetBox's test runner:
+
+  ```bash
+  python netbox/manage.py test netbox_custom_scripts.tests -v 2
+  ```
+
+  The runner uses NetBox's settings and creates a real test database, so any
+  code that touches the ORM, views, or APIs is exercised end-to-end.
+- **Do not mock the database.** Use NetBox's test client and real fixtures;
+  model-layer tests cover validators, constraints, and computed properties.
+- **Query-count baselines.** NetBox 4.6+ view and REST API list tests assert
+  each model's SQL query count against a baseline in
+  `netbox_custom_scripts/tests/query_counts.json`. The scaffold ships a baseline
+  for the worked example, so a fresh render passes. After you add or change a
+  model with a list view, regenerate it by running the suite once with
+  `UPDATE_QUERY_COUNTS=1` serially (the recorder rejects `--parallel`), then
+  commit the updated file:
+
+  ```bash
+  UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_custom_scripts.tests
+  ```
+
+  NetBox releases that predate the framework ignore the file.
+
+### Reporting test results
+
+When reporting test results to a human reviewer, include:
+
+- The exact command run.
+- The working directory.
+- Pass/fail count.
+- The full failure output for any failing test.
+
+Do not claim a test passed without running it.
+
+## CI/CD
+
+Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
+
+- **`test.yml`**, PR / branch validation. Two jobs: a fast `lint` job
+  running `pre-commit run --all-files`, followed by a `test` matrix
+  (Python versions x `[v4.6.0, v4.6.5, main, feature]`) that runs only if
+  `lint` passes. The `feature` leg is the NetBox 4.7 pre-release canary
+  and reports without blocking (`continue-on-error`). Postgres and Redis
+  service containers. Triggers on pull requests and pushes to `main`.
+- **`release.yml`**, Build + `twine check` + publish to NetBox Labs'
+  internal CodeArtifact via the shared reusable workflow in
+  `netboxlabs/internal-workflows`. Triggers on published GitHub
+  releases. The IAM role ARN is built at runtime from the
+  `AWS_ACCOUNT_ID` GitHub repository variable (see the
+  [post-copy checklist](https://github.com/netboxlabs/netbox-plugin-scaffold/blob/main/docs/post-copy-checklist.md)
+  for the full per-plugin setup).
+- **`claude-review.yml`**, Claude AI PR review triggered by `@claude`
+  mentions from authorized collaborators on a pull request. Set
+  `ANTHROPIC_API_KEY` on the repository to enable. Review-assistance
+  only, does not replace maintainer approval.
+
+## Common Tasks
+
+### Add a new model
+
+1. Add the model class. In subpackage layout, add it to its topic module
+   `models/<topic>.py` (group related models together; start a new topic
+   module if none fits) and re-export each class from `models/__init__.py`
+   (keep `__all__` alphabetised). In flat layout, append the class to
+   `models.py`. Extend
+   `PrimaryModel` for full features (tags,
+   custom fields, comments) or `BaseModel` for line items / junction
+   tables. Add `ContactsMixin` from `netbox.models.features` if contacts
+   apply.
+2. Add a `ChoiceSet` to `choices.py` for any new enum.
+3. `python netbox/manage.py makemigrations netbox_custom_scripts`.
+4. Wire up the rest of the surface area. In subpackage layout, add the
+   classes to each area's topic module (`filtersets/<topic>.py`,
+   `tables/<topic>.py`, `api/serializers/<topic>.py`) and re-export each
+   new class from the subpackage's `__init__.py`, keeping each `__all__`
+   alphabetised. In flat layout, append the new classes directly to
+   `filtersets.py`, `tables.py`, and `api/serializers.py`. Forms are
+   always a subpackage; unlike the other areas, their `__init__.py`
+   star-imports each by-type module, so adding a class needs no re-export
+   edit: add each class to
+   its by-type module (the edit form to `forms/model_forms`, the bulk-edit
+   form to `forms/bulk_edit`, the bulk-import form to `forms/bulk_import`, the
+   filter form to `forms/filtersets`), as a flat `<type>.py` in type_files
+   layout or the per-topic `<type>/<topic>.py` file in type_subpackages
+   layout; re-export is automatic via `forms/__init__.py`. In custom layout,
+   follow the rendered per-area layout choices. In all cases, update
+   `api/urls.py`, `urls.py`, `navigation.py`, and per-model templates under
+   `templates/netbox_custom_scripts/`.
+5. Register a `SearchIndex` in `search.py` if the model should be globally
+   searchable.
+6. Add test classes for the new model, mirroring the `CustomScriptProject` classes the
+   scaffold ships, for each surface (model layer, API, views, tables,
+   forms, filtersets). In a flat area, append the class to the existing
+   `tests/test_<area>.py`. In a subpackage area, add the test class to the
+   topic's leaf `tests/<area>/test_<topic>.py` (the `tests/<area>/__init__.py`
+   anchor already exists). Forms tests follow the forms shape: a flat
+   `tests/test_forms.py` in type_files layout, or
+   `tests/forms/test_<verbose>.py` in type_subpackages layout. Follow the
+   same layout choice the module code uses for that area. Tests land in the
+   same commit as the implementation.
+
+### Add a REST API endpoint
+
+1. Add the serializer. In subpackage layout, create
+   `api/serializers/<area>.py` and re-export from
+   `api/serializers/__init__.py`. In flat layout, append the class to
+   `api/serializers.py`. In custom layout, follow the
+   `serializers_layout` answer. Use `NetBoxModelSerializer` for
+   `PrimaryModel`, `ValidatedModelSerializer` for `BaseModel`.
+2. Add the viewset to `api/views.py` (extend `NetBoxModelViewSet`).
+3. Register the route in `api/urls.py` via the `NetBoxRouter`.
+4. Make sure a corresponding `FilterSet` exists (in subpackage layout
+   `filtersets/<area>.py`, in flat layout `filtersets.py`, or per the
+   `filtersets_layout` answer in custom layout) so `?field=` query
+   params work; for FK filters, add an explicit
+   `<field>_id = ModelMultipleChoiceFilter(field_name='<field>', ...)`
+   rather than relying on `Meta.fields` to generate it.
+5. Add an integration test class for the endpoint: append to
+   `tests/test_api.py` (flat) or add `tests/api/test_<verbose>.py`
+   (subpackage), matching the `serializers_layout` choice.
+
+### Add a UI view
+
+1. Add the view class. In subpackage layout (default), add it to the topic
+   module `views/<topic>.py` and re-export from `views/__init__.py`.
+   In flat layout, append the class directly to `views.py`. In either case,
+   decorate with `@register_model_view(...)`. Use `netbox.views.generic.*View`
+   base classes; do **not** add explicit URL patterns for object views.
+2. Add the table. In subpackage layout, add it to the topic module
+   `tables/<topic>.py` and re-export from `tables/__init__.py`. In flat
+   layout, append the class to `tables.py`.
+3. Add the template under `templates/netbox_custom_scripts/`. Detail layouts
+   use `netbox.ui.layout.SimpleLayout` with panel lists from `ui/panels.py`.
+4. Wire URL prefixes in `urls.py` via `get_model_urls(APP_LABEL, '<model>')`.
+5. Add the menu entry to `navigation.py` (with the right `permissions=[...]`).
+6. For object-level buttons, add an `ObjectAction` subclass to
+   `object_actions.py` and a button template under
+   `templates/netbox_custom_scripts/buttons/`.
+
+### Bump the supported NetBox version
+
+1. Update `min_version` / `max_version` in `netbox_custom_scripts/__init__.py`.
+2. Update `COMPATIBILITY.md`.
+3. Update `netbox_test_min_ref` / `netbox_test_max_ref` (via `copier update`, or directly in the rendered `.github/workflows/test.yml`) to match the new supported floor / ceiling.
+4. Run the suite locally against the new version.
+5. Drop any shims that exist only for the now-unsupported NetBox versions.
+6. Note any compatibility shims or breaking changes in `docs/releases.md`.
+
+### Cut a release
+
+1. Bump `version` in both `pyproject.toml` and `netbox_custom_scripts/__init__.py`.
+2. Update `docs/releases.md`.
+3. Tag and publish a GitHub release. `release.yml` builds and publishes to
+   the internal artifact store.
+
+## Conventions and Patterns
+
+- **Plugin code stays in the plugin package.** Do not monkey-patch NetBox.
+- **Use NetBox's mixins** where they exist (`PrimaryModel`, `BaseModel`,
+  `ContactsMixin`, `NetBoxModelSerializer`, `NetBoxModelFilterSet`,
+  `BaseFilterSet`) rather than re-implementing the same behaviour.
+- **All UI views use `@register_model_view`** from `utilities.views`.
+- **Detail layouts** use `netbox.ui.layout.SimpleLayout` with panel lists
+  from `ui/panels.py`.
+- **Object-level buttons** are `ObjectAction` subclasses in
+  `object_actions.py`, paired with templates in
+  `templates/netbox_custom_scripts/buttons/`.
+- **FK filters** must declare an explicit
+  `<field>_id = ModelMultipleChoiceFilter(field_name='<field>', ...)` in the
+  filterset; do not rely on `Meta.fields` to generate `_id` variants. Filter
+  form `model` attribute must match the filterset's model, not the parent
+  model.
+- **`db_collation="natural_sort"`** on code / identifier fields for
+  human-friendly ordering.
+- **Cross-model side-effects** live in `signals.py` and are wired in
+  `AppConfig.ready()`.
+- **Search registration** lives in `search.py`; cross-model UI extensions
+  live in `template_content.py`.
+- **Permissions namespaced** under `netbox_custom_scripts.<perm>`. Used by
+  `navigation.py` menu items and view base classes.
+- **Migrations.** Prefer a single squashed `0001_initial.py` until the
+  schema settles. Data migrations use `RunPython` with `apps.get_model(...)`
+  and `get_or_create`, `ContentType` rows may not exist yet at migration
+  time.
+- **Migration dependencies must exist at `PluginConfig.min_version`.**
+  `makemigrations` pins whatever the local (newer) NetBox checkout has, which
+  breaks the migration graph on the declared minimum. After every
+  `makemigrations` run, re-pin the deps to the v4.6.0 heads:
+  `('core', '0024_job_notifications')`,
+  `('extras', '0138_customfieldchoiceset_choice_colors')`,
+  `('users', '0016_default_ordering_indexes')`.
+  The same floor rule applies to inherited field definitions: NetBox's 4.7
+  `feature` line alters `OwnerMixin.owner` (adds `related_name='+'`), so a
+  migration generated against that line encodes state no released 4.6.x has.
+  Generate against (or reconcile to) the released floor.
+- **Project identity invariants.** `key` and `source_type` are immutable
+  after creation (enforced in `clean()`, mirrored by disabled form fields);
+  `storage_key` never changes (enforced in `save()`); `data_path` is stored
+  in canonical form via `validators.normalize_data_path()` and must be
+  non-empty for `data_source` projects (backed by the
+  `enforce_source_ownership` check constraint). Code using
+  `QuerySet.update()` bypasses normalization and must supply canonical
+  values itself.
+- **GraphQL choice fields** follow NetBox core: typed enums (from
+  `graphql/enums.py`) appear on filter inputs only; object types expose raw
+  choice values as strings.
+- **Linting.** ruff config lives under `[tool.ruff*]` in `pyproject.toml`;
+  no separate `ruff.toml`. Line length 120, single quotes, LF line endings,
+  `preview = true`. See `pyproject.toml` for the full rule set.
+- **Pre-commit.** Hook wiring lives in `.pre-commit-config.yaml`; tool
+  configuration lives in `pyproject.toml` where the hook supports it
+  (yamllint is the documented exception).
+- **Backwards compatibility for one minor.** Breaking API changes get at
+  least one minor's worth of deprecation warning before removal.
+
+## Troubleshooting
+
+- **Tests fail with "ContentType matching query does not exist".** Data
+  migrations must `get_or_create` `ContentType` rows; the `post_migrate`
+  signal that populates them has not fired yet during a fresh `migrate`.
+
+## References
+
+- Plugin README: [`README.md`](./README.md).
+- Compatibility matrix: [`COMPATIBILITY.md`](./COMPATIBILITY.md).
+- Security policy: [`SECURITY.md`](./SECURITY.md).
+- License: [`LICENSE.md`](./LICENSE.md).
+- User docs (mkdocs): [`docs/`](./docs/).
+- NetBox plugin docs: <https://netboxlabs.com/docs/netbox/plugins/>.
+- Repository: <https://github.com/netboxlabs/netbox-custom-scripts>.

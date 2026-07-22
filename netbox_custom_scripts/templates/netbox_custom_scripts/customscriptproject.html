@@ -1,0 +1,16 @@
+{% extends "generic/object.html" %}
+{% comment %}
+Detail-view template for the CustomScriptProject model.
+
+The view class (`CustomScriptProjectView` in `views/customscriptproject.py`)
+declares its layout via the `layout = layout.SimpleLayout(...)` attribute;
+"generic/object.html" renders the panels declaratively, so this template
+only needs to exist to satisfy NetBox's per-model template lookup.
+
+Extend the blocks defined by "generic/object.html" to customise:
+
+  - "breadcrumbs" (add parent-context breadcrumbs)
+  - "extra_controls" (add object-specific action buttons)
+  - "subtitle", "tabs", "alerts", "modals" (see "templates/generic/object.html"
+    in the NetBox checkout for the full list).
+{% endcomment %}

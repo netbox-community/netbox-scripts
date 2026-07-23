@@ -37,7 +37,7 @@ classifiers = [
     "Intended Audience :: Telecommunications Industry",
     "License :: Other/Proprietary License",
     "Natural Language :: English",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",

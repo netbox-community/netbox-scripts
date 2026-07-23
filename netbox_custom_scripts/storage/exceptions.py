@@ -1,4 +1,4 @@
-__all__ = ('StorageConfigurationError', 'StorageError', 'UnsafePathError')
+__all__ = ('LimitExceededError', 'StorageConfigurationError', 'StorageError', 'UnsafePathError')
 
 
 class StorageError(Exception):
@@ -22,3 +22,17 @@ class UnsafePathError(StorageError):
         super().__init__(message)
         self.path = path
         self.code = code
+
+
+class LimitExceededError(StorageError):
+    """
+    Raised when a source file or project would exceed a configured storage limit.
+
+    The code attribute holds one of the fixed rejection codes and the path attribute holds
+    the offending file path, or None for a project-wide limit.
+    """
+
+    def __init__(self, code, message, path=None):
+        super().__init__(message)
+        self.code = code
+        self.path = path

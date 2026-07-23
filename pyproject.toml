@@ -315,6 +315,7 @@ known-first-party = [
 
 [tool.ruff.lint.per-file-ignores]
 "template_code.py" = ["E501"]  # Generated/template code may exceed normal line length.
+"netbox_custom_scripts/__init__.py" = ["F822"]  # PEP 562 lazy re-exports: the __all__ names resolve through module __getattr__ at runtime, invisible to static analysis.
 "**/migrations/*.py" = ["D", "E501", "I"]  # Django-generated migrations: no docstring coverage; long generated values; emitted in non-isort-canonical order.
 "**/tests/*.py" = ["D"]  # Tests do not require docstring coverage by default.
 "**/__init__.py" = ["D104"]  # Package marker files do not require public package docstrings.

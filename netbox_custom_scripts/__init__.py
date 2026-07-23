@@ -28,3 +28,41 @@ class AppConfig(PluginConfig):
 
 
 config = AppConfig
+
+# The authoring API (netbox_custom_scripts.scripts) is re-exported lazily via PEP 562.
+# Django imports this package before app setup, so nothing here may import Django form
+# machinery eagerly.
+__all__ = (
+    'AbortScript',
+    'BaseScript',
+    'BooleanVar',
+    'ChoiceVar',
+    'DateTimeVar',
+    'DateVar',
+    'DecimalVar',
+    'FileVar',
+    'IPAddressVar',
+    'IPAddressWithMaskVar',
+    'IPNetworkVar',
+    'IntegerVar',
+    'LogLevelChoices',
+    'MultiChoiceVar',
+    'MultiObjectVar',
+    'ObjectVar',
+    'Script',
+    'ScriptVariable',
+    'StringVar',
+    'TextVar',
+)
+
+
+def __getattr__(name):
+    if name in __all__:
+        from netbox_custom_scripts import scripts
+
+        return getattr(scripts, name)
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+
+def __dir__():
+    return sorted({*globals(), *__all__})

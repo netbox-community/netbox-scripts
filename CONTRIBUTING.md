@@ -102,7 +102,7 @@ NetBox development environment.
 
   ```text
   workspace/
-    netbox/                        # NetBox core checkout
+    netbox/                        # NetBox checkout
     netbox-custom-scripts/   # this plugin
   ```
 

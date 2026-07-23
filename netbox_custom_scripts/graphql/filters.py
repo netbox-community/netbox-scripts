@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 __all__ = ('CustomScriptProjectFilter',)
 
 
-# Choice fields surface as typed enums on filter inputs only; object types expose
-# their raw values as strings, mirroring NetBox core's GraphQL convention.
+# Choice fields surface as typed enums on filter inputs only. Object types expose
+# their raw values as strings, mirroring NetBox's GraphQL convention.
 # storage_key is deliberately not filterable: it is internal storage/runtime
 # identity, not a public lookup key.
 @strawberry_django.filter_type(CustomScriptProject, lookups=True)

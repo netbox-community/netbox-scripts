@@ -17,10 +17,10 @@ class PluginAPIViewTestCase:
 
 
 class PluginTestCases:
-    """Plugin-aware variants of NetBox-core's view test cases.
+    """Plugin-aware variants of NetBox's view test cases.
 
     NetBox plugin URLs live under the ``plugins:`` (UI) and
-    ``plugins-api:`` (REST API) namespaces; ``PluginViewTestCase`` /
+    ``plugins-api:`` (REST API) namespaces. ``PluginViewTestCase`` /
     ``PluginAPIViewTestCase`` route ``reverse()`` through the right
     namespace. Compose them with ``ViewTestCases.PrimaryObjectViewTestCase``
     so all standard primary-object views (Get / Edit / Delete / List /

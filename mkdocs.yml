@@ -44,6 +44,7 @@ nav:
   - Features: features.md
   - Quickstart: quickstart.md
   - Configuration: configuration.md
+  - Authoring: authoring.md
   - Models:
       - Custom Script Project: models/customscriptproject.md
   - Releases: releases.md

@@ -8,8 +8,14 @@ the Python package boundary used when loading and executing scripts.
 
 ## Status
 
-This is a pre-alpha scaffold release. It ships the `CustomScriptProject` model
-with full UI, REST API, GraphQL, and global-search surfaces.
+This is a pre-alpha release.
+
+Implemented:
+
+- the `CustomScriptProject` model with full UI, REST API, GraphQL, and
+  global-search surfaces
+- the plugin-owned script authoring API: `Script` base classes, variable
+  types, dynamic form generation, structured logging, and `AbortScript`
 
 Not yet implemented, planned for follow-up releases:
 
@@ -20,7 +26,7 @@ Not yet implemented, planned for follow-up releases:
 - package loading
 - execution and scheduling
 - Event Rule actions
-- migration from NetBox core Custom Scripts
+- migration from NetBox's built-in Custom Scripts
 
 ## Compatibility
 

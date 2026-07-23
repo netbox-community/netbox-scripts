@@ -25,6 +25,7 @@ logging, global search, REST, and GraphQL.
 | Manage projects | Administrator | Create, edit, delete, bulk-import, and tag Custom Script Projects. |
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
+| Author Custom Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
 
 ## Not yet implemented
 
@@ -35,8 +36,9 @@ follow-up releases:
 |---|---|
 | Project revisions and modules | Planned |
 | Script discovery | Planned |
+| Running authored scripts | Planned |
 | Source storage and uploads | Planned |
 | Data Source synchronization | Planned |
 | Package loading, execution, and scheduling | Planned |
 | Event Rule actions | Planned |
-| Migration from NetBox core Custom Scripts | Planned |
+| Migration from NetBox's built-in Custom Scripts | Planned |

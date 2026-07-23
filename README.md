@@ -54,7 +54,8 @@ PLUGINS = [
 ]
 ```
 
-The plugin currently defines no `PLUGINS_CONFIG` settings.
+The plugin reads optional storage settings from `PLUGINS_CONFIG`, none of which are
+required to enable it. See the configuration documentation for the full list.
 
 Apply database migrations:
 

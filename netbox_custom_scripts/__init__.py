@@ -4,6 +4,7 @@ __version__ = '0.0.1'
 
 
 from netbox.plugins import PluginConfig
+from netbox_custom_scripts import constants
 
 
 class AppConfig(PluginConfig):
@@ -19,6 +20,14 @@ class AppConfig(PluginConfig):
     base_url = 'custom-scripts'
     min_version = '4.6.0'
     max_version = '4.7.99'
+
+    default_settings = {
+        'project_root': None,
+        'runtime_cache_root': None,
+        'max_file_size': constants.DEFAULT_MAX_FILE_SIZE,
+        'max_project_size': constants.DEFAULT_MAX_PROJECT_SIZE,
+        'max_file_count': constants.DEFAULT_MAX_FILE_COUNT,
+    }
 
     # Uncomment to wire Django signals once you ship `signals.py`:
     #

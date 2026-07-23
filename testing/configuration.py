@@ -3,6 +3,8 @@
 #  only. It is not intended for production use.                   #
 ###################################################################
 
+import tempfile
+
 ALLOWED_HOSTS = ['*']
 
 DATABASE = {
@@ -17,6 +19,13 @@ DATABASE = {
 PLUGINS = [
     'netbox_custom_scripts',
 ]
+
+PLUGINS_CONFIG = {
+    'netbox_custom_scripts': {
+        'project_root': tempfile.mkdtemp(prefix='ncs-project-root-'),
+        'runtime_cache_root': tempfile.mkdtemp(prefix='ncs-runtime-cache-'),
+    },
+}
 
 REDIS = {
     'tasks': {

@@ -21,14 +21,16 @@ instead.
 
 ## Enabling the plugin
 
-Add `netbox_custom_scripts` to `PLUGINS` in NetBox's `configuration.py`. The
-plugin currently defines no `PLUGINS_CONFIG` settings.
+Add `netbox_custom_scripts` to `PLUGINS` in NetBox's `configuration.py`:
 
 ```python
 PLUGINS = [
     'netbox_custom_scripts',
 ]
 ```
+
+The plugin reads optional storage settings from `PLUGINS_CONFIG`, none of which are
+required to enable it. See [Configuration](configuration.md) for the full list.
 
 Then run migrations, collect static files, and restart NetBox:
 

@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
                 'verbose_name': 'custom script project',
                 'verbose_name_plural': 'custom script projects',
                 'ordering': ('name',),
-                'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership')],
+                'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership'), models.UniqueConstraint(condition=models.Q(('source_type', 'data_source')), fields=('data_source', 'data_path'), name='unique_data_source_path')],
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),

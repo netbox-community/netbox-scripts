@@ -1,7 +1,24 @@
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
-__all__ = ('normalize_data_path',)
+__all__ = ('data_paths_overlap', 'normalize_data_path')
+
+
+def data_paths_overlap(path_a, path_b):
+    """
+    Return True if two canonical data paths overlap.
+
+    Two paths overlap when they are identical or when one is a directory-level ancestor of
+    the other. Comparison is segment-based, never a raw string prefix match, so
+    'automation/netbox' and 'automation/netbox-old' are siblings rather than an overlap.
+    Both arguments must already be in normalize_data_path() canonical form.
+    """
+    if path_a == path_b:
+        return True
+    segments_a = path_a.split('/') if path_a else []
+    segments_b = path_b.split('/') if path_b else []
+    shorter, longer = (segments_a, segments_b) if len(segments_a) <= len(segments_b) else (segments_b, segments_a)
+    return bool(shorter) and longer[: len(shorter)] == shorter
 
 
 def normalize_data_path(value):

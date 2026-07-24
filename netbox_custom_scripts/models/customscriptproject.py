@@ -8,7 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from netbox.models import PrimaryModel
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ..validators import normalize_data_path
+from ..validators import data_paths_overlap, normalize_data_path
 
 
 class CustomScriptProject(PrimaryModel):
@@ -86,6 +86,11 @@ class CustomScriptProject(PrimaryModel):
                     )
                 ),
             ),
+            models.UniqueConstraint(
+                fields=('data_source', 'data_path'),
+                condition=Q(source_type=ProjectSourceTypeChoices.DATA_SOURCE),
+                name='unique_data_source_path',
+            ),
         ]
 
     def __str__(self):
@@ -112,6 +117,18 @@ class CustomScriptProject(PrimaryModel):
                 errors['data_source'] = _('A data source applies only to data source-backed projects.')
             if self.data_path:
                 errors['data_path'] = _('A data path applies only to data source-backed projects.')
+
+        if (
+            self.source_type == ProjectSourceTypeChoices.DATA_SOURCE
+            and self.data_source_id
+            and self.data_path
+            and 'data_path' not in errors
+        ):
+            conflict = self._overlapping_sibling()
+            if conflict is not None:
+                errors['data_path'] = _(
+                    'This data path overlaps with project "%(name)s" (%(path)s) on the same data source.'
+                ) % {'name': conflict.name, 'path': conflict.data_path}
 
         if not self._state.adding:
             original = type(self).objects.filter(pk=self.pk).values('key', 'source_type').first()
@@ -142,3 +159,17 @@ class CustomScriptProject(PrimaryModel):
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)
+
+    def _overlapping_sibling(self):
+        siblings = (
+            type(self)
+            .objects.filter(
+                source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+                data_source=self.data_source,
+            )
+            .exclude(pk=self.pk)
+        )
+        for other in siblings:
+            if data_paths_overlap(self.data_path, other.data_path):
+                return other
+        return None

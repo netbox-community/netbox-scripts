@@ -59,6 +59,18 @@ class StorageConfigTestCase(TestCase):
         self.assertEqual(config.get_max_project_size(), 456)
         self.assertEqual(config.get_max_file_count(), 7)
 
+    @override_settings(PLUGINS_CONFIG=plugin_config())
+    def test_get_storage_limits_returns_all_three_values(self):
+        resolved = config.get_storage_limits()
+        self.assertEqual(resolved.max_file_size, constants.DEFAULT_MAX_FILE_SIZE)
+        self.assertEqual(resolved.max_project_size, constants.DEFAULT_MAX_PROJECT_SIZE)
+        self.assertEqual(resolved.max_file_count, constants.DEFAULT_MAX_FILE_COUNT)
+
+    @override_settings(PLUGINS_CONFIG=plugin_config(max_file_size=123, max_project_size=456, max_file_count=7))
+    def test_get_storage_limits_reflects_overrides(self):
+        resolved = config.get_storage_limits()
+        self.assertEqual((resolved.max_file_size, resolved.max_project_size, resolved.max_file_count), (123, 456, 7))
+
     def test_limits_reject_non_positive_or_non_integer_values(self):
         for bad in ('5', 1.5, True, 0, -1):
             with (

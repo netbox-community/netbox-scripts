@@ -1,12 +1,15 @@
 """
 Accessors for the plugin's storage settings.
 
-Every value is read through get_plugin_config on each call, so a setting overridden in a
-test with override_settings takes effect immediately. Path settings are validated lazily
-here, when a storage function first needs them, rather than through a Django system check,
-so the plugin still boots on a deployment that has not configured storage yet.
+This module owns settings resolution for the storage package. Every value is read through
+get_plugin_config on each call, so a setting overridden in a test with override_settings
+takes effect immediately. Path settings are validated lazily, when a storage function first
+needs them, rather than through a Django system check, so the plugin still boots on a
+deployment that has not configured storage yet. A caller resolves the limits once with
+get_storage_limits and passes the result down.
 """
 
+import dataclasses
 import os
 import pathlib
 
@@ -64,3 +67,26 @@ def get_max_project_size():
 def get_max_file_count():
     """Return the maximum accepted number of files in a project's source tree."""
     return _resolve_positive_integer('max_file_count', constants.DEFAULT_MAX_FILE_COUNT)
+
+
+@dataclasses.dataclass(frozen=True)
+class StorageLimits:
+    """The storage limits that apply to one staging operation."""
+
+    max_file_size: int
+    max_project_size: int
+    max_file_count: int
+
+
+def get_storage_limits():
+    """
+    Return the configured storage limits as one immutable value.
+
+    A caller resolves this once per staging operation and passes it down, so every check in
+    that operation sees the same limits even if the settings change while it runs.
+    """
+    return StorageLimits(
+        max_file_size=get_max_file_size(),
+        max_project_size=get_max_project_size(),
+        max_file_count=get_max_file_count(),
+    )

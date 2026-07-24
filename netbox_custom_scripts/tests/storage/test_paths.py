@@ -1,18 +1,13 @@
-import os
 import pathlib
-import tempfile
 import unicodedata
 import uuid
-from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from netbox_custom_scripts.storage import paths
-from netbox_custom_scripts.storage.exceptions import LimitExceededError, StorageError, UnsafePathError
+from netbox_custom_scripts.storage.exceptions import UnsafePathError
 
-
-def plugin_config(**settings):
-    return {'netbox_custom_scripts': settings}
+PROJECT_ROOT = pathlib.Path('/ncs/projects')
 
 
 class PathSafetyTestCase(TestCase):
@@ -74,137 +69,73 @@ class PathSafetyTestCase(TestCase):
 
     def test_path_helpers_reject_unsafe_identifiers(self):
         with self.assertRaises(UnsafePathError):
-            paths.project_directory('../etc')
+            paths.project_directory(PROJECT_ROOT, '../etc')
         with self.assertRaises(UnsafePathError):
-            paths.revision_directory('..', '../../escape')
+            paths.revision_directory(PROJECT_ROOT, '..', '../../escape')
         valid_key = uuid.uuid4()
         for bad_digest in ('../../escape', 'g' * 64, 'abc/def', 'A' * 64):
             with self.subTest(bad_digest=bad_digest), self.assertRaises(UnsafePathError):
-                paths.revision_directory(valid_key, bad_digest)
+                paths.revision_directory(PROJECT_ROOT, valid_key, bad_digest)
         for bad_token in ('../escape', 'xyz', 'a/b'):
             with self.subTest(bad_token=bad_token), self.assertRaises(UnsafePathError):
-                paths.staging_directory(valid_key, bad_token)
+                paths.staging_directory(PROJECT_ROOT, valid_key, bad_token)
 
-    def test_project_directory_and_revision_directory_are_pure_functions_of_storage_key_and_digest(self):
+    def test_path_helpers_are_pure_functions_of_their_arguments(self):
         storage_key = uuid.UUID('12345678-1234-5678-1234-567812345678')
         digest = 'a' * 64
         token = 'b' * 32
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            override_settings(PLUGINS_CONFIG=plugin_config(project_root=tmp)),
-        ):
-            root = pathlib.Path(tmp)
-            self.assertEqual(paths.project_directory(storage_key), root / str(storage_key))
-            self.assertEqual(
-                paths.revision_directory(storage_key, digest),
-                root / str(storage_key) / 'revisions' / digest,
-            )
-            self.assertEqual(
-                paths.staging_directory(storage_key, token),
-                root / str(storage_key) / 'staging' / token,
-            )
-            self.assertEqual(
-                paths.revision_directory(storage_key, digest),
-                paths.revision_directory(storage_key, digest),
-            )
+        self.assertEqual(paths.project_directory(PROJECT_ROOT, storage_key), PROJECT_ROOT / str(storage_key))
+        self.assertEqual(
+            paths.revision_directory(PROJECT_ROOT, storage_key, digest),
+            PROJECT_ROOT / str(storage_key) / 'revisions' / digest,
+        )
+        self.assertEqual(
+            paths.staging_directory(PROJECT_ROOT, storage_key, token),
+            PROJECT_ROOT / str(storage_key) / 'staging' / token,
+        )
+        self.assertEqual(
+            paths.revision_directory(PROJECT_ROOT, storage_key, digest),
+            paths.revision_directory(PROJECT_ROOT, storage_key, digest),
+        )
 
 
-class DirectoryWalkTestCase(TestCase):
-    def test_iter_directory_files_yields_regular_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'a.py').write_bytes(b'aaa')
-            (root / 'sub').mkdir()
-            (root / 'sub' / 'b.py').write_bytes(b'bbb')
-            result = dict(paths.iter_directory_files(root))
-        self.assertEqual(result, {'a.py': b'aaa', 'sub/b.py': b'bbb'})
+class SourcePathPolicyTestCase(TestCase):
+    """
+    Cover the limits that keep a source path materializable on every supported host.
 
-    def test_iter_directory_files_rejects_symlink(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'real.py').write_bytes(b'x')
-            (root / 'link.py').symlink_to(root / 'real.py')
-            with self.assertRaises(UnsafePathError) as ctx:
-                list(paths.iter_directory_files(root))
-            self.assertEqual(ctx.exception.code, 'symlink')
+    Each of these passed manifest construction before and then failed at write time as a
+    filesystem error, which the staging service recorded as STORAGE_FAILED even though no
+    retry of the same content could ever succeed.
+    """
 
-    def test_iter_directory_files_rejects_special_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            os.mkfifo(root / 'pipe')
-            with self.assertRaises(UnsafePathError) as ctx:
-                list(paths.iter_directory_files(root))
-            self.assertEqual(ctx.exception.code, 'special_file')
+    def test_rejects_a_component_over_the_byte_limit(self):
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.normalize_source_path('x' * (paths.MAX_PATH_COMPONENT_BYTES + 1) + '.py')
+        self.assertEqual(ctx.exception.code, 'path_component_too_long')
 
-    def test_iter_directory_files_rejects_missing_root(self):
-        with self.assertRaises(StorageError):
-            list(paths.iter_directory_files('/ncs/storage/does/not/exist'))
+    def test_accepts_a_component_at_the_byte_limit(self):
+        name = 'x' * paths.MAX_PATH_COMPONENT_BYTES
+        self.assertEqual(paths.normalize_source_path(name), name)
 
-    def test_iter_directory_files_rejects_file_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            file_root = pathlib.Path(tmp) / 'a.py'
-            file_root.write_bytes(b'x')
-            with self.assertRaises(StorageError):
-                list(paths.iter_directory_files(file_root))
+    def test_counts_component_length_in_utf8_bytes_not_characters(self):
+        # NAME_MAX is a byte limit, so a name well under it in characters can still be over.
+        name = 'é' * paths.MAX_PATH_COMPONENT_BYTES
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.normalize_source_path(name)
+        self.assertEqual(ctx.exception.code, 'path_component_too_long')
 
-    def test_iter_directory_files_rejects_symlink_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            real = pathlib.Path(tmp) / 'real_dir'
-            real.mkdir()
-            link = pathlib.Path(tmp) / 'link_dir'
-            link.symlink_to(real, target_is_directory=True)
-            with self.assertRaises(UnsafePathError) as ctx:
-                list(paths.iter_directory_files(link))
-            self.assertEqual(ctx.exception.code, 'symlink')
+    def test_rejects_a_path_over_the_total_byte_limit(self):
+        segments = ['d' * 60] * ((paths.MAX_PATH_BYTES // 61) + 2)
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.normalize_source_path('/'.join(segments) + '/mod.py')
+        self.assertEqual(ctx.exception.code, 'path_too_long')
 
-    def test_iter_directory_files_converts_walk_errors_to_storage_error(self):
-        def failing_walk(top, followlinks=False, onerror=None):
-            onerror(PermissionError('denied'))
-            return iter(())
+    def test_rejects_a_path_over_the_depth_limit(self):
+        deep = '/'.join(f'd{index}' for index in range(paths.MAX_PATH_DEPTH)) + '/mod.py'
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.normalize_source_path(deep)
+        self.assertEqual(ctx.exception.code, 'path_too_deep')
 
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            mock.patch('netbox_custom_scripts.storage.paths.os.walk', failing_walk),
-            self.assertRaises(StorageError),
-        ):
-            list(paths.iter_directory_files(tmp))
-
-    def test_iter_directory_files_converts_file_read_errors_to_storage_error(self):
-        def walk_with_missing_file(top, followlinks=False, onerror=None):
-            yield str(top), [], ['ghost.py']
-
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            mock.patch('netbox_custom_scripts.storage.paths.os.walk', walk_with_missing_file),
-            self.assertRaises(StorageError),
-        ):
-            list(paths.iter_directory_files(tmp))
-
-    @override_settings(PLUGINS_CONFIG=plugin_config(max_file_size=4))
-    def test_iter_directory_files_rejects_file_over_size_limit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'big.py').write_bytes(b'12345')
-            with self.assertRaises(LimitExceededError) as ctx:
-                list(paths.iter_directory_files(root))
-            self.assertEqual(ctx.exception.code, 'file_too_large')
-
-    @override_settings(PLUGINS_CONFIG=plugin_config(max_file_count=2))
-    def test_iter_directory_files_rejects_too_many_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            for name in ('a.py', 'b.py', 'c.py'):
-                (root / name).write_bytes(b'x')
-            with self.assertRaises(LimitExceededError) as ctx:
-                list(paths.iter_directory_files(root))
-            self.assertEqual(ctx.exception.code, 'too_many_files')
-
-    @override_settings(PLUGINS_CONFIG=plugin_config(max_project_size=4))
-    def test_iter_directory_files_rejects_total_over_project_limit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'a.py').write_bytes(b'123')
-            (root / 'b.py').write_bytes(b'456')
-            with self.assertRaises(LimitExceededError) as ctx:
-                list(paths.iter_directory_files(root))
-            self.assertEqual(ctx.exception.code, 'project_too_large')
+    def test_accepts_a_path_at_the_depth_limit(self):
+        deep = '/'.join(f'd{index}' for index in range(paths.MAX_PATH_DEPTH - 1)) + '/mod.py'
+        self.assertEqual(paths.normalize_source_path(deep), deep)

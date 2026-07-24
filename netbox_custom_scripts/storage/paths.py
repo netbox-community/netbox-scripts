@@ -1,24 +1,30 @@
 """
 Safe handling of project source paths and the on-disk storage layout.
 
-This module imports no Django ORM. It owns source-path safety, the on-disk layout, and
-walking a source directory with bounded reads. Path construction is a pure function of its
-arguments and the configured project root, so a stored file always hashes and lands
-identically across hosts and regardless of any request or schema context.
+Every function is a pure function of its arguments, so a stored file always hashes and
+lands identically across hosts and regardless of any request or schema context.
 """
 
-import os
 import re
-import stat
 import unicodedata
 import uuid
 from pathlib import Path, PureWindowsPath
 
-from . import config
-from .exceptions import LimitExceededError, StorageError, UnsafePathError
+from .exceptions import UnsafePathError
 
 _HEX_DIGEST = re.compile(r'^[0-9a-f]{64}$')
 _STAGING_TOKEN = re.compile(r'^[0-9a-f]{32}$')
+
+# Portability floors for a source path, deliberately fixed rather than configurable. These
+# are not capacity limits to be tuned: a path that clears them has to remain writable, walkable
+# and removable on every supported host, and importable by the loader that comes later.
+# NAME_MAX is 255 bytes on ext4, XFS, and APFS. The whole-path bound leaves room for the
+# project root and the revision digest to be prefixed while staying well under PATH_MAX. The
+# depth bound sits far above any real Python package and keeps tree walking clear of both the
+# descriptor and the recursion ceilings.
+MAX_PATH_COMPONENT_BYTES = 255
+MAX_PATH_BYTES = 1024
+MAX_PATH_DEPTH = 64
 
 
 def normalize_source_path(path):
@@ -31,6 +37,11 @@ def normalize_source_path(path):
     revision matches the source tree exactly. Raises UnsafePathError for whitespace,
     absolute or drive-qualified paths, traversal segments, backslashes, and control
     characters.
+
+    A path that no host can materialize is rejected here too, under
+    path_component_too_long, path_too_long, and path_too_deep. Those are content problems
+    that fail identically on every retry, so they belong with the source rather than with the
+    filesystem error they would otherwise become.
     """
     normalized = unicodedata.normalize('NFC', path)
     if normalized != normalized.strip():
@@ -53,108 +64,49 @@ def normalize_source_path(path):
         raise UnsafePathError(path, 'path_traversal', 'Path traversal segments ("..") are not allowed.')
     if not segments:
         raise UnsafePathError(path, 'path_traversal', 'Source paths must reference a file within the project.')
-    return '/'.join(segments)
+
+    canonical = '/'.join(segments)
+    for segment in segments:
+        length = len(segment.encode('utf-8'))
+        if length > MAX_PATH_COMPONENT_BYTES:
+            raise UnsafePathError(
+                path,
+                'path_component_too_long',
+                f'"{segment[:40]}..." is {length} bytes, over the {MAX_PATH_COMPONENT_BYTES} byte limit for one '
+                f'path component.',
+            )
+    total = len(canonical.encode('utf-8'))
+    if total > MAX_PATH_BYTES:
+        raise UnsafePathError(
+            path, 'path_too_long', f'The path is {total} bytes, over the {MAX_PATH_BYTES} byte limit.'
+        )
+    if len(segments) > MAX_PATH_DEPTH:
+        raise UnsafePathError(
+            path,
+            'path_too_deep',
+            f'The path is {len(segments)} levels deep, over the {MAX_PATH_DEPTH} level limit.',
+        )
+    return canonical
 
 
-def project_directory(storage_key):
+def project_directory(project_root, storage_key):
     """Return the on-disk directory that holds every revision of one project."""
     try:
         key = str(uuid.UUID(str(storage_key)))
     except (ValueError, AttributeError, TypeError):
         raise UnsafePathError(str(storage_key), 'escapes_root', 'The storage key must be a UUID.') from None
-    return config.get_project_root() / key
+    return Path(project_root) / key
 
 
-def revision_directory(storage_key, digest):
+def revision_directory(project_root, storage_key, digest):
     """Return the on-disk directory for one immutable revision of a project."""
     if not isinstance(digest, str) or not _HEX_DIGEST.fullmatch(digest):
         raise UnsafePathError(str(digest), 'escapes_root', 'The revision digest must be 64 lowercase hex characters.')
-    return project_directory(storage_key) / 'revisions' / digest
+    return project_directory(project_root, storage_key) / 'revisions' / digest
 
 
-def staging_directory(storage_key, token):
+def staging_directory(project_root, storage_key, token):
     """Return the scratch directory used while a revision is being written to disk."""
     if not isinstance(token, str) or not _STAGING_TOKEN.fullmatch(token):
         raise UnsafePathError(str(token), 'escapes_root', 'The staging token must be a 32-character hex string.')
-    return project_directory(storage_key) / 'staging' / token
-
-
-def _read_regular_file(candidate, relative, max_file_size):
-    """
-    Return the content of one directory entry, read once through a validated descriptor.
-
-    The entry is opened without following a final symbolic link, the opened descriptor is
-    confirmed to be a regular file, and at most max_file_size + 1 bytes are read so a
-    growing or replaced file cannot exceed the configured memory bound. Raises
-    UnsafePathError (special_file) for a non-regular file, LimitExceededError
-    (file_too_large) when the content is over the limit, and StorageError for any
-    operating-system read failure.
-    """
-    try:
-        descriptor = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(descriptor, 'rb') as handle:
-            file_stat = os.fstat(handle.fileno())
-            if not stat.S_ISREG(file_stat.st_mode):
-                raise UnsafePathError(str(candidate), 'special_file', 'Special files are not allowed in a source tree.')
-            content = handle.read(max_file_size + 1)
-    except OSError as error:
-        raise StorageError(f'Unable to read source file "{relative}": {error}') from error
-    if len(content) > max_file_size:
-        raise LimitExceededError(
-            'file_too_large', f'"{relative}" is over the {max_file_size} byte limit.', path=relative
-        )
-    return content
-
-
-def iter_directory_files(root):
-    """
-    Yield (raw_relative_posix_path, content_bytes) for every regular file under root.
-
-    The tree is walked top down and in sorted order within each directory. Paths are
-    yielded unmodified so the manifest builder owns normalization and duplicate detection.
-    The configured per-file, file-count, and total-size limits are enforced as the tree is
-    read, and each file is opened once and read with a bound, so an oversized tree is
-    rejected without being loaded into memory. Raises UnsafePathError on a symbolic link
-    (symlink) or a special file (special_file), StorageError when the root is missing, is
-    not a directory, or cannot be read, and LimitExceededError when a limit is exceeded.
-    """
-    root = Path(root)
-    if root.is_symlink():
-        raise UnsafePathError(str(root), 'symlink', 'The source tree root must not be a symbolic link.')
-    if not root.exists():
-        raise StorageError(f'The source tree root does not exist: {root}')
-    if not root.is_dir():
-        raise StorageError(f'The source tree root is not a directory: {root}')
-
-    max_file_size = config.get_max_file_size()
-    max_file_count = config.get_max_file_count()
-    max_project_size = config.get_max_project_size()
-    count = 0
-    total = 0
-
-    def raise_walk_error(error):
-        raise StorageError(f'Unable to read the source tree: {error}') from error
-
-    for current, dirnames, filenames in os.walk(root, followlinks=False, onerror=raise_walk_error):
-        dirnames.sort()
-        filenames.sort()
-        current = Path(current)
-        for dirname in dirnames:
-            candidate = current / dirname
-            if candidate.is_symlink():
-                raise UnsafePathError(str(candidate), 'symlink', 'Symbolic links are not allowed in a source tree.')
-        for filename in filenames:
-            candidate = current / filename
-            if candidate.is_symlink():
-                raise UnsafePathError(str(candidate), 'symlink', 'Symbolic links are not allowed in a source tree.')
-            relative = candidate.relative_to(root).as_posix()
-            count += 1
-            if count > max_file_count:
-                raise LimitExceededError('too_many_files', f'The source tree has more than {max_file_count} files.')
-            content = _read_regular_file(candidate, relative, max_file_size)
-            total += len(content)
-            if total > max_project_size:
-                raise LimitExceededError(
-                    'project_too_large', f'The source tree exceeds the {max_project_size} byte limit.'
-                )
-            yield relative, content
+    return project_directory(project_root, storage_key) / 'staging' / token

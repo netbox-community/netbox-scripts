@@ -10,8 +10,9 @@ from utilities.testing import ChangeLoggedFilterSetTests
 class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests):
     queryset = CustomScriptProject.objects.all()
     filterset = CustomScriptProjectFilterSet
-    # storage_key is deliberately unfiltered (internal storage/runtime identity).
-    ignore_fields = ('storage_key',)
+    # storage_key is deliberately unfiltered (internal storage/runtime identity), and
+    # active_revision is written only by the storage activation service.
+    ignore_fields = ('storage_key', 'active_revision')
 
     @classmethod
     def setUpTestData(cls):
@@ -98,3 +99,8 @@ class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests)
 
     def test_storage_key_not_filterable(self):
         self.assertNotIn('storage_key', self.filterset.get_filters())
+
+    def test_active_revision_not_filterable(self):
+        filters = self.filterset.get_filters()
+        self.assertNotIn('active_revision', filters)
+        self.assertNotIn('active_revision_id', filters)

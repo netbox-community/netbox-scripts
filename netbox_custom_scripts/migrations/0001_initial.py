@@ -67,6 +67,23 @@ class Migration(migrations.Migration):
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
+        migrations.AddField(
+            model_name='customscriptproject',
+            name='active_revision',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='active_revision_for', to='netbox_custom_scripts.customscriptprojectrevision'),
+        ),
+        migrations.AddConstraint(
+            model_name='customscriptprojectrevision',
+            constraint=models.UniqueConstraint(condition=models.Q(('digest__isnull', False)), fields=('project', 'digest'), name='unique_project_digest'),
+        ),
+        migrations.AddConstraint(
+            model_name='customscriptprojectrevision',
+            constraint=models.CheckConstraint(condition=models.Q(('status', 'invalid'), ('digest__isnull', False), _connector='OR'), name='revision_requires_digest_unless_invalid'),
+        ),
+        migrations.AddConstraint(
+            model_name='customscriptprojectrevision',
+            constraint=models.UniqueConstraint(condition=models.Q(('status', 'active')), fields=('project',), name='unique_active_revision_per_project'),
+        ),
         migrations.AddConstraint(
             model_name='customscriptproject',
             constraint=models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership'),
@@ -74,9 +91,5 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='customscriptproject',
             constraint=models.UniqueConstraint(condition=models.Q(('source_type', 'data_source')), fields=('data_source', 'data_path'), name='unique_data_source_path'),
-        ),
-        migrations.AddConstraint(
-            model_name='customscriptprojectrevision',
-            constraint=models.UniqueConstraint(condition=models.Q(('digest__isnull', False)), fields=('project', 'digest'), name='unique_project_digest'),
         ),
     ]

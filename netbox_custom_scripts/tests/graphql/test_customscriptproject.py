@@ -20,6 +20,10 @@ class CustomScriptProjectGraphQLTestCase(SimpleTestCase):
             set(ActivationPolicyChoices.values()),
         )
 
+    def test_active_revision_not_exposed_on_object_type(self):
+        field_names = {field.name for field in CustomScriptProjectType.__strawberry_definition__.fields}
+        self.assertNotIn('active_revision', field_names)
+
     def test_storage_key_exposed_on_object_type(self):
         # storage_key is exposed read-only here as in REST, only filtering is withheld
         # (internal storage/runtime identity, see graphql/filters.py).

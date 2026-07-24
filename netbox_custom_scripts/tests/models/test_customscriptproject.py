@@ -2,14 +2,19 @@ import uuid
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
+from django.db.models import ProtectedError
+from django.db.utils import ConnectionDoesNotExist
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from core.models import DataSource
+from netbox_custom_scripts import constants
 from netbox_custom_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.storage.manifest import compute_digest
 
 DIGEST_A = 'a' * 64
 DIGEST_B = 'b' * 64
@@ -163,6 +168,15 @@ class CustomScriptProjectTestCase(TestCase):
         with self.assertRaises(ValidationError):
             instance.save()
 
+    def test_storage_key_immutability_accepts_an_equal_string_form(self):
+        # The persisted row reads back as a uuid.UUID while a caller may assign the equal
+        # string form. Equality is decided on the field's python type, not on repr.
+        instance = CustomScriptProject.objects.create(name='Sample Project 17', key='sample-project-17')
+        instance.storage_key = str(instance.storage_key)
+        instance.save()
+        instance.refresh_from_db()
+        self.assertEqual(instance.key, 'sample-project-17')
+
     def test_key_immutable_on_save(self):
         instance = CustomScriptProject.objects.create(name='Sample Project 14', key='sample-project-14')
         instance.key = 'sample-project-14-renamed'
@@ -176,6 +190,19 @@ class CustomScriptProjectTestCase(TestCase):
         with self.assertRaises(ValidationError) as cm:
             instance.save()
         self.assertIn('source_type', cm.exception.message_dict)
+
+    def test_immutability_guard_reads_the_alias_the_save_writes_to(self):
+        # Comparing the new value against a row fetched from a different connection compares
+        # it against a different database, so the guard follows the save rather than the
+        # router. The alias below does not exist, so the guard's own query is what fails.
+        instance = CustomScriptProject.objects.create(name='Sample Project 16', key='sample-project-16')
+        table = CustomScriptProject._meta.db_table
+        with (
+            CaptureQueriesContext(connections[DEFAULT_DB_ALIAS]) as captured,
+            self.assertRaises(ConnectionDoesNotExist),
+        ):
+            instance.save(using='schema_example')
+        self.assertEqual([entry for entry in captured.captured_queries if table in entry['sql']], [])
 
     def test_db_constraint_blocks_orm_bypass(self):
         instance = CustomScriptProject.objects.create(name='Sample Project 13', key='sample-project-13')
@@ -284,6 +311,80 @@ class CustomScriptProjectTestCase(TestCase):
         first.full_clean()
         second.full_clean()
 
+    def test_active_revision_must_belong_to_project(self):
+        owner = CustomScriptProject.objects.create(name='AR Owner', key='ar-owner')
+        other = CustomScriptProject.objects.create(name='AR Other', key='ar-other')
+        revision = CustomScriptProjectRevision.objects.create(project=owner, digest='e' * 64)
+        other.active_revision = revision
+        with self.assertRaises(ValidationError) as cm:
+            other.full_clean()
+        self.assertIn('active_revision', cm.exception.message_dict)
+
+    def test_active_revision_accepts_an_active_revision(self):
+        project = CustomScriptProject.objects.create(name='AR Own', key='ar-own')
+        project.active_revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest='f' * 64, status=RevisionStatusChoices.ACTIVE
+        )
+        project.full_clean()
+        project.save()
+        project.refresh_from_db()
+        self.assertIsNotNone(project.active_revision_id)
+
+    def test_active_revision_rejects_a_revision_that_is_not_active(self):
+        # The pointer means "this is being served", so a revision that was merely stored or
+        # that validation rejected cannot occupy it.
+        project = CustomScriptProject.objects.create(name='AR Status', key='ar-status')
+        for digest, status in (
+            ('a' * 64, RevisionStatusChoices.STAGING),
+            ('b' * 64, RevisionStatusChoices.MATERIALIZED),
+            ('c' * 64, RevisionStatusChoices.VALID),
+            ('d' * 64, RevisionStatusChoices.INVALID),
+        ):
+            with self.subTest(status=status):
+                project.active_revision = CustomScriptProjectRevision.objects.create(
+                    project=project, digest=digest, status=status
+                )
+                with self.assertRaises(ValidationError) as cm:
+                    project.full_clean()
+                self.assertIn('active_revision', cm.exception.message_dict)
+
+    def test_active_revision_for_reverse_accessor(self):
+        project = CustomScriptProject.objects.create(name='AR Reverse', key='ar-reverse')
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest='1' * 64)
+        self.assertFalse(revision.active_revision_for.exists())
+        project.active_revision = revision
+        project.save()
+        self.assertEqual(list(revision.active_revision_for.all()), [project])
+
+    def test_delete_project_with_active_revision_succeeds(self):
+        project = CustomScriptProject.objects.create(name='AR Delete', key='ar-delete')
+        # The deletion signal validates a captured manifest against its digest, so a
+        # deletable fixture must carry a pair that actually matches.
+        digest = compute_digest([])
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest=digest)
+        project.active_revision = revision
+        project.save()
+        project.delete()
+        self.assertFalse(CustomScriptProject.objects.filter(key='ar-delete').exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=digest).exists())
+
+    def test_delete_active_revision_directly_raises_protected_error(self):
+        project = CustomScriptProject.objects.create(name='AR Protect', key='ar-protect')
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest='3' * 64)
+        project.active_revision = revision
+        project.save()
+        with self.assertRaises(ProtectedError):
+            revision.delete()
+
+    def test_bulk_queryset_delete_bypasses_active_revision_clearing(self):
+        # Documents the caveat: QuerySet.delete() never calls the model's delete().
+        project = CustomScriptProject.objects.create(name='AR Bulk', key='ar-bulk')
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest='4' * 64)
+        project.active_revision = revision
+        project.save()
+        with self.assertRaises(ProtectedError), transaction.atomic():
+            CustomScriptProject.objects.filter(pk=project.pk).delete()
+
 
 class CustomScriptProjectRevisionTestCase(TestCase):
     @classmethod
@@ -313,9 +414,8 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         self.assertIsNotNone(instance.created)
 
     def test_default_status_is_staging(self):
-        instance = CustomScriptProjectRevision.objects.create(project=self.project)
+        instance = CustomScriptProjectRevision.objects.create(project=self.project, digest=DIGEST_A)
         self.assertEqual(instance.status, RevisionStatusChoices.STAGING)
-        self.assertIsNone(instance.digest)
 
     def test_revisions_are_reachable_from_the_project(self):
         instance = self.make_revision()
@@ -357,6 +457,36 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         second = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
         self.assertNotEqual(first.pk, second.pk)
         self.assertEqual(CustomScriptProjectRevision.objects.filter(digest__isnull=True).count(), 2)
+
+    def test_every_status_but_invalid_requires_a_digest(self):
+        # A digest is computed from accepted content before the row is created, so a status
+        # other than invalid always follows content that has an address, even when a caller
+        # bypasses the storage service. Only source rejection has nothing to point at.
+        requiring = [status for status in RevisionStatusChoices.values() if status != RevisionStatusChoices.INVALID]
+        self.assertEqual(len(requiring), 7)
+        for status in requiring:
+            with self.subTest(status=status), self.assertRaises(IntegrityError), transaction.atomic():
+                self.make_revision(digest=None, status=status)
+
+    def test_invalid_status_may_lack_a_digest_or_carry_one(self):
+        # Source rejection has no content address. Semantic rejection of stored content does.
+        rejected = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
+        semantic = self.make_revision(digest=DIGEST_B, status=RevisionStatusChoices.INVALID)
+        self.assertIsNone(rejected.digest)
+        self.assertEqual(semantic.digest, DIGEST_B)
+
+    def test_only_one_active_revision_per_project(self):
+        self.make_revision(digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.make_revision(digest=DIGEST_B, status=RevisionStatusChoices.ACTIVE)
+
+    def test_two_projects_may_each_have_an_active_revision(self):
+        other = CustomScriptProject.objects.create(name='Other Active', key='other-active')
+        self.make_revision(digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE)
+        sibling = CustomScriptProjectRevision.objects.create(
+            project=other, digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE
+        )
+        self.assertIsNotNone(sibling.pk)
 
     def test_project_field_immutable_on_save(self):
         instance = self.make_revision()
@@ -403,9 +533,10 @@ class CustomScriptProjectRevisionTestCase(TestCase):
 
     def test_deleting_the_project_cascades_to_its_revisions(self):
         project = CustomScriptProject.objects.create(name='Doomed Project', key='doomed-project')
-        CustomScriptProjectRevision.objects.create(project=project, digest=DIGEST_B)
+        digest = compute_digest([])
+        CustomScriptProjectRevision.objects.create(project=project, digest=digest)
         project.delete()
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=DIGEST_B).exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=digest).exists())
 
     def test_ordering_is_newest_first(self):
         older = self.make_revision(digest=DIGEST_A)
@@ -413,8 +544,32 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         CustomScriptProjectRevision.objects.filter(pk=older.pk).update(created=timezone.now() - timedelta(days=1))
         self.assertEqual(list(CustomScriptProjectRevision.objects.all()), [newer, older])
 
-    def test_activatable_helper_lists_valid_and_retired(self):
-        self.assertEqual(
-            RevisionStatusChoices.ACTIVATABLE,
-            (RevisionStatusChoices.VALID, RevisionStatusChoices.RETIRED),
+    def test_lifecycle_groupings_match_the_choice_set(self):
+        # The groupings are spelled out in constants.py so that module keeps no imports, so
+        # this is the guard that stops the two from drifting apart.
+        valid_values = set(RevisionStatusChoices.values())
+        groups = (
+            constants.ACTIVATABLE_REVISION_STATUSES,
+            constants.STORED_REVISION_STATUSES,
+            constants.RETRYABLE_REVISION_STATUSES,
         )
+        for group in groups:
+            with self.subTest(group=group):
+                self.assertEqual(set(group) - valid_values, set())
+                self.assertEqual(len(set(group)), len(group))
+
+    def test_lifecycle_groupings_are_internally_consistent(self):
+        activatable = set(constants.ACTIVATABLE_REVISION_STATUSES)
+        stored = set(constants.STORED_REVISION_STATUSES)
+        retryable = set(constants.RETRYABLE_REVISION_STATUSES)
+        # A revision cannot be both safe to re-drive and ready to serve.
+        self.assertEqual(activatable & retryable, set())
+        # Anything servable must already be on disk.
+        self.assertLessEqual(activatable, stored)
+        # A rejected revision is terminal for the storage layer, which is what stops a
+        # re-stage from clearing a validation verdict.
+        self.assertNotIn(RevisionStatusChoices.INVALID, stored | retryable)
+        self.assertNotIn(RevisionStatusChoices.MATERIALIZED, activatable)
+        # Project validation owns VALIDATING, so the storage layer must never re-drive it.
+        # Without this the validator's own transition would be reversible by a re-stage.
+        self.assertNotIn(RevisionStatusChoices.VALIDATING, stored | retryable)

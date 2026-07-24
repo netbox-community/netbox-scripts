@@ -2,7 +2,7 @@ import uuid
 
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.db import models
+from django.db import models, router, transaction
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
@@ -65,6 +65,15 @@ class CustomScriptProject(PrimaryModel):
         help_text=_(
             'Whether new revisions of this project activate automatically when valid, or require manual activation.'
         ),
+    )
+    active_revision = models.ForeignKey(
+        to='netbox_custom_scripts.CustomScriptProjectRevision',
+        verbose_name=_('active revision'),
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+        related_name='active_revision_for',
+        help_text=_('Currently active revision. Set only through the storage activation service.'),
     )
     enabled = models.BooleanField(
         verbose_name=_('enabled'),
@@ -139,8 +148,20 @@ class CustomScriptProject(PrimaryModel):
                     'This data path overlaps with project "%(name)s" (%(path)s) on the same data source.'
                 ) % {'name': conflict.name, 'path': conflict.data_path}
 
+        if self.active_revision_id:
+            # The pointer is only ever set by the activation service, so anything else
+            # reaching here is a bypass and gets the full set of checks.
+            if self.active_revision.project_id != self.pk:
+                errors['active_revision'] = _('The active revision must belong to this project.')
+            elif self.active_revision.status != RevisionStatusChoices.ACTIVE:
+                errors['active_revision'] = _('Only a revision with the active status can be the active revision.')
+            elif not self.active_revision.digest:
+                errors['active_revision'] = _('The active revision must have a content digest.')
+
         if not self._state.adding:
-            original = type(self).objects.filter(pk=self.pk).values('key', 'source_type').first()
+            original = (
+                type(self).objects.using(self._read_alias()).filter(pk=self.pk).values('key', 'source_type').first()
+            )
             if original:
                 if original['key'] != self.key:
                     errors['key'] = _('The project key cannot be changed once the project has been created.')
@@ -157,23 +178,48 @@ class CustomScriptProject(PrimaryModel):
         # storage_key is on no form or serializer (editable=False), so it is guarded
         # here only.
         if not self._state.adding:
-            original = type(self).objects.filter(pk=self.pk).values('key', 'source_type', 'storage_key').first()
+            # The persisted row is read from the alias this save writes to. Reading it from
+            # anywhere else compares the new value against a different database.
+            using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+            original = (
+                type(self).objects.using(using).filter(pk=self.pk).values('key', 'source_type', 'storage_key').first()
+            )
             if original:
                 errors = {}
                 if original['key'] != self.key:
                     errors['key'] = _('The project key cannot be changed once the project has been created.')
                 if original['source_type'] != self.source_type:
                     errors['source_type'] = _('The source type cannot be changed once the project has been created.')
-                if original['storage_key'] != self.storage_key:
+                storage_field = self._meta.get_field('storage_key')
+                if storage_field.to_python(original['storage_key']) != storage_field.to_python(self.storage_key):
                     errors['storage_key'] = _('The storage key is immutable.')
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)
 
+    def delete(self, using=None, **kwargs):
+        """Delete the project, clearing the active revision pointer so PROTECT does not fire."""
+        # PROTECT fires even when the protecting row is part of the same cascade, so the
+        # pointer must go first. QuerySet.delete() bypasses this and must clear it itself.
+        # The alias is resolved once so the transaction guards the connection that both the
+        # pointer clear and the delete itself run on. The clear is unconditional because an
+        # instance loaded before another caller activated a revision still reports none, and
+        # skipping the update on that word leaves the row protected and the delete failing.
+        using = using or router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            type(self).objects.using(using).filter(pk=self.pk).update(active_revision=None)
+            self.active_revision = None
+            return super().delete(using=using, **kwargs)
+
+    def _read_alias(self):
+        """Return the alias this instance's persisted state should be read from."""
+        return self._state.db or router.db_for_read(type(self), instance=self)
+
     def _overlapping_sibling(self):
         siblings = (
             type(self)
-            .objects.filter(
+            .objects.using(self._read_alias())
+            .filter(
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
                 data_source=self.data_source,
             )
@@ -191,11 +237,11 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
 
     A revision records what was staged, not how it is served. Its content fields are
     frozen once the row exists, so a job can be replayed against exactly the tree it
-    ran on. Only a valid revision carries a content digest, which addresses the tree
-    and deduplicates repeated uploads of identical content. An invalid staging attempt
-    is kept with a null digest so its errors and partial manifest stay inspectable,
-    and so two different broken trees that happen to share an accepted subset cannot
-    collide on one digest.
+    ran on. A digest addresses accepted source content and is set as soon as the
+    manifest is accepted, well before project validation judges the tree fit to
+    execute. A staging attempt whose content was rejected is kept with a null digest so
+    its errors and partial manifest stay inspectable, and so two different broken trees
+    that happen to share an accepted subset cannot collide on one digest.
     """
 
     project = models.ForeignKey(
@@ -214,7 +260,7 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
                 message=_('The digest must be 64 lowercase hexadecimal characters.'),
             )
         ],
-        help_text=_('Content address of the source tree. Set only once the revision is known to be valid.'),
+        help_text=_('Content address of the source tree, set once its manifest is accepted.'),
     )
     status = models.CharField(
         verbose_name=_('status'),
@@ -241,7 +287,10 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
         verbose_name=_('validation errors'),
         default=list,
         blank=True,
-        help_text=_('One record per rejected file or tripped limit, empty when the revision is valid.'),
+        help_text=_(
+            'Records from the most recent storage or validation step. An empty list does not by '
+            'itself mean the revision is valid.'
+        ),
     )
     activated = models.DateTimeField(
         verbose_name=_('activated'),
@@ -261,6 +310,18 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
                 condition=Q(digest__isnull=False),
                 name='unique_project_digest',
             ),
+            # Only a rejected staging attempt lacks a content address. Every other status
+            # follows accepted content, so the row carries the digest that addresses it, and
+            # no validator or loader can be handed a revision with nothing to read.
+            models.CheckConstraint(
+                condition=Q(status=RevisionStatusChoices.INVALID) | Q(digest__isnull=False),
+                name='revision_requires_digest_unless_invalid',
+            ),
+            models.UniqueConstraint(
+                fields=('project',),
+                condition=Q(status=RevisionStatusChoices.ACTIVE),
+                name='unique_active_revision_per_project',
+            ),
         ]
 
     def __str__(self):
@@ -273,8 +334,11 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
         # No form or serializer exposes these fields, so save() is where the invariant
         # lives. QuerySet.update() bypasses it, as with the project's data_path.
         if not self._state.adding:
+            # Read the persisted row from the alias this save writes to, not from whichever
+            # one a router would pick for a read.
+            using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
             frozen = ('project_id', 'digest', 'manifest', 'file_count', 'total_size')
-            original = type(self).objects.filter(pk=self.pk).values(*frozen).first()
+            original = type(self).objects.using(using).filter(pk=self.pk).values(*frozen).first()
             if original:
                 errors = {}
                 if original['project_id'] != self.project_id:

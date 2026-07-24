@@ -96,3 +96,10 @@ class CustomScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         project.refresh_from_db()
         self.assertEqual(project.data_path, 'automation/netbox')
+
+    def test_active_revision_not_in_response(self):
+        self.add_permissions('netbox_custom_scripts.view_customscriptproject')
+        project = CustomScriptProject.objects.create(name='API Project 6', key='api-project-6')
+        response = self.client.get(self._get_detail_url(project), **self.header)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn('active_revision', response.data)

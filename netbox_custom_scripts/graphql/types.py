@@ -14,7 +14,8 @@ if TYPE_CHECKING:
 
 @strawberry_django.type(
     CustomScriptProject,
-    fields='__all__',
+    # Not fields='__all__': strawberry resolves the two in an if/elif, ignoring exclude.
+    exclude=('active_revision',),
     filters=CustomScriptProjectFilter,
     pagination=True,
 )

@@ -21,7 +21,7 @@ class CustomScriptProjectGraphQLTestCase(SimpleTestCase):
         )
 
     def test_storage_key_exposed_on_object_type(self):
-        # storage_key is exposed read-only here as in REST; only filtering is withheld
+        # storage_key is exposed read-only here as in REST, only filtering is withheld
         # (internal storage/runtime identity, see graphql/filters.py).
         field_names = {field.name for field in CustomScriptProjectType.__strawberry_definition__.fields}
         self.assertIn('storage_key', field_names)

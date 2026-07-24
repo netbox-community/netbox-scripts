@@ -13,6 +13,8 @@ __all__ = ('CustomScriptProjectFilterForm',)
 
 
 class CustomScriptProjectFilterForm(PrimaryModelFilterSetForm):
+    """Filter form for the Custom Script Project list view."""
+
     model = CustomScriptProject
     name = forms.CharField(
         required=False,

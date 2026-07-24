@@ -23,6 +23,8 @@ __all__ = ('CustomScriptProjectFilter',)
 # identity, not a public lookup key.
 @strawberry_django.filter_type(CustomScriptProject, lookups=True)
 class CustomScriptProjectFilter(PrimaryModelFilter):
+    """GraphQL filter for the Custom Script Project model."""
+
     name: StrFilterLookup[str] | None = strawberry_django.filter_field()
     key: StrFilterLookup[str] | None = strawberry_django.filter_field()
     source_type: (

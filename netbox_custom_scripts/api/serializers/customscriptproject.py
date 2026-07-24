@@ -6,6 +6,8 @@ from ...validators import normalize_data_path
 
 
 class CustomScriptProjectSerializer(PrimaryModelSerializer):
+    """Serializer for the Custom Script Project model."""
+
     data_source = DataSourceSerializer(
         nested=True,
         required=False,
@@ -14,6 +16,7 @@ class CustomScriptProjectSerializer(PrimaryModelSerializer):
     )
 
     def validate_data_path(self, value):
+        """Return the data path in canonical form so the persisted value is never raw."""
         # Canonicalize here as well: model clean() normalizes only its instance copy,
         # while DRF persists validated_data, which would otherwise keep the raw spelling.
         return normalize_data_path(value)

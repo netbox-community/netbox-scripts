@@ -5,6 +5,8 @@ from .models.customscriptproject import CustomScriptProject
 
 @register_search
 class CustomScriptProjectIndex(SearchIndex):
+    """Global search index for the Custom Script Project model."""
+
     model = CustomScriptProject
     fields = (
         ('name', 100),

@@ -12,6 +12,13 @@ from ..validators import data_paths_overlap, normalize_data_path
 
 
 class CustomScriptProject(PrimaryModel):
+    """
+    One Custom Script Project: a single script source tree and one future Python package.
+
+    A project owns either uploaded content or a directory of a data source, never both.
+    The key and source type are frozen after creation, and the storage key never changes.
+    """
+
     name = models.CharField(
         verbose_name=_('name'),
         max_length=100,
@@ -97,6 +104,7 @@ class CustomScriptProject(PrimaryModel):
         return self.name
 
     def clean(self):
+        """Validate source ownership, canonicalize the data path, and freeze identity fields."""
         super().clean()
         errors = {}
 
@@ -142,8 +150,9 @@ class CustomScriptProject(PrimaryModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        """Persist the project, refusing any change to an immutable identity field."""
         # clean() gives key and source_type friendly per-field errors on the form and
-        # REST paths; this guard is the backstop for ORM writes that skip validation.
+        # REST paths. This guard is the backstop for ORM writes that skip validation.
         # storage_key is on no form or serializer (editable=False), so it is guarded
         # here only.
         if not self._state.adding:

@@ -11,6 +11,8 @@ __all__ = ('CustomScriptProjectBulkImportForm',)
 
 
 class CustomScriptProjectBulkImportForm(PrimaryModelImportForm):
+    """Bulk import form for Custom Script Projects."""
+
     source_type = CSVChoiceField(
         choices=ProjectSourceTypeChoices,
         required=False,

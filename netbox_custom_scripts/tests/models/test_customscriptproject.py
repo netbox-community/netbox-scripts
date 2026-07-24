@@ -58,7 +58,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('data_source', cm.exception.message_dict)
 
     def test_upload_project_rejects_data_path(self):
-        # The edit form no longer offers data_path on uploads; guard the clean() branch here.
+        # The edit form no longer offers data_path on uploads, so guard clean() here.
         instance = CustomScriptProject(
             name='Sample Project 16',
             key='sample-project-16',

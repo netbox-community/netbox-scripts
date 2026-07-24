@@ -23,13 +23,14 @@ def data_paths_overlap(path_a, path_b):
 
 def normalize_data_path(value):
     """
-    Return the canonical form of a project data path: a POSIX-style relative
-    directory path with single separators and no leading './' or trailing '/'.
-    Empty input canonicalizes to '' (reserved for upload projects); the model
-    decides whether that is permitted. Raises ValidationError for absolute
-    paths, traversal segments, backslashes, and control characters.
-    posixpath.normpath is deliberately not used here: it resolves '..'
-    segments instead of rejecting them.
+    Return the canonical form of a project data path.
+
+    The canonical form is a POSIX-style relative directory path with single separators and
+    no leading './' or trailing '/'. Empty input canonicalizes to '', which is reserved for
+    upload projects, and the model decides whether that is permitted. Raises
+    ValidationError for absolute paths, traversal segments, backslashes, and control
+    characters. posixpath.normpath is deliberately not used here: it resolves '..' segments
+    instead of rejecting them.
     """
     value = (value or '').strip()
     if not value:

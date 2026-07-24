@@ -18,6 +18,8 @@ from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel
 
 @register_model_view(CustomScriptProject, 'list', path='', detail=False)
 class CustomScriptProjectListView(generic.ObjectListView):
+    """List view for Custom Script Projects."""
+
     queryset = CustomScriptProject.objects.all()
     table = CustomScriptProjectTable
     filterset = CustomScriptProjectFilterSet
@@ -26,6 +28,8 @@ class CustomScriptProjectListView(generic.ObjectListView):
 
 @register_model_view(CustomScriptProject)
 class CustomScriptProjectView(generic.ObjectView):
+    """Detail view for a single Custom Script Project."""
+
     queryset = CustomScriptProject.objects.all()
     layout = layout.SimpleLayout(
         left_panels=[
@@ -43,17 +47,23 @@ class CustomScriptProjectView(generic.ObjectView):
 @register_model_view(CustomScriptProject, 'add', detail=False)
 @register_model_view(CustomScriptProject, 'edit')
 class CustomScriptProjectEditView(generic.ObjectEditView):
+    """Create and edit view for a Custom Script Project."""
+
     queryset = CustomScriptProject.objects.all()
     form = CustomScriptProjectEditForm
 
 
 @register_model_view(CustomScriptProject, 'delete')
 class CustomScriptProjectDeleteView(generic.ObjectDeleteView):
+    """Delete view for a single Custom Script Project."""
+
     queryset = CustomScriptProject.objects.all()
 
 
 @register_model_view(CustomScriptProject, 'bulk_edit', path='edit', detail=False)
 class CustomScriptProjectBulkEditView(generic.BulkEditView):
+    """Bulk edit view for Custom Script Projects."""
+
     queryset = CustomScriptProject.objects.all()
     filterset = CustomScriptProjectFilterSet
     table = CustomScriptProjectTable
@@ -62,6 +72,8 @@ class CustomScriptProjectBulkEditView(generic.BulkEditView):
 
 @register_model_view(CustomScriptProject, 'bulk_delete', path='delete', detail=False)
 class CustomScriptProjectBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete view for Custom Script Projects."""
+
     queryset = CustomScriptProject.objects.all()
     filterset = CustomScriptProjectFilterSet
     table = CustomScriptProjectTable
@@ -69,5 +81,7 @@ class CustomScriptProjectBulkDeleteView(generic.BulkDeleteView):
 
 @register_model_view(CustomScriptProject, 'bulk_import', path='import', detail=False)
 class CustomScriptProjectBulkImportView(generic.BulkImportView):
+    """Bulk import view for Custom Script Projects."""
+
     queryset = CustomScriptProject.objects.all()
     model_form = CustomScriptProjectBulkImportForm

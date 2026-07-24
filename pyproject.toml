@@ -182,6 +182,7 @@ extend-select = [
     "E501",  # pycodestyle: line length for Python code.
     "W",     # pycodestyle warnings: tabs, invalid escapes, and other warning-level style issues.
     "W505",  # pycodestyle: documentation/comment line length; enabled by `lint.pycodestyle.max-doc-length`.
+    "D",     # pydocstyle: docstring style and coverage, per `lint.pydocstyle.convention`.
     "I",     # isort: keep imports grouped and sorted consistently.
     "UP",    # pyupgrade: use modern Python syntax supported by `target-version`.
     "C4",    # flake8-comprehensions: remove unnecessary or misleading comprehension patterns.
@@ -280,6 +281,11 @@ extend-select = [
 # If you add a rule to `ignore`, document the rationale inline below AND in the
 # plugin's developer-facing docs so reviewers can see why the exception was granted.
 ignore = [
+    "D100",    # pydocstyle: missing docstring in public module. Module docstrings are added where they earn their keep.
+    "D104",    # pydocstyle: missing docstring in public package. Package marker files carry no prose.
+    "D105",    # pydocstyle: missing docstring in magic method. Dunder semantics are already known.
+    "D106",    # pydocstyle: missing docstring in nested class. Django Meta classes are self-describing.
+    "D107",    # pydocstyle: missing docstring in __init__. The class docstring covers construction.
     "F403",    # pyflakes: `from ... import *` used; unable to detect undefined names.
     "F405",    # pyflakes: name may be undefined or defined from star imports.
     "RET504",  # flake8-return: allow assigning to a named variable before returning for readability.
@@ -289,11 +295,6 @@ ignore = [
 ]
 
 preview = true
-
-[tool.ruff.lint.pycodestyle]
-# Required for W505. Keep documentation/comment line length aligned with the overall
-# line length unless the plugin's style guide adopts a separate docstring limit.
-max-doc-length = 120
 
 [tool.ruff.lint.isort]
 known-first-party = [
@@ -319,6 +320,15 @@ known-first-party = [
 "**/migrations/*.py" = ["D", "E501", "I"]  # Django-generated migrations: no docstring coverage; long generated values; emitted in non-isort-canonical order.
 "**/tests/*.py" = ["D"]  # Tests do not require docstring coverage by default.
 "**/__init__.py" = ["D104"]  # Package marker files do not require public package docstrings.
+
+[tool.ruff.lint.pycodestyle]
+# Required for W505. Keep documentation/comment line length aligned with the overall
+# line length unless the plugin's style guide adopts a separate docstring limit.
+max-doc-length = 120
+
+[tool.ruff.lint.pydocstyle]
+# One of "google", "numpy", "pep257". Matches the other NetBox Labs plugins.
+convention = "pep257"
 
 [tool.ruff.format]
 # Use single quotes for strings.

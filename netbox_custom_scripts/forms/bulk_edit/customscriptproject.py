@@ -14,6 +14,8 @@ __all__ = ('CustomScriptProjectBulkEditForm',)
 
 
 class CustomScriptProjectBulkEditForm(PrimaryModelBulkEditForm):
+    """Bulk edit form for Custom Script Projects."""
+
     enabled = forms.NullBooleanField(
         required=False,
         label=_('Enabled'),

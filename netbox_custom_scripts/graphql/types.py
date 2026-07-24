@@ -19,8 +19,11 @@ if TYPE_CHECKING:
     pagination=True,
 )
 class CustomScriptProjectType(PrimaryObjectType):
+    """GraphQL object type for the Custom Script Project model."""
+
     data_source: Annotated['DataSourceType', strawberry.lazy('core.graphql.types')] | None
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
+        """Return the base queryset with the data source fetched in the same query."""
         return super().get_queryset(queryset, info, **kwargs).select_related('data_source')

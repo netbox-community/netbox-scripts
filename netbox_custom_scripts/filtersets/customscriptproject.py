@@ -12,6 +12,8 @@ from ..models import CustomScriptProject
 
 @register_filterset
 class CustomScriptProjectFilterSet(PrimaryModelFilterSet):
+    """Filter set for the Custom Script Project model."""
+
     source_type = django_filters.MultipleChoiceFilter(
         choices=ProjectSourceTypeChoices,
         label=_('Source type'),
@@ -35,7 +37,7 @@ class CustomScriptProjectFilterSet(PrimaryModelFilterSet):
     class Meta:
         model = CustomScriptProject
         # storage_key is internal storage/runtime identity, not a lookup key (that is
-        # `key`), so neither REST nor GraphQL filters on it; it stays exposed read-only.
+        # `key`), so neither REST nor GraphQL filters on it. It stays exposed read-only.
         fields = (
             'id',
             'name',
@@ -48,6 +50,7 @@ class CustomScriptProjectFilterSet(PrimaryModelFilterSet):
         )
 
     def search(self, queryset, name, value):
+        """Filter the queryset by the free-text search term."""
         return queryset.filter(
             Q(name__icontains=value)
             | Q(key__icontains=value)

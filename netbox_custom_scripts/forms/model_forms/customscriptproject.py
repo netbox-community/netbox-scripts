@@ -15,6 +15,8 @@ __all__ = ('CustomScriptProjectEditForm',)
 
 
 class CustomScriptProjectEditForm(PrimaryModelForm):
+    """Create and edit form for the Custom Script Project model."""
+
     key = SlugField(
         label=_('Key'),
         max_length=100,
@@ -28,14 +30,14 @@ class CustomScriptProjectEditForm(PrimaryModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # key and source_type are frozen after creation (model clean() enforces it);
-        # disable the widgets to match. Swap key off SlugWidget as well, so no
+        # key and source_type are frozen after creation (model clean() enforces it), so
+        # the widgets are disabled to match. Swap key off SlugWidget as well, so no
         # regenerate button renders next to a value that can no longer change.
         if self.instance and self.instance.pk:
             self.fields['key'].disabled = True
             self.fields['key'].widget = forms.TextInput()
             self.fields['source_type'].disabled = True
-        # data_source and data_path apply only to data source-backed projects; the
+        # data_source and data_path apply only to data source-backed projects. The
         # htmx-refreshed selection decides, and model clean() still enforces ownership.
         if get_field_value(self, 'source_type') != ProjectSourceTypeChoices.DATA_SOURCE:
             del self.fields['data_source']

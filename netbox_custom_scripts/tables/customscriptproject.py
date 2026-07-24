@@ -6,6 +6,8 @@ from ..models import CustomScriptProject
 
 
 class CustomScriptProjectTable(PrimaryModelTable):
+    """Table for the Custom Script Project list view."""
+
     name = tables.Column(
         linkify=True,
     )

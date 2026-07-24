@@ -1,6 +1,7 @@
 import os
 import pathlib
 import tempfile
+import uuid
 from unittest import mock
 
 from django.test import TestCase
@@ -117,3 +118,97 @@ class DirectoryWalkTestCase(TestCase):
             with self.assertRaises(LimitExceededError) as ctx:
                 list(store.iter_directory_files(root, limits(max_project_size=4)))
             self.assertEqual(ctx.exception.code, 'project_too_large')
+
+
+STORAGE_KEY = uuid.UUID('11111111-2222-3333-4444-555555555555')
+DIGEST = 'a' * 64
+OTHER_DIGEST = 'b' * 64
+
+
+class RevisionStoreTestCase(TestCase):
+    def test_write_staged_revision_creates_revision_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'aaa'})
+            project = pathlib.Path(tmp) / str(STORAGE_KEY)
+            self.assertEqual(destination, project / 'revisions' / DIGEST)
+            self.assertEqual((destination / 'a.py').read_bytes(), b'aaa')
+            self.assertEqual(list((project / 'staging').iterdir()), [])
+
+    def test_write_staged_revision_writes_nested_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            files = {'pkg/__init__.py': b'', 'pkg/deep/mod.py': b'body'}
+            destination = store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, files)
+            self.assertEqual((destination / 'pkg' / '__init__.py').read_bytes(), b'')
+            self.assertEqual((destination / 'pkg' / 'deep' / 'mod.py').read_bytes(), b'body')
+
+    def test_write_staged_revision_canonicalizes_source_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'./pkg//mod.py': b'body'})
+            self.assertEqual((destination / 'pkg' / 'mod.py').read_bytes(), b'body')
+
+    def test_write_staged_revision_rejects_duplicate_canonical_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            files = {'mod.py': b'first', './mod.py': b'second'}
+            with self.assertRaises(UnsafePathError) as ctx:
+                store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, files)
+            self.assertEqual(ctx.exception.code, 'duplicate_path')
+            self.assertFalse((pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions' / DIGEST).exists())
+
+    def test_write_staged_revision_is_idempotent_when_destination_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'first'})
+            again = store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'second'})
+            self.assertEqual(again, destination)
+            self.assertEqual((destination / 'a.py').read_bytes(), b'first')
+
+    def test_write_staged_revision_leaves_no_digest_directory_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(store.Path, 'write_bytes', side_effect=OSError('no space left on device')),
+                self.assertRaises(OSError),
+            ):
+                store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'aaa'})
+            project = pathlib.Path(tmp) / str(STORAGE_KEY)
+            self.assertFalse((project / 'revisions' / DIGEST).exists())
+            self.assertEqual(list((project / 'staging').iterdir()), [])
+
+    def test_write_staged_revision_rejects_a_traversal_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(UnsafePathError) as ctx:
+                store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'../escape.py': b'x'})
+            self.assertEqual(ctx.exception.code, 'path_traversal')
+            self.assertFalse((pathlib.Path(tmp) / 'escape.py').exists())
+
+    def test_write_staged_revision_rejects_a_path_escaping_the_revision_root(self):
+        # normalize_source_path already rejects traversal, so the resolved-path gate is only
+        # reachable with that front check bypassed.
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch('netbox_custom_scripts.storage.store.normalize_source_path', return_value='../escape.py'),
+            self.assertRaises(UnsafePathError) as ctx,
+        ):
+            store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'x'})
+        self.assertEqual(ctx.exception.code, 'escapes_root')
+
+    def test_delete_revision_directory_removes_only_that_revision(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'a'})
+            store.write_staged_revision(tmp, STORAGE_KEY, OTHER_DIGEST, {'b.py': b'b'})
+            store.delete_revision_directory(tmp, STORAGE_KEY, DIGEST)
+            revisions = pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions'
+            self.assertEqual([entry.name for entry in revisions.iterdir()], [OTHER_DIGEST])
+
+    def test_delete_revision_directory_tolerates_missing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store.delete_revision_directory(tmp, STORAGE_KEY, DIGEST)
+
+    def test_delete_project_directory_removes_all_revisions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store.write_staged_revision(tmp, STORAGE_KEY, DIGEST, {'a.py': b'a'})
+            store.write_staged_revision(tmp, STORAGE_KEY, OTHER_DIGEST, {'b.py': b'b'})
+            store.delete_project_directory(tmp, STORAGE_KEY)
+            self.assertFalse((pathlib.Path(tmp) / str(STORAGE_KEY)).exists())
+
+    def test_delete_project_directory_tolerates_missing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store.delete_project_directory(tmp, STORAGE_KEY)

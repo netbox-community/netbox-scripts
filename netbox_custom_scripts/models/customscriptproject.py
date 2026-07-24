@@ -1,13 +1,14 @@
 import uuid
 
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
-from netbox.models import PrimaryModel
+from netbox.models import ChangeLoggedModel, PrimaryModel
 
-from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
+from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from ..validators import data_paths_overlap, normalize_data_path
 
 
@@ -182,3 +183,110 @@ class CustomScriptProject(PrimaryModel):
             if data_paths_overlap(self.data_path, other.data_path):
                 return other
         return None
+
+
+class CustomScriptProjectRevision(ChangeLoggedModel):
+    """
+    One immutable snapshot of a Custom Script Project's complete source tree.
+
+    A revision records what was staged, not how it is served. Its content fields are
+    frozen once the row exists, so a job can be replayed against exactly the tree it
+    ran on. Only a valid revision carries a content digest, which addresses the tree
+    and deduplicates repeated uploads of identical content. An invalid staging attempt
+    is kept with a null digest so its errors and partial manifest stay inspectable,
+    and so two different broken trees that happen to share an accepted subset cannot
+    collide on one digest.
+    """
+
+    project = models.ForeignKey(
+        to='netbox_custom_scripts.CustomScriptProject',
+        on_delete=models.CASCADE,
+        related_name='revisions',
+    )
+    digest = models.CharField(
+        verbose_name=_('digest'),
+        max_length=64,
+        blank=True,
+        null=True,
+        validators=[
+            RegexValidator(
+                regex=r'^[0-9a-f]{64}$',
+                message=_('The digest must be 64 lowercase hexadecimal characters.'),
+            )
+        ],
+        help_text=_('Content address of the source tree. Set only once the revision is known to be valid.'),
+    )
+    status = models.CharField(
+        verbose_name=_('status'),
+        max_length=50,
+        choices=RevisionStatusChoices,
+        default=RevisionStatusChoices.STAGING,
+    )
+    manifest = models.JSONField(
+        verbose_name=_('manifest'),
+        default=list,
+        blank=True,
+        help_text=_('Sorted list of accepted source files, each with its path, size, and checksum.'),
+    )
+    file_count = models.PositiveIntegerField(
+        verbose_name=_('file count'),
+        default=0,
+    )
+    total_size = models.PositiveBigIntegerField(
+        verbose_name=_('total size'),
+        default=0,
+        help_text=_('Combined size in bytes of every accepted source file.'),
+    )
+    validation_errors = models.JSONField(
+        verbose_name=_('validation errors'),
+        default=list,
+        blank=True,
+        help_text=_('One record per rejected file or tripped limit, empty when the revision is valid.'),
+    )
+    activated = models.DateTimeField(
+        verbose_name=_('activated'),
+        blank=True,
+        null=True,
+    )
+
+    class Meta:
+        app_label = 'netbox_custom_scripts'
+        ordering = ('-created',)
+        verbose_name = _('custom script project revision')
+        verbose_name_plural = _('custom script project revisions')
+        constraints = [
+            # Partial, so invalid revisions (digest NULL) coexist while valid content dedupes.
+            models.UniqueConstraint(
+                fields=('project', 'digest'),
+                condition=Q(digest__isnull=False),
+                name='unique_project_digest',
+            ),
+        ]
+
+    def __str__(self):
+        if self.digest:
+            return f'{self.project} @ {self.digest[:12]}'
+        return f'{self.project} @ {self.status}'
+
+    def save(self, *args, **kwargs):
+        """Persist the revision, refusing any change to a content field after creation."""
+        # No form or serializer exposes these fields, so save() is where the invariant
+        # lives. QuerySet.update() bypasses it, as with the project's data_path.
+        if not self._state.adding:
+            frozen = ('project_id', 'digest', 'manifest', 'file_count', 'total_size')
+            original = type(self).objects.filter(pk=self.pk).values(*frozen).first()
+            if original:
+                errors = {}
+                if original['project_id'] != self.project_id:
+                    errors['project'] = _('The project cannot be changed once the revision has been created.')
+                if original['digest'] != self.digest:
+                    errors['digest'] = _('The digest cannot be changed once the revision has been created.')
+                if original['manifest'] != self.manifest:
+                    errors['manifest'] = _('The manifest cannot be changed once the revision has been created.')
+                if original['file_count'] != self.file_count:
+                    errors['file_count'] = _('The file count cannot be changed once the revision has been created.')
+                if original['total_size'] != self.total_size:
+                    errors['total_size'] = _('The total size cannot be changed once the revision has been created.')
+                if errors:
+                    raise ValidationError(errors)
+        super().save(*args, **kwargs)

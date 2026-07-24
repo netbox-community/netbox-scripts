@@ -1,3 +1,6 @@
-from .customscriptproject import CustomScriptProject
+from .customscriptproject import CustomScriptProject, CustomScriptProjectRevision
 
-__all__ = ('CustomScriptProject',)
+__all__ = (
+    'CustomScriptProject',
+    'CustomScriptProjectRevision',
+)

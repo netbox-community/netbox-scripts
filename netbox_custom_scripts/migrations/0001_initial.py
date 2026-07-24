@@ -1,3 +1,4 @@
+import django.core.validators
 import django.db.models.deletion
 import netbox.models.deletion
 import taggit.managers
@@ -41,8 +42,41 @@ class Migration(migrations.Migration):
                 'verbose_name': 'custom script project',
                 'verbose_name_plural': 'custom script projects',
                 'ordering': ('name',),
-                'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership'), models.UniqueConstraint(condition=models.Q(('source_type', 'data_source')), fields=('data_source', 'data_path'), name='unique_data_source_path')],
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
+        ),
+        migrations.CreateModel(
+            name='CustomScriptProjectRevision',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                ('created', models.DateTimeField(auto_now_add=True, null=True)),
+                ('last_updated', models.DateTimeField(auto_now=True, null=True)),
+                ('digest', models.CharField(blank=True, max_length=64, null=True, validators=[django.core.validators.RegexValidator(message='The digest must be 64 lowercase hexadecimal characters.', regex='^[0-9a-f]{64}$')])),
+                ('status', models.CharField(default='staging', max_length=50)),
+                ('manifest', models.JSONField(blank=True, default=list)),
+                ('file_count', models.PositiveIntegerField(default=0)),
+                ('total_size', models.PositiveBigIntegerField(default=0)),
+                ('validation_errors', models.JSONField(blank=True, default=list)),
+                ('activated', models.DateTimeField(blank=True, null=True)),
+                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='revisions', to='netbox_custom_scripts.customscriptproject')),
+            ],
+            options={
+                'verbose_name': 'custom script project revision',
+                'verbose_name_plural': 'custom script project revisions',
+                'ordering': ('-created',),
+            },
+            bases=(netbox.models.deletion.DeleteMixin, models.Model),
+        ),
+        migrations.AddConstraint(
+            model_name='customscriptproject',
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership'),
+        ),
+        migrations.AddConstraint(
+            model_name='customscriptproject',
+            constraint=models.UniqueConstraint(condition=models.Q(('source_type', 'data_source')), fields=('data_source', 'data_path'), name='unique_data_source_path'),
+        ),
+        migrations.AddConstraint(
+            model_name='customscriptprojectrevision',
+            constraint=models.UniqueConstraint(condition=models.Q(('digest__isnull', False)), fields=('project', 'digest'), name='unique_project_digest'),
         ),
     ]

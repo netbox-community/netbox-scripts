@@ -1,13 +1,19 @@
 import uuid
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import DataSource
-from netbox_custom_scripts.choices import ProjectSourceTypeChoices
-from netbox_custom_scripts.models import CustomScriptProject
+from netbox_custom_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+
+DIGEST_A = 'a' * 64
+DIGEST_B = 'b' * 64
+MANIFEST_A = [{'path': 'hello.py', 'size': 3, 'sha256': 'c' * 64}]
 
 
 class CustomScriptProjectTestCase(TestCase):
@@ -277,3 +283,138 @@ class CustomScriptProjectTestCase(TestCase):
         second = CustomScriptProject.objects.create(name='Q15 Upload B', key='q15-upload-b')
         first.full_clean()
         second.full_clean()
+
+
+class CustomScriptProjectRevisionTestCase(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = CustomScriptProject.objects.create(name='Revision Project', key='revision-project')
+
+    def make_revision(self, **overrides):
+        values = {
+            'project': self.project,
+            'digest': DIGEST_A,
+            'status': RevisionStatusChoices.VALID,
+            'manifest': MANIFEST_A,
+            'file_count': 1,
+            'total_size': 3,
+        }
+        values.update(overrides)
+        return CustomScriptProjectRevision.objects.create(**values)
+
+    def test_create_revision(self):
+        instance = self.make_revision()
+        self.assertIsNotNone(instance.pk)
+        self.assertEqual(instance.project, self.project)
+        self.assertEqual(instance.digest, DIGEST_A)
+        self.assertEqual(instance.manifest, MANIFEST_A)
+        self.assertEqual(instance.validation_errors, [])
+        self.assertIsNone(instance.activated)
+        self.assertIsNotNone(instance.created)
+
+    def test_default_status_is_staging(self):
+        instance = CustomScriptProjectRevision.objects.create(project=self.project)
+        self.assertEqual(instance.status, RevisionStatusChoices.STAGING)
+        self.assertIsNone(instance.digest)
+
+    def test_revisions_are_reachable_from_the_project(self):
+        instance = self.make_revision()
+        self.assertEqual(list(self.project.revisions.all()), [instance])
+
+    def test_str(self):
+        instance = self.make_revision()
+        self.assertEqual(str(instance), f'{self.project} @ {DIGEST_A[:12]}')
+
+    def test_str_tolerates_null_digest(self):
+        instance = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
+        self.assertEqual(str(instance), f'{self.project} @ invalid')
+
+    def test_digest_field_validates_hex_format(self):
+        instance = CustomScriptProjectRevision(project=self.project, digest='NOT-A-DIGEST')
+        with self.assertRaises(ValidationError) as cm:
+            instance.full_clean()
+        self.assertIn('digest', cm.exception.message_dict)
+
+    def test_digest_field_rejects_uppercase_hex(self):
+        instance = CustomScriptProjectRevision(project=self.project, digest='A' * 64)
+        with self.assertRaises(ValidationError) as cm:
+            instance.full_clean()
+        self.assertIn('digest', cm.exception.message_dict)
+
+    def test_unique_project_digest_constraint(self):
+        self.make_revision()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.make_revision()
+
+    def test_same_digest_allowed_on_a_different_project(self):
+        other = CustomScriptProject.objects.create(name='Other Project', key='other-project')
+        self.make_revision()
+        instance = CustomScriptProjectRevision.objects.create(project=other, digest=DIGEST_A)
+        self.assertIsNotNone(instance.pk)
+
+    def test_multiple_invalid_revisions_allowed_with_null_digest(self):
+        first = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
+        second = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(CustomScriptProjectRevision.objects.filter(digest__isnull=True).count(), 2)
+
+    def test_project_field_immutable_on_save(self):
+        instance = self.make_revision()
+        instance.project = CustomScriptProject.objects.create(name='Moved To', key='moved-to')
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('project', cm.exception.message_dict)
+
+    def test_digest_field_immutable_on_save(self):
+        instance = self.make_revision()
+        instance.digest = DIGEST_B
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('digest', cm.exception.message_dict)
+
+    def test_manifest_field_immutable_on_save(self):
+        instance = self.make_revision()
+        instance.manifest = [{'path': 'other.py', 'size': 1, 'sha256': 'd' * 64}]
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('manifest', cm.exception.message_dict)
+
+    def test_file_count_and_total_size_immutable_on_save(self):
+        instance = self.make_revision()
+        instance.file_count = 99
+        instance.total_size = 12345
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('file_count', cm.exception.message_dict)
+        self.assertIn('total_size', cm.exception.message_dict)
+
+    def test_status_and_validation_errors_and_activated_remain_mutable(self):
+        instance = self.make_revision()
+        moment = timezone.now()
+        instance.status = RevisionStatusChoices.ACTIVE
+        instance.validation_errors = [{'path': None, 'code': 'storage_write_failed', 'message': 'disk full'}]
+        instance.activated = moment
+        instance.save()
+
+        instance.refresh_from_db()
+        self.assertEqual(instance.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(instance.validation_errors[0]['code'], 'storage_write_failed')
+        self.assertEqual(instance.activated, moment)
+
+    def test_deleting_the_project_cascades_to_its_revisions(self):
+        project = CustomScriptProject.objects.create(name='Doomed Project', key='doomed-project')
+        CustomScriptProjectRevision.objects.create(project=project, digest=DIGEST_B)
+        project.delete()
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=DIGEST_B).exists())
+
+    def test_ordering_is_newest_first(self):
+        older = self.make_revision(digest=DIGEST_A)
+        newer = self.make_revision(digest=DIGEST_B)
+        CustomScriptProjectRevision.objects.filter(pk=older.pk).update(created=timezone.now() - timedelta(days=1))
+        self.assertEqual(list(CustomScriptProjectRevision.objects.all()), [newer, older])
+
+    def test_activatable_helper_lists_valid_and_retired(self):
+        self.assertEqual(
+            RevisionStatusChoices.ACTIVATABLE,
+            (RevisionStatusChoices.VALID, RevisionStatusChoices.RETIRED),
+        )

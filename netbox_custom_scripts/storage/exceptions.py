@@ -1,4 +1,11 @@
-__all__ = ('LimitExceededError', 'StorageConfigurationError', 'StorageError', 'UnsafePathError')
+__all__ = (
+    'ActivationError',
+    'LimitExceededError',
+    'RevisionCorruptError',
+    'StorageConfigurationError',
+    'StorageError',
+    'UnsafePathError',
+)
 
 
 class StorageError(Exception):
@@ -36,3 +43,20 @@ class LimitExceededError(StorageError):
         super().__init__(message)
         self.code = code
         self.path = path
+
+
+class ActivationError(StorageError):
+    """Raised when a revision cannot become a project's active revision."""
+
+
+class RevisionCorruptError(StorageError):
+    """
+    Raised when a stored revision tree does not match its manifest.
+
+    The reasons attribute lists every mismatch found, so an operator sees the whole picture
+    of a damaged tree rather than only the first problem.
+    """
+
+    def __init__(self, message, reasons=None):
+        super().__init__(message)
+        self.reasons = tuple(reasons or ())

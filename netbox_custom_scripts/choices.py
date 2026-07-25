@@ -37,9 +37,13 @@ class RevisionStatusChoices(ChoiceSet):
     """
     Lifecycle states of one Custom Script Project Revision.
 
-    A revision is staged, validated, and then either activated or found invalid. Only
-    the states in ACTIVATABLE may be promoted to active, so a revision that is still
-    being written or that failed validation can never be served.
+    Storing a source tree and judging it fit to execute are separate steps. The storage
+    layer takes a revision as far as MATERIALIZED, meaning the tree is stored and matches
+    its manifest, and STAGING covers its whole write window. VALIDATING, VALID, and INVALID
+    belong to project validation, which checks imports, entrypoints, and Script discovery.
+
+    The groupings the services branch on live in constants.py, since a ChoiceSet carries
+    choices and nothing else.
     """
 
     STAGING = 'staging'
@@ -61,5 +65,3 @@ class RevisionStatusChoices(ChoiceSet):
         (ACTIVE, _('Active'), 'teal'),
         (RETIRED, _('Retired'), 'gray'),
     )
-
-    ACTIVATABLE = (VALID, RETIRED)

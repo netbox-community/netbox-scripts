@@ -17,6 +17,8 @@ logging, global search, REST, and GraphQL.
 | Storage key | Immutable internal storage and runtime identity (UUID), not a public identifier. | [Custom Script Project](models/customscriptproject.md) |
 | Source type | Where project content comes from: `upload` or `data_source`, never mixed. | [Custom Script Project](models/customscriptproject.md) |
 | Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Custom Script Project](models/customscriptproject.md) |
+| Project revision | One immutable snapshot of a project's complete source tree, addressed by a content digest. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
+| Active revision | The single revision of a project that is currently active. Activating another retires it. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
 
 ## Supported workflows
 
@@ -34,10 +36,11 @@ follow-up releases:
 
 | Area | Status |
 |---|---|
-| Project revisions and modules | Planned |
+| Project modules | Planned |
 | Script discovery | Planned |
 | Running authored scripts | Planned |
-| Source storage and uploads | Planned |
+| Source uploads | Planned |
+| Revision UI and API surfaces | Planned |
 | Data Source synchronization | Planned |
 | Package loading, execution, and scheduling | Planned |
 | Event Rule actions | Planned |

@@ -138,7 +138,7 @@ surface built into NetBox. The deliberate differences:
   public import surface. The built-in implementation keeps some of these in
   unrelated modules.
 - Storage-coupled members (`filename`, `source`, `get_module_and_script`) are
-  absent. They return with revision storage and script discovery.
+  absent. They return with script discovery and package loading.
 - System log records use the `netbox.plugins.netbox_custom_scripts.scripts`
   namespace. The built-in implementation logs under `netbox.scripts`, so
   operators with handlers or filters keyed to that name need to update their

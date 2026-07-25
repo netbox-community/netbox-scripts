@@ -16,16 +16,20 @@ Implemented:
   global-search surfaces
 - the plugin-owned script authoring API: `Script` base classes, variable
   types, dynamic form generation, structured logging, and `AbortScript`
+- immutable project revisions, each addressed by a canonical manifest and a
+  content digest
+- plugin-owned project storage: revision staging, filesystem verification,
+  activation, and cleanup on deletion
 
 Not yet implemented, planned for follow-up releases:
 
-- project revisions and modules
-- script discovery
-- source storage and uploads
-- Data Source synchronization
+- source uploads and Data Source synchronization
+- project modules and entrypoint selection
+- script discovery and semantic validation
 - package loading
 - execution and scheduling
 - Event Rule actions
+- revision UI and API surfaces
 - migration from NetBox's built-in Custom Scripts
 
 ## Compatibility

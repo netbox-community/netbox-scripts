@@ -47,6 +47,7 @@ nav:
   - Authoring: authoring.md
   - Models:
       - Custom Script Project: models/customscriptproject.md
+      - Custom Script Project Revision: models/customscriptprojectrevision.md
   - Releases: releases.md
   - Development:
       - Contributing: development/contributing.md

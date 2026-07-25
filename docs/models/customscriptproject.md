@@ -15,6 +15,7 @@ package boundary used when loading and executing scripts.
 | `data_source` | FK | conditional | Required for `data_source` projects, not allowed for uploads |
 | `data_path` | string | no | Directory path to the project root within the data source |
 | `activation_policy` | choice | yes | `manual` (default) or `automatic_if_valid` |
+| `active_revision` | FK | auto | Currently active revision, set only by the storage activation service |
 | `enabled` | boolean | yes | Whether the project is active, defaults to `true` |
 | `description` | string | no | Free-form description |
 | `comments` | text | no | Free-form operational notes |
@@ -24,10 +25,12 @@ package boundary used when loading and executing scripts.
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
 | `data_source` | `core.DataSource` | conditional | `on_delete=PROTECT`, no reverse relation, set only when `source_type` is `data_source` |
+| `revisions` | `CustomScriptProjectRevision` | no | Reverse of the revision's `project`, `on_delete=CASCADE`. Every snapshot ever staged for this project |
+| `active_revision` | `CustomScriptProjectRevision` | no | `on_delete=PROTECT`, reverse name `active_revision_for`. Set only by the storage activation service |
 
-Project revisions, modules, and discovered scripts are planned follow-up
-models. The project's `active_revision` reference lands together with the
-revision model.
+Each project owns a history of immutable source snapshots, documented on the
+[Custom Script Project Revision](customscriptprojectrevision.md) page. Modules
+and discovered scripts are planned follow-up models.
 
 ## API
 
@@ -46,10 +49,23 @@ revision model.
 | `data_path` is stored canonically: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize. Absolute paths, `..` traversal, and backslashes are rejected |
 | `data_source` projects require a non-empty `data_path`. The repository root is not a valid project root | `clean()` plus the `enforce_source_ownership` database constraint |
 | `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
+| `active_revision` must belong to this project | `clean()` |
+| Deleting a project clears `active_revision` first, so its own revision cannot protect it | `delete()` override, inside one transaction |
 
 Code paths that bypass validation (`QuerySet.update()`, raw SQL) must supply
 canonical values themselves. The database constraint enforces the ownership
 rules but not path spelling.
+
+`QuerySet.delete()` never calls the model's `delete()`, so it does not clear
+`active_revision` and a project that is serving one of its own revisions raises
+`ProtectedError`. Clear the pointer first, or delete through the model. Storage
+cleanup itself is unaffected, because the cleanup receivers rule out Django's
+signal-free fast-delete path.
+
+No user-facing surface hits this. Both NetBox's bulk-delete view and its REST
+bulk destroy iterate the selected objects and call each one's `delete()`, so the
+caveat applies only to migrations, housekeeping commands, tests, and internal
+plugin code.
 
 ## Identity notes
 
@@ -62,15 +78,18 @@ never by `storage_key`.
 ## NetBox Branching (provisional)
 
 Custom Script Projects are intended to be installation-global runtime
-identities: project definitions and future source revisions are not expected
-to be copied or to diverge per branch. Whether script execution is
-branch-aware is an execution-model decision that lands with the revision and
+identities: project definitions and source revisions are not expected to be
+copied or to diverge per branch. The storage layer now settles half of this.
+A revision's on-disk location is a pure function of the project's
+`storage_key` and the revision's `digest`, with no branch or schema context,
+so no branch-aware path handling is expected. Whether script execution is
+branch-aware remains an execution-model decision that lands with the
 execution work. This posture is subject to ratification in the concept
-review. Compatibility testing with netbox-branching is planned alongside the
-revision and storage models.
+review, and a netbox-branching compatibility test is planned.
 
 ## Limitations
 
 | Limitation | Impact |
 |---|---|
-| Revisions, modules, and scripts are not yet modeled | The project is a container only. Source handling arrives with the revision model |
+| Modules and discovered scripts are not yet modeled | Source snapshots exist as revisions, but nothing yet reads a package out of one |
+| No user-facing way to stage a revision | Uploads and Data Source synchronization arrive in a follow-up release |

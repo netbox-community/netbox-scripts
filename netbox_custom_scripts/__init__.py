@@ -29,11 +29,9 @@ class AppConfig(PluginConfig):
         'max_file_count': constants.DEFAULT_MAX_FILE_COUNT,
     }
 
-    # Uncomment to wire Django signals once you ship `signals.py`:
-    #
-    # def ready(self):
-    #     super().ready()
-    #     from netbox_custom_scripts import signals
+    def ready(self):
+        super().ready()
+        from netbox_custom_scripts import signals  # noqa: F401
 
 
 config = AppConfig

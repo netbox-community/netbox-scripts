@@ -31,7 +31,16 @@ class AppConfig(PluginConfig):
 
     def ready(self):
         super().ready()
-        from netbox_custom_scripts import signals  # noqa: F401
+        from django.core.checks import register as register_check
+
+        from netbox_custom_scripts import branching, signals  # noqa: F401
+
+        # Both models are branch-aware by default, but one project owns one source tree with
+        # no branch context in its path, so branching is asked to route them to the main
+        # schema. Registration is best effort: the check reports unsafe routing and the storage
+        # operations refuse it, so nothing here needs to prevent NetBox from starting.
+        branching.register()
+        register_check(branching.check_routing)
 
 
 config = AppConfig

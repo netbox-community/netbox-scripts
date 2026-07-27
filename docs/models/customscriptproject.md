@@ -75,17 +75,81 @@ read-only for troubleshooting, but it is not the public identity of a project
 or its scripts. Integrations must reference projects by `key` (or object ID),
 never by `storage_key`.
 
-## NetBox Branching (provisional)
+## NetBox Branching
 
-Custom Script Projects are intended to be installation-global runtime
-identities: project definitions and source revisions are not expected to be
-copied or to diverge per branch. The storage layer now settles half of this.
-A revision's on-disk location is a pure function of the project's
-`storage_key` and the revision's `digest`, with no branch or schema context,
-so no branch-aware path handling is expected. Whether script execution is
-branch-aware remains an execution-model decision that lands with the
-execution work. This posture is subject to ratification in the concept
-review, and a netbox-branching compatibility test is planned.
+Custom Script Projects and their revisions are **installation-global**. A
+revision's on-disk location is a pure function of the project's `storage_key`
+and the revision's `digest`, with no branch or schema context, so one project
+names exactly one source tree no matter which branch is active.
+
+NetBox Branching's own `exempt_models` setting is the supported way to say so:
+
+```python
+PLUGINS_CONFIG = {
+    'netbox_branching': {
+        'exempt_models': [
+            'netbox_custom_scripts.customscriptproject',
+            'netbox_custom_scripts.customscriptprojectrevision',
+        ],
+    },
+}
+```
+
+List the models individually rather than using a `netbox_custom_scripts.*`
+wildcard. The wildcard is accurate today, because every model in this plugin is
+installation-global, but it would also sweep in a model added later that is meant
+to keep NetBox Branching's ordinary behaviour.
+
+You do not have to configure this to be safe. The plugin also registers a
+branching resolver so that a fresh installation already routes both models to the
+main schema, which is the same treatment NetBox gives `core` objects. The
+resolver is best effort, and the setting above is what an operator uses when it is
+unavailable, so the two work together rather than competing.
+
+What the plugin does not do is assume either one worked. Before it stages a
+revision, activates one, or removes stored source, it asks NetBox Branching
+through its public API whether these models are still routed to the main schema:
+
+- If they are, the operation proceeds.
+- If they are not, or the answer cannot be determined, **the storage operation is
+  refused** and a system check reports the reason. The hint names both remedies,
+  because the configuration above cannot resolve every case: where the routing
+  cannot be inspected at all, the exemption is unverifiable too, and the fix is a
+  NetBox Branching release that exposes the inspection API.
+- **Deleting a project or a revision never removes source under an unresolved
+  answer.** The rows go, the directory stays, and the skip is logged at error
+  level. A leaked directory is recoverable by an operator or a future reconciler,
+  whereas source deleted out from under a schema that still serves it is not.
+
+NetBox itself keeps running throughout. An optional peer plugin whose routing
+cannot be confirmed disables this plugin's storage operations, not the
+installation.
+
+Three consequences worth knowing before you rely on this:
+
+- A project or revision created, changed, or deleted while a branch is active
+  applies **immediately and globally**. It is not part of the branch's diff and
+  is not replayed on merge or undone on revert.
+- **Tags and journal entries on a project are branch-local.** A tag added or
+  removed inside a branch, and a journal entry written inside a branch, belong
+  to that branch and reach the main schema only when it merges. That is NetBox
+  Branching's ordinary behaviour for tag assignments and journal entries, and
+  it is what installation-global NetBox objects such as Data Sources already do.
+  The project row itself, its revisions, and its source tree stay global
+  throughout.
+- Without this, a branch would hold its own rows pointing at the same bytes as
+  main, and deleting a revision inside the branch would remove source that main
+  still serves.
+
+Only the two models above are installation-global. A model added to this plugin
+later keeps NetBox Branching's ordinary behaviour, which is the right default for
+one that owns no source tree. Two questions are worth asking when adding one:
+whether it owns bytes on disk, in which case it belongs alongside the two above,
+and whether it holds a concrete relation to a branch-aware model, which would
+leave a row in the main schema pointing at a row that exists only inside a branch.
+
+Whether script *execution* is branch-aware is a separate question and remains
+an execution-model decision that lands with the execution work.
 
 ## Limitations
 

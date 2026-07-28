@@ -116,4 +116,22 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
             f'This revision was deleted on "{using}", where its cleanup Job cannot be recorded '
             'in the same transaction.'
         )
+    # Since entrypoint configuration joined revision identity, several rows can reference
+    # one stored tree. Content a surviving row still names is kept, the check fails on the
+    # side of retaining bytes, and a project cascade that deletes every referencing row in
+    # one pass enqueues per row, which the job's exact-key, already-gone-tolerant deletion
+    # absorbs.
+    if (
+        CustomScriptProjectRevision.objects.using(using)
+        .filter(project__storage_key=storage_key, digest=digest)
+        .exclude(pk=instance.pk)
+        .exists()
+    ):
+        logger.info(
+            'Skipping storage cleanup for revision %s, another revision still references %s %s.',
+            instance.pk,
+            storage_key,
+            digest,
+        )
+        return
     ProjectStorageCleanupJob.enqueue_cleanup(storage_key=storage_key, digest=digest, paths=paths)

@@ -10,7 +10,9 @@ from core.choices import JobStatusChoices
 from core.exceptions import JobFailed
 from core.models import Job
 from netbox_custom_scripts import jobs
+from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.jobs import ProjectStorageCleanupJob
+from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.storage import config, store
 from netbox_custom_scripts.storage.exceptions import StorageError
 from netbox_custom_scripts.storage.manifest import compute_digest
@@ -156,3 +158,30 @@ class ProjectStorageCleanupJobTestCase(TestCase):
             raise RuntimeError('rolled back on purpose')
         self.assertEqual(callbacks, [])
         self.assertEqual(Job.objects.count(), 0)
+
+
+class SharedDigestJobTestCase(TestCase):
+    """The run-time reference recheck, for content re-staged after its cleanup was recorded."""
+
+    def setUp(self):
+        self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
+        self.storage = config.get_storage()
+        store.write_revision(self.storage, STORAGE_KEY, DIGEST, SOURCE, MANIFEST)
+
+    def test_a_current_reference_leaves_the_content_and_succeeds(self):
+        project = CustomScriptProject.objects.create(
+            name='Cleanup Reference Project',
+            key='cleanup-reference-project',
+            storage_key=STORAGE_KEY,
+        )
+        CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest=DIGEST,
+            status=RevisionStatusChoices.VALID,
+            manifest=MANIFEST,
+        )
+        runner = ProjectStorageCleanupJob(Job.objects.create(name='cleanup-reference', job_id=uuid.uuid4()))
+        runner.run(storage_key=STORAGE_KEY, digest=DIGEST, paths=PATHS, job_id='x')
+        prefix = revision_prefix(STORAGE_KEY, DIGEST)
+        self.assertEqual({path for path in PATHS if self.storage.exists(f'{prefix}{path}')}, set(PATHS))
+        self.assertIn('references it again', str(runner.job.log_entries))

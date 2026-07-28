@@ -292,3 +292,33 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
         with self.capture_enqueues() as enqueue:
             self.project.delete()
         self.assertEqual(enqueue.call_count, 2)
+
+
+class SharedDigestCleanupTestCase(CleanupFixtureMixin, TestCase):
+    """Rows sharing one stored tree since entrypoint configuration joined revision identity."""
+
+    def sibling(self):
+        """Return a second row referencing DIGEST_A under another entrypoint configuration."""
+        return CustomScriptProjectRevision.objects.create(
+            project=self.project,
+            digest=DIGEST_A,
+            status=RevisionStatusChoices.VALID,
+            manifest=MANIFEST_A,
+            entrypoint_digest='b' * 64,
+        )
+
+    def test_deleting_one_of_two_rows_sharing_content_skips_cleanup(self):
+        first = self.make_revision(DIGEST_A)
+        self.sibling()
+        with self.capture_enqueues() as enqueue:
+            first.delete()
+        enqueue.assert_not_called()
+        self.assertTrue(self.revision_stored(DIGEST_A))
+
+    def test_deleting_the_last_referencing_row_enqueues_cleanup(self):
+        first = self.make_revision(DIGEST_A)
+        sibling = self.sibling()
+        with self.capture_enqueues() as enqueue:
+            sibling.delete()
+            first.delete()
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_A, paths=['hello.py'])

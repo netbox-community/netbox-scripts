@@ -15,8 +15,9 @@ from django.utils import timezone
 
 from .. import branching, constants
 from ..choices import RevisionStatusChoices
-from ..models import CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from . import config, store
+from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
 from .exceptions import ActivationError, RevisionCorruptError, StorageError
 from .manifest import build_manifest, compute_digest, validate_manifest
 
@@ -39,10 +40,12 @@ def stage_revision(project, files):
     A content problem never raises. A rejected tree is persisted as an invalid revision with
     a null digest, so its errors and the accepted part of its manifest stay inspectable and
     repeated bad uploads stay distinct. Valid content is content-addressed, so re-staging an
-    identical tree returns the existing revision after verifying its stored tree. Only a
-    revision whose write never completed is re-driven, so a revision that validation rejected
-    is never resurrected. A storage failure records STORAGE_FAILED and re-raises, since it
-    is an infrastructure fault rather than a property of the content.
+    identical tree under an unchanged entrypoint configuration returns the existing revision
+    after verifying its stored tree, while a changed configuration yields a new revision
+    identity that reuses the stored content. Only a revision whose write never completed is
+    re-driven, so a revision that validation rejected is never resurrected. A storage failure
+    records STORAGE_FAILED and re-raises, since it is an infrastructure fault rather than a
+    property of the content.
 
     The files mapping is snapshotted and frozen on entry and every step works from that
     snapshot, so the manifest always describes what was written. Keys must be str and values
@@ -64,13 +67,19 @@ def stage_revision(project, files):
     branching.require_safe_routing()
     storage = config.get_storage()
     limits = config.get_storage_limits()
-    using = _require_default_database(project)
+    using = require_default_database(project)
     source_files = _frozen_source(files)
     entries, errors = build_manifest(source_files, limits)
+    # The enabled Module declarations are frozen into the revision at staging time, so the
+    # verdict validation later reaches keeps meaning when the live declarations change.
+    snapshot, entrypoint_digest = build_entrypoint_snapshot(
+        CustomScriptModule.objects.using(using).filter(project=project.pk, enabled=True)
+    )
     totals = {
         'manifest': entries,
         'file_count': len(entries),
         'total_size': sum(entry['size'] for entry in entries),
+        'entrypoint_snapshot': snapshot,
     }
 
     if errors:
@@ -79,6 +88,7 @@ def stage_revision(project, files):
             digest=None,
             status=RevisionStatusChoices.INVALID,
             validation_errors=errors,
+            entrypoint_digest=entrypoint_digest,
             **totals,
         )
         return StagedRevision(revision, True)
@@ -88,10 +98,11 @@ def stage_revision(project, files):
     storage_key = CustomScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=project.pk)
 
     # get_or_create wraps its insert in a savepoint and re-runs the get on IntegrityError,
-    # which is exactly the race the partial unique on (project, digest) can lose.
+    # which is exactly the race the partial unique on the identity triple can lose.
     revision, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
         project=project,
         digest=compute_digest(entries),
+        entrypoint_digest=entrypoint_digest,
         defaults={'status': RevisionStatusChoices.STAGING, **totals},
     )
     while True:
@@ -139,6 +150,55 @@ def stage_revision(project, files):
     return StagedRevision(revision, created)
 
 
+def refresh_revision_entrypoints(revision):
+    """
+    Stage a revision's stored content under the project's current entrypoint configuration.
+
+    A verdict binds to the entrypoint snapshot a revision froze at staging time, so fixing a
+    Module declaration cannot revalidate an existing row. This creates or returns the row for
+    the same stored content under the configuration as it is now, without the content being
+    uploaded again. The source revision only needs a digest, so even an INVALID verdict on
+    the old configuration stays untouched while its content gets a fresh candidate. Returns
+    a StagedRevision whose created flag says whether this configuration was already staged.
+
+    Raises ValueError for a revision with no digest, since a rejected staging attempt stored
+    no content to refresh, and RevisionCorruptError when the stored tree no longer matches
+    the manifest the new row would copy.
+
+    Guards match the rest of the lifecycle: branching routing and the default database are
+    enforced before any row is read or written.
+    """
+    branching.require_safe_routing()
+    storage = config.get_storage()
+    using = require_default_database(revision)
+
+    source = CustomScriptProjectRevision.objects.using(using).get(pk=revision.pk)
+    if not source.digest:
+        raise ValueError(f'Revision {source.pk} has no digest, so there is no stored content to refresh.')
+    manifest = _validated_manifest(source)
+    snapshot, entrypoint_digest = build_entrypoint_snapshot(
+        CustomScriptModule.objects.using(using).filter(project=source.project_id, enabled=True)
+    )
+    storage_key = (
+        CustomScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=source.project_id)
+    )
+    store.verify_revision_tree(storage, storage_key, source.digest, manifest)
+
+    candidate, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
+        project_id=source.project_id,
+        digest=source.digest,
+        entrypoint_digest=entrypoint_digest,
+        defaults={
+            'status': RevisionStatusChoices.MATERIALIZED,
+            'manifest': manifest,
+            'file_count': source.file_count,
+            'total_size': source.total_size,
+            'entrypoint_snapshot': snapshot,
+        },
+    )
+    return StagedRevision(candidate, created)
+
+
 def activate_revision(revision):
     """
     Make one revision the active revision of its project and return it, refreshed.
@@ -168,7 +228,7 @@ def activate_revision(revision):
     branching.require_safe_routing()
     storage = config.get_storage()
     revision_pk = revision.pk
-    using = _require_default_database(revision)
+    using = require_default_database(revision)
 
     snapshot = CustomScriptProjectRevision.objects.using(using).get(pk=revision_pk)
     project_state = (
@@ -178,6 +238,10 @@ def activate_revision(revision):
         snapshot.status == RevisionStatusChoices.ACTIVE and project_state['active_revision_id'] == snapshot.pk
     )
     _require_activatable(snapshot, already_active)
+    # The entrypoint snapshot is persisted input that execution will trust, so it is checked
+    # against its own digest here, at the same position the manifest gets its return-trip
+    # check, before any row is locked.
+    validate_entrypoint_snapshot(snapshot.entrypoint_snapshot, snapshot.entrypoint_digest)
     # Verification reads and hashes every stored file and may hold a remote conversation for
     # a while, so it runs before any row is locked. The unlocked reads above decide nothing
     # final, the transaction below re-reads the row against this snapshot.
@@ -190,7 +254,11 @@ def activate_revision(revision):
             .select_for_update()
             .get(pk=revision_pk, project_id=project.pk)
         )
-        if locked.digest != snapshot.digest or locked.manifest != snapshot.manifest:
+        if (
+            locked.digest != snapshot.digest
+            or locked.manifest != snapshot.manifest
+            or locked.entrypoint_digest != snapshot.entrypoint_digest
+        ):
             raise ActivationError(f'Revision {locked.pk} changed while its stored tree was being verified.')
         already_active = locked.status == RevisionStatusChoices.ACTIVE and project.active_revision_id == locked.pk
         _require_activatable(locked, already_active)
@@ -227,13 +295,13 @@ def _require_activatable(revision, already_active):
         raise ActivationError(f'Revision {revision.pk} has no digest and cannot be activated.')
 
 
-def _require_default_database(instance):
+def require_default_database(instance):
     """
     Resolve and enforce the one database alias the storage lifecycle runs on.
 
-    Deletion cleanup can record its Job only on the default connection, so staging and
-    activation refuse every other alias up front. Content created elsewhere could never
-    be reclaimed, because its deletion would be refused.
+    Deletion cleanup can record its Job only on the default connection, so staging,
+    refresh, activation, and validation refuse every other alias up front. Content
+    created elsewhere could never be reclaimed, because its deletion would be refused.
     """
     using = instance._state.db or router.db_for_write(CustomScriptProjectRevision, instance=instance)
     if using != DEFAULT_DB_ALIAS:

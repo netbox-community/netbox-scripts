@@ -6,6 +6,7 @@ from core.exceptions import JobFailed
 from netbox.jobs import JobRunner
 
 from . import branching
+from .models import CustomScriptProjectRevision
 from .storage import config, store
 from .storage.exceptions import StorageConfigurationError, StorageError
 
@@ -47,7 +48,7 @@ class ProjectStorageCleanupJob(JobRunner):
         return job
 
     def run(self, storage_key, digest, paths, **kwargs):
-        """Recheck routing safety, then remove the named keys, failing the job on what is left."""
+        """Recheck routing safety and references, then remove the named keys, failing on what is left."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
             detail = (
@@ -56,6 +57,14 @@ class ProjectStorageCleanupJob(JobRunner):
             )
             self.logger.error(detail)
             raise JobFailed()
+        # The digest can be re-staged under a new entrypoint configuration between the
+        # delete that recorded this job and this run. Content a current revision references
+        # is left in place and the run succeeds, since there is nothing left to reclaim.
+        if CustomScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
+            self.logger.info(
+                f'Leaving stored content in place, a current revision references it again: {storage_key} {digest}'
+            )
+            return
         try:
             storage = config.get_storage()
             store.delete_revision(storage, storage_key, digest, paths)

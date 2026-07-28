@@ -8,8 +8,9 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from netbox_custom_scripts.choices import RevisionStatusChoices
-from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.storage import config, service, store
+from netbox_custom_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST, build_entrypoint_snapshot
 from netbox_custom_scripts.storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from netbox_custom_scripts.storage.paths import STORAGE_PREFIX, project_prefix, revision_prefix
 from netbox_custom_scripts.tests.storage.test_store import RefusingStorage
@@ -605,3 +606,114 @@ class SourceMappingContractTestCase(StorageServiceMixin, TestCase):
         buffer = bytearray(b'viewed')
         revision = self.materialize({'hello.py': memoryview(buffer)})
         self.assertEqual(self.read(revision.digest, 'hello.py'), b'viewed')
+
+
+class EntrypointIdentityTestCase(StorageServiceMixin, TestCase):
+    """Staging freezes the enabled Module declarations into the revision's identity."""
+
+    def module(self, path, **kwargs):
+        return CustomScriptModule.objects.create(project=self.project, source_path=path, **kwargs)
+
+    def test_stage_revision_freezes_the_enabled_declarations(self):
+        enabled = self.module('hello.py')
+        self.module('parked.py', enabled=False)
+        revision = self.materialize()
+        self.assertEqual(revision.entrypoint_snapshot, [{'module': enabled.pk, 'source_path': 'hello.py'}])
+        _, expected_digest = build_entrypoint_snapshot([enabled])
+        self.assertEqual(revision.entrypoint_digest, expected_digest)
+
+    def test_staging_without_modules_carries_the_empty_snapshot(self):
+        revision = self.materialize()
+        self.assertEqual(revision.entrypoint_snapshot, [])
+        self.assertEqual(revision.entrypoint_digest, EMPTY_SNAPSHOT_DIGEST)
+
+    def test_identical_content_under_a_changed_configuration_is_a_new_revision(self):
+        first = self.materialize()
+        self.module('hello.py')
+        second, created = service.stage_revision(self.project, GOOD_FILES)
+        self.assertTrue(created)
+        self.assertNotEqual(second.pk, first.pk)
+        self.assertEqual(second.digest, first.digest)
+        self.assertEqual(second.status, RevisionStatusChoices.MATERIALIZED)
+
+    def test_identical_content_and_configuration_returns_the_existing_revision(self):
+        self.module('hello.py')
+        first, first_created = service.stage_revision(self.project, GOOD_FILES)
+        second, second_created = service.stage_revision(self.project, GOOD_FILES)
+        self.assertTrue(first_created)
+        self.assertFalse(second_created)
+        self.assertEqual(second.pk, first.pk)
+
+    def test_an_invalid_staging_attempt_still_freezes_the_configuration(self):
+        module = self.module('hello.py')
+        revision, _ = service.stage_revision(self.project, BAD_FILES)
+        self.assertEqual(revision.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(revision.entrypoint_snapshot, [{'module': module.pk, 'source_path': 'hello.py'}])
+
+
+class RefreshEntrypointsTestCase(StorageServiceMixin, TestCase):
+    """refresh_revision_entrypoints restages stored content under the current configuration."""
+
+    def test_refresh_stages_the_content_under_the_current_configuration(self):
+        first = self.materialize()
+        module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        refreshed, created = service.refresh_revision_entrypoints(first)
+        self.assertTrue(created)
+        self.assertNotEqual(refreshed.pk, first.pk)
+        self.assertEqual(refreshed.digest, first.digest)
+        self.assertEqual(refreshed.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(refreshed.manifest, first.manifest)
+        self.assertEqual(refreshed.entrypoint_snapshot, [{'module': module.pk, 'source_path': 'hello.py'}])
+
+    def test_refresh_returns_the_existing_row_for_an_unchanged_configuration(self):
+        first = self.materialize()
+        again, created = service.refresh_revision_entrypoints(first)
+        self.assertFalse(created)
+        self.assertEqual(again.pk, first.pk)
+
+    def test_refresh_refuses_a_revision_without_content(self):
+        revision, _ = service.stage_revision(self.project, BAD_FILES)
+        with self.assertRaises(ValueError):
+            service.refresh_revision_entrypoints(revision)
+
+    def test_refresh_verifies_the_stored_tree(self):
+        first = self.materialize()
+        CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        self.overwrite(first.digest, 'hello.py', b'tampered')
+        with self.assertRaises(RevisionCorruptError):
+            service.refresh_revision_entrypoints(first)
+
+    def test_refresh_leaves_the_source_verdict_untouched(self):
+        # An INVALID verdict binds to the old configuration. The fix-a-typo path creates a
+        # fresh candidate for the same content rather than resurrecting the judged row.
+        first = self.materialize()
+        CustomScriptProjectRevision.objects.filter(pk=first.pk).update(status=RevisionStatusChoices.INVALID)
+        CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        refreshed, created = service.refresh_revision_entrypoints(first)
+        self.assertTrue(created)
+        first.refresh_from_db()
+        self.assertEqual(first.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(refreshed.status, RevisionStatusChoices.MATERIALIZED)
+
+
+class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
+    """Activation trusts the entrypoint snapshot only after its return-trip check."""
+
+    def test_activation_rejects_a_tampered_snapshot(self):
+        revision = self.validated()
+        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            entrypoint_snapshot=[{'module': 1, 'source_path': '../outside.py'}]
+        )
+        with self.assertRaises(RevisionCorruptError):
+            service.activate_revision(revision)
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision)
+
+    def test_activation_accepts_a_revision_with_a_sound_snapshot(self):
+        module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        revision = self.validated()
+        activated = service.activate_revision(revision)
+        self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(activated.entrypoint_snapshot, [{'module': module.pk, 'source_path': 'hello.py'}])

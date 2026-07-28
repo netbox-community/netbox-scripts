@@ -14,6 +14,7 @@ from core.models import DataSource
 from netbox_custom_scripts import constants
 from netbox_custom_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from netbox_custom_scripts.storage.manifest import compute_digest
 
 DIGEST_A = 'a' * 64
@@ -457,6 +458,37 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         second = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
         self.assertNotEqual(first.pk, second.pk)
         self.assertEqual(CustomScriptProjectRevision.objects.filter(digest__isnull=True).count(), 2)
+
+    def test_entrypoint_fields_default_to_the_empty_snapshot(self):
+        instance = self.make_revision()
+        self.assertEqual(instance.entrypoint_snapshot, [])
+        self.assertEqual(instance.entrypoint_digest, EMPTY_SNAPSHOT_DIGEST)
+
+    def test_one_digest_is_allowed_under_two_entrypoint_configurations(self):
+        # The same source tree under a changed configuration is a new, separately
+        # validatable identity that reuses the stored content.
+        first = self.make_revision()
+        second = self.make_revision(entrypoint_digest='b' * 64)
+        self.assertNotEqual(first.pk, second.pk)
+
+    def test_the_identity_triple_is_refused_when_repeated(self):
+        self.make_revision(entrypoint_digest='b' * 64)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self.make_revision(entrypoint_digest='b' * 64)
+
+    def test_entrypoint_snapshot_immutable_on_save(self):
+        instance = self.make_revision()
+        instance.entrypoint_snapshot = [{'module': 1, 'source_path': 'a.py'}]
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('entrypoint_snapshot', cm.exception.message_dict)
+
+    def test_entrypoint_digest_immutable_on_save(self):
+        instance = self.make_revision()
+        instance.entrypoint_digest = 'b' * 64
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('entrypoint_digest', cm.exception.message_dict)
 
     def test_every_status_but_invalid_requires_a_digest(self):
         # A digest is computed from accepted content before the row is created, so a status

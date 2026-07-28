@@ -57,8 +57,12 @@ class Migration(migrations.Migration):
                 ('file_count', models.PositiveIntegerField(default=0)),
                 ('total_size', models.PositiveBigIntegerField(default=0)),
                 ('validation_errors', models.JSONField(blank=True, default=list)),
+                ('entrypoint_snapshot', models.JSONField(blank=True, default=list)),
+                ('entrypoint_digest', models.CharField(default='4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945', max_length=64, validators=[django.core.validators.RegexValidator(message='The entrypoint digest must be 64 lowercase hexadecimal characters.', regex='^[0-9a-f]{64}$')])),
+                ('validation_started', models.DateTimeField(blank=True, editable=False, null=True)),
                 ('activated', models.DateTimeField(blank=True, null=True)),
                 ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='revisions', to='netbox_custom_scripts.customscriptproject')),
+                ('validation_job', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='core.job')),
             ],
             options={
                 'verbose_name': 'custom script project revision',
@@ -103,7 +107,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='customscriptprojectrevision',
-            constraint=models.UniqueConstraint(condition=models.Q(('digest__isnull', False)), fields=('project', 'digest'), name='unique_project_digest'),
+            constraint=models.UniqueConstraint(condition=models.Q(('digest__isnull', False)), fields=('project', 'digest', 'entrypoint_digest'), name='unique_project_digest_entrypoints'),
         ),
         migrations.AddConstraint(
             model_name='customscriptprojectrevision',

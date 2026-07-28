@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from netbox.models import ChangeLoggedModel, PrimaryModel
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from ..storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from ..validators import data_paths_overlap, normalize_data_path
 
 
@@ -145,8 +146,8 @@ class CustomScriptProject(PrimaryModel):
             conflict = self._overlapping_sibling()
             if conflict is not None:
                 errors['data_path'] = _(
-                    'This data path overlaps with project "%(name)s" (%(path)s) on the same data source.'
-                ) % {'name': conflict.name, 'path': conflict.data_path}
+                    'This data path overlaps with project "{name}" ({path}) on the same data source.'
+                ).format(name=conflict.name, path=conflict.data_path)
 
         if self.active_revision_id:
             # The pointer is only ever set by the activation service, so anything else
@@ -242,6 +243,12 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
     execute. A staging attempt whose content was rejected is kept with a null digest so
     its errors and partial manifest stay inspectable, and so two different broken trees
     that happen to share an accepted subset cannot collide on one digest.
+
+    Revision identity is the project, the source digest, and the entrypoint digest. The
+    snapshot freezes the enabled Module declarations staging saw, so a validation verdict
+    keeps meaning when the live declarations change, and the same source tree under a
+    changed configuration is a new, separately validatable revision that reuses the
+    stored content.
     """
 
     project = models.ForeignKey(
@@ -292,6 +299,40 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
             'itself mean the revision is valid.'
         ),
     )
+    entrypoint_snapshot = models.JSONField(
+        verbose_name=_('entrypoint snapshot'),
+        default=list,
+        blank=True,
+        help_text=_('Enabled Module declarations frozen at staging time, sorted by source path.'),
+    )
+    entrypoint_digest = models.CharField(
+        verbose_name=_('entrypoint digest'),
+        max_length=64,
+        default=EMPTY_SNAPSHOT_DIGEST,
+        validators=[
+            RegexValidator(
+                regex=r'^[0-9a-f]{64}$',
+                message=_('The entrypoint digest must be 64 lowercase hexadecimal characters.'),
+            )
+        ],
+        help_text=_('Content address of the entrypoint snapshot, part of the revision identity.'),
+    )
+    validation_job = models.ForeignKey(
+        to='core.Job',
+        verbose_name=_('validation job'),
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='+',
+        editable=False,
+        help_text=_('Owner of the current validation lease. Fences every final status transition.'),
+    )
+    validation_started = models.DateTimeField(
+        verbose_name=_('validation started'),
+        blank=True,
+        null=True,
+        editable=False,
+    )
     activated = models.DateTimeField(
         verbose_name=_('activated'),
         blank=True,
@@ -305,10 +346,12 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
         verbose_name_plural = _('custom script project revisions')
         constraints = [
             # Partial, so invalid revisions (digest NULL) coexist while valid content dedupes.
+            # One source tree under a changed entrypoint configuration is a separate,
+            # separately validatable identity that reuses the stored content.
             models.UniqueConstraint(
-                fields=('project', 'digest'),
+                fields=('project', 'digest', 'entrypoint_digest'),
                 condition=Q(digest__isnull=False),
-                name='unique_project_digest',
+                name='unique_project_digest_entrypoints',
             ),
             # Only a rejected staging attempt lacks a content address. Every other status
             # follows accepted content, so the row carries the digest that addresses it, and
@@ -337,7 +380,15 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
             # Read the persisted row from the alias this save writes to, not from whichever
             # one a router would pick for a read.
             using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
-            frozen = ('project_id', 'digest', 'manifest', 'file_count', 'total_size')
+            frozen = (
+                'project_id',
+                'digest',
+                'manifest',
+                'file_count',
+                'total_size',
+                'entrypoint_snapshot',
+                'entrypoint_digest',
+            )
             original = type(self).objects.using(using).filter(pk=self.pk).values(*frozen).first()
             if original:
                 errors = {}
@@ -351,6 +402,14 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
                     errors['file_count'] = _('The file count cannot be changed once the revision has been created.')
                 if original['total_size'] != self.total_size:
                     errors['total_size'] = _('The total size cannot be changed once the revision has been created.')
+                if original['entrypoint_snapshot'] != self.entrypoint_snapshot:
+                    errors['entrypoint_snapshot'] = _(
+                        'The entrypoint snapshot cannot be changed once the revision has been created.'
+                    )
+                if original['entrypoint_digest'] != self.entrypoint_digest:
+                    errors['entrypoint_digest'] = _(
+                        'The entrypoint digest cannot be changed once the revision has been created.'
+                    )
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)

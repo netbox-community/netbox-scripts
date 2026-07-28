@@ -64,6 +64,66 @@ class PathSafetyTestCase(TestCase):
         self.assertEqual(paths.normalize_source_path(decomposed), composed)
         self.assertEqual(paths.normalize_source_path(decomposed), paths.normalize_source_path(composed))
 
+    def test_rejects_compiled_python_artifacts(self):
+        for raw in ('deploy.pyc', 'lib/deploy.pyo', 'lib/__pycache__/deploy.cpython-312.pyc'):
+            with self.subTest(raw=raw):
+                with self.assertRaises(UnsafePathError) as ctx:
+                    paths.normalize_source_path(raw)
+                self.assertEqual(ctx.exception.code, 'compiled_artifact')
+
+    def test_rejects_a_pycache_directory_holding_no_compiled_name(self):
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.normalize_source_path('__pycache__/notes.py')
+        self.assertEqual(ctx.exception.code, 'compiled_artifact')
+
+    def test_accepts_a_name_merely_containing_a_compiled_suffix(self):
+        self.assertEqual(paths.normalize_source_path('lib/pycvalues.py'), 'lib/pycvalues.py')
+
+
+class CaseInsensitiveComparisonTestCase(TestCase):
+    """
+    Cover the comparison the path policy uses to keep a tree materializable everywhere.
+
+    Hosts such as APFS merge names that differ only in case, so a tree holding both cannot
+    materialize identically across supported hosts. The comparison is simple case mapping,
+    matching what those hosts do rather than what full Unicode folding does.
+    """
+
+    def test_nodes_cover_the_path_and_every_ancestor(self):
+        self.assertEqual(
+            paths.case_insensitive_nodes('Lib/Sub/Deploy.py'),
+            {'lib': 'Lib', 'lib/sub': 'Lib/Sub', 'lib/sub/deploy.py': 'Lib/Sub/Deploy.py'},
+        )
+
+    def test_collision_in_the_full_path(self):
+        collisions = paths.case_insensitive_collisions(['Utils.py', 'utils.py'])
+        self.assertEqual(sorted(collisions), ['Utils.py', 'utils.py'])
+        self.assertEqual(collisions['utils.py'], ('utils.py', 'Utils.py'))
+
+    def test_collision_in_an_ancestor_directory_only(self):
+        collisions = paths.case_insensitive_collisions(['Lib/deploy.py', 'lib/audit.py'])
+        self.assertEqual(sorted(collisions), ['Lib/deploy.py', 'lib/audit.py'])
+        self.assertEqual(collisions['Lib/deploy.py'], ('Lib', 'lib'))
+
+    def test_reports_the_shallowest_colliding_node(self):
+        collisions = paths.case_insensitive_collisions(['Lib/Mod.py', 'lib/mod.py'])
+        self.assertEqual(collisions['Lib/Mod.py'], ('Lib', 'lib'))
+
+    def test_distinct_names_do_not_collide(self):
+        self.assertEqual(paths.case_insensitive_collisions(['pkg/a.py', 'pkg/b.py']), {})
+
+    def test_full_caseless_folding_pairs_do_not_collide(self):
+        # Only names that simple case mapping keeps apart. The Kelvin sign is not one of
+        # them, it lowercases to "k" as well.
+        for pair in (('strasse.py', 'straße.py'), ('fi.py', 'ﬁ.py')):
+            with self.subTest(pair=pair):
+                self.assertEqual(paths.case_insensitive_collisions(list(pair)), {})
+
+    def test_plain_case_variants_still_collide(self):
+        for pair in (('k.py', 'K.py'), ('Pkg/mod.py', 'pkg/mod.py')):
+            with self.subTest(pair=pair):
+                self.assertEqual(sorted(paths.case_insensitive_collisions(list(pair))), sorted(pair))
+
 
 class StorageKeyTestCase(TestCase):
     """Cover the keys that name a project's content in a storage backend."""

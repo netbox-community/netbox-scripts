@@ -121,6 +121,50 @@ class NormalizationCollisionTestCase(TestCase):
         self.assertEqual(len(entries), 1)
 
 
+class CaseFoldCollisionTestCase(TestCase):
+    """
+    Case-fold collisions are content errors because accepted paths must materialize on
+    every supported host, and hosts such as APFS treat "Utils.py" and "utils.py" as one
+    file.
+    """
+
+    def test_build_manifest_rejects_two_files_differing_only_in_case(self):
+        entries, errors = manifest.build_manifest({'Utils.py': b'a', 'utils.py': b'b'}, limits())
+        self.assertEqual(entries, [])
+        self.assertEqual([error['code'] for error in errors], ['case_fold_conflict', 'case_fold_conflict'])
+        self.assertEqual(sorted(error['path'] for error in errors), ['Utils.py', 'utils.py'])
+        self.assertIn('collide when letter case is ignored', errors[0]['message'])
+
+    def test_build_manifest_rejects_paths_colliding_through_their_directories(self):
+        entries, errors = manifest.build_manifest({'a/B.py': b'a', 'A/b.py': b'b'}, limits())
+        self.assertEqual(entries, [])
+        self.assertEqual(sorted(error['path'] for error in errors), ['A/b.py', 'a/B.py'])
+        self.assertEqual({error['code'] for error in errors}, {'case_fold_conflict'})
+
+    def test_build_manifest_rejects_a_file_colliding_with_a_case_folded_directory(self):
+        entries, errors = manifest.build_manifest({'pkg': b'file', 'PKG/module.py': b'child'}, limits())
+        self.assertEqual(entries, [])
+        self.assertEqual(sorted(error['path'] for error in errors), ['PKG/module.py', 'pkg'])
+        self.assertEqual({error['code'] for error in errors}, {'case_fold_conflict'})
+
+    def test_build_manifest_allows_names_only_full_caseless_folding_would_merge(self):
+        # The supported hosts apply simple case mapping, which keeps these two names apart.
+        entries, errors = manifest.build_manifest({'straße.py': b'a', 'strasse.py': b'b'}, limits())
+        self.assertEqual(errors, [])
+        self.assertEqual([entry['path'] for entry in entries], ['strasse.py', 'straße.py'])
+
+    def test_build_manifest_allows_distinct_names_sharing_one_directory(self):
+        entries, errors = manifest.build_manifest({'pkg/a.py': b'a', 'pkg/b.py': b'b'}, limits())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(entries), 2)
+
+    def test_an_exact_file_directory_conflict_is_not_a_case_fold_conflict(self):
+        # One exact name in both roles stays the plain path conflict from the check above.
+        entries, errors = manifest.build_manifest({'pkg': b'file', 'pkg/module.py': b'child'}, limits())
+        self.assertEqual([error['code'] for error in errors], ['path_conflict'])
+        self.assertEqual([entry['path'] for entry in entries], ['pkg'])
+
+
 class DigestTestCase(TestCase):
     def test_digest_independent_of_input_order(self):
         entries_one, _ = manifest.build_manifest({'a.py': b'a', 'b.py': b'b'}, limits())
@@ -193,6 +237,16 @@ class ValidateManifestTestCase(TestCase):
         with self.assertRaises(RevisionCorruptError) as ctx:
             manifest.validate_manifest([entry_for('pkg', b'x'), entry_for('pkg/mod.py', b'y')])
         self.assertEqual(ctx.exception.reasons, ('path_conflict:pkg/mod.py',))
+
+    def test_rejects_stored_paths_differing_only_in_case(self):
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            manifest.validate_manifest([entry_for('Utils.py', b'a'), entry_for('utils.py', b'b')])
+        self.assertEqual(ctx.exception.reasons, ('case_fold_conflict:Utils.py', 'case_fold_conflict:utils.py'))
+
+    def test_rejects_a_stored_case_folded_ancestor_collision(self):
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            manifest.validate_manifest([entry_for('pkg', b'x'), entry_for('PKG/mod.py', b'y')])
+        self.assertEqual(ctx.exception.reasons, ('case_fold_conflict:PKG/mod.py', 'case_fold_conflict:pkg'))
 
     def test_rejects_a_manifest_that_is_not_a_list(self):
         with self.assertRaises(RevisionCorruptError) as ctx:

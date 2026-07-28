@@ -27,6 +27,10 @@ MAX_PATH_COMPONENT_BYTES = 255
 MAX_PATH_BYTES = 768
 MAX_PATH_DEPTH = 64
 
+# Refused as source: a compiled file imports without the source anyone would review.
+_COMPILED_SUFFIXES = ('.pyc', '.pyo')
+_BYTECODE_DIRECTORY = '__pycache__'
+
 # Every key this plugin stores sits under one prefix, so project source stays apart from
 # anything else on the backend, including on an entry an operator deliberately pointed at
 # the same bucket or directory that holds NetBox's media.
@@ -43,6 +47,9 @@ def normalize_source_path(path):
     revision matches the source tree exactly. Raises UnsafePathError for whitespace,
     absolute or drive-qualified paths, traversal segments, backslashes, and control
     characters.
+
+    Compiled Python artifacts are rejected under compiled_artifact, because they are not
+    source and cannot be reviewed as source.
 
     A path that no host can materialize is rejected here too, under
     path_component_too_long, path_too_long, and path_too_deep. Those are content problems
@@ -70,6 +77,12 @@ def normalize_source_path(path):
         raise UnsafePathError(path, 'path_traversal', 'Path traversal segments ("..") are not allowed.')
     if not segments:
         raise UnsafePathError(path, 'path_traversal', 'Source paths must reference a file within the project.')
+    if segments[-1].endswith(_COMPILED_SUFFIXES) or _BYTECODE_DIRECTORY in segments:
+        raise UnsafePathError(
+            path,
+            'compiled_artifact',
+            f'Compiled Python files and "{_BYTECODE_DIRECTORY}" directories are not stored as project source.',
+        )
 
     canonical = '/'.join(segments)
     for segment in segments:
@@ -93,6 +106,42 @@ def normalize_source_path(path):
             f'The path is {len(segments)} levels deep, over the {MAX_PATH_DEPTH} level limit.',
         )
     return canonical
+
+
+def case_insensitive_nodes(path):
+    """
+    Return every tree node one path contributes, keyed by its case-insensitive form.
+
+    A node is the path or one of its ancestor directories. Comparison is str.lower(), not
+    casefold: APFS, NTFS, and HFS+ use simple case mapping, and folding would merge names
+    they keep apart, such as "strasse.py" and "straße.py".
+    """
+    segments = path.split('/')
+    nodes = ('/'.join(segments[:index]) for index in range(1, len(segments) + 1))
+    return {node.lower(): node for node in nodes}
+
+
+def case_insensitive_collisions(paths):
+    """
+    Map each path touching a case-insensitive collision to the two node names that collide.
+
+    A file and a directory sharing one exact name is a plain path conflict, not this. The
+    reported node is the shallowest that collides, which is where a rename resolves it.
+    """
+    paths = sorted(paths)
+    names_by_form = {}
+    for path in paths:
+        for form, node in case_insensitive_nodes(path).items():
+            names_by_form.setdefault(form, set()).add(node)
+    collided = {form for form, names in names_by_form.items() if len(names) > 1}
+
+    rejected = {}
+    for path in paths:
+        for form, node in case_insensitive_nodes(path).items():
+            if form in collided:
+                rejected[path] = (node, min(name for name in names_by_form[form] if name != node))
+                break
+    return rejected
 
 
 def _storage_key_component(storage_key):

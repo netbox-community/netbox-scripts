@@ -13,7 +13,7 @@ import json
 import re
 
 from .exceptions import LimitExceededError, RevisionCorruptError, UnsafePathError
-from .paths import normalize_source_path
+from .paths import case_insensitive_collisions, normalize_source_path
 
 _SHA256 = re.compile(r'[0-9a-f]{64}')
 
@@ -87,12 +87,15 @@ def build_manifest(files, limits):
 
 def _reject_path_conflicts(entries):
     """
-    Return (kept_entries, errors) with every entry that collides with a file as a directory.
+    Return (kept_entries, errors) with every entry whose path cannot coexist in one tree.
 
     A source tree cannot hold both a file and a directory at one path, so "pkg" and
     "pkg/module.py" cannot both be stored. The writer would fail on whichever arrives
     second, and which one that is depends on mapping order, so the conflict is rejected
-    here as content rather than surfacing later as a filesystem error.
+    here as content rather than surfacing later as a filesystem error. Distinct names
+    sharing one case-insensitive form are rejected the same way, because the path policy
+    promises accepted paths stay materializable on every supported host and hosts such
+    as APFS compare names without case.
     """
     files = {entry['path'] for entry in entries}
     kept = []
@@ -111,7 +114,23 @@ def _reject_path_conflicts(entries):
                 'message': f'"{blocking}" is a file and cannot also contain another file.',
             }
         )
-    return kept, errors
+
+    collisions = case_insensitive_collisions(entry['path'] for entry in kept)
+    remaining = []
+    for entry in kept:
+        pair = collisions.get(entry['path'])
+        if pair is None:
+            remaining.append(entry)
+            continue
+        node, other = pair
+        errors.append(
+            {
+                'path': entry['path'],
+                'code': 'case_fold_conflict',
+                'message': f'"{node}" and "{other}" collide when letter case is ignored.',
+            }
+        )
+    return remaining, errors
 
 
 def _build_entry(canonical, content, max_file_size):
@@ -208,11 +227,12 @@ def _validate_entry(index, entry, paths):
 
 
 def _conflicting_paths(paths):
-    """Return a reason for every stored path whose own ancestor is stored as a file."""
+    """Return a reason for every stored path that cannot coexist with the others in one tree."""
     conflicts = []
     for path in sorted(paths):
         segments = path.split('/')
         ancestors = ('/'.join(segments[:index]) for index in range(1, len(segments)))
         if any(ancestor in paths for ancestor in ancestors):
             conflicts.append(f'path_conflict:{path}')
+    conflicts.extend(f'case_fold_conflict:{path}' for path in sorted(case_insensitive_collisions(paths)))
     return conflicts

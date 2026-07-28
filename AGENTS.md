@@ -405,6 +405,41 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 3. Tag and publish a GitHub release. `release.yml` builds and publishes to
    the internal artifact store.
 
+## Cloud and Enterprise compatibility (hard contract)
+
+NetBox Cloud and NetBox Enterprise run this plugin as immutable, horizontally
+scaled Kubernetes pods. Anything written outside a Django storage backend lands
+on one pod and is gone from the next request, so a revision staged by a web pod
+would be missing for the worker pod that has to execute it.
+
+- **Persist bytes through a Django storage backend, never the local filesystem.**
+  Project storage resolves its backend in `storage/config.py`, through the required
+  `netbox_custom_scripts` entry of `STORAGES`.
+- **No authoritative per-pod state.** A disposable, manifest-verified runtime
+  cache is supported, and it is the only layer that writes local executable
+  files. Cache content is regenerated from the authoritative store and verified
+  before import, never trusted because it exists.
+- **No management commands.** Neither platform can run one on demand. Use a data
+  migration or a `JobRunner` job.
+- **No in-process schedulers or background threads.** A pod is killed without
+  warning, so long-running work belongs in a job. Remote storage I/O stays out
+  of the committing process for the same reason, which is why deletion cleanup
+  is enqueued as a job. The cleanup Job commits inside the deleting transaction,
+  which binds these models to the default database, enforced across staging,
+  activation, and the deletion signal, and the Job repeats the routing safety
+  check when it runs.
+- **No per-pod application caches.** Redis is the shared cache on both
+  platforms. The runtime cache above is the deliberate exception, because
+  Python imports need a real directory tree.
+
+The contract is enforced by the backend contract tests in
+`netbox_custom_scripts/tests/storage/test_backend_contract.py`, which drive the
+storage lifecycle against backends without filesystem paths or directory
+semantics.
+
+Check this before designing anything that persists bytes. The concept sanctions
+it in section 6.3.
+
 ## Conventions and Patterns
 
 - **Plugin code stays in the plugin package.** Do not monkey-patch NetBox.

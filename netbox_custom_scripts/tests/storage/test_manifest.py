@@ -1,12 +1,10 @@
 import hashlib
-import pathlib
-import tempfile
 import unicodedata
 
 from django.test import TestCase
 
 from netbox_custom_scripts import constants
-from netbox_custom_scripts.storage import manifest, store
+from netbox_custom_scripts.storage import manifest
 from netbox_custom_scripts.storage.config import StorageLimits
 from netbox_custom_scripts.storage.exceptions import RevisionCorruptError
 
@@ -109,17 +107,16 @@ class ManifestTestCase(TestCase):
         self.assertEqual([entry['path'] for entry in entries], ['pkg/__init__.py', 'pkg/module.py'])
 
 
-class WalkerManifestBoundaryTestCase(TestCase):
-    def test_normalization_collision_from_walker_is_detected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / unicodedata.normalize('NFC', 'café.py')).write_bytes(b'one')
-            (root / unicodedata.normalize('NFD', 'café.py')).write_bytes(b'two')
-            if len(list(root.iterdir())) < 2:
-                self.skipTest('Filesystem normalizes Unicode filenames, so NFC and NFD collapse to one entry.')
-            files = dict(store.iter_directory_files(root, limits()))
-            self.assertEqual(len(files), 2)
-            entries, errors = manifest.build_manifest(files, limits())
+class NormalizationCollisionTestCase(TestCase):
+    def test_two_paths_differing_only_in_unicode_normalization_collide(self):
+        # A source that carries both forms of one name reaches the manifest as two keys, and
+        # only canonicalization can tell that they name one stored file.
+        files = {
+            unicodedata.normalize('NFC', 'café.py'): b'one',
+            unicodedata.normalize('NFD', 'café.py'): b'two',
+        }
+        self.assertEqual(len(files), 2)
+        entries, errors = manifest.build_manifest(files, limits())
         self.assertEqual([error['code'] for error in errors], ['duplicate_path'])
         self.assertEqual(len(entries), 1)
 

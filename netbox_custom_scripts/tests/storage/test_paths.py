@@ -1,4 +1,3 @@
-import pathlib
 import unicodedata
 import uuid
 
@@ -6,8 +5,6 @@ from django.test import TestCase
 
 from netbox_custom_scripts.storage import paths
 from netbox_custom_scripts.storage.exceptions import UnsafePathError
-
-PROJECT_ROOT = pathlib.Path('/ncs/projects')
 
 
 class PathSafetyTestCase(TestCase):
@@ -67,35 +64,67 @@ class PathSafetyTestCase(TestCase):
         self.assertEqual(paths.normalize_source_path(decomposed), composed)
         self.assertEqual(paths.normalize_source_path(decomposed), paths.normalize_source_path(composed))
 
-    def test_path_helpers_reject_unsafe_identifiers(self):
+
+class StorageKeyTestCase(TestCase):
+    """Cover the keys that name a project's content in a storage backend."""
+
+    storage_key = uuid.UUID('12345678-1234-5678-1234-567812345678')
+    digest = 'a' * 64
+
+    def test_the_keys_nest_project_then_revision_then_file(self):
+        self.assertEqual(
+            paths.project_prefix(self.storage_key),
+            f'{paths.STORAGE_PREFIX}/12345678-1234-5678-1234-567812345678/',
+        )
+        self.assertEqual(
+            paths.revision_prefix(self.storage_key, self.digest),
+            f'{paths.STORAGE_PREFIX}/12345678-1234-5678-1234-567812345678/revisions/{self.digest}/',
+        )
+        self.assertEqual(
+            paths.revision_key(self.storage_key, self.digest, 'scripts/hello.py'),
+            f'{paths.STORAGE_PREFIX}/12345678-1234-5678-1234-567812345678/revisions/{self.digest}/scripts/hello.py',
+        )
+
+    def test_every_key_sits_under_the_plugin_prefix(self):
+        # The configured backend may deliberately share a bucket with NetBox's media, so
+        # nothing may land beside the prefix.
+        for key in (
+            paths.project_prefix(self.storage_key),
+            paths.revision_prefix(self.storage_key, self.digest),
+            paths.revision_key(self.storage_key, self.digest, 'hello.py'),
+        ):
+            with self.subTest(key=key):
+                self.assertTrue(key.startswith(f'{paths.STORAGE_PREFIX}/'))
+
+    def test_the_complete_object_key_budget_stays_inside_the_s3_ceiling(self):
+        # S3 bounds the complete UTF-8 object key at 1024 bytes including every prefix. The
+        # plugin prefix plus a maximum-length source path must leave room for an operator's
+        # backend location, so the budget is pinned here where the pieces are defined.
+        prefix = len(paths.revision_prefix(self.storage_key, self.digest).encode('utf-8'))
+        self.assertLessEqual(prefix + paths.MAX_PATH_BYTES + 122, 1024)
+
+    def test_a_file_key_is_canonicalized_however_the_path_was_spelled(self):
+        expected = paths.revision_key(self.storage_key, self.digest, 'scripts/hello.py')
+        for raw in ('./scripts/hello.py', 'scripts//hello.py', 'scripts/./hello.py'):
+            with self.subTest(raw=raw):
+                self.assertEqual(paths.revision_key(self.storage_key, self.digest, raw), expected)
+
+    def test_a_file_key_refuses_a_path_that_would_leave_the_revision(self):
+        for raw in ('../escape.py', '/etc/passwd', 'scripts/../../escape.py'):
+            with self.subTest(raw=raw), self.assertRaises(UnsafePathError):
+                paths.revision_key(self.storage_key, self.digest, raw)
+
+    def test_the_key_builders_refuse_unsafe_identifiers(self):
         with self.assertRaises(UnsafePathError):
-            paths.project_directory(PROJECT_ROOT, '../etc')
-        with self.assertRaises(UnsafePathError):
-            paths.revision_directory(PROJECT_ROOT, '..', '../../escape')
-        valid_key = uuid.uuid4()
+            paths.project_prefix('../etc')
         for bad_digest in ('../../escape', 'g' * 64, 'abc/def', 'A' * 64):
             with self.subTest(bad_digest=bad_digest), self.assertRaises(UnsafePathError):
-                paths.revision_directory(PROJECT_ROOT, valid_key, bad_digest)
-        for bad_token in ('../escape', 'xyz', 'a/b'):
-            with self.subTest(bad_token=bad_token), self.assertRaises(UnsafePathError):
-                paths.staging_directory(PROJECT_ROOT, valid_key, bad_token)
+                paths.revision_prefix(self.storage_key, bad_digest)
 
-    def test_path_helpers_are_pure_functions_of_their_arguments(self):
-        storage_key = uuid.UUID('12345678-1234-5678-1234-567812345678')
-        digest = 'a' * 64
-        token = 'b' * 32
-        self.assertEqual(paths.project_directory(PROJECT_ROOT, storage_key), PROJECT_ROOT / str(storage_key))
+    def test_the_key_builders_are_pure_functions_of_their_arguments(self):
         self.assertEqual(
-            paths.revision_directory(PROJECT_ROOT, storage_key, digest),
-            PROJECT_ROOT / str(storage_key) / 'revisions' / digest,
-        )
-        self.assertEqual(
-            paths.staging_directory(PROJECT_ROOT, storage_key, token),
-            PROJECT_ROOT / str(storage_key) / 'staging' / token,
-        )
-        self.assertEqual(
-            paths.revision_directory(PROJECT_ROOT, storage_key, digest),
-            paths.revision_directory(PROJECT_ROOT, storage_key, digest),
+            paths.revision_key(self.storage_key, self.digest, 'scripts/hello.py'),
+            paths.revision_key(self.storage_key, self.digest, 'scripts/hello.py'),
         )
 
 
@@ -128,6 +157,16 @@ class SourcePathPolicyTestCase(TestCase):
         segments = ['d' * 60] * ((paths.MAX_PATH_BYTES // 61) + 2)
         with self.assertRaises(UnsafePathError) as ctx:
             paths.normalize_source_path('/'.join(segments) + '/mod.py')
+        self.assertEqual(ctx.exception.code, 'path_too_long')
+
+    def test_the_total_byte_limit_boundary_is_exact(self):
+        segments = ['d' * 200, 'e' * 200, 'f' * 200]
+        tail = 'x' * (paths.MAX_PATH_BYTES - sum(len(segment) + 1 for segment in segments) - 3) + '.py'
+        path = '/'.join([*segments, tail])
+        self.assertEqual(len(path.encode('utf-8')), paths.MAX_PATH_BYTES)
+        self.assertEqual(paths.normalize_source_path(path), path)
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.normalize_source_path(f'{path}x')
         self.assertEqual(ctx.exception.code, 'path_too_long')
 
     def test_rejects_a_path_over_the_depth_limit(self):

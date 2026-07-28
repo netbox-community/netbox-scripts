@@ -1,80 +1,45 @@
 """
 Cross-model side effects for the Custom Scripts plugin.
 
-Deleting a Custom Script Project or one of its revisions reclaims the matching directory
-from project storage. Each removal runs on transaction commit, so a delete that is rolled
-back leaves the stored tree in place, and each is registered as robust so one failing
-removal cannot stop the others queued by the same transaction.
+Deleting a Custom Script Project Revision reclaims its content from project storage through a
+background cleanup job. The revision's identity and manifest paths are read from the database
+while the row still exists, in a pre_delete receiver, and the post_delete receiver records the
+cleanup Job with that payload inside the transaction that deletes the row. Deletion and
+cleanup intent therefore commit or roll back together, and only the handoff to the queue
+waits for the commit, inside Job.enqueue(). The committing process still performs no storage
+I/O of its own, and a cleanup Job that cannot be recorded aborts the deletion, which fails
+closed on the side of keeping content. A captured manifest that cannot be validated aborts
+it the same way, because it is the only inventory of the keys to reclaim. That coupling
+exists on the default database only, so
+a deletion arriving on any other alias is refused rather than allowed to record cleanup
+intent that could commit independently.
 
-Which directory to remove is read from the database while the row still exists, in a
-pre_delete receiver, and the post_delete receiver uses nothing else. The instance handed to
-a delete can be stale or carry unsaved changes, and a storage key or digest taken from it
-would then name another object's content.
-
-Each callback is registered on the connection that performed the delete, so a plugin that
-routes these models to a connection of its own still gets cleanup at the right commit rather
-than immediately on the default connection.
-
-Cleanup is best effort by nature: the database rows are gone once the transaction commits,
-so a failed removal has nothing left to retry from. Reclaiming what these callbacks miss is
-the job of a future housekeeping reconciler.
+Deleting a Custom Script Project needs no receiver of its own: the cascade collects every
+revision it owns, and registering these receivers rules out Django's signal-free fast-delete
+path for the revision model, so each cascaded revision records its own cleanup.
 """
 
 import logging
 
-from django.db import transaction
+from django.core.exceptions import ImproperlyConfigured
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 
 from . import branching
-from .models import CustomScriptProject, CustomScriptProjectRevision
-from .storage import config, store
-from .storage.exceptions import StorageConfigurationError, StorageError
+from .jobs import ProjectStorageCleanupJob
+from .models import CustomScriptProjectRevision
+from .storage.exceptions import RevisionCorruptError
+from .storage.manifest import validate_manifest
 
 logger = logging.getLogger('netbox.plugins.netbox_custom_scripts.storage')
 
-# Where a pre_delete receiver parks the identity its post_delete partner will need.
+# Where the pre_delete receiver parks the identity its post_delete partner will need.
 CLEANUP_ATTRIBUTE = '_storage_cleanup'
 
 
-def _remove(operation, *arguments):
-    """
-    Run one storage removal, absorbing the failures that must not stop later cleanups.
-
-    The database rows are already gone by the time this runs, so there is nothing left to
-    retry from and nothing is gained by letting the exception escape. Both outcomes are
-    logged at warning level, because a directory that survives its object is a leak that
-    needs an operator or a future reconciler to clear.
-
-    Unsafe branching routing is the one case logged at error level rather than warning. The
-    others are refusals or gaps that leave content behind by design, while this one means the
-    deleted row may not have been the only row naming this source, so removing it could take
-    away content another schema still serves. Leaking a directory is recoverable, deleting live
-    source is not.
-    """
-    if reason := branching.unsafe_routing_reason():
-        logger.error(
-            'Skipping storage cleanup and leaving source on disk, because %s Removing it could '
-            'take away content another schema still serves: %s',
-            reason,
-            arguments,
-        )
-        return
-    try:
-        project_root = config.get_project_root()
-    except StorageConfigurationError:
-        logger.warning('Skipping storage cleanup because project storage is not configured: %s', arguments)
-        return
-    try:
-        operation(project_root, *arguments)
-    except (OSError, StorageError):
-        # StorageError covers a refusal, such as a symbolic link standing where a storage
-        # directory belongs. That content is deliberately left alone for an operator.
-        logger.warning('Storage cleanup failed and left content on disk: %s', arguments, exc_info=True)
-
-
 def _captured(instance, sender):
-    """Return what a pre_delete receiver recorded, or None once it has warned about the gap."""
+    """Return what the pre_delete receiver recorded, or None once it has warned about the gap."""
     captured = getattr(instance, CLEANUP_ATTRIBUTE, None)
     if captured is None:
         logger.warning(
@@ -87,51 +52,68 @@ def _captured(instance, sender):
 @receiver(pre_delete, sender=CustomScriptProjectRevision, dispatch_uid='netbox_custom_scripts.capture_revision')
 def capture_revision_storage(sender, instance, using, **kwargs):
     """
-    Record the identity a deleted revision's cleanup will need, taken from its own row.
+    Record the identity and manifest paths a deleted revision's cleanup will need.
 
-    A cascade sends every pre_delete before it deletes any row, so the owning project is
-    still readable here even when it is being deleted in the same pass. Reading the project
-    in post_delete instead would depend on the collector's ordering.
+    Everything is read from the revision's own row rather than from the instance, because the
+    instance handed to a delete can be stale or carry unsaved changes, and a storage key,
+    digest, or manifest taken from it would then name another object's content. A cascade
+    sends every pre_delete before it deletes any row, so the owning project is still readable
+    here even when it is being deleted in the same pass.
     """
     setattr(
         instance,
         CLEANUP_ATTRIBUTE,
         CustomScriptProjectRevision.objects.using(using)
         .filter(pk=instance.pk)
-        .values_list('digest', 'project__storage_key')
+        .values_list('digest', 'project__storage_key', 'manifest')
         .first(),
     )
 
 
 @receiver(post_delete, sender=CustomScriptProjectRevision, dispatch_uid='netbox_custom_scripts.cleanup_revision')
 def cleanup_revision_storage(sender, instance, using, **kwargs):
-    """Remove a deleted revision's directory once the delete commits."""
+    """Record a deleted revision's cleanup Job inside the transaction deleting the row."""
     captured = _captured(instance, sender)
     if captured is None:
         return
-    digest, storage_key = captured
-    # An invalid revision carries no digest and was never written to disk.
+    digest, storage_key, manifest = captured
+    # An invalid revision carries no digest and was never written to the store.
     if not digest:
         return
-    transaction.on_commit(
-        lambda: _remove(store.delete_revision_directory, storage_key, digest), using=using, robust=True
-    )
-
-
-@receiver(pre_delete, sender=CustomScriptProject, dispatch_uid='netbox_custom_scripts.capture_project')
-def capture_project_storage(sender, instance, using, **kwargs):
-    """Record the storage key a deleted project's cleanup will need, taken from its own row."""
-    setattr(
-        instance,
-        CLEANUP_ATTRIBUTE,
-        CustomScriptProject.objects.using(using).filter(pk=instance.pk).values_list('storage_key', flat=True).first(),
-    )
-
-
-@receiver(post_delete, sender=CustomScriptProject, dispatch_uid='netbox_custom_scripts.cleanup_project')
-def cleanup_project_storage(sender, instance, using, **kwargs):
-    """Remove a deleted project's whole storage tree once the delete commits."""
-    storage_key = _captured(instance, sender)
-    if storage_key is None:
+    # The captured manifest is input read back from a row, and it is the only inventory of
+    # the stored keys. One this receiver cannot trust aborts the delete, keeping the row and
+    # its inventory, the same fail-closed side a cleanup Job that cannot be recorded lands on.
+    try:
+        validate_manifest(manifest, digest)
+    except RevisionCorruptError as error:
+        raise RevisionCorruptError(
+            f'Refusing to delete revision {instance.pk}: its captured manifest cannot be '
+            'trusted, and it is the only inventory naming the stored content to reclaim.',
+            error.reasons,
+        ) from error
+    paths = [entry['path'] for entry in manifest]
+    # A manifest with no entries stored no keys, so there is nothing to reclaim.
+    if not paths:
         return
-    transaction.on_commit(lambda: _remove(store.delete_project_directory, storage_key), using=using, robust=True)
+    # Unsafe branching routing is logged at error level rather than warning, because the
+    # deleted row may not have been the only row naming this source, so removing the
+    # content could take away what another schema still serves. Leaking content is
+    # recoverable, deleting live source is not.
+    if reason := branching.unsafe_routing_reason():
+        logger.error(
+            'Skipping storage cleanup and leaving source in the store, because %s Removing '
+            'it could take away content another schema still serves: %s %s',
+            reason,
+            storage_key,
+            digest,
+        )
+        return
+    # The Job row and its queue handoff bind to the default connection in the core Job
+    # API, so cleanup recorded for a delete on any other alias could commit independently.
+    if using != DEFAULT_DB_ALIAS:
+        raise ImproperlyConfigured(
+            f'Custom Script Project revisions must live on the "{DEFAULT_DB_ALIAS}" database. '
+            f'This revision was deleted on "{using}", where its cleanup Job cannot be recorded '
+            'in the same transaction.'
+        )
+    ProjectStorageCleanupJob.enqueue_cleanup(storage_key=storage_key, digest=digest, paths=paths)

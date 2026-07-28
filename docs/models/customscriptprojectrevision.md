@@ -54,7 +54,7 @@ Storing a source tree and judging it fit to execute are separate steps, owned by
 separate services.
 
 - **The storage service** takes a revision as far as `materialized`, meaning the
-  tree is on disk and matches its manifest.
+  tree is stored and matches its manifest.
 - **Project validation** promotes a materialized revision to `valid` or
   `invalid`, based on Python imports, declared entrypoints, dependency checks,
   and Script discovery. That service arrives with the project package loader, so
@@ -65,7 +65,7 @@ separate services.
 |---|---|---|
 | (new) | `staging` | The manifest was accepted and the write begins |
 | `staging` | `materialized` | The source tree was written and verified against its manifest |
-| `staging` | `storage_failed` | The filesystem write failed, which is retryable |
+| `staging` | `storage_failed` | The storage write failed, which is retryable |
 | `storage_failed` | `staging` | Re-staging identical content resumes the write |
 | (new) | `invalid` | The submitted content was rejected, so nothing was written |
 | `materialized` | `validating` | Project validation started |
@@ -84,8 +84,8 @@ Re-staging identical content resumes an interrupted or failed write, but never
 reopens a verdict. A revision that project validation marked `invalid` keeps its
 errors and stays `invalid`, because only the validator may move it.
 
-A retired revision can be activated again, since its source tree is still on
-disk and is verified before it is served.
+A retired revision can be activated again, since its source tree is still in
+the store and is verified before it is served.
 
 ## Invariants
 
@@ -111,34 +111,58 @@ but not immutability.
 
 ## Storage layout
 
-A revision's files live under the configured `project_root`, at
-`<storage_key>/revisions/<digest>/`, where `storage_key` belongs to the owning
-project. The path is a pure function of those two values, with no request,
-branch, or schema context, so a stored file resolves identically on every node.
-See [Configuration](../configuration.md) for the storage settings and the trust
-boundary that applies to them.
+A revision's files live in the storage backend the plugin is configured to use,
+one key per file, under
+`netbox-custom-scripts/<storage_key>/revisions/<digest>/`, where `storage_key`
+belongs to the owning project. The key is a pure function of those values, with
+no request, branch, or schema context, so a stored file resolves identically on
+every node and in every pod. See [Configuration](../configuration.md) for the
+backend and the trust boundary that applies to it.
 
-Existence of a directory is never taken as proof that its contents are intact. A
+Nothing about a key existing is taken as proof that its content is intact. A
 stored tree is verified against its manifest as soon as it is written, before a
 staging call reuses it, and before a revision is activated, and a mismatch is
-reported rather than repaired, so tampering cannot pass silently. Verification
-covers directories as well as files: an unexpected directory can act as an
-importable namespace package, so anything the manifest does not describe is a
-mismatch.
+reported rather than repaired, so tampering cannot pass silently. The manifest
+is the whole boundary: only the keys it names are ever read, materialized, or
+executed, so a key it does not describe is inert rather than importable.
+Reclaiming such strays belongs to the housekeeping reconciler planned for a
+later release.
 
-Deleting a revision removes its digest directory, and deleting a project removes
-its whole tree. Both removals run when the database transaction commits, and on
-the connection that performed the delete, so a rolled-back delete leaves the
-stored tree in place. Bulk `QuerySet.delete()` reclaims storage too, because
-registering the cleanup receivers rules out Django's signal-free fast-delete
-path.
+No backend can make a whole tree appear at once, so a revision being written is
+visible under its prefix while it is still incomplete. The status is what says
+whether the content is finished, and verification is what confirms it. That also
+makes a write safe to repeat: a key already holding the recorded size and
+checksum is left alone, and one holding anything else is replaced, so an
+interrupted write is completed by the next attempt rather than blocking it.
 
-Cleanup is best effort. The database rows are gone once the transaction commits,
-so a removal that fails has nothing left to retry from. Failures are logged at
-warning level and do not block the other removals queued by the same
-transaction. Reclaiming what they miss is left to a future housekeeping
-reconciler, which will also clear staging directories abandoned by a worker that
-was killed mid-write.
+Deleting a revision reclaims its stored content through a background cleanup
+job. The exact keys to remove are captured from the revision's manifest while
+its row still exists, and the cleanup job carrying that payload is written in
+the same database transaction that deletes the row, so deletion and cleanup
+intent commit or roll back together and a rolled-back delete leaves the content
+in place with no orphaned job behind. Only the handoff to the queue waits for
+the commit, which keeps remote storage I/O out of the deleting process. That
+coupling holds on the default database, which is where these models live.
+Staging, activation, and deletion refuse any other database alias, so no
+revision can exist whose deletion could not record its cleanup. Deleting a
+project works the same way, because the cascade deletes each of its revisions
+and every one records its own cleanup. Bulk `QuerySet.delete()` reclaims
+storage too, because registering the cleanup receivers rules out Django's
+signal-free fast-delete path.
+
+Cleanup is idempotent and observable. A key that is already gone counts as
+removed, so a cleanup that failed partway can be run again and finishes the
+remainder. A failure surfaces as a failed background job whose log names the
+keys it left behind, and the job keeps its full cleanup payload, the storage
+key, digest, and file paths, so the work can be reconstructed and run again
+once the backend is reachable. The job also repeats the branching routing
+check before it removes anything, and a run that finds routing unsafe fails
+while leaving the content in place. Reclaiming
+anything the jobs miss is left to a future housekeeping reconciler. On a
+backend that keeps real directories, such as a local filesystem, removing every
+key can leave the empty directories behind, since the Django storage API has no
+way to remove one. They hold no content and the reconciler is the right owner
+for them.
 
 ## Limitations
 
@@ -147,4 +171,4 @@ was killed mid-write.
 | No UI, REST, or GraphQL surface | Revisions can only be created by the storage service, which no user-facing view calls yet |
 | Nothing advances past `materialized` | Project validation arrives with the package loader, so no revision can be activated in this release |
 | An active revision cannot be deleted | Its project protects it. Activate another revision first, or delete the project |
-| Staging is not serialized against itself or against deletion | Concurrent staging of one digest, or a project deleted mid-write, can leave the database and the filesystem briefly disagreeing. No caller in this release runs concurrently, and one shared locking model arrives with the first ones |
+| Staging is not serialized against itself or against deletion | Concurrent staging of one digest, or a project deleted mid-write, can leave the database and the store briefly disagreeing. The same boundary owns the queued-cleanup race: content re-staged while a deleted twin's cleanup Job is still pending can be removed by that Job once it runs. No caller in this release runs concurrently, and one shared locking model arrives with the first ones |

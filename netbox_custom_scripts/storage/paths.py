@@ -1,5 +1,5 @@
 """
-Safe handling of project source paths and the on-disk storage layout.
+Safe handling of project source paths and the storage layout built from them.
 
 Every function is a pure function of its arguments, so a stored file always hashes and
 lands identically across hosts and regardless of any request or schema context.
@@ -8,23 +8,29 @@ lands identically across hosts and regardless of any request or schema context.
 import re
 import unicodedata
 import uuid
-from pathlib import Path, PureWindowsPath
+from pathlib import PureWindowsPath
 
 from .exceptions import UnsafePathError
 
 _HEX_DIGEST = re.compile(r'^[0-9a-f]{64}$')
-_STAGING_TOKEN = re.compile(r'^[0-9a-f]{32}$')
 
 # Portability floors for a source path, deliberately fixed rather than configurable. These
 # are not capacity limits to be tuned: a path that clears them has to remain writable, walkable
 # and removable on every supported host, and importable by the loader that comes later.
-# NAME_MAX is 255 bytes on ext4, XFS, and APFS. The whole-path bound leaves room for the
-# project root and the revision digest to be prefixed while staying well under PATH_MAX. The
-# depth bound sits far above any real Python package and keeps tree walking clear of both the
-# descriptor and the recursion ceilings.
+# NAME_MAX is 255 bytes on ext4, XFS, and APFS. The whole-path bound budgets for the complete
+# object key: S3 caps it at 1024 UTF-8 bytes including every prefix, this plugin's own prefix
+# spends 134 of them (netbox-custom-scripts/ 22, project UUID and slash 37, revisions/ 10,
+# digest and slash 65), and 768 for the source path leaves 122 for an operator's backend
+# location. One fixed floor beats a per-backend policy engine. The depth bound sits far above
+# any real Python package and keeps walking a stored revision clear of the recursion ceiling.
 MAX_PATH_COMPONENT_BYTES = 255
-MAX_PATH_BYTES = 1024
+MAX_PATH_BYTES = 768
 MAX_PATH_DEPTH = 64
+
+# Every key this plugin stores sits under one prefix, so project source stays apart from
+# anything else on the backend, including on an entry an operator deliberately pointed at
+# the same bucket or directory that holds NetBox's media.
+STORAGE_PREFIX = 'netbox-custom-scripts'
 
 
 def normalize_source_path(path):
@@ -89,24 +95,37 @@ def normalize_source_path(path):
     return canonical
 
 
-def project_directory(project_root, storage_key):
-    """Return the on-disk directory that holds every revision of one project."""
+def _storage_key_component(storage_key):
+    """Return one project's storage key as the canonical UUID string that names its content."""
     try:
-        key = str(uuid.UUID(str(storage_key)))
+        return str(uuid.UUID(str(storage_key)))
     except (ValueError, AttributeError, TypeError):
         raise UnsafePathError(str(storage_key), 'escapes_root', 'The storage key must be a UUID.') from None
-    return Path(project_root) / key
 
 
-def revision_directory(project_root, storage_key, digest):
-    """Return the on-disk directory for one immutable revision of a project."""
+def _digest_component(digest):
+    """Return one revision's digest, confirmed to be the 64 lowercase hex characters it must be."""
     if not isinstance(digest, str) or not _HEX_DIGEST.fullmatch(digest):
         raise UnsafePathError(str(digest), 'escapes_root', 'The revision digest must be 64 lowercase hex characters.')
-    return project_directory(project_root, storage_key) / 'revisions' / digest
+    return digest
 
 
-def staging_directory(project_root, storage_key, token):
-    """Return the scratch directory used while a revision is being written to disk."""
-    if not isinstance(token, str) or not _STAGING_TOKEN.fullmatch(token):
-        raise UnsafePathError(str(token), 'escapes_root', 'The staging token must be a 32-character hex string.')
-    return project_directory(project_root, storage_key) / 'staging' / token
+def project_prefix(storage_key):
+    """Return the storage key prefix holding every stored revision of one project."""
+    return f'{STORAGE_PREFIX}/{_storage_key_component(storage_key)}/'
+
+
+def revision_prefix(storage_key, digest):
+    """Return the storage key prefix holding one immutable revision's content."""
+    return f'{project_prefix(storage_key)}revisions/{_digest_component(digest)}/'
+
+
+def revision_key(storage_key, digest, path):
+    """
+    Return the storage key of one file inside a stored revision.
+
+    The path is canonicalized here rather than taken on trust, so one key names one object
+    however the caller spelled the path, and every rule normalize_source_path enforces applies
+    to a key handed to a backend this plugin does not control.
+    """
+    return f'{revision_prefix(storage_key, digest)}{normalize_source_path(path)}'

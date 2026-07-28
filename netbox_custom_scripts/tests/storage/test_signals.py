@@ -1,18 +1,25 @@
 import contextlib
 import hashlib
-import pathlib
-import tempfile
 from unittest import mock
 
-from django.db import DEFAULT_DB_ALIAS, router, transaction
+from django.core.exceptions import ImproperlyConfigured
+from django.db import DEFAULT_DB_ALIAS, transaction
 from django.test import TestCase, override_settings
 
+from core.models import Job
 from netbox_custom_scripts import signals
 from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
-from netbox_custom_scripts.storage import store
+from netbox_custom_scripts.storage import config, store
+from netbox_custom_scripts.storage.exceptions import RevisionCorruptError
 from netbox_custom_scripts.storage.manifest import compute_digest
-from netbox_custom_scripts.storage.paths import project_directory, revision_directory
+from netbox_custom_scripts.storage.paths import revision_prefix
+
+IN_MEMORY_STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    'netbox_custom_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+}
 
 LOGGER = 'netbox.plugins.netbox_custom_scripts.storage'
 
@@ -25,8 +32,8 @@ def manifest_for(source):
     ]
 
 
-# Two distinct trees, because a revision directory is named by the digest of its content and
-# the store now refuses a digest that does not address the manifest stored under it.
+# Two distinct trees, because a revision prefix is named by the digest of its content and
+# the store refuses a digest that does not address the manifest stored under it.
 SOURCE_A = {'hello.py': b'print("hi")\n'}
 SOURCE_B = {'hello.py': b'print("bye")\n'}
 MANIFEST_A = manifest_for(SOURCE_A)
@@ -39,183 +46,180 @@ STORED = {DIGEST_A: (SOURCE_A, MANIFEST_A), DIGEST_B: (SOURCE_B, MANIFEST_B)}
 class CleanupFixtureMixin:
     def setUp(self):
         super().setUp()
-        self.root = self.enterContext(tempfile.TemporaryDirectory())
-        self.enterContext(override_settings(PLUGINS_CONFIG={'netbox_custom_scripts': {'project_root': self.root}}))
+        self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
+        self.storage = config.get_storage()
         self.project = CustomScriptProject.objects.create(name='Cleanup Project', key='cleanup-project')
 
-    def project_path(self, project=None):
-        return project_directory(self.root, (project or self.project).storage_key)
+    def revision_stored(self, digest, project=None):
+        """Report whether one revision's single source file is still stored."""
+        prefix = revision_prefix((project or self.project).storage_key, digest)
+        return self.storage.exists(f'{prefix}hello.py')
 
-    def revision_path(self, digest, project=None):
-        return revision_directory(self.root, (project or self.project).storage_key, digest)
-
-    def make_revision(self, digest, on_disk=True, project=None):
+    def make_revision(self, digest, stored=True, project=None):
         project = project or self.project
-        if on_disk:
+        entries = STORED[digest][1] if digest else []
+        if stored:
             source, entries = STORED[digest]
-            store.write_staged_revision(self.root, project.storage_key, digest, source, entries)
+            store.write_revision(self.storage, project.storage_key, digest, source, entries)
         status = RevisionStatusChoices.VALID if digest else RevisionStatusChoices.INVALID
-        return CustomScriptProjectRevision.objects.create(project=project, digest=digest, status=status)
+        return CustomScriptProjectRevision.objects.create(
+            project=project, digest=digest, status=status, manifest=entries
+        )
+
+    def capture_enqueues(self):
+        """Patch the cleanup job's durable enqueue, so a test asserts the handoff without RQ."""
+        return mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup')
 
 
 class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
-    def test_deleting_revision_removes_its_digest_directory(self):
+    def test_deleting_a_revision_enqueues_cleanup_with_its_row_identity(self):
         first = self.make_revision(DIGEST_A)
         self.make_revision(DIGEST_B)
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             first.delete()
-        self.assertFalse(self.revision_path(DIGEST_A).exists())
-        self.assertTrue(self.revision_path(DIGEST_B).is_dir())
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_A, paths=['hello.py'])
 
-    def test_deleting_project_removes_entire_storage_key_tree(self):
+    def test_deleting_a_project_enqueues_cleanup_for_every_cascaded_revision(self):
+        # Project deletion has no receiver of its own: the cascade collects each revision and
+        # fires its receivers, because registering them rules out the fast-delete path.
         self.make_revision(DIGEST_A)
         self.make_revision(DIGEST_B)
-        stored = self.project_path()
-        self.assertTrue(stored.is_dir())
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             self.project.delete()
-        self.assertFalse(stored.exists())
+        self.assertEqual(sorted(call.kwargs['digest'] for call in enqueue.call_args_list), sorted((DIGEST_A, DIGEST_B)))
 
-    def test_deleting_invalid_revision_schedules_no_cleanup(self):
-        revision = self.make_revision(None, on_disk=False)
-        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+    def test_deleting_an_invalid_revision_schedules_no_cleanup(self):
+        revision = self.make_revision(None, stored=False)
+        with self.capture_enqueues() as enqueue:
             revision.delete()
-        self.assertEqual(callbacks, [])
+        enqueue.assert_not_called()
 
-    def test_unsafe_branching_routing_leaves_the_source_on_disk(self):
-        # The row deleted here may not be the only row naming this source, so removing it could
-        # take content away from a schema that still serves it. Leaking a directory is
-        # recoverable, deleting live source is not.
+    def test_a_revision_with_no_manifest_entries_schedules_no_cleanup(self):
+        # A manifest with no entries stored no keys, so a cleanup job would have nothing to do.
+        revision = CustomScriptProjectRevision.objects.create(
+            project=self.project, digest=compute_digest([]), status=RevisionStatusChoices.VALID, manifest=[]
+        )
+        with self.capture_enqueues() as enqueue:
+            revision.delete()
+        enqueue.assert_not_called()
+
+    def test_a_malformed_captured_manifest_fails_the_delete_closed(self):
+        # The captured manifest is the only inventory of the stored keys, so a shape this
+        # receiver cannot trust aborts the delete rather than crashing or guessing.
         revision = self.make_revision(DIGEST_A)
-        stored = self.revision_path(DIGEST_A)
+        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=[{'path': 'hello.py'}])
+        with self.capture_enqueues() as enqueue, self.assertRaises(RevisionCorruptError), transaction.atomic():
+            revision.delete()
+        enqueue.assert_not_called()
+        self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=revision.pk).exists())
+        self.assertTrue(self.revision_stored(DIGEST_A))
+
+    def test_a_manifest_that_does_not_address_its_digest_fails_the_delete_closed(self):
+        revision = self.make_revision(DIGEST_A)
+        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=MANIFEST_B)
+        with self.capture_enqueues() as enqueue, self.assertRaises(RevisionCorruptError), transaction.atomic():
+            revision.delete()
+        enqueue.assert_not_called()
+        self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=revision.pk).exists())
+
+    def test_unsafe_branching_routing_leaves_the_source_in_the_store(self):
+        # The row deleted here may not be the only row naming this source, so removing it could
+        # take content away from a schema that still serves it. Leaking content is recoverable,
+        # deleting live source is not.
+        revision = self.make_revision(DIGEST_A)
         with (
             mock.patch.object(signals.branching, 'unsafe_routing_reason', return_value='Routing is unsafe.'),
+            self.capture_enqueues() as enqueue,
             self.assertLogs(signals.logger, 'ERROR') as logged,
-            self.captureOnCommitCallbacks(execute=True),
         ):
             revision.delete()
-        self.assertTrue(stored.is_dir())
-        self.assertIn('leaving source on disk', logged.output[0])
+        enqueue.assert_not_called()
+        self.assertTrue(self.revision_stored(DIGEST_A))
+        self.assertIn('leaving source in the store', logged.output[0])
 
-    def test_unsafe_branching_routing_leaves_a_deleted_projects_tree_on_disk(self):
-        self.make_revision(DIGEST_A)
-        stored = self.project_path()
+    def test_a_delete_on_a_non_default_alias_fails_closed(self):
+        # The core Job API binds the row and its queue callback to the default connection,
+        # so recording cleanup for another alias could commit it independently.
+        revision = self.make_revision(DIGEST_A)
+        signals.capture_revision_storage(CustomScriptProjectRevision, revision, using=DEFAULT_DB_ALIAS)
+        with self.assertRaises(ImproperlyConfigured) as ctx:
+            signals.cleanup_revision_storage(CustomScriptProjectRevision, revision, using='replica')
+        self.assertIn('replica', str(ctx.exception))
+        self.assertEqual(Job.objects.count(), 0)
+        self.assertTrue(self.revision_stored(DIGEST_A))
+
+    def test_unsafe_branching_routing_skips_before_the_alias_contract(self):
+        # A branch alias under broken routing hits the settled skip-and-log path, the
+        # alias contract only refuses deletes that branching would have allowed.
+        revision = self.make_revision(DIGEST_A)
+        signals.capture_revision_storage(CustomScriptProjectRevision, revision, using=DEFAULT_DB_ALIAS)
         with (
             mock.patch.object(signals.branching, 'unsafe_routing_reason', return_value='Routing is unsafe.'),
             self.assertLogs(signals.logger, 'ERROR'),
-            self.captureOnCommitCallbacks(execute=True),
         ):
-            self.project.delete()
-        self.assertTrue(stored.is_dir())
+            signals.cleanup_revision_storage(CustomScriptProjectRevision, revision, using='replica')
+        self.assertEqual(Job.objects.count(), 0)
+        self.assertTrue(self.revision_stored(DIGEST_A))
 
-    def test_cleanup_tolerates_already_missing_directories(self):
-        revision = self.make_revision(DIGEST_A, on_disk=False)
-        with self.captureOnCommitCallbacks(execute=True) as callbacks:
-            revision.delete()
-        self.assertEqual(len(callbacks), 1)
-        self.assertFalse(self.revision_path(DIGEST_A).exists())
-
-    def test_cleanup_does_not_run_if_transaction_rolls_back(self):
+    def test_a_rolled_back_delete_rolls_the_cleanup_job_back_with_it(self):
         revision = self.make_revision(DIGEST_A)
         # Django clears the instance pk on delete, so the row is looked up by a saved copy.
         revision_pk = revision.pk
-        # The contexts exit in reverse order, so the savepoint rolls back and drops its
-        # queued callback before the capture block would have executed it.
+        # The Job row is written inside the deleting transaction, so the savepoint rollback
+        # discards it together with the queue callback Job.enqueue() registered.
         with (
-            self.captureOnCommitCallbacks(execute=True) as callbacks,
+            self.captureOnCommitCallbacks() as callbacks,
             contextlib.suppress(RuntimeError),
             transaction.atomic(),
         ):
             revision.delete()
+            self.assertEqual(Job.objects.count(), 1)
             raise RuntimeError('rolled back on purpose')
         self.assertEqual(callbacks, [])
-        self.assertTrue(self.revision_path(DIGEST_A).is_dir())
+        self.assertEqual(Job.objects.count(), 0)
+        self.assertTrue(self.revision_stored(DIGEST_A))
         self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=revision_pk).exists())
 
-    def test_cleanup_failure_does_not_stop_later_callbacks(self):
-        # The rows are already gone once these run, so one failing removal must not take the
-        # others with it.
+    def test_a_failed_cleanup_enqueue_rolls_back_the_deletion(self):
+        # Recording cleanup intent is part of the deletion now. A Job that cannot be created
+        # aborts the delete, which fails closed on the side of keeping rows and content.
         self.make_revision(DIGEST_A)
         self.make_revision(DIGEST_B)
-        calls = []
+        with self.capture_enqueues() as enqueue:
+            enqueue.side_effect = RuntimeError('the Job row could not be created')
+            with self.assertRaises(RuntimeError), transaction.atomic():
+                self.project.delete()
+        self.assertEqual(CustomScriptProjectRevision.objects.count(), 2)
+        self.assertTrue(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertTrue(self.revision_stored(DIGEST_A))
+        self.assertTrue(self.revision_stored(DIGEST_B))
 
-        def flaky(project_root, storage_key, digest):
-            calls.append(digest)
-            if len(calls) == 1:
-                raise PermissionError('read-only file system')
-
-        with (
-            mock.patch.object(store, 'delete_revision_directory', flaky),
-            self.assertLogs(LOGGER, level='WARNING') as logs,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            self.project.delete()
-
-        self.assertEqual(len(calls), 2)
-        self.assertTrue(any('cleanup failed' in message for message in logs.output))
-        self.assertFalse(self.project_path().exists())
-
-    def test_cleanup_registers_on_the_alias_that_performed_the_delete(self):
-        # on_commit runs a callback immediately when its connection has no open transaction,
-        # so registering on the wrong alias would delete a tree before the delete commits.
-        self.make_revision(DIGEST_A)
-        expected = router.db_for_write(CustomScriptProject, instance=self.project)
-        with mock.patch('netbox_custom_scripts.signals.transaction.on_commit') as on_commit:
-            self.project.delete()
-        self.assertTrue(on_commit.call_args_list)
-        for call in on_commit.call_args_list:
-            self.assertEqual(call.kwargs['using'], expected)
-            self.assertTrue(call.kwargs['robust'])
-
-    def test_project_cleanup_threads_the_alias_the_signal_supplied(self):
-        # A foreign alias shows the value is carried through from the signal rather than
-        # resolved again against the default connection.
-        signals.capture_project_storage(CustomScriptProject, self.project, using=DEFAULT_DB_ALIAS)
-        with mock.patch('netbox_custom_scripts.signals.transaction.on_commit') as on_commit:
-            signals.cleanup_project_storage(CustomScriptProject, self.project, using='schema_example')
-        self.assertEqual(on_commit.call_args.kwargs['using'], 'schema_example')
-        self.assertTrue(on_commit.call_args.kwargs['robust'])
+    def test_the_cleanup_job_commits_with_the_deletion(self):
+        # Callbacks have not run inside this block, so a process lost here has already
+        # persisted the Job and its inventory. Only the queue handoff is still pending.
+        revision = self.make_revision(DIGEST_A)
+        with self.captureOnCommitCallbacks() as callbacks:
+            revision.delete()
+            self.assertFalse(CustomScriptProjectRevision.objects.exists())
+            job = Job.objects.get()
+            self.assertEqual(
+                job.data,
+                {'storage_key': str(self.project.storage_key), 'digest': DIGEST_A, 'paths': ['hello.py']},
+            )
+        self.assertEqual(len(callbacks), 1)
 
     def test_cleanup_is_skipped_when_nothing_was_captured(self):
         # post_delete without its pre_delete partner has no trustworthy identity to act on,
-        # so it warns and removes nothing rather than guessing from the instance.
+        # so it warns and records nothing rather than guessing from the instance.
+        revision = self.make_revision(DIGEST_A)
+        bare = CustomScriptProjectRevision(pk=revision.pk)
         with (
             self.assertLogs(LOGGER, level='WARNING') as logs,
-            mock.patch('netbox_custom_scripts.signals.transaction.on_commit') as on_commit,
+            self.capture_enqueues() as enqueue,
         ):
-            signals.cleanup_project_storage(CustomScriptProject, self.project, using=DEFAULT_DB_ALIAS)
-        on_commit.assert_not_called()
+            signals.cleanup_revision_storage(CustomScriptProjectRevision, bare, using=DEFAULT_DB_ALIAS)
+        enqueue.assert_not_called()
         self.assertTrue(any('was not captured' in message for message in logs.output))
-
-    def test_cleanup_refuses_a_symlinked_project_directory(self):
-        # A refusal arrives as a StorageError rather than an OSError, and it must be logged
-        # and absorbed like any other failed removal instead of escaping the callback.
-        outside = pathlib.Path(self.root) / 'outside'
-        (outside / 'revisions' / DIGEST_A).mkdir(parents=True)
-        (outside / 'revisions' / DIGEST_A / 'keep.py').write_bytes(b'not ours')
-        revision = self.make_revision(DIGEST_A, on_disk=False)
-        self.project_path().symlink_to(outside, target_is_directory=True)
-
-        with (
-            self.assertLogs(LOGGER, level='WARNING') as logs,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            revision.delete()
-
-        self.assertTrue((outside / 'revisions' / DIGEST_A / 'keep.py').exists())
-        self.assertTrue(any('left content on disk' in message for message in logs.output))
-
-    def test_cleanup_is_skipped_when_storage_is_not_configured(self):
-        self.make_revision(DIGEST_A)
-        stored = self.project_path()
-        with (
-            override_settings(PLUGINS_CONFIG={'netbox_custom_scripts': {}}),
-            self.assertLogs(LOGGER, level='DEBUG') as logs,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            self.project.delete()
-        self.assertTrue(stored.is_dir())
-        self.assertTrue(any('not configured' in message for message in logs.output))
 
 
 class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
@@ -224,11 +228,11 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
 
     A delete removes the row named by the primary key, so the rest of the caller's instance
     can be stale or carry unsaved edits without the delete itself noticing. Cleanup that read
-    those fields would remove another object's content.
+    those fields would enqueue the removal of another object's content.
     """
 
     def other_project(self):
-        """Return a second project with its own revision tree already on disk."""
+        """Return a second project with its own revision tree already stored."""
         other = CustomScriptProject.objects.create(name='Other Cleanup', key='other-cleanup')
         self.make_revision(DIGEST_A, project=other)
         return other
@@ -244,56 +248,47 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
         revision.save()
         CustomScriptProject.objects.filter(pk=self.project.pk).update(active_revision=revision)
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             stale.delete()
         self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
-        self.assertFalse(self.project_path().exists())
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_A, paths=['hello.py'])
 
-    def test_a_mutated_storage_key_cannot_remove_another_projects_tree(self):
+    def test_a_mutated_storage_key_cannot_remove_another_projects_content(self):
         other = self.other_project()
-        other_tree = self.project_path(other)
-        own_tree = self.project_path()
         self.make_revision(DIGEST_B)
+        own_key = self.project.storage_key
 
         # storage_key is editable=False, so this is deliberate tampering rather than something
         # a form or serializer can do. Cleanup still has to take its own row's word for it.
         self.project.storage_key = other.storage_key
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             self.project.delete()
+        enqueue.assert_called_once_with(storage_key=own_key, digest=DIGEST_B, paths=['hello.py'])
 
-        self.assertTrue(other_tree.is_dir())
-        self.assertTrue((other_tree / 'revisions' / DIGEST_A).is_dir())
-        self.assertFalse(own_tree.exists())
-
-    def test_a_mutated_digest_cannot_remove_another_revisions_tree(self):
+    def test_a_mutated_digest_cannot_remove_another_revisions_content(self):
         keep = self.make_revision(DIGEST_A)
         target = self.make_revision(DIGEST_B)
 
         target.digest = DIGEST_A
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             target.delete()
-
-        self.assertTrue(self.revision_path(DIGEST_A).is_dir())
-        self.assertFalse(self.revision_path(DIGEST_B).exists())
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_B, paths=['hello.py'])
         self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=keep.pk).exists())
 
     def test_a_mutated_project_cannot_remove_another_projects_revision(self):
         other = self.other_project()
-        other_tree = revision_directory(self.root, other.storage_key, DIGEST_A)
         target = self.make_revision(DIGEST_B)
 
         target.project = other
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             target.delete()
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_B, paths=['hello.py'])
 
-        self.assertTrue(other_tree.is_dir())
-        self.assertFalse(self.revision_path(DIGEST_B).exists())
-
-    def test_a_cascade_removes_every_revision_directory(self):
+    def test_a_cascade_enqueues_cleanup_for_every_revision(self):
         # The revision receiver reads its project while both rows are still present, which a
         # cascade guarantees only because every pre_delete runs before the first delete.
         self.make_revision(DIGEST_A)
         self.make_revision(DIGEST_B)
-        with self.captureOnCommitCallbacks(execute=True):
+        with self.capture_enqueues() as enqueue:
             self.project.delete()
-        self.assertFalse(self.project_path().exists())
+        self.assertEqual(enqueue.call_count, 2)

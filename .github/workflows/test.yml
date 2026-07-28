@@ -68,6 +68,9 @@ jobs:
       NETBOX_CONFIGURATION: configuration
       PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
       COVERAGE_RCFILE: ${{ github.workspace }}/netbox-custom-scripts/pyproject.toml  # yamllint disable-line rule:line-length
+      # S3 support is a hard platform contract, so CI fails loudly when the
+      # S3 test stack is missing instead of silently skipping that coverage.
+      REQUIRE_S3_TESTS: '1'
     strategy:
       fail-fast: false
       matrix:

@@ -62,6 +62,7 @@ dev = [
 test = [
     "check-manifest==0.51",
     "coverage[toml]==7.6.10",
+    "moto[s3]==5.2.2",
     "tblib==3.2.2",
 ]
 docs = [

@@ -3,8 +3,6 @@
 #  only. It is not intended for production use.                   #
 ###################################################################
 
-import tempfile
-
 ALLOWED_HOSTS = ['*']
 
 DATABASE = {
@@ -21,9 +19,15 @@ PLUGINS = [
 ]
 
 PLUGINS_CONFIG = {
+    'netbox_custom_scripts': {},
+}
+
+# The plugin's storage entry is required. InMemoryStorage keeps the suite off the
+# filesystem, and tests that need a backend of their own override STORAGES themselves.
+# NetBox merges this with its built-in aliases, so defining only this entry is safe.
+STORAGES = {
     'netbox_custom_scripts': {
-        'project_root': tempfile.mkdtemp(prefix='ncs-project-root-'),
-        'runtime_cache_root': tempfile.mkdtemp(prefix='ncs-runtime-cache-'),
+        'BACKEND': 'django.core.files.storage.InMemoryStorage',
     },
 }
 
@@ -51,5 +55,5 @@ API_TOKEN_PEPPERS = {
 }
 
 # NetBox's manage.py makemigrations refuses to run in non-developer setups.
-# This testing config is dev/test only; safe to enable unconditionally.
+# This testing config is dev/test only, so enabling it unconditionally is safe.
 DEVELOPER = True

@@ -1,740 +1,495 @@
-import contextlib
 import hashlib
-import os
-import pathlib
-import shutil
-import tempfile
 import uuid
-from unittest import mock
 
+from django.core.files.base import ContentFile
+from django.core.files.storage import InMemoryStorage
 from django.test import TestCase
 
-from netbox_custom_scripts import constants
 from netbox_custom_scripts.storage import store
-from netbox_custom_scripts.storage.config import StorageLimits
-from netbox_custom_scripts.storage.exceptions import (
-    LimitExceededError,
-    RevisionCorruptError,
-    StorageError,
-    UnsafePathError,
-)
+from netbox_custom_scripts.storage.exceptions import RevisionCorruptError, StorageError, UnsafePathError
 from netbox_custom_scripts.storage.manifest import compute_digest
-from netbox_custom_scripts.storage.paths import MAX_PATH_DEPTH, normalize_source_path
+from netbox_custom_scripts.storage.paths import revision_prefix
 
-
-def limits(**overrides):
-    values = {
-        'max_file_size': constants.DEFAULT_MAX_FILE_SIZE,
-        'max_project_size': constants.DEFAULT_MAX_PROJECT_SIZE,
-        'max_file_count': constants.DEFAULT_MAX_FILE_COUNT,
-    }
-    values.update(overrides)
-    return StorageLimits(**values)
-
-
-class UninspectableEntry:
-    """
-    A directory entry whose kind cannot be determined, which os.scandir permits.
-
-    scandir answers is_dir and is_file from the listing when the filesystem supplies the entry
-    type and falls back to a stat call when it does not, so an entry removed or made
-    inaccessible after the listing raises from the question rather than from the enumeration.
-    """
-
-    def __init__(self, name, error=None):
-        self.name = name
-        self._error = error or PermissionError('denied')
-
-    def is_symlink(self):
-        return False
-
-    def is_dir(self, follow_symlinks=True):
-        raise self._error
-
-    def is_file(self, follow_symlinks=True):
-        raise self._error
-
-
-def scandir_returning(*entries):
-    """Stand in for os.scandir, which the walkers use as a context manager and iterate once."""
-
-    @contextlib.contextmanager
-    def scandir(dir_fd):
-        yield list(entries)
-
-    return scandir
-
-
-def refusing_to_remove(name):
-    """Stand in for shutil.rmtree, refusing one directory name and passing everything else."""
-    real = shutil.rmtree
-
-    def rmtree(path, *args, **kwargs):
-        if path == name:
-            raise PermissionError('denied')
-        return real(path, *args, **kwargs)
-
-    return rmtree
-
-
-def refusing_to_quarantine():
-    """Stand in for os.rename, refusing only the rename that sets a revision aside."""
-    real = os.rename
-
-    def rename(source, target, *args, **kwargs):
-        if store._QUARANTINE_SUFFIX in str(target):
-            raise PermissionError('denied')
-        return real(source, target, *args, **kwargs)
-
-    return rename
-
-
-class DirectoryWalkTestCase(TestCase):
-    def test_iter_directory_files_yields_regular_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'a.py').write_bytes(b'aaa')
-            (root / 'sub').mkdir()
-            (root / 'sub' / 'b.py').write_bytes(b'bbb')
-            result = dict(store.iter_directory_files(root, limits()))
-        self.assertEqual(result, {'a.py': b'aaa', 'sub/b.py': b'bbb'})
-
-    def test_iter_directory_files_rejects_symlink(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'real.py').write_bytes(b'x')
-            (root / 'link.py').symlink_to(root / 'real.py')
-            with self.assertRaises(UnsafePathError) as ctx:
-                list(store.iter_directory_files(root, limits()))
-            self.assertEqual(ctx.exception.code, 'symlink')
-
-    def test_iter_directory_files_rejects_special_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            os.mkfifo(root / 'pipe')
-            with self.assertRaises(UnsafePathError) as ctx:
-                list(store.iter_directory_files(root, limits()))
-            self.assertEqual(ctx.exception.code, 'special_file')
-
-    def test_iter_directory_files_rejects_missing_root(self):
-        with self.assertRaises(StorageError):
-            list(store.iter_directory_files('/ncs/storage/does/not/exist', limits()))
-
-    def test_iter_directory_files_rejects_file_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            file_root = pathlib.Path(tmp) / 'a.py'
-            file_root.write_bytes(b'x')
-            with self.assertRaises(StorageError):
-                list(store.iter_directory_files(file_root, limits()))
-
-    def test_iter_directory_files_rejects_symlink_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            real = pathlib.Path(tmp) / 'real_dir'
-            real.mkdir()
-            link = pathlib.Path(tmp) / 'link_dir'
-            link.symlink_to(real, target_is_directory=True)
-            with self.assertRaises(UnsafePathError) as ctx:
-                list(store.iter_directory_files(link, limits()))
-            self.assertEqual(ctx.exception.code, 'symlink')
-
-    def test_iter_directory_files_converts_listing_errors_to_storage_error(self):
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            mock.patch('netbox_custom_scripts.storage.store.os.scandir', side_effect=PermissionError('denied')),
-            self.assertRaises(StorageError),
-        ):
-            list(store.iter_directory_files(tmp, limits()))
-
-    def test_iter_directory_files_converts_entry_metadata_errors_to_storage_error(self):
-        # Classifying an entry is as much a filesystem operation as opening it, so it belongs
-        # on the same boundary rather than escaping as a bare PermissionError.
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            mock.patch.object(store.os, 'scandir', scandir_returning(UninspectableEntry('a.py'))),
-            self.assertRaises(StorageError) as ctx,
-        ):
-            list(store.iter_directory_files(tmp, limits()))
-        self.assertIn('a.py', str(ctx.exception))
-        self.assertIsInstance(ctx.exception.__cause__, PermissionError)
-
-    def test_iter_directory_files_converts_file_read_errors_to_storage_error(self):
-        real_open = os.open
-
-        def refuse_files(path, flags, *args, **kwargs):
-            # Let the directory descriptors through, so only the file read fails.
-            if flags & os.O_DIRECTORY:
-                return real_open(path, flags, *args, **kwargs)
-            raise PermissionError('denied')
-
-        with tempfile.TemporaryDirectory() as tmp:
-            (pathlib.Path(tmp) / 'a.py').write_bytes(b'x')
-            with (
-                mock.patch('netbox_custom_scripts.storage.store.os.open', refuse_files),
-                self.assertRaises(StorageError),
-            ):
-                list(store.iter_directory_files(tmp, limits()))
-
-    def test_iter_directory_files_rejects_file_over_size_limit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'big.py').write_bytes(b'12345')
-            with self.assertRaises(LimitExceededError) as ctx:
-                list(store.iter_directory_files(root, limits(max_file_size=4)))
-            self.assertEqual(ctx.exception.code, 'file_too_large')
-
-    def test_iter_directory_files_rejects_too_many_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            for name in ('a.py', 'b.py', 'c.py'):
-                (root / name).write_bytes(b'x')
-            with self.assertRaises(LimitExceededError) as ctx:
-                list(store.iter_directory_files(root, limits(max_file_count=2)))
-            self.assertEqual(ctx.exception.code, 'too_many_files')
-
-    def test_iter_directory_files_rejects_total_over_project_limit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'a.py').write_bytes(b'123')
-            (root / 'b.py').write_bytes(b'456')
-            with self.assertRaises(LimitExceededError) as ctx:
-                list(store.iter_directory_files(root, limits(max_project_size=4)))
-            self.assertEqual(ctx.exception.code, 'project_too_large')
-
-    def test_iter_directory_files_refuses_a_directory_swapped_mid_walk(self):
-        # The window is inside one directory's file list, not between directory levels: a
-        # swap before descent is caught by the walk itself, so the obvious version of this
-        # test passes even against a pathname-based walker. Suspending the generator after
-        # the first file of a directory is what exposes the difference.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp) / 'root'
-            (root / 'pkg').mkdir(parents=True)
-            (root / 'pkg' / 'a_first.py').write_bytes(b'legit one')
-            (root / 'pkg' / 'b_second.py').write_bytes(b'legit two')
-            outside = pathlib.Path(tmp) / 'outside'
-            outside.mkdir()
-            (outside / 'b_second.py').write_bytes(b'secret from outside the root')
-
-            walker = store.iter_directory_files(root, limits())
-            self.assertEqual(next(walker), ('pkg/a_first.py', b'legit one'))
-            shutil.rmtree(root / 'pkg')
-            (root / 'pkg').symlink_to(outside, target_is_directory=True)
-
-            # The property under test is that nothing outside the root is ever yielded. The
-            # swapped-away file now reads as missing against the real descriptor, so the walk
-            # raises rather than serving the impostor, but either outcome must not leak.
-            leaked = []
-            with contextlib.suppress(StorageError):
-                leaked = [body for _relative, body in walker]
-            self.assertNotIn(b'secret from outside the root', leaked)
-
-    def test_iter_directory_files_refuses_a_tree_over_the_depth_limit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp) / 'root'
-            deep = root.joinpath(*[f'd{index}' for index in range(MAX_PATH_DEPTH + 1)])
-            deep.mkdir(parents=True)
-            (deep / 'mod.py').write_bytes(b'x')
-            with self.assertRaises(UnsafePathError) as ctx:
-                dict(store.iter_directory_files(root, limits()))
-            self.assertEqual(ctx.exception.code, 'path_too_deep')
-
-
-STORAGE_KEY = uuid.UUID('11111111-2222-3333-4444-555555555555')
-# A revision directory is named by the digest of its manifest, and the store now enforces
-# that pairing, so a fixture derives the name from the content instead of asserting one.
-EMPTY_DIGEST = compute_digest([])
-# Where a digest is only a directory name and no manifest is involved, any well-formed value
-# does the job.
-PLACEHOLDER_DIGEST = 'a' * 64
+STORAGE_KEY = uuid.UUID('9f1c6d24-0b2a-4d3e-8f57-2c9a4b6e1d80')
 
 
 def manifest_for(files):
-    """Return manifest entries for a source mapping, canonicalized as build_manifest would."""
+    """Return the manifest entries describing a mapping of canonical path to content."""
     return sorted(
         (
-            {'path': normalize_source_path(path), 'size': len(body), 'sha256': hashlib.sha256(body).hexdigest()}
-            for path, body in files.items()
+            {'path': path, 'size': len(content), 'sha256': hashlib.sha256(content).hexdigest()}
+            for path, content in files.items()
         ),
         key=lambda entry: entry['path'],
     )
 
 
-def digest_for(files):
-    """Return the content address of a source mapping, the one the service would store."""
-    return compute_digest(manifest_for(files))
+def stored_paths(storage, prefix):
+    """
+    Return every path actually stored under one prefix, relative to it.
+
+    Tests enumerate the backend to pin exactly what an operation left behind. Production code
+    works from the manifest and never lists, which is the property the backend contract tests
+    hold it to, so this walk lives here.
+    """
+    found = set()
+    pending = ['']
+    while pending:
+        relative = pending.pop()
+        try:
+            directories, names = storage.listdir(f'{prefix}{relative}')
+        except FileNotFoundError:
+            continue
+        found.update(f'{relative}{name}' for name in names)
+        pending.extend(f'{relative}{name}/' for name in directories)
+    return found
 
 
-class VerifyRevisionTreeTestCase(TestCase):
-    def test_verify_accepts_a_matching_tree(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa', 'pkg/b.py': b'bbbb'}
-            store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            root = store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertTrue(root.is_dir())
+class RefusingStorage(InMemoryStorage):
+    """A backend that fails one named operation, standing in for an unreachable store."""
 
-    def test_verify_converts_entry_metadata_errors_to_storage_error(self):
-        # The verifier walks whatever is on disk, so it meets the same raced entry the source
-        # walker does and reports it the same way.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            with (
-                mock.patch.object(store.os, 'scandir', scandir_returning(UninspectableEntry('a.py'))),
-                self.assertRaises(StorageError) as ctx,
-            ):
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-        self.assertIn('a.py', str(ctx.exception))
-        self.assertNotIsInstance(ctx.exception, RevisionCorruptError)
+    def __init__(self, failing, error=None, **kwargs):
+        super().__init__(**kwargs)
+        self.failing = failing
+        self.error = error or OSError('the backend is unreachable')
 
-    def test_verify_rejects_a_missing_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('root_missing', ctx.exception.reasons)
+    def _fail(self, name):
+        if name in self.failing:
+            raise self.error
 
-    def test_verify_rejects_a_symlinked_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            real = pathlib.Path(tmp) / 'real'
-            real.mkdir()
-            link = store.revision_directory(tmp, STORAGE_KEY, EMPTY_DIGEST)
-            link.parent.mkdir(parents=True)
-            link.symlink_to(real, target_is_directory=True)
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, EMPTY_DIGEST, [])
-            self.assertIn('root_symlink', ctx.exception.reasons)
+    def save(self, name, content, max_length=None):
+        self._fail('save')
+        return super().save(name, content, max_length=max_length)
 
-    def test_verify_rejects_a_symlinked_project_directory(self):
-        # A link one level above the revision is just as good an escape as a link on the
-        # revision itself, and neither the final component nor its parent is a link here.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            digest = digest_for(files)
-            outside = pathlib.Path(tmp) / 'outside'
-            (outside / 'revisions' / digest).mkdir(parents=True)
-            (outside / 'revisions' / digest / 'a.py').write_bytes(b'aaa')
-            (pathlib.Path(tmp) / 'root').mkdir()
-            (pathlib.Path(tmp) / 'root' / str(STORAGE_KEY)).symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(pathlib.Path(tmp) / 'root', STORAGE_KEY, digest, manifest_for(files))
-            self.assertIn('root_symlink', ctx.exception.reasons)
+    def exists(self, name):
+        self._fail('exists')
+        return super().exists(name)
 
-    def test_verify_rejects_a_symlinked_revisions_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            outside = pathlib.Path(tmp) / 'outside'
-            (outside / EMPTY_DIGEST).mkdir(parents=True)
-            root = pathlib.Path(tmp) / 'root'
-            (root / str(STORAGE_KEY)).mkdir(parents=True)
-            (root / str(STORAGE_KEY) / 'revisions').symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(root, STORAGE_KEY, EMPTY_DIGEST, [])
-            self.assertIn('root_symlink', ctx.exception.reasons)
+    def open(self, name, mode='rb'):
+        self._fail('open')
+        return super().open(name, mode)
 
-    def test_verify_rejects_a_plain_file_as_the_revision_root(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp) / 'root'
-            (root / str(STORAGE_KEY) / 'revisions').mkdir(parents=True)
-            (root / str(STORAGE_KEY) / 'revisions' / EMPTY_DIGEST).write_bytes(b'not a directory')
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(root, STORAGE_KEY, EMPTY_DIGEST, [])
-            self.assertIn('root_not_directory', ctx.exception.reasons)
+    def delete(self, name):
+        self._fail('delete')
+        return super().delete(name)
 
-    def test_verify_rejects_a_file_beneath_an_intermediate_symlink(self):
-        # The manifest entry itself is not a link, so a check that only looks at the final
-        # component accepts content served from outside the revision.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'pkg/mod.py': b'body'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            outside = pathlib.Path(tmp) / 'outside'
-            outside.mkdir()
-            (outside / 'mod.py').write_bytes(b'body')
-            store.delete_revision_directory(tmp, STORAGE_KEY, digest_for(files))
-            destination.mkdir(parents=True)
-            (destination / 'pkg').symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('symlink:pkg/mod.py', ctx.exception.reasons)
+    def listdir(self, path):
+        self._fail('listdir')
+        return super().listdir(path)
 
-    def test_verify_rejects_an_unexpected_empty_directory(self):
-        # An unexpected directory is importable content: it can act as a namespace package.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'smuggled').mkdir()
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('unexpected_directory:smuggled', ctx.exception.reasons)
 
-    def test_verify_rejects_an_unexpected_symlinked_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            outside = pathlib.Path(tmp) / 'outside'
-            outside.mkdir()
-            (outside / 'extra.py').write_bytes(b'x')
-            (destination / 'smuggled').symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('unexpected_symlink:smuggled', ctx.exception.reasons)
+class RenamingStorage(InMemoryStorage):
+    """A backend that parks one save under an invented name, as a backend resolving a collision."""
 
-    def test_verify_accepts_the_directories_its_manifest_implies(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'pkg/deep/mod.py': b'body', 'top.py': b'x'}
-            store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            root = store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertTrue((root / 'pkg' / 'deep' / 'mod.py').is_file())
+    def __init__(self, divert, plant=None, keep_stray=False, **kwargs):
+        super().__init__(**kwargs)
+        self.divert = divert
+        self.plant = plant
+        self.keep_stray = keep_stray
 
-    def test_verify_rejects_a_parent_directory_replaced_by_a_symlink(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'pkg/mod.py': b'body'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            outside = pathlib.Path(tmp) / 'outside'
-            outside.mkdir()
-            (outside / 'mod.py').write_bytes(b'body')
-            (destination / 'pkg' / 'mod.py').unlink()
-            (destination / 'pkg').rmdir()
-            (destination / 'pkg').symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('symlink:pkg/mod.py', ctx.exception.reasons)
+    def save(self, name, content, max_length=None):
+        if name == self.divert:
+            # A competing writer occupies the canonical key in the window between the caller's
+            # emptiness check and this save, so the backend names this write something else.
+            if self.plant is not None:
+                super().save(name, ContentFile(self.plant), max_length=max_length)
+            return super().save(f'{name}.alias', content, max_length=max_length)
+        return super().save(name, content, max_length=max_length)
 
-    def test_verify_rejects_a_missing_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'a.py').unlink()
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('missing_or_special:a.py', ctx.exception.reasons)
+    def delete(self, name):
+        if self.keep_stray and name.endswith('.alias'):
+            raise OSError('the backend refused the removal')
+        return super().delete(name)
 
-    def test_verify_rejects_a_size_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'a.py').write_bytes(b'aaaa')
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('size_mismatch:a.py', ctx.exception.reasons)
 
-    def test_verify_rejects_a_checksum_mismatch(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'a.py').write_bytes(b'bbb')
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('checksum_mismatch:a.py', ctx.exception.reasons)
+class BottomlessStorage(InMemoryStorage):
+    """Serve one key as an endless stream whose metadata reports the recorded size."""
 
-    def test_verify_rejects_an_unexpected_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'extra.py').write_bytes(b'smuggled')
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertIn('unexpected_file:extra.py', ctx.exception.reasons)
+    def __init__(self, bottomless_key, reported_size, **kwargs):
+        super().__init__(**kwargs)
+        self.bottomless_key = bottomless_key
+        self.reported_size = reported_size
+        self.served = 0
 
-    def test_verify_reports_every_mismatch_at_once(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa', 'b.py': b'bbb'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'a.py').unlink()
-            (destination / 'b.py').write_bytes(b'ccc')
-            (destination / 'extra.py').write_bytes(b'x')
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for(files))
-            self.assertEqual(len(ctx.exception.reasons), 3)
+    def size(self, name):
+        if name != self.bottomless_key:
+            return super().size(name)
+        return self.reported_size
 
-    def test_verify_rejects_a_manifest_path_leaving_the_revision_directory(self):
-        # ".." is a real directory entry rather than a link, so descriptor-relative traversal
-        # does not stop it. A stored manifest is input too, and this is where it is treated
-        # as one.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            digest = digest_for(files)
-            store.write_staged_revision(tmp, STORAGE_KEY, digest, files, manifest_for(files))
-            outside = pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions' / 'outside.py'
-            outside.write_bytes(b'outside')
-            poisoned = [{'path': '../outside.py', 'size': 7, 'sha256': hashlib.sha256(b'outside').hexdigest()}]
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest, poisoned)
-            self.assertEqual(ctx.exception.reasons, ('path_traversal:../outside.py',))
-            self.assertTrue(outside.exists())
+    def open(self, name, mode='rb'):
+        if name != self.bottomless_key:
+            return super().open(name, mode)
+        backend = self
 
-    def test_verify_rejects_a_digest_that_does_not_address_its_manifest(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.verify_revision_tree(tmp, STORAGE_KEY, digest_for(files), manifest_for({'b.py': b'bbb'}))
-            self.assertEqual(ctx.exception.reasons, ('digest_mismatch',))
+        class EndlessHandle:
+            """A read handle that never runs out, as a replaced object of absurd size."""
+
+            def read(self, n):
+                backend.served += n
+                return b'x' * n
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        return EndlessHandle()
+
+
+class OpenRecordingStorage(InMemoryStorage):
+    """Record every key handed to open(), so a test can assert what was never read."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.opened = []
+
+    def open(self, name, mode='rb'):
+        self.opened.append(name)
+        return super().open(name, mode)
+
+
+class SizelessStorage(InMemoryStorage):
+    """A backend that cannot report object sizes, which verification survives by bounded reads."""
+
+    def size(self, name):
+        raise NotImplementedError('This backend reports no sizes.')
+
+
+class KeyRefusingStorage(InMemoryStorage):
+    """A backend that refuses to remove specific keys."""
+
+    def __init__(self, refuse, **kwargs):
+        super().__init__(**kwargs)
+        self.refuse = refuse
+
+    def delete(self, name):
+        if name.endswith(tuple(self.refuse)):
+            raise OSError('the backend refused the removal')
+        return super().delete(name)
 
 
 class RevisionStoreTestCase(TestCase):
-    def test_write_staged_revision_creates_revision_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            project = pathlib.Path(tmp) / str(STORAGE_KEY)
-            self.assertEqual(destination, project / 'revisions' / digest_for(files))
-            self.assertEqual((destination / 'a.py').read_bytes(), b'aaa')
-            self.assertEqual(list((project / 'staging').iterdir()), [])
+    """Cover writing, verifying, and removing revision content through a storage backend."""
 
-    def test_write_staged_revision_writes_nested_paths(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'pkg/__init__.py': b'', 'pkg/deep/mod.py': b'body'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual((destination / 'pkg' / '__init__.py').read_bytes(), b'')
-            self.assertEqual((destination / 'pkg' / 'deep' / 'mod.py').read_bytes(), b'body')
+    files = {'hello.py': b'print("hi")', 'pkg/util.py': b'VALUE = 1'}
 
-    def test_write_staged_revision_canonicalizes_source_paths(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'./pkg//mod.py': b'body'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual((destination / 'pkg' / 'mod.py').read_bytes(), b'body')
+    def setUp(self):
+        self.storage = InMemoryStorage()
+        self.manifest = manifest_for(self.files)
+        self.digest = compute_digest(self.manifest)
+        self.prefix = revision_prefix(STORAGE_KEY, self.digest)
 
-    def test_write_staged_revision_rejects_duplicate_canonical_paths(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'mod.py': b'first', './mod.py': b'second'}
-            with self.assertRaises(UnsafePathError) as ctx:
-                store.write_staged_revision(tmp, STORAGE_KEY, EMPTY_DIGEST, files, [])
-            self.assertEqual(ctx.exception.code, 'duplicate_path')
-            self.assertFalse((pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions' / EMPTY_DIGEST).exists())
+    def write(self, storage=None, files=None, manifest=None, digest=None):
+        return store.write_revision(
+            storage or self.storage,
+            STORAGE_KEY,
+            digest or self.digest,
+            self.files if files is None else files,
+            manifest or self.manifest,
+        )
 
-    def test_write_staged_revision_is_idempotent_when_destination_matches(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'first'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            again = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual(again, destination)
-            self.assertEqual((destination / 'a.py').read_bytes(), b'first')
+    def stored_keys(self, storage=None):
+        """Return every key held under the revision prefix, relative to it."""
+        return stored_paths(storage or self.storage, self.prefix)
 
-    def test_write_staged_revision_rejects_an_existing_destination_that_does_not_match(self):
-        # A digest addresses its content, so a destination holding different bytes is damaged
-        # rather than equivalent. Reusing it silently would hide tampering.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'first'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'a.py').write_bytes(b'tampered')
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertTrue(
-                any(reason.startswith(('size_mismatch', 'checksum_mismatch')) for reason in ctx.exception.reasons)
+    def test_a_write_stores_every_manifest_entry_under_the_revision_prefix(self):
+        returned = self.write()
+        self.assertEqual(returned, self.prefix)
+        self.assertEqual(self.stored_keys(), set(self.files))
+        for path, content in self.files.items():
+            with self.storage.open(f'{self.prefix}{path}', 'rb') as handle:
+                self.assertEqual(handle.read(), content)
+
+    def test_a_write_verifies_the_tree_before_returning(self):
+        self.write()
+        self.assertEqual(store.verify_revision_tree(self.storage, STORAGE_KEY, self.digest, self.manifest), self.prefix)
+
+    def test_re_writing_an_identical_tree_never_produces_an_aliased_key(self):
+        # Storage.save() renames on collision, which in a content-addressed store means a file
+        # written where nothing will look for it. The key set must be exactly the manifest's.
+        self.write()
+        self.write()
+        self.assertEqual(self.stored_keys(), set(self.files))
+
+    def test_a_retry_completes_a_partially_written_tree(self):
+        self.storage.save(f'{self.prefix}hello.py', ContentFile(self.files['hello.py']))
+        self.write()
+        self.assertEqual(self.stored_keys(), set(self.files))
+
+    def test_a_retry_replaces_a_key_holding_the_wrong_content(self):
+        self.storage.save(f'{self.prefix}hello.py', ContentFile(b'something else entirely'))
+        self.write()
+        self.assertEqual(self.stored_keys(), set(self.files))
+        with self.storage.open(f'{self.prefix}hello.py', 'rb') as handle:
+            self.assertEqual(handle.read(), self.files['hello.py'])
+
+    def test_an_alternate_name_save_succeeds_when_a_competitor_stored_the_content(self):
+        # Between the emptiness check and the save, another writer of the same digest can
+        # install the canonical key. The revision this call was asked to produce then exists,
+        # so the parked stray is removed and the write counts as done.
+        storage = RenamingStorage(divert=f'{self.prefix}hello.py', plant=self.files['hello.py'])
+        self.assertEqual(self.write(storage=storage), self.prefix)
+        self.assertEqual(self.stored_keys(storage), set(self.files))
+        with storage.open(f'{self.prefix}hello.py', 'rb') as handle:
+            self.assertEqual(handle.read(), self.files['hello.py'])
+
+    def test_an_alternate_name_save_fails_when_the_key_holds_something_else(self):
+        storage = RenamingStorage(divert=f'{self.prefix}hello.py', plant=b'not the recorded content')
+        with self.assertRaises(StorageError) as ctx:
+            self.write(storage=storage)
+        self.assertIn('instead of the key', str(ctx.exception))
+        # The stray alias is gone, and the occupant of the canonical key is another writer's
+        # property, so it is left in place for that writer's own verification to judge.
+        self.assertEqual(self.stored_keys(storage), {'hello.py'})
+
+    def test_a_stray_the_backend_keeps_is_logged_and_the_competitor_success_stands(self):
+        # The stray sits in no manifest, so nothing can rediscover it later. The error log
+        # line naming its exact key is its one record until the housekeeping reconciler owns
+        # orphans, and it must not cost the write its otherwise correct outcome.
+        storage = RenamingStorage(divert=f'{self.prefix}hello.py', plant=self.files['hello.py'], keep_stray=True)
+        with self.assertLogs(store.logger, 'ERROR') as logged:
+            self.assertEqual(self.write(storage=storage), self.prefix)
+        self.assertIn(f'{self.prefix}hello.py.alias', logged.output[0])
+        self.assertEqual(self.stored_keys(storage), {*self.files, 'hello.py.alias'})
+
+    def test_a_backend_failure_on_exists_surfaces_as_a_storage_error(self):
+        # exists() is the first backend call a write makes, and a cloud backend can raise
+        # something there that is neither OSError nor StorageError. The wrapper is what lets
+        # the staging service record the failure instead of stranding the row in STAGING.
+        storage = RefusingStorage(failing={'exists'}, error=RuntimeError('the sdk gave up'))
+        with self.assertRaises(StorageError) as ctx:
+            self.write(storage=storage)
+        self.assertIn(self.prefix, str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+
+    def test_a_write_canonicalizes_the_paths_it_is_given(self):
+        self.write(files={'./hello.py': self.files['hello.py'], 'pkg//util.py': self.files['pkg/util.py']})
+        self.assertEqual(self.stored_keys(), set(self.files))
+
+    def test_a_write_refuses_two_source_paths_that_resolve_to_one_key(self):
+        with self.assertRaises(UnsafePathError) as ctx:
+            self.write(files={'pkg/util.py': b'VALUE = 1', './pkg/util.py': b'VALUE = 1'})
+        self.assertEqual(ctx.exception.code, 'duplicate_path')
+
+    def test_a_write_refuses_a_manifest_the_digest_does_not_address(self):
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            self.write(digest='a' * 64)
+        self.assertIn('digest_mismatch', ctx.exception.reasons)
+        self.assertEqual(self.stored_keys(), set())
+
+    def test_a_write_refuses_a_manifest_naming_content_it_was_not_given(self):
+        manifest = manifest_for({**self.files, 'missing.py': b'absent'})
+        with self.assertRaises(StorageError):
+            self.write(manifest=manifest, digest=compute_digest(manifest))
+
+    def test_a_tree_that_fails_verification_is_left_for_the_next_attempt(self):
+        # The manifest records content this call is not given, so verification fails after
+        # the write. The keys stay: a concurrent writer of this digest may already count on
+        # them, the row never reports MATERIALIZED, and a retry replaces what disagrees.
+        manifest = manifest_for({'hello.py': b'print("hi")', 'pkg/util.py': b'VALUE = 2'})
+        digest = compute_digest(manifest)
+        prefix = revision_prefix(STORAGE_KEY, digest)
+        with self.assertRaises(RevisionCorruptError):
+            store.write_revision(self.storage, STORAGE_KEY, digest, self.files, manifest)
+        self.assertEqual(stored_paths(self.storage, prefix), set(self.files))
+
+    def test_a_backend_failure_on_write_surfaces_as_a_storage_error_naming_the_key(self):
+        storage = RefusingStorage(failing={'save'})
+        with self.assertRaises(StorageError) as ctx:
+            self.write(storage=storage)
+        self.assertIn(self.prefix, str(ctx.exception))
+
+    def test_a_backend_failure_on_read_surfaces_as_a_storage_error_naming_the_key(self):
+        self.write()
+        storage = RefusingStorage(failing={'open'})
+        storage.save(f'{self.prefix}hello.py', ContentFile(self.files['hello.py']))
+        with self.assertRaises(StorageError) as ctx:
+            store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
+        self.assertIn('hello.py', str(ctx.exception))
+
+
+class RevisionVerificationTestCase(TestCase):
+    """Cover what verification reports when stored content and its manifest disagree."""
+
+    files = {'hello.py': b'print("hi")', 'pkg/util.py': b'VALUE = 1'}
+
+    def setUp(self):
+        self.storage = InMemoryStorage()
+        self.manifest = manifest_for(self.files)
+        self.digest = compute_digest(self.manifest)
+        self.prefix = revision_prefix(STORAGE_KEY, self.digest)
+        store.write_revision(self.storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+
+    def verify(self):
+        return store.verify_revision_tree(self.storage, STORAGE_KEY, self.digest, self.manifest)
+
+    def assert_reasons(self, *expected):
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            self.verify()
+        self.assertEqual(sorted(ctx.exception.reasons), sorted(expected))
+
+    def test_an_intact_tree_verifies(self):
+        self.assertEqual(self.verify(), self.prefix)
+
+    def test_a_revision_that_is_entirely_absent_reports_one_reason(self):
+        # An operator whose revision has vanished should not read one line per file to learn it.
+        for path in self.files:
+            self.storage.delete(f'{self.prefix}{path}')
+        self.assert_reasons('prefix_missing')
+
+    def test_a_missing_file_is_reported(self):
+        self.storage.delete(f'{self.prefix}hello.py')
+        self.assert_reasons('missing:hello.py')
+
+    def test_a_size_mismatch_is_reported(self):
+        self.storage.delete(f'{self.prefix}hello.py')
+        self.storage.save(f'{self.prefix}hello.py', ContentFile(b'print("hi") and more'))
+        self.assert_reasons('size_mismatch:hello.py')
+
+    def test_a_checksum_mismatch_is_reported(self):
+        replacement = b'X' * len(self.files['hello.py'])
+        self.storage.delete(f'{self.prefix}hello.py')
+        self.storage.save(f'{self.prefix}hello.py', ContentFile(replacement))
+        self.assert_reasons('checksum_mismatch:hello.py')
+
+    def test_a_key_the_manifest_does_not_name_is_inert(self):
+        # Verification reads manifest keys only and materialization copies manifest entries
+        # only, so a stray object under the prefix can never become an importable module.
+        # Reclaiming it belongs to a future housekeeping reconciler.
+        self.storage.save(f'{self.prefix}pkg/sneaky.py', ContentFile(b'import os'))
+        self.assertEqual(self.verify(), self.prefix)
+
+    def test_every_mismatch_is_reported_at_once(self):
+        self.storage.delete(f'{self.prefix}hello.py')
+        self.storage.delete(f'{self.prefix}pkg/util.py')
+        self.storage.save(f'{self.prefix}pkg/util.py', ContentFile(b'X' * len(self.files['pkg/util.py'])))
+        self.assert_reasons('missing:hello.py', 'checksum_mismatch:pkg/util.py')
+
+    def test_verification_reads_no_further_than_the_recorded_size(self):
+        # The backend reports the recorded size here, so the metadata preflight passes and
+        # the stream itself is longer than it claims. The read bound is the layer that
+        # settles that case, one byte past the recorded size.
+        expected = next(entry for entry in self.manifest if entry['path'] == 'hello.py')
+        storage = BottomlessStorage(bottomless_key=f'{self.prefix}hello.py', reported_size=expected['size'])
+        storage.save(f'{self.prefix}pkg/util.py', ContentFile(self.files['pkg/util.py']))
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
+        self.assertEqual(sorted(ctx.exception.reasons), ['size_mismatch:hello.py'])
+        self.assertLessEqual(storage.served, expected['size'] + 1)
+
+    def test_an_oversized_object_is_rejected_from_metadata_without_being_opened(self):
+        # On a remote backend, opening an object can download it whole before the first read
+        # is served, so a wrong reported size has to settle the verdict before any open.
+        storage = OpenRecordingStorage()
+        store.write_revision(storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+        storage.delete(f'{self.prefix}hello.py')
+        storage.save(f'{self.prefix}hello.py', ContentFile(b'print("hi") plus a replacement tail'))
+        storage.opened.clear()
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
+        self.assertEqual(sorted(ctx.exception.reasons), ['size_mismatch:hello.py'])
+        self.assertNotIn(f'{self.prefix}hello.py', storage.opened)
+        # The intact entry still had its checksum read, metadata cannot vouch for bytes.
+        self.assertIn(f'{self.prefix}pkg/util.py', storage.opened)
+
+    def test_a_backend_without_size_support_still_rejects_an_oversized_object(self):
+        # The preflight is best effort, the bounded read still rejects where size() is absent.
+        storage = SizelessStorage()
+        store.write_revision(storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+        storage.delete(f'{self.prefix}hello.py')
+        storage.save(f'{self.prefix}hello.py', ContentFile(b'print("hi") plus a replacement tail'))
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
+        self.assertEqual(sorted(ctx.exception.reasons), ['size_mismatch:hello.py'])
+
+    def test_a_manifest_that_does_not_address_its_digest_is_refused(self):
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.verify_revision_tree(self.storage, STORAGE_KEY, 'b' * 64, self.manifest)
+        self.assertIn('digest_mismatch', ctx.exception.reasons)
+
+    def test_a_manifest_path_leaving_the_revision_is_refused_before_any_key_is_read(self):
+        tampered = [{'path': '../escape.py', 'size': 1, 'sha256': 'a' * 64}]
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.verify_revision_tree(self.storage, STORAGE_KEY, None, tampered)
+        self.assertEqual(ctx.exception.reasons, ('path_traversal:../escape.py',))
+
+
+class RevisionRemovalTestCase(TestCase):
+    """Cover reclaiming stored content by the exact keys a revision's manifest names."""
+
+    def setUp(self):
+        self.storage = InMemoryStorage()
+        self.manifest_paths = {}
+        self.first = self.stage({'a.py': b'first'})
+        self.second = self.stage({'b.py': b'second', 'pkg/c.py': b'nested'})
+
+    def stage(self, files, storage=None):
+        """Write one revision, record its manifest paths, and return its digest."""
+        manifest = manifest_for(files)
+        digest = compute_digest(manifest)
+        store.write_revision(storage or self.storage, STORAGE_KEY, digest, files, manifest)
+        self.manifest_paths[digest] = [entry['path'] for entry in manifest]
+        return digest
+
+    def delete(self, digest, storage=None):
+        store.delete_revision(storage or self.storage, STORAGE_KEY, digest, self.manifest_paths[digest])
+
+    def paths(self, digest):
+        return stored_paths(self.storage, revision_prefix(STORAGE_KEY, digest))
+
+    def test_deleting_one_revision_leaves_the_others_intact(self):
+        self.delete(self.first)
+        self.assertEqual(self.paths(self.first), set())
+        self.assertEqual(self.paths(self.second), {'b.py', 'pkg/c.py'})
+
+    def test_deleting_a_revision_removes_its_nested_keys(self):
+        self.delete(self.second)
+        self.assertEqual(self.paths(self.second), set())
+
+    def test_deleting_every_revision_of_one_project_leaves_another_project_alone(self):
+        other = uuid.UUID('1b7a1f60-52c8-4a0b-9f1e-6d3c8a2b5e47')
+        manifest = manifest_for({'a.py': b'first'})
+        digest = compute_digest(manifest)
+        store.write_revision(self.storage, other, digest, {'a.py': b'first'}, manifest)
+        self.delete(self.first)
+        self.delete(self.second)
+        self.assertEqual(stored_paths(self.storage, revision_prefix(other, digest)), {'a.py'})
+
+    def test_deleting_content_that_is_already_gone_is_not_an_error(self):
+        self.delete(self.first)
+        self.delete(self.first)
+
+    def test_a_path_already_gone_is_skipped_and_the_rest_are_removed(self):
+        self.storage.delete(f'{revision_prefix(STORAGE_KEY, self.second)}b.py')
+        self.delete(self.second)
+        self.assertEqual(self.paths(self.second), set())
+
+    def test_a_key_that_cannot_be_removed_is_reported_and_the_rest_are_attempted(self):
+        storage = KeyRefusingStorage(refuse=('pkg/c.py',))
+        digest = self.stage({'b.py': b'second', 'pkg/c.py': b'nested'}, storage=storage)
+        with self.assertRaises(StorageError) as ctx:
+            self.delete(digest, storage=storage)
+        self.assertIn('pkg/c.py', str(ctx.exception))
+        self.assertEqual(stored_paths(storage, revision_prefix(STORAGE_KEY, digest)), {'pkg/c.py'})
+
+    def test_an_unusable_path_is_reported_and_the_rest_are_still_removed(self):
+        # A payload edited by hand or left by an older release can carry a path no key can
+        # be built from. It is reported without stopping the removal of every other key.
+        with self.assertRaises(StorageError) as ctx:
+            store.delete_revision(
+                self.storage, STORAGE_KEY, self.second, ['../escape.py', *self.manifest_paths[self.second]]
             )
+        self.assertIn('../escape.py', str(ctx.exception))
+        self.assertEqual(self.paths(self.second), set())
 
-    def test_write_staged_revision_rejects_content_that_does_not_match_its_manifest(self):
-        # The postcondition is that the stored tree matches the manifest, so it is checked
-        # rather than assumed even on the ordinary write path.
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.write_staged_revision(
-                    tmp,
-                    STORAGE_KEY,
-                    digest_for({'a.py': b'promised'}),
-                    {'a.py': b'written'},
-                    manifest_for({'a.py': b'promised'}),
-                )
-            self.assertTrue(
-                any(reason.startswith(('size_mismatch', 'checksum_mismatch')) for reason in ctx.exception.reasons)
-            )
-            project = pathlib.Path(tmp) / str(STORAGE_KEY)
-            # A successful rename consumes the staging token, so without withdrawing the
-            # destination this call installed, the bad tree would stay installed for good.
-            self.assertFalse((project / 'revisions' / digest_for({'a.py': b'promised'})).exists())
-            self.assertEqual(list((project / 'staging').iterdir()), [])
-
-    def test_write_staged_revision_can_be_retried_after_a_verification_failure(self):
-        # The documented transition is storage_failed -> staging -> materialized, which only
-        # holds if the failed attempt leaves nothing installed under the digest.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'promised'}
-            with self.assertRaises(RevisionCorruptError):
-                store.write_staged_revision(
-                    tmp, STORAGE_KEY, digest_for(files), {'a.py': b'written'}, manifest_for(files)
-                )
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual((destination / 'a.py').read_bytes(), b'promised')
-
-    def test_write_staged_revision_sets_aside_a_destination_it_cannot_remove(self):
-        # Removal needs to unlink the subtree, renaming needs only the parent directory, so a
-        # tree that cannot be emptied can still be moved out of the way. That is what keeps one
-        # bad write from poisoning a digest for every later retry.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'promised'}
-            digest = digest_for(files)
-            with (
-                mock.patch.object(store.shutil, 'rmtree', refusing_to_remove(digest)),
-                self.assertLogs(store.logger, 'ERROR') as logged,
-                self.assertRaises(StorageError) as ctx,
-            ):
-                store.write_staged_revision(tmp, STORAGE_KEY, digest, {'a.py': b'written'}, manifest_for(files))
-
-            message = str(ctx.exception)
-            # Both halves of the story: what failed verification and what became of the tree.
-            self.assertIn('does not match its manifest', message)
-            self.assertIn('could not be removed', message)
-            self.assertIn('set aside', message)
-            self.assertTrue(any('set aside' in record for record in logged.output))
-
-            revisions = pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions'
-            self.assertFalse((revisions / digest).exists())
-            quarantined = [path for path in revisions.iterdir() if store._QUARANTINE_SUFFIX in path.name]
-            self.assertEqual(len(quarantined), 1)
-            self.assertEqual((quarantined[0] / 'a.py').read_bytes(), b'written')
-            self.assertIn(quarantined[0].name, message)
-
-            # The point of setting it aside rather than leaving it: the retry now works.
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest, files, manifest_for(files))
-            self.assertEqual((destination / 'a.py').read_bytes(), b'promised')
-
-    def test_write_staged_revision_reports_a_destination_it_can_neither_remove_nor_set_aside(self):
-        # Nothing can be done about the directory at this point, so the one thing that must not
-        # happen is silence: the path is named so an operator and a later reconciler can find it.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'promised'}
-            digest = digest_for(files)
-            with (
-                mock.patch.object(store.shutil, 'rmtree', refusing_to_remove(digest)),
-                mock.patch.object(store.os, 'rename', refusing_to_quarantine()),
-                self.assertLogs(store.logger, 'ERROR') as logged,
-                self.assertRaises(StorageError) as ctx,
-            ):
-                store.write_staged_revision(tmp, STORAGE_KEY, digest, {'a.py': b'written'}, manifest_for(files))
-
-            message = str(ctx.exception)
-            self.assertIn('does not match its manifest', message)
-            self.assertIn('could not be withdrawn', message)
-            self.assertIn(digest, message)
-            self.assertTrue(any('Could not withdraw' in record for record in logged.output))
-
-            revisions = pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions'
-            self.assertTrue((revisions / digest).exists())
-
-    def test_write_staged_revision_does_not_remove_a_destination_another_writer_installed(self):
-        # Losing the rename means the tree belongs to whoever won it. A corrupt one is
-        # reported so an operator can look, never deleted out from under them.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'theirs'}
-            destination = store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            (destination / 'a.py').write_bytes(b'tampered by someone else')
-            with self.assertRaises(RevisionCorruptError):
-                store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual((destination / 'a.py').read_bytes(), b'tampered by someone else')
-
-    def test_write_staged_revision_rejects_a_digest_that_does_not_address_its_manifest(self):
-        # Content addressing is the invariant: a revision directory is named by the digest of
-        # the manifest it holds, so an incoherent pair is refused before anything is created.
-        with tempfile.TemporaryDirectory() as tmp:
-            files = {'a.py': b'aaa'}
-            with self.assertRaises(RevisionCorruptError) as ctx:
-                store.write_staged_revision(tmp, STORAGE_KEY, PLACEHOLDER_DIGEST, files, manifest_for(files))
-            self.assertEqual(ctx.exception.reasons, ('digest_mismatch',))
-            self.assertFalse((pathlib.Path(tmp) / str(STORAGE_KEY)).exists())
-
-    def test_write_staged_revision_leaves_no_digest_directory_on_failure(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with (
-                mock.patch.object(store, '_write_one_file', side_effect=OSError('no space left on device')),
-                self.assertRaises(OSError),
-            ):
-                store.write_staged_revision(tmp, STORAGE_KEY, EMPTY_DIGEST, {'a.py': b'aaa'}, [])
-            project = pathlib.Path(tmp) / str(STORAGE_KEY)
-            self.assertFalse((project / 'revisions' / EMPTY_DIGEST).exists())
-            self.assertEqual(list((project / 'staging').iterdir()), [])
-
-    def test_write_staged_revision_rejects_a_traversal_path(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(UnsafePathError) as ctx:
-                store.write_staged_revision(tmp, STORAGE_KEY, EMPTY_DIGEST, {'../escape.py': b'x'}, [])
-            self.assertEqual(ctx.exception.code, 'path_traversal')
-            self.assertFalse((pathlib.Path(tmp) / 'escape.py').exists())
-
-    def test_write_staged_revision_rejects_a_path_escaping_the_revision_root(self):
-        # normalize_source_path already rejects traversal, so the component gate is only
-        # reachable with that front check bypassed.
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            mock.patch('netbox_custom_scripts.storage.store.normalize_source_path', return_value='../escape.py'),
-            self.assertRaises(UnsafePathError) as ctx,
-        ):
-            store.write_staged_revision(tmp, STORAGE_KEY, EMPTY_DIGEST, {'a.py': b'x'}, [])
-        self.assertEqual(ctx.exception.code, 'escapes_root')
-        self.assertFalse((pathlib.Path(tmp) / 'escape.py').exists())
-
-    def test_write_staged_revision_refuses_a_symlinked_project_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            outside = pathlib.Path(tmp) / 'outside'
-            outside.mkdir()
-            root = pathlib.Path(tmp) / 'root'
-            root.mkdir()
-            (root / str(STORAGE_KEY)).symlink_to(outside, target_is_directory=True)
-            files = {'a.py': b'aaa'}
-            with self.assertRaises(UnsafePathError) as ctx:
-                store.write_staged_revision(root, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual(ctx.exception.code, 'symlink')
-            self.assertEqual(list(outside.iterdir()), [])
-
-    def test_write_staged_revision_works_under_a_symlinked_project_root(self):
-        # The configured root is followed on purpose: pointing it at a symlinked volume is an
-        # operator's choice, unlike a link appearing inside the tree.
-        with tempfile.TemporaryDirectory() as tmp:
-            real = pathlib.Path(tmp) / 'real_root'
-            real.mkdir()
-            link = pathlib.Path(tmp) / 'link_root'
-            link.symlink_to(real, target_is_directory=True)
-            files = {'a.py': b'aaa'}
-            destination = store.write_staged_revision(link, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            self.assertEqual((destination / 'a.py').read_bytes(), b'aaa')
-            store.verify_revision_tree(link, STORAGE_KEY, digest_for(files), manifest_for(files))
-            store.delete_project_directory(link, STORAGE_KEY)
-            self.assertFalse((real / str(STORAGE_KEY)).exists())
-
-    def test_delete_revision_directory_removes_only_that_revision(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            removed = {'a.py': b'a'}
-            kept = {'b.py': b'b'}
-            for files in (removed, kept):
-                store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            store.delete_revision_directory(tmp, STORAGE_KEY, digest_for(removed))
-            revisions = pathlib.Path(tmp) / str(STORAGE_KEY) / 'revisions'
-            self.assertEqual([entry.name for entry in revisions.iterdir()], [digest_for(kept)])
-
-    def test_delete_revision_directory_tolerates_missing_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store.delete_revision_directory(tmp, STORAGE_KEY, PLACEHOLDER_DIGEST)
-
-    def test_delete_revision_directory_refuses_a_symlinked_project_directory(self):
-        # Following the link here would delete a tree that storage does not own.
-        with tempfile.TemporaryDirectory() as tmp:
-            outside = pathlib.Path(tmp) / 'outside'
-            (outside / 'revisions' / PLACEHOLDER_DIGEST).mkdir(parents=True)
-            (outside / 'revisions' / PLACEHOLDER_DIGEST / 'a.py').write_bytes(b'aaa')
-            root = pathlib.Path(tmp) / 'root'
-            root.mkdir()
-            (root / str(STORAGE_KEY)).symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(UnsafePathError) as ctx:
-                store.delete_revision_directory(root, STORAGE_KEY, PLACEHOLDER_DIGEST)
-            self.assertEqual(ctx.exception.code, 'symlink')
-            self.assertTrue((outside / 'revisions' / PLACEHOLDER_DIGEST / 'a.py').exists())
-
-    def test_delete_project_directory_removes_all_revisions(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for files in ({'a.py': b'a'}, {'b.py': b'b'}):
-                store.write_staged_revision(tmp, STORAGE_KEY, digest_for(files), files, manifest_for(files))
-            store.delete_project_directory(tmp, STORAGE_KEY)
-            self.assertFalse((pathlib.Path(tmp) / str(STORAGE_KEY)).exists())
-
-    def test_delete_project_directory_tolerates_missing_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store.delete_project_directory(tmp, STORAGE_KEY)
-
-    def test_delete_project_directory_refuses_a_symlinked_project_directory(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            outside = pathlib.Path(tmp) / 'outside'
-            outside.mkdir()
-            (outside / 'keep.py').write_bytes(b'x')
-            root = pathlib.Path(tmp) / 'root'
-            root.mkdir()
-            (root / str(STORAGE_KEY)).symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(OSError):
-                store.delete_project_directory(root, STORAGE_KEY)
-            self.assertTrue((outside / 'keep.py').exists())
+    def test_the_lifecycle_never_needs_the_backend_to_list(self):
+        # The manifest names every key, so a backend without directory semantics is enough
+        # for writing, verifying, and removing a revision.
+        storage = RefusingStorage(failing={'listdir'}, error=NotImplementedError('no listing here'))
+        files = {'b.py': b'second', 'pkg/c.py': b'nested'}
+        digest = self.stage(files, storage=storage)
+        store.verify_revision_tree(storage, STORAGE_KEY, digest, manifest_for(files))
+        self.delete(digest, storage=storage)
+        for path in files:
+            self.assertFalse(storage.exists(f'{revision_prefix(STORAGE_KEY, digest)}{path}'))

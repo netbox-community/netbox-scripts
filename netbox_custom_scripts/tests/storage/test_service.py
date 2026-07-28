@@ -1,29 +1,53 @@
-import pathlib
-import tempfile
 from collections.abc import Mapping
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
+from django.core.files.base import ContentFile
 from django.db import DEFAULT_DB_ALIAS, IntegrityError, connection, router, transaction
-from django.db.utils import ConnectionDoesNotExist
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
-from netbox_custom_scripts.storage import service, store
+from netbox_custom_scripts.storage import config, service, store
 from netbox_custom_scripts.storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from netbox_custom_scripts.storage.paths import project_directory, revision_directory
+from netbox_custom_scripts.storage.paths import STORAGE_PREFIX, project_prefix, revision_prefix
+from netbox_custom_scripts.tests.storage.test_store import RefusingStorage
 
 GOOD_FILES = {'hello.py': b'print("hi")\n', 'pkg/mod.py': b'VALUE = 1\n'}
 BAD_FILES = {'hello.py': b'print("hi")\n', '../escape.py': b'nope\n'}
 CONFLICT_FILES = {'pkg': b'plain file\n', 'pkg/module.py': b'child module\n'}
-WRITE_TARGET = 'netbox_custom_scripts.storage.service.store.write_staged_revision'
+WRITE_TARGET = 'netbox_custom_scripts.storage.service.store.write_revision'
+IN_MEMORY_STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    'netbox_custom_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+}
 
 
 def content(marker):
     """Return a distinct source tree, so each revision gets its own digest."""
     return {'hello.py': f'VALUE = {marker}\n'.encode()}
+
+
+def stored_paths(storage, prefix):
+    """
+    Return every path actually stored under one prefix, relative to it.
+
+    Tests enumerate the backend to pin exactly what an operation left behind. Production code
+    works from the manifest and never lists, so this walk lives here.
+    """
+    found = set()
+    pending = ['']
+    while pending:
+        relative = pending.pop()
+        try:
+            directories, names = storage.listdir(f'{prefix}{relative}')
+        except FileNotFoundError:
+            continue
+        found.update(f'{relative}{name}' for name in names)
+        pending.extend(f'{relative}{name}/' for name in directories)
+    return found
 
 
 class ShiftingFiles(Mapping):
@@ -46,15 +70,33 @@ class ShiftingFiles(Mapping):
 class StorageServiceMixin:
     def setUp(self):
         super().setUp()
-        self.root = self.enterContext(tempfile.TemporaryDirectory())
-        self.enterContext(override_settings(PLUGINS_CONFIG={'netbox_custom_scripts': {'project_root': self.root}}))
+        self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
+        self.storage = config.get_storage()
         self.project = CustomScriptProject.objects.create(name='Staged Project', key='staged-project')
 
-    def project_path(self, project=None):
-        return project_directory(self.root, (project or self.project).storage_key)
+    def project_keys(self, project=None):
+        """Return every key one project holds, relative to its prefix."""
+        return stored_paths(self.storage, project_prefix((project or self.project).storage_key))
 
-    def revision_path(self, digest, project=None):
-        return revision_directory(self.root, (project or self.project).storage_key, digest)
+    def revision_keys(self, digest, project=None):
+        """Return every key one revision holds, relative to its prefix."""
+        return stored_paths(self.storage, revision_prefix((project or self.project).storage_key, digest))
+
+    def read(self, digest, path, project=None):
+        """Return the bytes stored for one file of a revision."""
+        key = f'{revision_prefix((project or self.project).storage_key, digest)}{path}'
+        with self.storage.open(key, 'rb') as handle:
+            return handle.read()
+
+    def overwrite(self, digest, path, content, project=None):
+        """Replace one stored file, standing in for content tampered with after a write."""
+        key = f'{revision_prefix((project or self.project).storage_key, digest)}{path}'
+        self.storage.delete(key)
+        self.storage.save(key, ContentFile(content))
+
+    def remove(self, digest, path, project=None):
+        """Remove one stored file of a revision."""
+        self.storage.delete(f'{revision_prefix((project or self.project).storage_key, digest)}{path}')
 
     def materialize(self, files=None, project=None):
         """Stage content the way a caller would, leaving the revision MATERIALIZED."""
@@ -86,11 +128,10 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.materialize()
         self.assertNotEqual(revision.status, RevisionStatusChoices.VALID)
 
-    def test_stage_revision_writes_the_revision_directory(self):
+    def test_stage_revision_stores_the_revision_content(self):
         revision = self.materialize()
-        stored = self.revision_path(revision.digest)
-        self.assertEqual((stored / 'hello.py').read_bytes(), GOOD_FILES['hello.py'])
-        self.assertEqual((stored / 'pkg' / 'mod.py').read_bytes(), GOOD_FILES['pkg/mod.py'])
+        self.assertEqual(self.read(revision.digest, 'hello.py'), GOOD_FILES['hello.py'])
+        self.assertEqual(self.read(revision.digest, 'pkg/mod.py'), GOOD_FILES['pkg/mod.py'])
 
     def test_stage_revision_returns_existing_revision_for_identical_content(self):
         first, first_created = service.stage_revision(self.project, GOOD_FILES)
@@ -105,7 +146,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         # Same length as the original, so only the checksum can catch the swap.
         tampered = b'print("no")\n'
         self.assertEqual(len(tampered), len(GOOD_FILES['hello.py']))
-        (self.revision_path(revision.digest) / 'hello.py').write_bytes(tampered)
+        self.overwrite(revision.digest, 'hello.py', tampered)
         with self.assertRaises(RevisionCorruptError) as ctx:
             service.stage_revision(self.project, GOOD_FILES)
         self.assertIn('checksum_mismatch:hello.py', ctx.exception.reasons)
@@ -120,10 +161,10 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertEqual(len(revision.validation_errors), 1)
         self.assertEqual(revision.validation_errors[0]['code'], 'path_traversal')
 
-    def test_stage_revision_writes_nothing_to_disk_for_invalid_content(self):
+    def test_stage_revision_stores_nothing_for_invalid_content(self):
         service.stage_revision(self.project, BAD_FILES)
-        self.assertFalse(self.project_path().exists())
-        self.assertEqual(list(pathlib.Path(self.root).iterdir()), [])
+        self.assertEqual(self.project_keys(), set())
+        self.assertEqual(stored_paths(self.storage, f'{STORAGE_PREFIX}/'), set())
 
     def test_stage_revision_rejects_a_file_that_is_also_a_directory(self):
         revision, created = service.stage_revision(self.project, CONFLICT_FILES)
@@ -133,7 +174,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         codes = [error['code'] for error in revision.validation_errors]
         self.assertEqual(codes, ['path_conflict'])
         self.assertEqual([entry['path'] for entry in revision.manifest], ['pkg'])
-        self.assertFalse(self.project_path().exists())
+        self.assertEqual(self.project_keys(), set())
 
     def test_stage_revision_creates_a_distinct_invalid_revision_each_time(self):
         first, _ = service.stage_revision(self.project, BAD_FILES)
@@ -154,15 +195,13 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertIsNotNone(revision.digest)
         self.assertEqual(revision.validation_errors[0]['code'], 'storage_write_failed')
 
-    def test_stage_revision_records_a_tree_that_could_not_be_removed(self):
-        # The store converts a tree it installed, failed to verify, and could not remove into a
-        # message naming what became of it. This is where that message has to arrive for an
-        # operator or a later reconciler to act on it, and the revision must not be materialized.
+    def test_stage_revision_records_a_tree_that_failed_verification(self):
+        # This is where a verification failure has to arrive for an operator or a later
+        # reconciler to act on. The revision must not be materialized, and the written keys
+        # stay for the retry that owns them.
         corrupt = RevisionCorruptError('The stored revision does not match its manifest.', ['size_mismatch:hello.py'])
         with (
-            mock.patch.object(store, 'verify_revision_tree', side_effect=corrupt),
-            mock.patch.object(store.shutil, 'rmtree', side_effect=PermissionError('denied')),
-            self.assertLogs(store.logger, 'ERROR'),
+            mock.patch.object(store, '_verify_tree', side_effect=corrupt),
             self.assertRaises(StorageError),
         ):
             service.stage_revision(self.project, GOOD_FILES)
@@ -170,9 +209,49 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.project.revisions.get()
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
         self.assertEqual(revision.validation_errors[0]['code'], 'storage_write_failed')
-        message = revision.validation_errors[0]['message']
-        self.assertIn('does not match its manifest', message)
-        self.assertIn('set aside', message)
+        self.assertIn('does not match its manifest', revision.validation_errors[0]['message'])
+        self.assertEqual(self.revision_keys(revision.digest), set(GOOD_FILES))
+
+    def test_stage_revision_records_storage_failed_when_the_backend_cannot_answer_exists(self):
+        # exists() is the first backend call a write makes, and a cloud backend can raise
+        # something there that is neither OSError nor StorageError. The row must land in
+        # STORAGE_FAILED rather than staying in STAGING with nothing recorded.
+        refusing = RefusingStorage(failing={'exists'}, error=RuntimeError('the sdk gave up'))
+        with (
+            mock.patch('netbox_custom_scripts.storage.service.config.get_storage', return_value=refusing),
+            self.assertRaises(StorageError),
+        ):
+            service.stage_revision(self.project, GOOD_FILES)
+
+        revision = self.project.revisions.get()
+        self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
+        self.assertEqual(revision.validation_errors[0]['code'], 'storage_write_failed')
+
+    def test_a_slow_stager_does_not_demote_a_concurrently_promoted_revision(self):
+        # Project validation can promote the row while a duplicate stager is still writing
+        # bytes. Promotion belongs to that owner, so the stager returns the row as found.
+        def promote(*args, **kwargs):
+            CustomScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALID)
+
+        with mock.patch(WRITE_TARGET, side_effect=promote):
+            revision, created = service.stage_revision(self.project, GOOD_FILES)
+
+        self.assertTrue(created)
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+
+    def test_a_slow_failed_stager_does_not_demote_a_concurrently_promoted_revision(self):
+        # Only STAGING may become STORAGE_FAILED. A row that advanced while this writer was
+        # failing keeps the concurrent owner's word, and the error still reaches the caller.
+        def promote_then_fail(*args, **kwargs):
+            CustomScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALID)
+            raise OSError('no space left on device')
+
+        with mock.patch(WRITE_TARGET, side_effect=promote_then_fail), self.assertRaises(OSError):
+            service.stage_revision(self.project, GOOD_FILES)
+
+        revision = self.project.revisions.get()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+        self.assertEqual(revision.validation_errors, [])
 
     def test_stage_revision_retries_a_revision_whose_write_failed(self):
         with (
@@ -187,7 +266,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertEqual(revision.pk, failed.pk)
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
         self.assertEqual(revision.validation_errors, [])
-        self.assertTrue(self.revision_path(revision.digest).is_dir())
+        self.assertEqual(self.revision_keys(revision.digest), {'hello.py', 'pkg/mod.py'})
 
     def test_stage_revision_does_not_resurrect_a_rejected_revision(self):
         # Once project validation rejects a revision, re-staging the same bytes must not
@@ -208,7 +287,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         stale = CustomScriptProject.objects.get(pk=self.project.pk)
         stale.storage_key = CustomScriptProject.objects.create(name='Other', key='other').storage_key
         revision = self.materialize(project=stale)
-        self.assertTrue(self.revision_path(revision.digest).is_dir())
+        self.assertEqual(self.revision_keys(revision.digest), {'hello.py', 'pkg/mod.py'})
 
     def test_stage_revision_does_not_re_drive_a_revision_under_validation(self):
         # VALIDATING belongs to project validation. Re-staging identical content while the
@@ -231,28 +310,28 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         # manifest does not describe.
         revision, _ = service.stage_revision(self.project, ShiftingFiles())
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
-        stored = (self.revision_path(revision.digest) / 'hello.py').read_bytes()
+        stored = self.read(revision.digest, 'hello.py')
         self.assertEqual(stored, b'VERSION = 1\n')
         self.assertEqual(revision.manifest[0]['size'], len(stored))
 
-    def test_stage_revision_records_storage_failed_when_an_existing_tree_is_corrupt(self):
-        # A retry whose destination already exists but does not match must not strand the row
-        # mid-write: verification raises a StorageError, not an OSError.
+    def test_stage_revision_repairs_a_partial_tree_left_by_a_failed_write(self):
+        # A write that died partway leaves keys behind under the digest. The retry owns them:
+        # the digest already fixed what the content must be, so whatever disagrees is replaced.
         with (
             mock.patch(WRITE_TARGET, side_effect=OSError('no space left on device')),
             self.assertRaises(OSError),
         ):
             service.stage_revision(self.project, GOOD_FILES)
         failed = self.project.revisions.get()
-        stored = self.revision_path(failed.digest)
-        stored.mkdir(parents=True)
-        (stored / 'hello.py').write_bytes(b'wrong content\n')
+        self.overwrite(failed.digest, 'hello.py', b'wrong content\n')
 
-        with self.assertRaises(RevisionCorruptError):
-            service.stage_revision(self.project, GOOD_FILES)
+        revision, created = service.stage_revision(self.project, GOOD_FILES)
 
-        failed.refresh_from_db()
-        self.assertEqual(failed.status, RevisionStatusChoices.STORAGE_FAILED)
+        self.assertFalse(created)
+        self.assertEqual(revision.pk, failed.pk)
+        self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(self.read(revision.digest, 'hello.py'), GOOD_FILES['hello.py'])
+        self.assertEqual(self.revision_keys(revision.digest), {'hello.py', 'pkg/mod.py'})
         self.assertEqual(failed.validation_errors[0]['code'], 'storage_write_failed')
 
     def test_stage_revision_rejects_a_row_whose_counters_disagree_with_its_manifest(self):
@@ -271,14 +350,15 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
                     service.stage_revision(self.project, files)
                 self.assertIn(reason, ctx.exception.reasons)
 
-    def test_stage_revision_uses_the_alias_the_project_came_from(self):
-        # Every read and write of one staging operation lands on a single connection. A
-        # project carrying a foreign alias proves the value comes from the instance rather
-        # than being re-resolved, and that nothing quietly falls back to the default.
+    def test_stage_revision_refuses_a_project_from_another_database(self):
+        # The lifecycle contract is enforced up front. Content staged on another alias
+        # could never record its deletion cleanup, so nothing is written anywhere.
         self.project._state.db = 'schema_example'
-        with self.assertRaises(ConnectionDoesNotExist):
+        with self.assertRaises(ImproperlyConfigured) as ctx:
             service.stage_revision(self.project, GOOD_FILES)
+        self.assertIn('"default"', str(ctx.exception))
         self.assertEqual(CustomScriptProjectRevision.objects.count(), 0)
+        self.assertEqual(self.project_keys(), set())
 
     def test_stage_revision_rejects_a_manifest_that_leaves_the_revision_directory(self):
         revision = self.materialize()
@@ -305,7 +385,7 @@ class BranchingGuardTestCase(StorageServiceMixin, TestCase):
         with self.unsafe(), self.assertRaises(ImproperlyConfigured):
             service.stage_revision(self.project, GOOD_FILES)
         self.assertFalse(self.project.revisions.exists())
-        self.assertFalse(self.project_path().exists())
+        self.assertEqual(self.project_keys(), set())
 
     def test_activation_is_refused(self):
         revision = self.validated()
@@ -395,16 +475,16 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
 
     def test_activate_revision_fails_when_the_stored_tree_is_missing(self):
         revision = self.validated()
-        (self.revision_path(revision.digest) / 'hello.py').unlink()
+        self.remove(revision.digest, 'hello.py')
         with self.assertRaises(RevisionCorruptError) as ctx:
             service.activate_revision(revision)
-        self.assertIn('missing_or_special:hello.py', ctx.exception.reasons)
+        self.assertIn('missing:hello.py', ctx.exception.reasons)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
     def test_activate_revision_fails_when_a_stored_file_was_modified(self):
         revision = self.validated()
-        (self.revision_path(revision.digest) / 'hello.py').write_bytes(b'tampered with\n')
+        self.overwrite(revision.digest, 'hello.py', b'tampered with\n')
         with self.assertRaises(RevisionCorruptError) as ctx:
             service.activate_revision(revision)
         self.assertTrue(
@@ -434,15 +514,18 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertIn('"netbox_custom_scripts_customscriptproject"', locking[0])
         self.assertIn('"netbox_custom_scripts_customscriptprojectrevision"', locking[1])
 
-    def test_activate_revision_uses_the_alias_the_revision_came_from(self):
-        # A revision loaded from one connection must not be activated against another, so the
-        # instance's own alias wins over anything a router would pick per query.
+    def test_activate_revision_refuses_a_revision_from_another_database(self):
+        # Same contract as staging. A revision loaded from another alias is refused
+        # before any read or lock, so the row and the pointer stay untouched.
         revision = self.validated()
         revision._state.db = 'schema_example'
-        with self.assertRaises(ConnectionDoesNotExist):
+        with self.assertRaises(ImproperlyConfigured) as ctx:
             service.activate_revision(revision)
+        self.assertIn('"default"', str(ctx.exception))
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
+        fresh = CustomScriptProjectRevision.objects.get(pk=revision.pk)
+        self.assertEqual(fresh.status, RevisionStatusChoices.VALID)
 
     def test_activate_revision_falls_back_to_the_router_without_an_alias(self):
         # The transaction and the row locks have to sit on one connection, so an instance
@@ -454,20 +537,57 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
         self.assertIn(CustomScriptProjectRevision, [call.args[0] for call in db_for_write.call_args_list])
 
+    def test_activation_verifies_content_before_taking_the_row_locks(self):
+        # Verification downloads and hashes every file, so it must not run inside the
+        # transaction. Savepoint depth is the observable: entering the service transaction
+        # inside a TestCase pushes one more savepoint, verification must see the baseline.
+        revision = self.validated()
+        real_verify = store.verify_revision_tree
+        depths = []
+
+        def recording_verify(*args, **kwargs):
+            depths.append(len(connection.savepoint_ids))
+            return real_verify(*args, **kwargs)
+
+        baseline = len(connection.savepoint_ids)
+        with mock.patch.object(store, 'verify_revision_tree', side_effect=recording_verify):
+            service.activate_revision(revision)
+        self.assertEqual(depths, [baseline])
+
+    def test_activation_rejects_a_revision_that_changed_after_verification(self):
+        # The verified snapshot is compared against the locked row, so content swapped in
+        # the unlocked window is refused rather than promoted on stale evidence.
+        revision = self.validated()
+        real_verify = store.verify_revision_tree
+
+        def verify_then_swap(*args, **kwargs):
+            result = real_verify(*args, **kwargs)
+            CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(digest='0' * 64)
+            return result
+
+        with (
+            mock.patch.object(store, 'verify_revision_tree', side_effect=verify_then_swap),
+            self.assertRaises(ActivationError) as ctx,
+        ):
+            service.activate_revision(revision)
+        self.assertIn('changed while', str(ctx.exception))
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
 
 class SourceMappingContractTestCase(StorageServiceMixin, TestCase):
     """
     Cover the mapping contract, which is what keeps the manifest describing what was written.
 
-    A value that can change between hashing and writing produces a tree the store refuses and
-    withdraws, so the snapshot has to be a copy of the bytes and not just of the mapping.
+    A value that can change between hashing and writing produces a tree the store refuses,
+    so the snapshot has to be a copy of the bytes and not just of the mapping.
     """
 
     def test_a_mutated_bytearray_cannot_change_what_is_written(self):
         content = bytearray(b'original')
         revision = self.materialize({'hello.py': content})
         content[:] = b'replaced'
-        self.assertEqual((self.revision_path(revision.digest) / 'hello.py').read_bytes(), b'original')
+        self.assertEqual(self.read(revision.digest, 'hello.py'), b'original')
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
 
     def test_a_string_value_is_a_caller_fault_not_an_invalid_revision(self):
@@ -484,4 +604,4 @@ class SourceMappingContractTestCase(StorageServiceMixin, TestCase):
     def test_a_memoryview_value_is_accepted_and_copied(self):
         buffer = bytearray(b'viewed')
         revision = self.materialize({'hello.py': memoryview(buffer)})
-        self.assertEqual((self.revision_path(revision.digest) / 'hello.py').read_bytes(), b'viewed')
+        self.assertEqual(self.read(revision.digest, 'hello.py'), b'viewed')

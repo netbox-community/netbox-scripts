@@ -2,35 +2,118 @@
 
 ## Overview
 
-NetBox Custom Scripts reads its settings from the `netbox_custom_scripts` entry in
-NetBox's `PLUGINS_CONFIG`. The settings below govern where project source is stored and
-how large a source tree may be. The storage layer that reads them ships in this
+NetBox Custom Scripts keeps project source in a Django storage backend, configured through
+NetBox's `STORAGES` setting, and reads its remaining settings from the
+`netbox_custom_scripts` entry in NetBox's `PLUGINS_CONFIG`. The storage layer ships in this
 pre-alpha release, but no user-facing way to stage a revision does yet, so a deployment
-that only manages project definitions can leave them unset. The plugin boots without the
-two path settings, and each path is validated the first time a storage function needs it
-rather than at startup.
+that only manages project definitions can defer the storage decision. The
+`netbox_custom_scripts.W001` system check reports it until it is made.
 
 ```python
 PLUGINS_CONFIG = {
     'netbox_custom_scripts': {
-        'project_root': '/opt/netbox-custom-scripts/projects',
-        'runtime_cache_root': '/opt/netbox-custom-scripts/cache',
+        'max_project_size': 209715200,
     },
 }
 ```
+
+## Project storage
+
+Stored revisions go to the backend registered under the `netbox_custom_scripts` key of
+NetBox's `STORAGES` setting. **This entry is required.** Everything the plugin writes sits
+under a single `netbox-custom-scripts/` prefix, so it stays separate from whatever else
+that backend holds.
+
+The entry is required rather than falling back to NetBox's `default` storage because a
+revision is executable source, and it deserves a backend chosen for it rather than
+inheriting the visibility, retention, and sharing policy of ordinary media. Pointing the
+entry at the same physical backend as `default` is a legitimate decision, and writing it
+out keeps that decision visible and lets the two diverge later. NetBox merges `STORAGES`
+with its built-in entries, so a block that defines only this key leaves `default` and the
+others intact.
+
+### Local files
+
+On a single node, Django's built-in `FileSystemStorage` stores revisions as ordinary
+files:
+
+```python
+STORAGES = {
+    'netbox_custom_scripts': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {
+            'location': '/var/lib/netbox-custom-scripts',
+        },
+    },
+}
+```
+
+```text
+/var/lib/netbox-custom-scripts/netbox-custom-scripts/<storage_key>/revisions/<digest>/hello.py
+```
+
+Nothing here requires the `django-storages` package. `FileSystemStorage` ships with
+Django, and `django-storages` is needed only for the object-store backends below.
+
+### Object storage
+
+A horizontally scaled deployment points the entry at an S3-compatible bucket:
+
+```python
+STORAGES = {
+    'netbox_custom_scripts': {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+        'OPTIONS': {
+            'bucket_name': 'netbox-private-data',
+            'location': 'custom-scripts',
+            'default_acl': 'private',
+        },
+    },
+}
+```
+
+S3 bounds the complete object key at 1024 UTF-8 bytes including every prefix. The plugin's
+own key prefix uses 134 of them and an accepted source path uses at most 768, which leaves
+122 bytes for the `location` above.
+
+### The one requirement
+
+**Every NetBox web and worker process must reach the same content.** A revision staged by
+one process is executed by another. On a single node, a local directory satisfies that
+and is the normal choice. On a horizontally scaled deployment, such as NetBox Enterprise
+or NetBox Cloud, a per-pod local directory does not: a revision written by a web pod is
+absent for the worker pod that has to run it, so those deployments need an object store or
+a shared volume.
+
+### When the entry is missing or unusable
+
+NetBox still boots, and everything unrelated to project storage keeps working. The
+`netbox_custom_scripts.W001` system check reports the missing entry, and revision staging,
+activation, and cleanup refuse with a configuration error until it is defined. A backend
+that cannot be constructed is reported the same way when the storage layer uses it, rather
+than at startup.
+
+### Changing the backend later
+
+The entry and its options are part of the deployment's persistent state: they say where
+every stored revision lives. Changing the target backend, bucket, or `location` therefore
+needs a coordinated move, not just a configuration edit. Stop staging and deletion activity,
+let queued cleanup jobs drain, copy everything under the `netbox-custom-scripts/` prefix to
+the new backend, and only then switch the entry. A cleanup job resolves the backend when it
+runs, so a job enqueued before the switch would otherwise delete from the new backend while
+its objects still sit in the old one. Verification on the next staging or activation
+confirms the copied content arrived intact.
 
 ## Settings
 
 | Setting | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `project_root` | absolute path | unset | Directory that holds every project's stored revisions. Must already exist and be readable, writable, and traversable. This is shared storage. The same directory must be reachable by every NetBox web and worker process. |
-| `runtime_cache_root` | absolute path | unset | Directory where a revision's source tree is materialized for execution. Must already exist and be readable, writable, and traversable. It may be node-local, so each worker can keep its own cache. |
 | `max_file_size` | positive integer (bytes) | 10485760 (10 MiB) | Largest accepted size for a single source file. |
 | `max_project_size` | positive integer (bytes) | 104857600 (100 MiB) | Largest accepted total size of a project's source tree. |
 | `max_file_count` | positive integer | 1000 | Largest accepted number of files in a project's source tree. |
 
-The two path settings default to unset and are validated lazily. A limit set to a
-non-positive or non-integer value is rejected as a configuration error when it is read.
+A limit set to a non-positive or non-integer value is rejected as a configuration error
+when it is read.
 
 ## Source path policy
 
@@ -41,7 +124,7 @@ walkable, and removable on every supported host, and importable by the package l
 | Rule | Limit |
 |---|---|
 | Bytes in one path component, UTF-8 | 255 |
-| Bytes in the whole relative path, UTF-8 | 1024 |
+| Bytes in the whole relative path, UTF-8 | 768 |
 | Directory levels | 64 |
 
 A source file breaking any of these is rejected as content, with the codes
@@ -52,40 +135,59 @@ of the same content could ever clear.
 
 ## Storage trust boundary
 
-Both storage roots are trusted inputs to code execution. Treat write access to them as
-equivalent to running code as the NetBox service account, and size the filesystem
-permissions accordingly.
+The project storage backend and the runtime cache directory are trusted inputs to code
+execution.
+Treat write access to either as equivalent to running code as the NetBox service account,
+and size the backend and filesystem permissions accordingly.
 
-- **Only the NetBox service identity, or a trusted deployment identity, may write to
-  `project_root` and `runtime_cache_root`.** Anything else with write access can place
-  code where NetBox will later import it.
-- **Make an active revision directory read-only after activation** where the deployment
-  allows it. A revision is immutable by design, so nothing should rewrite it.
-- **A manifest is verified immediately before import, not once at write time.** A file
-  that changed on disk after it was staged does not match its recorded checksum and is
-  rejected then.
-- **A cache entry is not trusted merely because its directory exists.** The runtime cache
-  is rebuildable state, so an entry that fails verification is discarded and repopulated
-  from `project_root`.
-- **No symbolic link is permitted anywhere below `project_root`.** Reading, writing,
-  verifying, and removing a stored revision all refuse one, so a link cannot redirect an
-  operation to content the plugin does not own. A refused removal is logged and the content
-  is left for an operator rather than followed.
+- **Only the NetBox service identity, or a trusted deployment identity, may write to the
+  storage backend or to the runtime cache directory.** Anything else with write access can
+  place code where NetBox will later import it.
+- **Content is trusted because it matches its manifest, not because of where it sits.**
+  Every stored file is checked against its recorded size and SHA-256 on every path that
+  returns a revision, including immediately after it is written. Verification asks the
+  backend for an object's reported size before opening it, so an object replaced with
+  something larger is rejected without a download, and a backend that reports no sizes
+  falls back to a read bounded at one byte past the recorded size. Only the keys the
+  manifest names are ever read, materialized, or executed, so an unexpected key under a
+  revision is inert rather than importable.
+- **A manifest is verified immediately before import, not once at write time.** Content
+  that changed after it was staged does not match its recorded checksum and is rejected
+  then.
+- **A cache entry is not trusted merely because it exists.** The runtime cache is
+  rebuildable state, so an entry that fails verification is discarded and repopulated from
+  the backend.
+- **Give the backend its own bucket, container, or directory** where the deployment allows
+  it. The plugin confines itself to one prefix, but a backend shared with unrelated writers
+  widens who can put content where NetBox will look for it.
 
-`project_root` is shared storage and must be reachable by every web and worker process.
-`runtime_cache_root` may be node-local, so each worker can keep its own copy.
+Custom Script Project and Revision rows, and the cleanup jobs that reclaim their stored
+content, live on the default database, and the whole storage lifecycle is bound to it.
+The core job API records a cleanup Job and its queue handoff on the default connection,
+so staging, activation, and deletion arriving on any other database alias are refused up
+front, rather than allowed to create content whose deletion could never record its
+cleanup. The cleanup job also repeats the branching routing check when it runs, because
+it may execute much later or on another pod, and it fails while leaving content in place
+rather than trust an answer that is no longer safe. NetBox Branching's schema routing on
+the default connection is fully supported, arbitrary secondary databases are not.
 
-`project_root` itself may be a symbolic link, since pointing it at a mounted volume is a
-normal operator choice. The rule above applies to everything the plugin creates beneath it.
+## What the backend does and does not guarantee
 
-Storage cleanup and revision activation run on the database connection that performed the
-matching write, so both stay correct on a deployment where a plugin routes these models to a
-connection of its own.
+Moving the authoritative store to a Django storage backend is what makes it work on a
+horizontally scaled deployment, and it changes what the plugin can promise about tampering.
 
-## Platform requirement
+Writing cannot go through a symbolic link planted at a key, because a filesystem backend
+creates files with `O_CREAT` and `O_EXCL` and the plugin refuses a key the backend renames.
+Removal unlinks the name it is given rather than following it. Both statements hold at the
+final key only: on a filesystem backend, a directory component under the storage root that
+is replaced with a symbolic link redirects everything below it, writes included. The plugin
+does not defend against mutation of the backend's own tree, which is what the trust
+boundary above is for. Whoever can restructure the storage root can already place code, so
+write access to it stays confined to the trusted identities. Reading is where the
+difference lies: a backend resolves a key however it chooses, and the plugin does not
+control that resolution, so a redirected read is caught by the checksum rather than
+prevented. Content that does not hash to what the manifest recorded is rejected, which
+means a redirect can deny service but cannot substitute code.
 
-Project storage requires a POSIX filesystem. Every path component below `project_root` is
-opened through a directory descriptor that refuses a symbolic link, which relies on
-`O_NOFOLLOW`, `O_DIRECTORY`, and descriptor-relative operations, and that is how a link
-swapped in between validation and use is defeated. The package is classified
-`Operating System :: POSIX` for that reason.
+This is the only guarantee available once the store may be an object store, and it applies
+uniformly to every backend rather than only to a local filesystem.

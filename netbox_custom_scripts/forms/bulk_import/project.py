@@ -16,18 +16,18 @@ class CustomScriptProjectBulkImportForm(PrimaryModelImportForm):
     source_type = CSVChoiceField(
         choices=ProjectSourceTypeChoices,
         required=False,
-        help_text=_('Project source type'),
+        help_text=_('Project source type.'),
     )
     activation_policy = CSVChoiceField(
         choices=ActivationPolicyChoices,
         required=False,
-        help_text=_('Revision activation policy'),
+        help_text=_('Revision activation policy.'),
     )
     data_source = CSVModelChoiceField(
         queryset=DataSource.objects.all(),
         to_field_name='name',
         required=False,
-        help_text=_('Data source (name)'),
+        help_text=_('Data source (name).'),
     )
 
     class Meta:

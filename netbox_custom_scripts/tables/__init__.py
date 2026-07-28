@@ -1,3 +1,3 @@
-from .customscriptproject import CustomScriptProjectTable
+from .project import CustomScriptProjectTable
 
 __all__ = ('CustomScriptProjectTable',)

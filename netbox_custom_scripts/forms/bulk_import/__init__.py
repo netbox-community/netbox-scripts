@@ -1,1 +1,1 @@
-from .customscriptproject import *
+from .project import *

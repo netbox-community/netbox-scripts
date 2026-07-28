@@ -1,4 +1,4 @@
-from .customscriptproject import CustomScriptProject, CustomScriptProjectRevision
+from .project import CustomScriptProject, CustomScriptProjectRevision
 
 __all__ = (
     'CustomScriptProject',

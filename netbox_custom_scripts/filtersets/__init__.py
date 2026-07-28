@@ -1,3 +1,3 @@
-from .customscriptproject import CustomScriptProjectFilterSet
+from .project import CustomScriptProjectFilterSet
 
 __all__ = ('CustomScriptProjectFilterSet',)

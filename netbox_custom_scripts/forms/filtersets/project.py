@@ -58,4 +58,7 @@ class CustomScriptProjectFilterForm(PrimaryModelFilterSetForm):
             'enabled',
             name=_('Attributes'),
         ),
+        # A non-empty fieldsets renders only what it lists, so the inherited owner fields need
+        # naming here or the sidebar hides filters the filterset and the API both support.
+        FieldSet('owner_group_id', 'owner_id', name=_('Ownership')),
     )

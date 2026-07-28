@@ -1,3 +1,3 @@
-from .customscriptproject import CustomScriptProjectSerializer
+from .project import CustomScriptProjectSerializer
 
 __all__ = ('CustomScriptProjectSerializer',)

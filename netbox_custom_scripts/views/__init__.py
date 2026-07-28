@@ -1,4 +1,4 @@
-from .customscriptproject import (
+from .project import (
     CustomScriptProjectBulkDeleteView,
     CustomScriptProjectBulkEditView,
     CustomScriptProjectBulkImportView,

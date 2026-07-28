@@ -63,43 +63,43 @@ when domain content calls for them.
 │   │   ├── views.py               , [CustomScriptProject] CustomScriptProjectViewSet(NetBoxModelViewSet).
 │   │   └── serializers/
 │   │       ├── __init__.py        , [CustomScriptProject] Re-exports CustomScriptProjectSerializer.
-│   │       └── customscriptproject.py     , [CustomScriptProject] CustomScriptProjectSerializer.
+│   │       └── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
 │   ├── filtersets/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectFilterSet.
-│   │   └── customscriptproject.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
+│   │   └── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
 │   ├── forms/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
-│   │   ├── model_forms/customscriptproject.py   , [CustomScriptProject] CustomScriptProjectEditForm.
-│   │   ├── bulk_edit/customscriptproject.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
-│   │   ├── bulk_import/customscriptproject.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
-│   │   └── filtersets/customscriptproject.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
+│   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm.
+│   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
+│   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
+│   │   └── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProject.
-│   │   └── customscriptproject.py                 , [CustomScriptProject] CustomScriptProject(PrimaryModel) with name/key/storage_key/source_type/data_source/data_path/activation_policy/enabled; clean()+save() enforce identity/ownership invariants.
+│   │   └── project.py                 , [CustomScriptProject] CustomScriptProject(PrimaryModel) with name/key/storage_key/source_type/data_source/data_path/activation_policy/enabled; clean()+save() enforce identity/ownership invariants.
 │   ├── tables/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectTable.
-│   │   └── customscriptproject.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
+│   │   └── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
 │   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered).
 │   │   ├── models/__init__.py     , [CustomScriptProject] Test package anchor.
-│   │   ├── models/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
+│   │   ├── models/test_project.py , [CustomScriptProject] CustomScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
 │   │   ├── api/__init__.py        , [CustomScriptProject] Test package anchor.
-│   │   ├── api/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
+│   │   ├── api/test_project.py , [CustomScriptProject] CustomScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
 │   │   ├── views/__init__.py      , [CustomScriptProject] Test package anchor.
-│   │   ├── views/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase).
+│   │   ├── views/test_project.py , [CustomScriptProject] CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase).
 │   │   ├── tables/__init__.py     , [CustomScriptProject] Test package anchor.
-│   │   ├── tables/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectTableTestCase(TableTestCases.StandardTableTestCase).
+│   │   ├── tables/test_project.py , [CustomScriptProject] CustomScriptProjectTableTestCase(TableTestCases.StandardTableTestCase).
 │   │   ├── forms/__init__.py      , [CustomScriptProject] Test package anchor.
-│   │   ├── forms/test_customscriptproject.py , [CustomScriptProject] EditForm / FilterForm / BulkImportForm test cases.
+│   │   ├── forms/test_project.py , [CustomScriptProject] EditForm / FilterForm / BulkImportForm test cases.
 │   │   ├── filtersets/__init__.py , [CustomScriptProject] Test package anchor.
-│   │   ├── filtersets/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
+│   │   ├── filtersets/test_project.py , [CustomScriptProject] CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
 │   │   ├── graphql/__init__.py    , [CustomScriptProject] Test package anchor.
-│   │   └── graphql/test_customscriptproject.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
+│   │   └── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
-│   │   └── customscriptproject.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views.
+│   │   └── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
 │   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel (right) for the detail view layout.
@@ -159,19 +159,19 @@ inline as the plugin grows.
   `ready()` method that imports `signals` once you create that module.
 - **Default model (CustomScriptProject)**, the scaffold ships a
   worked example object across every subsystem: model
-  (`models/customscriptproject.py`),
-  table (`tables/customscriptproject.py`),
-  forms (`forms/<type>/customscriptproject.py`, by type: model_forms, bulk_edit, bulk_import, filtersets),
-  filterset (`filtersets/customscriptproject.py`),
-  seven views (`views/customscriptproject.py`),
+  (`models/project.py`),
+  table (`tables/project.py`),
+  forms (`forms/<type>/project.py`, by type: model_forms, bulk_edit, bulk_import, filtersets),
+  filterset (`filtersets/project.py`),
+  seven views (`views/project.py`),
   URL routes (`urls.py`), nav menu (`navigation.py`),
   search index (`search.py`),
-  REST API (`api/views.py`, `api/serializers/customscriptproject.py`, `api/urls.py`),
+  REST API (`api/views.py`, `api/serializers/project.py`, `api/urls.py`),
   GraphQL (`graphql/{schema,types,filters,enums}.py`),
   and a per-area test suite covering model / API / view / table / form /
   filterset / GraphQL surfaces. Each test area mirrors that area's module layout:
   a flat area gets `tests/test_<area>.py`; a subpackage area gets
-  `tests/<area>/test_customscriptproject.py` for the worked
+  `tests/<area>/test_project.py` for the worked
   example, with related models grouped into topic leaves
   `tests/<area>/test_<topic>.py`, plus a `tests/<area>/__init__.py` anchor.
   The shared `tests/plugin_testing.py`

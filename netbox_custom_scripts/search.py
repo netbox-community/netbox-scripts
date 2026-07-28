@@ -1,6 +1,6 @@
 from netbox.search import SearchIndex, register_search
 
-from .models.customscriptproject import CustomScriptProject
+from .models.project import CustomScriptProject
 
 
 @register_search

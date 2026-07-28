@@ -1,5 +1,9 @@
+import errno
 import hashlib
+import shutil
+import tempfile
 import uuid
+from pathlib import Path
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import InMemoryStorage
@@ -151,6 +155,13 @@ class OpenRecordingStorage(InMemoryStorage):
 
 class SizelessStorage(InMemoryStorage):
     """A backend that cannot report object sizes, which verification survives by bounded reads."""
+
+    def size(self, name):
+        raise NotImplementedError('This backend reports no sizes.')
+
+
+class SizelessBottomlessStorage(BottomlessStorage):
+    """An endless stream with no size support, the worst case the read bound must absorb."""
 
     def size(self, name):
         raise NotImplementedError('This backend reports no sizes.')
@@ -413,6 +424,98 @@ class RevisionVerificationTestCase(TestCase):
         with self.assertRaises(RevisionCorruptError) as ctx:
             store.verify_revision_tree(self.storage, STORAGE_KEY, None, tampered)
         self.assertEqual(ctx.exception.reasons, ('path_traversal:../escape.py',))
+
+
+class CopyVerifiedTestCase(TestCase):
+    """Cover the exported bounded verified read that feeds the runtime cache."""
+
+    files = {'hello.py': b'print("hi")', 'pkg/util.py': b'VALUE = 1'}
+
+    def setUp(self):
+        self.storage = InMemoryStorage()
+        self.manifest = manifest_for(self.files)
+        self.digest = compute_digest(self.manifest)
+        self.prefix = revision_prefix(STORAGE_KEY, self.digest)
+        store.write_revision(self.storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+        self.workdir = Path(tempfile.mkdtemp(prefix='nbcs-copy-test-'))
+        self.addCleanup(shutil.rmtree, self.workdir, True)
+
+    def entry(self, path):
+        return next(entry for entry in self.manifest if entry['path'] == path)
+
+    def copy(self, storage=None, path='hello.py', destination=None):
+        return store.copy_verified(storage or self.storage, f'{self.prefix}{path}', self.entry(path), destination)
+
+    def test_the_destination_receives_exactly_the_verified_bytes(self):
+        destination = self.workdir / 'hello.py'
+        self.copy(destination=destination)
+        self.assertEqual(destination.read_bytes(), self.files['hello.py'])
+
+    def test_without_a_destination_the_read_is_verification_only(self):
+        self.copy()
+        self.assertEqual(list(self.workdir.iterdir()), [])
+
+    def test_a_missing_object_is_reported_with_its_manifest_path(self):
+        self.storage.delete(f'{self.prefix}hello.py')
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            self.copy(destination=self.workdir / 'out')
+        self.assertEqual(ctx.exception.reasons, ('missing:hello.py',))
+
+    def test_a_checksum_mismatch_is_rejected(self):
+        self.storage.delete(f'{self.prefix}hello.py')
+        self.storage.save(f'{self.prefix}hello.py', ContentFile(b'X' * len(self.files['hello.py'])))
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            self.copy(destination=self.workdir / 'out')
+        self.assertEqual(ctx.exception.reasons, ('checksum_mismatch:hello.py',))
+
+    def test_an_oversized_object_is_rejected_from_metadata_without_being_opened(self):
+        storage = OpenRecordingStorage()
+        store.write_revision(storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+        storage.delete(f'{self.prefix}hello.py')
+        storage.save(f'{self.prefix}hello.py', ContentFile(b'print("hi") plus a tail'))
+        storage.opened.clear()
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            self.copy(storage=storage, destination=self.workdir / 'out')
+        self.assertEqual(ctx.exception.reasons, ('size_mismatch:hello.py',))
+        self.assertEqual(storage.opened, [])
+
+    def test_a_backend_without_sizes_still_bounds_the_copy(self):
+        # No metadata preflight is available here and the stream never ends, so the read
+        # bound is the only thing standing between the copy and an unbounded download.
+        expected = self.entry('hello.py')
+        storage = SizelessBottomlessStorage(bottomless_key=f'{self.prefix}hello.py', reported_size=0)
+        destination = self.workdir / 'out'
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            self.copy(storage=storage, destination=destination)
+        self.assertEqual(ctx.exception.reasons, ('size_mismatch:hello.py',))
+        self.assertLessEqual(storage.served, expected['size'] + 1)
+        self.assertLessEqual(destination.stat().st_size, expected['size'] + 1)
+
+    def test_a_backend_read_failure_surfaces_as_a_storage_error(self):
+        storage = RefusingStorage(failing=set())
+        store.write_revision(storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+        storage.failing = {'open'}
+        with self.assertRaises(StorageError):
+            self.copy(storage=storage, destination=self.workdir / 'out')
+
+    def test_a_destination_failure_raises_the_original_error_unwrapped(self):
+        with self.assertRaises(FileNotFoundError):
+            self.copy(destination=self.workdir / 'absent' / 'out')
+
+    def test_a_mid_copy_destination_failure_never_masquerades_as_a_backend_error(self):
+        # /dev/full accepts the open and refuses the bytes, exactly a disk filling mid-copy.
+        # The chunk outsizes any write buffer, so the refusal lands on the streaming write.
+        device = Path('/dev/full')
+        if not device.exists():
+            self.skipTest('this host offers no /dev/full device')
+        files = {'big.bin': b'x' * (1024 * 1024)}
+        manifest = manifest_for(files)
+        digest = compute_digest(manifest)
+        store.write_revision(self.storage, STORAGE_KEY, digest, files, manifest)
+        with self.assertRaises(OSError) as ctx:
+            store.copy_verified(self.storage, f'{revision_prefix(STORAGE_KEY, digest)}big.bin', manifest[0], device)
+        self.assertEqual(ctx.exception.errno, errno.ENOSPC)
+        self.assertNotIsInstance(ctx.exception, StorageError)
 
 
 class RevisionRemovalTestCase(TestCase):

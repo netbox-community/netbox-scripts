@@ -17,10 +17,13 @@ Content is trusted because it hashes to what the manifest recorded, not because 
 appears to sit. That verification is also what makes writing safe to repeat: a key already
 holding the recorded size and checksum is left alone and one holding anything else is
 replaced, so an interrupted write is completed by the next attempt rather than blocking it.
+The same read discipline is exported as copy_verified, so the runtime cache pulls bytes
+under exactly the contract verification enforces and the two can never drift apart.
 """
 
 import hashlib
 import logging
+from pathlib import Path
 
 from django.core.files.base import ContentFile
 
@@ -126,6 +129,29 @@ def delete_revision(storage, storage_key, digest, paths):
         raise StorageError('Unable to remove stored revision content: ' + ', '.join(failures))
 
 
+def copy_verified(storage, key, entry, destination=None):
+    """
+    Read one stored file, prove it matches its manifest entry, and optionally keep the bytes.
+
+    The reported size is checked before the object is opened, because a remote backend may
+    download the whole object on open, and the read itself never runs past one byte over the
+    recorded size, so a lying stream costs bounded work. A matching size still gets its
+    content read, because metadata cannot vouch for bytes. With a destination the bytes are
+    written there while they are hashed, so a consumer only ever holds content that was
+    measured. On failure a partial destination file may remain, for the caller to discard
+    with its staging area.
+
+    Raises RevisionCorruptError naming the manifest path when the content does not match,
+    StorageError when the backend cannot be read, and the original OSError when the
+    destination cannot accept the bytes.
+    """
+    if destination is None:
+        _stream_verified(storage, key, entry, None)
+        return
+    with Path(destination).open('wb') as sink:
+        _stream_verified(storage, key, entry, _DestinationWriter(sink))
+
+
 def _canonical_source(files):
     """
     Return the supplied mapping keyed by canonical path.
@@ -178,43 +204,69 @@ def _write_one(storage, key, content, entry):
 
 
 def _verify_entry(storage, key, entry):
-    """
-    Return the mismatch reasons for one manifest entry, or an empty list when it is intact.
+    """Return the mismatch reasons for one manifest entry, or an empty list when it is intact."""
+    try:
+        copy_verified(storage, key, entry)
+    except RevisionCorruptError as error:
+        return list(error.reasons)
+    return []
 
-    The reported size is checked before the object is opened, because a remote backend may
-    download the whole object on open. A backend that cannot report sizes falls back to the
-    bounded read, and a matching size still gets its content read, because metadata cannot
-    vouch for bytes.
-    """
+
+def _stream_verified(storage, key, entry, sink):
+    """Verify one stored object against its manifest entry, streaming the bytes to sink when given."""
     path = entry['path']
+    mismatch = f'The stored file "{key}" does not match its manifest entry.'
     try:
         reported = _size(storage, key)
         if reported is not None and reported != entry['size']:
-            return [f'size_mismatch:{path}']
+            raise RevisionCorruptError(mismatch, [f'size_mismatch:{path}'])
         with storage.open(key, 'rb') as handle:
-            size, checksum = _measure(handle, entry['size'])
-    except FileNotFoundError:
-        return [f'missing:{path}']
-    except StorageError:
+            size, checksum = _measure(handle, entry['size'], sink)
+    except FileNotFoundError as error:
+        raise RevisionCorruptError(mismatch, [f'missing:{path}']) from error
+    except _DestinationError as error:
+        raise error.original from None
+    except (RevisionCorruptError, StorageError):
         raise
     except Exception as error:
         raise StorageError(f'Unable to read the stored file "{key}": {error}') from error
 
     if size != entry['size']:
-        return [f'size_mismatch:{path}']
+        raise RevisionCorruptError(mismatch, [f'size_mismatch:{path}'])
     if checksum != entry['sha256']:
-        return [f'checksum_mismatch:{path}']
-    return []
+        raise RevisionCorruptError(mismatch, [f'checksum_mismatch:{path}'])
 
 
-def _measure(handle, expected_size):
+class _DestinationError(Exception):
+    """Carries a destination write failure across the backend failure classification."""
+
+    def __init__(self, original):
+        super().__init__(str(original))
+        self.original = original
+
+
+class _DestinationWriter:
+    """Tags destination write failures, so they never classify as backend read failures."""
+
+    def __init__(self, sink):
+        self._sink = sink
+
+    def write(self, chunk):
+        try:
+            self._sink.write(chunk)
+        except OSError as error:
+            raise _DestinationError(error) from error
+
+
+def _measure(handle, expected_size, sink=None):
     """
     Return the (size, sha256) of an open file, reading at most one byte past expected_size.
 
     The manifest already fixed the only acceptable size, so reading further buys nothing.
     This bound is the layer that holds when a backend reports no size or one its stream does
     not honor. A longer stream reports as expected_size + 1, which the caller rejects on
-    size alone. The read stays chunked, so nothing is ever held in memory whole.
+    size alone. The read stays chunked, so nothing is ever held in memory whole, and each
+    chunk is handed to the sink as it is measured when one is given.
     """
     size = 0
     digest = hashlib.sha256()
@@ -226,6 +278,8 @@ def _measure(handle, expected_size):
         size += len(chunk)
         remaining -= len(chunk)
         digest.update(chunk)
+        if sink is not None:
+            sink.write(chunk)
     return size, digest.hexdigest()
 
 

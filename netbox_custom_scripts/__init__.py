@@ -25,6 +25,8 @@ class AppConfig(PluginConfig):
         'max_file_size': constants.DEFAULT_MAX_FILE_SIZE,
         'max_project_size': constants.DEFAULT_MAX_PROJECT_SIZE,
         'max_file_count': constants.DEFAULT_MAX_FILE_COUNT,
+        # The runtime cache defaults to a directory under the system temporary directory.
+        'runtime_cache_root': None,
     }
 
     def ready(self):

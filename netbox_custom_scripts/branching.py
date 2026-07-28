@@ -4,7 +4,9 @@ Keep this plugin's models out of NetBox Branching's per-branch schemas.
 A Custom Script Project and its revisions address one source tree through the project's storage
 key and the revision's digest. That path carries no branch or schema component, so rows living in
 two schemas would name the same bytes on disk, and a revision deleted inside a branch would
-remove source that the main schema still serves.
+remove source that the main schema still serves. Module rows are part of that same configuration:
+entrypoint declarations feed the snapshot a revision is validated against, so a branch-local set
+of declarations would change what an installation-global revision means.
 
 NetBox Branching's own exempt_models setting is the documented way to route models to the main
 schema, and this module registers a resolver so that a fresh installation is already right before
@@ -32,7 +34,7 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 # checking when adding one: whether it owns bytes on disk, in which case it belongs here, and
 # whether it gains a concrete relation to a branch-aware model, which would leave a row in the
 # main schema pointing at a row that exists only inside a branch.
-GLOBAL_MODELS = ('customscriptproject', 'customscriptprojectrevision')
+GLOBAL_MODELS = ('customscriptmodule', 'customscriptproject', 'customscriptprojectrevision')
 
 # The two things unsafe routing can need, in one hint because there is one error path. Which one
 # applies is already named by the reason the check and the guard report, and the configuration on
@@ -41,8 +43,9 @@ GLOBAL_MODELS = ('customscriptproject', 'customscriptprojectrevision')
 # added later is not swept in with them.
 ROUTING_HINT = (
     'Use a NetBox Branching release that exposes the supports_branching API, since this plugin '
-    'cannot confirm the routing without it. If these models are still routed to a branch, add both '
+    'cannot confirm the routing without it. If these models are still routed to a branch, add the '
     "labels to PLUGINS_CONFIG['netbox_branching']['exempt_models']: "
+    '"netbox_custom_scripts.customscriptmodule", '
     '"netbox_custom_scripts.customscriptproject", '
     '"netbox_custom_scripts.customscriptprojectrevision".'
 )

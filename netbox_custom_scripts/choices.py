@@ -4,6 +4,7 @@ from utilities.choices import ChoiceSet
 
 __all__ = (
     'ActivationPolicyChoices',
+    'ModuleDiscoveryStatusChoices',
     'ProjectSourceTypeChoices',
     'RevisionStatusChoices',
 )
@@ -30,6 +31,20 @@ class ActivationPolicyChoices(ChoiceSet):
     CHOICES = (
         (MANUAL, _('Manual'), 'orange'),
         (AUTOMATIC_IF_VALID, _('Automatic if valid'), 'green'),
+    )
+
+
+class ModuleDiscoveryStatusChoices(ChoiceSet):
+    """Discovery outcomes for one Custom Script Module's most recent validation."""
+
+    PENDING = 'pending'
+    DISCOVERED = 'discovered'
+    FAILED = 'failed'
+
+    CHOICES = (
+        (PENDING, _('Pending'), 'gray'),
+        (DISCOVERED, _('Discovered'), 'green'),
+        (FAILED, _('Failed'), 'red'),
     )
 
 

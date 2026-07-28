@@ -8,12 +8,14 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
 from netbox_custom_scripts import branching
-from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 
 PACKAGE = 'netbox_branching'
 MODULE = f'{PACKAGE}.utilities'
 
+GLOBAL_MODELS = (CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision)
 GLOBAL_LABELS = [
+    'netbox_custom_scripts.customscriptmodule',
     'netbox_custom_scripts.customscriptproject',
     'netbox_custom_scripts.customscriptprojectrevision',
 ]
@@ -80,16 +82,17 @@ def fake_model(model_name, app_label=branching.APP_LABEL):
 
 class ResolverTestCase(TestCase):
     def test_the_global_models_are_not_branchable(self):
-        # False is what routes a model to the main schema, so one project keeps one row set and
-        # one source tree no matter which branch is active.
-        for model in (CustomScriptProject, CustomScriptProjectRevision):
+        # False is what routes a model to the main schema, so one project keeps one row set,
+        # one source tree, and one entrypoint configuration no matter which branch is active.
+        for model in GLOBAL_MODELS:
             with self.subTest(model=model.__name__):
                 self.assertIs(branching.resolve_branching_support(model), False)
 
     def test_a_model_outside_global_models_is_left_alone(self):
         # None defers, so a model added to this plugin later keeps NetBox's ordinary behaviour,
-        # which is the right default for one that holds no storage of its own.
-        self.assertIsNone(branching.resolve_branching_support(fake_model('customscriptmodule')))
+        # which is the right default for one that holds no storage or validation configuration.
+        # CustomScript is the discovered-script model a later release adds.
+        self.assertIsNone(branching.resolve_branching_support(fake_model('customscript')))
 
     def test_other_applications_are_left_alone(self):
         from core.models import DataSource
@@ -116,7 +119,7 @@ class RoutingReasonTestCase(TestCase):
         # The real state of this project's test configuration, asserted rather than assumed.
         self.assertIsNone(branching.unsafe_routing_reason())
 
-    def test_no_reason_when_both_models_are_global(self):
+    def test_no_reason_when_every_global_model_stays_global(self):
         with routing():
             self.assertIsNone(branching.unsafe_routing_reason())
 
@@ -125,6 +128,7 @@ class RoutingReasonTestCase(TestCase):
             reason = branching.unsafe_routing_reason()
         self.assertIn('netbox_custom_scripts.customscriptproject', reason)
         self.assertNotIn('customscriptprojectrevision', reason)
+        self.assertNotIn('customscriptmodule', reason)
 
     def test_a_reason_when_the_routing_api_is_unavailable(self):
         with routing_api_missing():
@@ -197,8 +201,8 @@ class RealBranchingApiTestCase(TestCase):
     the sibling plugin projects, and is tracked separately.
     """
 
-    def test_the_effective_routing_keeps_both_models_in_main(self):
-        for model in (CustomScriptProject, CustomScriptProjectRevision):
+    def test_the_effective_routing_keeps_the_global_models_in_main(self):
+        for model in GLOBAL_MODELS:
             with self.subTest(model=model.__name__):
                 self.assertFalse(real_branching.supports_branching(model))
 

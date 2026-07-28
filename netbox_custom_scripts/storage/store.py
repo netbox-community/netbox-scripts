@@ -148,7 +148,7 @@ def copy_verified(storage, key, entry, destination=None):
     if destination is None:
         _stream_verified(storage, key, entry, None)
         return
-    with Path(destination).open('wb') as sink:
+    with Path(destination).open('wb') as sink:  # cloud-compat: ok, the runtime cache's staging destination
         _stream_verified(storage, key, entry, _DestinationWriter(sink))
 
 

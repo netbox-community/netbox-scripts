@@ -18,9 +18,10 @@ is deliberately absent, reclaiming stale slots belongs to a housekeeping reconci
 import fcntl
 import hashlib
 import logging
+import os
 import shutil
 import stat
-import tempfile
+import tempfile  # cloud-compat: ok, the default cache root is per-pod scratch by design
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +32,13 @@ from ..storage.manifest import validate_manifest
 from ..storage.paths import _digest_component, _storage_key_component, revision_key
 from ..storage.store import copy_verified
 from .exceptions import LocalCacheCorruptError, LocalCacheError
+
+__all__ = (
+    'local_revision_dir',
+    'materialize_revision',
+    'resolve_cache_root',
+    'verify_local_tree',
+)
 
 _PLUGIN_NAME = 'netbox_custom_scripts'
 _HASH_CHUNK = 1024 * 1024
@@ -162,8 +170,9 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
     target = local_revision_dir(storage_key, digest, cache_root)
     project_dir = target.parent
     _guard_path_budget(project_dir, digest, manifest)
+    _ensure_private_root(project_dir.parent)
     try:
-        project_dir.mkdir(parents=True, exist_ok=True)
+        project_dir.mkdir(parents=True, exist_ok=True)  # cloud-compat: ok, the runtime cache tier
     except OSError as error:
         raise LocalCacheError(f'Unable to create the cache directory "{project_dir}": {error}') from error
 
@@ -186,13 +195,42 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
                 return target
             finally:
                 if _lstat_or_none(staging) is not None:
-                    shutil.rmtree(staging, ignore_errors=True)
+                    shutil.rmtree(staging, onexc=_clear_write_bit)  # cloud-compat: ok, our own staging tree
 
     reasons = ', '.join(last_failure.reasons) if last_failure else 'unknown'
     raise LocalCacheError(
         f'The staged tree for "{target}" failed verification {_MAX_MATERIALIZE_ATTEMPTS} times in a row, '
         f'giving up on this attempt. Last reasons: {reasons}.'
     )
+
+
+def _ensure_private_root(root):
+    """
+    Create the cache root private to this user, refusing a root anyone else could substitute.
+
+    The loader imports from a verified tree, so an ancestor another user can rename is a
+    substitution window that verification cannot close. A group or world writable ancestor is
+    accepted only when it is sticky, which is what keeps a shared temporary directory usable.
+    """
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)  # cloud-compat: ok, the runtime cache tier
+    except OSError as error:
+        raise LocalCacheError(f'Unable to create the cache root "{root}": {error}') from error
+    for directory in (root, *root.parents):
+        try:
+            info = directory.stat()
+        except OSError as error:
+            raise LocalCacheError(f'Unable to inspect the cache root "{directory}": {error}') from error
+        if info.st_uid not in (os.getuid(), 0):
+            raise LocalCacheError(
+                f'The cache path "{directory}" belongs to another user, who could substitute the '
+                f'tree the loader imports. Point runtime_cache_root somewhere this process owns.'
+            )
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
+            raise LocalCacheError(
+                f'The cache path "{directory}" is writable by other users and not sticky, so the '
+                f'tree the loader imports could be substituted. Point runtime_cache_root elsewhere.'
+            )
 
 
 def _guard_path_budget(project_dir, digest, manifest):
@@ -207,6 +245,24 @@ def _guard_path_budget(project_dir, digest, manifest):
         )
 
 
+def _clear_write_bit(function, path, error):
+    """Retry one removal that failed because write protection had already been applied."""
+    # Unlinking needs write permission on the parent, which _make_read_only takes away, so a
+    # staging tree that fails after that point would otherwise leak under an unreclaimable name.
+    if not isinstance(error, PermissionError):
+        return
+    try:
+        Path(path).parent.chmod(0o700)  # cloud-compat: ok, our own staging tree
+        function(path)
+    except OSError as retry_error:
+        logger.warning('Unable to remove "%s" from the staging tree: %s', path, retry_error)
+
+
+def _reraise(error):
+    """Surface a walk error instead of silently skipping the subtree it belongs to."""
+    raise error
+
+
 @contextmanager
 def _slot_lock(lock_path):
     """
@@ -217,7 +273,7 @@ def _slot_lock(lock_path):
     behind, it sits beside the slot rather than inside it, where no verification ever looks.
     """
     try:
-        handle = lock_path.open('ab')
+        handle = lock_path.open('ab')  # cloud-compat: ok, the slot lock lives beside the cache it serializes
     except OSError as error:
         raise LocalCacheError(f'Unable to open the cache lock "{lock_path}": {error}') from error
     try:
@@ -260,7 +316,7 @@ def _set_aside_corrupt(target, error):
         aside.name,
     )
     try:
-        target.rename(aside)
+        target.rename(aside)  # cloud-compat: ok, the runtime cache tier
     except OSError as rename_error:
         raise LocalCacheError(f'Unable to set the failed tree "{target}" aside: {rename_error}') from rename_error
 
@@ -280,18 +336,18 @@ def _purge_bytecode(local_dir):
         # Nothing here can execute, and verification names what actually occupies the slot.
         return
     try:
-        for base, directories, files in local_dir.walk(top_down=False):
+        for base, directories, files in local_dir.walk(top_down=False, on_error=_reraise):
             for name in files:
                 if name.endswith(_BYTECODE_SUFFIXES):
-                    (base / name).unlink()
+                    (base / name).unlink()  # cloud-compat: ok, compiled artifacts in the disposable cache
             for name in directories:
                 if name != '__pycache__':
                     continue
                 candidate = base / name
                 if candidate.is_symlink():
-                    candidate.unlink()
+                    candidate.unlink()  # cloud-compat: ok, compiled artifacts in the disposable cache
                 else:
-                    shutil.rmtree(candidate)
+                    shutil.rmtree(candidate)  # cloud-compat: ok, compiled artifacts in the disposable cache
     except OSError as error:
         raise LocalCacheError(f'Unable to remove compiled artifacts under "{local_dir}": {error}') from error
 
@@ -299,13 +355,13 @@ def _purge_bytecode(local_dir):
 def _fill_staging(storage, storage_key, digest, manifest, staging):
     """Pull every manifest entry into the staging tree through the store's bounded verified read."""
     try:
-        staging.mkdir()
+        staging.mkdir()  # cloud-compat: ok, our own staging tree
     except OSError as error:
         raise LocalCacheError(f'Unable to create the staging tree "{staging}": {error}') from error
     for entry in manifest:
         destination = staging / entry['path']
         try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.parent.mkdir(parents=True, exist_ok=True)  # cloud-compat: ok, our own staging tree
         except OSError as error:
             raise LocalCacheError(f'Unable to create a directory for "{entry["path"]}": {error}') from error
         try:
@@ -319,12 +375,12 @@ def _fill_staging(storage, storage_key, digest, manifest, staging):
 def _make_read_only(root):
     """Drop every write bit, so the interpreter never writes compiled files into a published tree."""
     try:
-        for base, directories, files in root.walk(top_down=False):
+        for base, directories, files in root.walk(top_down=False, on_error=_reraise):
             for name in files:
-                (base / name).chmod(0o444)
+                (base / name).chmod(0o444)  # cloud-compat: ok, the runtime cache tier
             for name in directories:
-                (base / name).chmod(0o555)
-        root.chmod(0o555)
+                (base / name).chmod(0o555)  # cloud-compat: ok, the runtime cache tier
+        root.chmod(0o555)  # cloud-compat: ok, the runtime cache tier
     except OSError as error:
         raise LocalCacheError(f'Unable to write-protect the staged tree "{root}": {error}') from error
 
@@ -332,7 +388,7 @@ def _make_read_only(root):
 def _publish(staging, target, manifest):
     """Move the verified staging tree into the slot with one rename."""
     try:
-        staging.rename(target)
+        staging.rename(target)  # cloud-compat: ok, publishing into the runtime cache
     except OSError as error:
         # The slot was taken between this builder's own check and its rename. Whoever owns
         # it now published a verified tree or left damage, judging the occupant settles
@@ -345,7 +401,7 @@ def _publish(staging, target, manifest):
 
 def _scan_tree(local_dir):
     """Yield (relative path, lstat result) for every entry under one root, following nothing."""
-    for base, directories, files in local_dir.walk():
+    for base, directories, files in local_dir.walk(on_error=_reraise):
         for name in (*directories, *files):
             node = base / name
             yield node.relative_to(local_dir).as_posix(), node.lstat()

@@ -8,6 +8,8 @@ ordinary Django storage API only, with no filesystem paths and no directory sema
 deployment may hand it any conforming backend.
 """
 
+import ast
+import importlib.util
 import os
 import pathlib
 import tempfile
@@ -221,3 +223,69 @@ class S3BackendTestCase(BackendLifecycleMixin, TestCase):
             self.assertEqual(staged.status, RevisionStatusChoices.MATERIALIZED)
             key = revision_key(project.storage_key, staged.digest, path)
             self.assertLessEqual(len(f'custom-scripts/{key}'.encode()), 1024)
+
+
+class ContractCheckerTestCase(TestCase):
+    """
+    Cover the reach of the AST gate that polices where local writes live.
+
+    The gate is the other half of the contract these cases prove behaviorally, and a name
+    missing from its tables fails silently: nothing breaks, the gate simply stops seeing a
+    whole class of write. Only a test notices that.
+    """
+
+    @staticmethod
+    def load_checker():
+        repository = pathlib.Path(__file__).resolve().parents[3]
+        spec = importlib.util.spec_from_file_location('_cloud_compat', repository / 'scripts' / 'check_cloud_compat.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def findings_for(self, source):
+        checker = self.load_checker()
+        tree = ast.parse(source)
+        visitor = checker.ContractVisitor(
+            pathlib.Path('probe.py'), source.splitlines(), checker.collect_docstrings(tree)
+        )
+        visitor.visit(tree)
+        return sorted(finding.subject for finding in visitor.findings)
+
+    def test_every_pathlib_write_is_seen(self):
+        # Each os.* equivalent is already forbidden, so permitting the pathlib spelling would
+        # let a module do all of its local writing unwaived, which is how the cache tier passed.
+        source = (
+            'from pathlib import Path\n'
+            '\n'
+            '\n'
+            'def leak(target: Path):\n'
+            '    target.mkdir()\n'
+            '    target.chmod(0o777)\n'
+            '    target.unlink()\n'
+            '    target.rmdir()\n'
+            '    target.rename(target)\n'
+            '    target.touch()\n'
+            '    target.write_text("x")\n'
+            '    target.write_bytes(b"x")\n'
+        )
+        self.assertEqual(
+            self.findings_for(source),
+            [
+                '.chmod()',
+                '.mkdir()',
+                '.rename()',
+                '.rmdir()',
+                '.touch()',
+                '.unlink()',
+                '.write_bytes()',
+                '.write_text()',
+            ],
+        )
+
+    def test_a_string_method_sharing_a_name_is_not_a_finding(self):
+        # str.replace is why .replace stays out of the method table.
+        self.assertEqual(self.findings_for('def clean(text):\n    return text.replace("a", "b")\n'), [])
+
+    def test_the_waiver_marker_still_exempts_a_sanctioned_write(self):
+        source = 'from pathlib import Path\n\n\ndef ok(target: Path):\n    target.mkdir()  # cloud-compat: ok, reason\n'
+        self.assertEqual(self.findings_for(source), [])

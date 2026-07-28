@@ -392,6 +392,57 @@ class MaterializeRevisionTestCase(TestCase):
             fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
         cache.verify_local_tree(self.target, self.manifest)
 
+    def test_a_staging_tree_is_removed_even_once_write_protected(self):
+        # Unlinking needs write permission on the parent, which _make_read_only takes away,
+        # so a failure past that point has to clear the bit back to clean up after itself.
+        with mock.patch.object(cache, '_publish', side_effect=OSError('publish refused')), self.assertRaises(OSError):
+            self.materialize()
+        self.assertEqual(self.slot_residue(), [])
+
+    @unittest.skipIf(os.getuid() == 0, 'root ignores directory permissions')
+    def test_an_unreadable_subdirectory_is_a_cache_error_not_missing_content(self):
+        # Skipping the subtree silently would report every file under it as missing, turning a
+        # permission fault into a corruption verdict and three needless rebuilds.
+        self.materialize()
+        self.unlock_target()
+        blocked = self.target / 'pkg'
+        blocked.chmod(0o000)
+        self.addCleanup(blocked.chmod, 0o755)
+        with self.assertRaises(LocalCacheError) as caught:
+            cache.verify_local_tree(self.target, self.manifest)
+        self.assertNotIsInstance(caught.exception, LocalCacheCorruptError)
+
+    def test_an_ancestor_owned_by_another_user_is_refused(self):
+        with (
+            mock.patch.object(cache.os, 'getuid', return_value=os.getuid() + 1),
+            self.assertRaises(LocalCacheError) as caught,
+        ):
+            self.materialize()
+        self.assertIn('belongs to another user', str(caught.exception))
+
+    def test_a_world_writable_ancestor_is_refused_unless_it_is_sticky(self):
+        base = Path(tempfile.mkdtemp(prefix='nbcs-root-test-'))
+        self.addCleanup(discard_tree, base)
+        base.chmod(0o777)
+        with self.assertRaises(LocalCacheError) as caught:
+            self.materialize(cache_root=base / 'runtime-cache')
+        self.assertIn('writable by other users', str(caught.exception))
+
+    def test_a_sticky_world_writable_ancestor_is_accepted(self):
+        # This is what keeps the default root under the shared temporary directory usable.
+        base = Path(tempfile.mkdtemp(prefix='nbcs-root-test-'))
+        self.addCleanup(discard_tree, base)
+        base.chmod(0o1777)
+        returned = self.materialize(cache_root=base / 'runtime-cache')
+        cache.verify_local_tree(returned, self.manifest)
+
+    def test_the_cache_root_is_created_private_to_this_user(self):
+        base = Path(tempfile.mkdtemp(prefix='nbcs-root-test-'))
+        self.addCleanup(discard_tree, base)
+        root = base / 'runtime-cache'
+        self.materialize(cache_root=root)
+        self.assertEqual(stat.S_IMODE(root.stat().st_mode) & 0o077, 0)
+
 
 @unittest.skipUnless(HAS_S3_STACK, 'moto and the S3 storage backend are not installed')
 class S3MaterializationTestCase(TestCase):

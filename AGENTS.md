@@ -121,6 +121,8 @@ when domain content calls for them.
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
 │       └── *.html                 , [add as needed] Per-model detail templates and bulk-action forms.
 ├── docs/                          , mkdocs site (zensical primary, mkdocs compatible).
+├── scripts/
+│   └── check_cloud_compat.py      , AST checker for the Cloud / Enterprise platform contract (pre-commit hook).
 ├── testing/
 │   └── configuration.py           , NetBox config used by the test workflow (maintainer-added; see Development).
 ├── .github/workflows/             , test.yml, release.yml, claude-review.yml.
@@ -432,10 +434,15 @@ would be missing for the worker pod that has to execute it.
   platforms. The runtime cache above is the deliberate exception, because
   Python imports need a real directory tree.
 
-The contract is enforced by the backend contract tests in
-`netbox_custom_scripts/tests/storage/test_backend_contract.py`, which drive the
+The contract is enforced twice. The backend contract tests in
+`netbox_custom_scripts/tests/storage/test_backend_contract.py` drive the
 storage lifecycle against backends without filesystem paths or directory
-semantics.
+semantics, proving the behavior. The AST checker `scripts/check_cloud_compat.py`
+(a pre-commit hook, so the CI lint job runs it) polices where local writes live:
+it flags filesystem calls, per-pod state, threads, shell-outs, and management
+commands anywhere in the package, and only a statement carrying the
+`cloud-compat: ok` marker with a reason is exempt. The runtime cache tier is the
+one place those markers belong.
 
 Check this before designing anything that persists bytes. The concept sanctions
 it in section 6.3.

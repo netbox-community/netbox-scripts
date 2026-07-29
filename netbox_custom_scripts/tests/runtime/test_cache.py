@@ -110,6 +110,33 @@ class CacheRootTestCase(TestCase):
         with self.assertRaises(UnsafePathError):
             cache.local_revision_dir(STORAGE_KEY, '../escape', '/somewhere')
 
+    def test_every_level_this_tier_creates_is_private(self):
+        # Regression: mkdir(parents=True, mode=...) applies the mode to the leaf only, so an
+        # intermediate directory was left at the process umask and the privacy check below then
+        # rejected a root this tier had just created itself. Under a group-writable umask the
+        # default root could therefore never be used.
+        base = Path(tempfile.mkdtemp(prefix='nbcs-private-root-'))
+        self.addCleanup(shutil.rmtree, base, True)
+        root = base / 'netbox-custom-scripts' / 'runtime-cache'
+        previous = os.umask(0o002)
+        try:
+            cache._ensure_private_root(root)
+        finally:
+            os.umask(previous)
+        for directory in (root, root.parent):
+            with self.subTest(directory=directory):
+                self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+
+    def test_a_group_writable_ancestor_names_the_mode_fix(self):
+        # The remedy is a mode change on the offending directory, so the message says so rather
+        # than only suggesting a different root.
+        base = Path(tempfile.mkdtemp(prefix='nbcs-open-root-'))
+        self.addCleanup(shutil.rmtree, base, True)
+        base.chmod(0o775)
+        with self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(base / 'runtime-cache')
+        self.assertIn(f'chmod 700 {base}', str(ctx.exception))
+
 
 class VerifyLocalTreeTestCase(TestCase):
     """Cover judging a local tree against a revision manifest."""

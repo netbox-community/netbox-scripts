@@ -212,10 +212,17 @@ def _ensure_private_root(root):
     substitution window that verification cannot close. A group or world writable ancestor is
     accepted only when it is sticky, which is what keeps a shared temporary directory usable.
     """
-    try:
-        root.mkdir(parents=True, exist_ok=True, mode=0o700)  # cloud-compat: ok, the runtime cache tier
-    except OSError as error:
-        raise LocalCacheError(f'Unable to create the cache root "{root}": {error}') from error
+    # Every level this function creates is created private. mkdir(parents=True) applies its mode
+    # to the leaf only, so an intermediate directory left at the process umask would be group
+    # writable, and the check below would then reject a root this code had just made itself.
+    missing = [directory for directory in (root, *root.parents) if not directory.exists()]
+    for directory in reversed(missing):
+        try:
+            directory.mkdir(mode=0o700)  # cloud-compat: ok, the runtime cache tier
+        except FileExistsError:
+            continue
+        except OSError as error:
+            raise LocalCacheError(f'Unable to create the cache root "{directory}": {error}') from error
     for directory in (root, *root.parents):
         try:
             info = directory.stat()
@@ -229,7 +236,8 @@ def _ensure_private_root(root):
         if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
             raise LocalCacheError(
                 f'The cache path "{directory}" is writable by other users and not sticky, so the '
-                f'tree the loader imports could be substituted. Point runtime_cache_root elsewhere.'
+                f'tree the loader imports could be substituted. Restrict it with '
+                f'"chmod 700 {directory}", or point runtime_cache_root somewhere already private.'
             )
 
 

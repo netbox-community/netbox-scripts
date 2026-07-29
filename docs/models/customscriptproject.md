@@ -39,6 +39,11 @@ and discovered scripts are planned follow-up models.
 | REST | `/api/plugins/custom-scripts/projects/` |
 | GraphQL | `custom_script_project` / `custom_script_project_list` |
 
+A project's **Entrypoints** tab selects which of its source modules discovery
+imports, and its detail page lists the [Custom Script
+Modules](customscriptmodule.md) it has declared. The selection is also a REST
+operation at `projects/<id>/entrypoints/`.
+
 ## Invariants
 
 | Invariant | Enforcement |
@@ -155,5 +160,5 @@ an execution-model decision that lands with the execution work.
 
 | Limitation | Impact |
 |---|---|
-| Modules and discovered scripts are not yet modeled | Source snapshots exist as revisions, but nothing yet reads a package out of one |
-| No user-facing way to stage a revision | Uploads and Data Source synchronization arrive in a follow-up release |
+| No user-facing way to stage a revision | Uploads and Data Source synchronization arrive in a follow-up release, so an upload project has no candidates to select from yet |
+| Discovered scripts are not yet modeled | Validation records per-entrypoint results, but the Custom Scripts it finds get no rows of their own yet |

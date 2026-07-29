@@ -56,11 +56,11 @@ when domain content calls for them.
 ├── netbox_custom_scripts/            , The Django app.
 │   ├── __init__.py                , [stub] PluginConfig (name, version, base_url, min/max NetBox).
 │   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' and their '<int:pk>/' forms via get_model_urls, sorted. Segments never repeat the base_url.
-│   ├── navigation.py              , PluginMenu 'Custom Scripts', one Projects group holding the Projects and Modules items, each with Add + Import buttons.
+│   ├── navigation.py              , PluginMenu 'Custom Scripts' with a Projects group. Modules get no nav item: a declaration is a Project setting.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
 │   │   ├── urls.py                , router.register for 'modules' + 'projects'.
-│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet(NetBoxModelViewSet).
+│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action.
 │   │   └── serializers/
 │   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectSerializer.
 │   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
@@ -71,19 +71,17 @@ when domain content calls for them.
 │   │   └── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
 │   ├── forms/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
-│   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm.
-│   │   ├── model_forms/module.py    , CustomScriptModuleEditForm.
+│   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm + CustomScriptProjectEntrypointsForm (reconciles the selection onto enabled).
+│   │   ├── model_forms/module.py    , CustomScriptModuleEditForm (project + source_path frozen, so disabled on edit).
 │   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
-│   │   ├── bulk_edit/module.py      , CustomScriptModuleBulkEditForm (no source_path, it is unique per project).
 │   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
-│   │   ├── bulk_import/module.py    , CustomScriptModuleBulkImportForm (project resolved by key).
 │   │   ├── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
 │   │   └── filtersets/module.py     , CustomScriptModuleFilterForm.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , Re-exports CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision.
-│   │   ├── project.py             , CustomScriptProject(PrimaryModel) with identity/ownership invariants + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
-│   │   └── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path, case-fold sibling rejection, system-managed discovery fields.
+│   │   ├── project.py             , CustomScriptProject(PrimaryModel) with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
+│   │   └── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectTable.
 │   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
@@ -107,9 +105,12 @@ when domain content calls for them.
 │   │   ├── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   │   ├── models/test_module.py  , CustomScriptModule model invariants.
 │   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
-│   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.PrimaryObjectViewTestCase).
+│   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase).
 │   │   ├── tables/test_module.py  , CustomScriptModuleTableTestCase(TableTestCases.StandardTableTestCase).
-│   │   ├── forms/test_module.py   , Edit / BulkEdit / Filter / BulkImport form test cases.
+│   │   ├── forms/test_module.py   , Edit / Filter form test cases.
+│   │   ├── forms/test_entrypoints.py , Selection reconciles onto enabled, nested paths, missing declared paths.
+│   │   ├── api/test_entrypoints.py , The projects/<id>/entrypoints/ GET + PUT contract.
+│   │   ├── models/test_entrypoint_candidates.py , Candidate enumeration from DataFile and from the newest manifest.
 │   │   ├── filtersets/test_module.py , CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
 │   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, revision absent from the type.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
@@ -118,7 +119,8 @@ when domain content calls for them.
 │   │   └── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
-│   │   └── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views.
+│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views + the Entrypoints tab (needs the project AND module change permissions).
+│   │   └── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
 │   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel (right) for the detail view layout.
@@ -132,8 +134,8 @@ when domain content calls for them.
 │   │   └── enums.py               , [CustomScriptProject] ProjectSourceTypeEnum + ActivationPolicyEnum via strawberry.enum(ChoiceSet.as_enum()).
 │   ├── storage/
 │   │   ├── config.py              , Resolves the required STORAGES['netbox_custom_scripts'] backend and limit settings.
-│   │   ├── paths.py               , Canonical source paths and storage keys.
-│   │   ├── manifest.py            , Manifest build/validate pair, content digests, case-fold collision rejection.
+│   │   ├── paths.py               , Canonical source paths, the case-insensitive comparison, compiled-artifact refusal, storage keys.
+│   │   ├── manifest.py            , Manifest build/validate pair, content digests, per-node letter-case collision rejection.
 │   │   ├── entrypoints.py         , Entrypoint snapshot build/validate pair, the return-trip trust boundary.
 │   │   ├── store.py               , Verified writes and reads against the backend, copy_verified bounded-read primitive.
 │   │   ├── service.py             , stage_revision / refresh_revision_entrypoints / activate_revision + the database-alias contract.

@@ -1,8 +1,11 @@
-from core.models import DataSource
-from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from netbox_custom_scripts.models import CustomScriptProject
+from django.urls import reverse
+
+from core.models import DataSource, ObjectType
+from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.tests.plugin_testing import PluginTestCases
-from utilities.testing import create_tags
+from users.models import ObjectPermission
+from utilities.testing import TestCase, create_tags, create_test_user
 
 
 class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
@@ -77,3 +80,72 @@ class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
     def test_edit_object_with_constrained_permission(self):
         self.form_data = self._form_data_without_identity_fields()
         super().test_edit_object_with_constrained_permission()
+
+
+class CustomScriptProjectEntrypointsViewTestCase(TestCase):
+    """The Entrypoints tab writes declarations, so it carries the Module permission."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = CustomScriptProject.objects.create(name='Tab Project', key='tab-project')
+        CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='a' * 64,
+            manifest=[{'path': path, 'size': 1, 'sha256': 'a' * 64} for path in ('deploy.py', 'tools/audit.py')],
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+
+    def url(self):
+        return reverse('plugins:netbox_custom_scripts:customscriptproject_entrypoints', args=[self.project.pk])
+
+    def grant(self, model, *actions):
+        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
+
+    def grant_both(self):
+        # The tab restricts the project queryset and writes declarations, so it needs both.
+        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptModule, 'view', 'change', 'add')
+
+    def test_the_tab_lists_the_candidates(self):
+        self.grant_both()
+        response = self.client.get(self.url())
+        self.assertHttpStatus(response, 200)
+        self.assertIn('tools/audit.py', response.content.decode())
+
+    def test_selecting_creates_declarations(self):
+        self.grant_both()
+        response = self.client.post(self.url(), {'entrypoints': ['deploy.py', 'tools/audit.py']})
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(
+            sorted(self.project.modules.filter(enabled=True).values_list('source_path', flat=True)),
+            ['deploy.py', 'tools/audit.py'],
+        )
+
+    def test_deselecting_disables_and_keeps_the_row(self):
+        self.grant_both()
+        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        self.assertHttpStatus(self.client.post(self.url(), {'entrypoints': []}), 302)
+        module.refresh_from_db()
+        self.assertFalse(module.enabled)
+
+    def test_the_project_permission_alone_is_not_enough(self):
+        # Writing declarations needs their own permission, not just the project's.
+        self.grant(CustomScriptProject, 'view', 'change')
+        self.assertHttpStatus(self.client.get(self.url()), 403)
+
+    def test_the_module_permission_alone_is_not_enough(self):
+        self.grant(CustomScriptModule, 'view', 'change', 'add')
+        self.assertHttpStatus(self.client.get(self.url()), 403)
+
+    def test_a_project_without_source_renders_an_empty_selection(self):
+        self.grant_both()
+        bare = CustomScriptProject.objects.create(name='Bare Project', key='bare-project')
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_entrypoints', args=[bare.pk])
+        self.assertHttpStatus(self.client.get(url), 200)

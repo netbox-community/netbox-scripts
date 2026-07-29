@@ -35,6 +35,20 @@ class PluginTestCases:
 
         maxDiff = None
 
+    class NestedObjectViewTestCase(
+        PluginViewTestCase,
+        ViewTestCases.GetObjectViewTestCase,
+        ViewTestCases.GetObjectChangelogViewTestCase,
+        ViewTestCases.CreateObjectViewTestCase,
+        ViewTestCases.EditObjectViewTestCase,
+        ViewTestCases.DeleteObjectViewTestCase,
+        ViewTestCases.ListObjectsViewTestCase,
+        ViewTestCases.BulkDeleteObjectsViewTestCase,
+    ):
+        """Composite for a model managed through its parent, so no bulk import or bulk edit."""
+
+        maxDiff = None
+
 
 class PluginAPIViewTestCases:
     """Plugin-aware variants of the standard API view test cases.

@@ -1,14 +1,17 @@
+from django.utils.translation import gettext_lazy as _
+
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.ui import layout
 from netbox.ui.panels import CommentsPanel, ObjectsTablePanel
 from netbox.views import generic
-from utilities.views import register_model_view
+from utilities.views import ViewTab, register_model_view
 
 from ..filtersets import CustomScriptProjectFilterSet
 from ..forms import (
     CustomScriptProjectBulkEditForm,
     CustomScriptProjectBulkImportForm,
     CustomScriptProjectEditForm,
+    CustomScriptProjectEntrypointsForm,
     CustomScriptProjectFilterForm,
 )
 from ..models import CustomScriptProject
@@ -48,6 +51,25 @@ class CustomScriptProjectView(generic.ObjectView):
             ),
         ],
     )
+
+
+@register_model_view(CustomScriptProject, 'entrypoints', path='entrypoints')
+class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
+    """Select a Custom Script Project's executable entrypoints from its own source."""
+
+    queryset = CustomScriptProject.objects.all()
+    form = CustomScriptProjectEntrypointsForm
+    tab = ViewTab(
+        label=_('Entrypoints'),
+        badge=lambda obj: obj.modules.filter(enabled=True).count(),
+        weight=500,
+    )
+
+    def has_permission(self):
+        """Require the project's change permission, which restrict() needs, plus the Module's."""
+        return super().has_permission() and self.request.user.has_perm(
+            'netbox_custom_scripts.change_customscriptmodule'
+        )
 
 
 @register_model_view(CustomScriptProject, 'add', detail=False)

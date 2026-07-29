@@ -11,7 +11,10 @@ from utilities.forms.widgets import HTMXSelect
 from ...choices import ProjectSourceTypeChoices
 from ...models import CustomScriptProject
 
-__all__ = ('CustomScriptProjectEditForm',)
+__all__ = (
+    'CustomScriptProjectEditForm',
+    'CustomScriptProjectEntrypointsForm',
+)
 
 
 class CustomScriptProjectEditForm(PrimaryModelForm):
@@ -67,3 +70,44 @@ class CustomScriptProjectEditForm(PrimaryModelForm):
         widgets = {
             'source_type': HTMXSelect(),
         }
+
+
+class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
+    """Select which of a project's source modules are its executable entrypoints."""
+
+    entrypoints = forms.MultipleChoiceField(
+        required=False,
+        widget=forms.CheckboxSelectMultiple(),
+        label=_('Entrypoints'),
+        help_text=_('Source modules whose Custom Scripts this Project publishes. Helpers need no selection.'),
+    )
+
+    fieldsets = (FieldSet('entrypoints', name=_('Entrypoints')),)
+
+    class Meta:
+        model = CustomScriptProject
+        fields = ()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        declared = {module.source_path: module for module in self.instance.modules.all()}
+        candidates = set(self.instance.entrypoint_candidates())
+        self.fields['entrypoints'].choices = [
+            (path, self._label(path, declared.get(path), path in candidates))
+            for path in self.instance.declarable_entrypoints()
+        ]
+        self.initial['entrypoints'] = [path for path, module in declared.items() if module.enabled]
+
+    @staticmethod
+    def _label(path, module, available):
+        """Return the checkbox label, annotated with why an operator might care about the path."""
+        if not available:
+            return _('{path} (missing from the source)').format(path=path)
+        if module is None:
+            return path
+        return _('{path} ({status})').format(path=path, status=module.get_discovery_status_display())
+
+    def save(self, *args, **kwargs):
+        """Reconcile the declarations onto the selection and return the project unchanged."""
+        self.instance.select_entrypoints(self.cleaned_data['entrypoints'])
+        return self.instance

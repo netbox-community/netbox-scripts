@@ -212,11 +212,82 @@ class CustomScriptProject(PrimaryModel):
             self.active_revision = None
             return super().delete(using=using, **kwargs)
 
+    def get_source_type_color(self):
+        """Return the badge color configured for this project's source type."""
+        return ProjectSourceTypeChoices.colors.get(self.source_type)
+
+    def get_activation_policy_color(self):
+        """Return the badge color configured for this project's activation policy."""
+        return ActivationPolicyChoices.colors.get(self.activation_policy)
+
+    def entrypoint_candidates(self):
+        """
+        Return the importable modules of this project's source, at any depth.
+
+        Nothing is imported to build the list, so listing candidates never runs project code.
+        """
+        return sorted(path for path in self._source_paths() if path.endswith('.py'))
+
+    def declarable_entrypoints(self):
+        """Return the candidates plus the already-declared paths, which stay selectable."""
+        declared = set(self.modules.using(self._read_alias()).values_list('source_path', flat=True))
+        return sorted(declared.union(self.entrypoint_candidates()))
+
+    def select_entrypoints(self, paths):
+        """
+        Reconcile the declarations onto the given paths, as `enabled` rather than row deletion.
+
+        Raises ValidationError for a path this project cannot declare.
+        """
+        from .module import CustomScriptModule
+
+        selected = set(paths)
+        if unknown := selected.difference(self.declarable_entrypoints()):
+            raise ValidationError(
+                {
+                    'entrypoints': _('This project has no source file at {paths}.').format(
+                        paths=', '.join(f'"{path}"' for path in sorted(unknown))
+                    )
+                }
+            )
+
+        using = router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            existing = {module.source_path: module for module in self.modules.using(using).select_for_update().all()}
+            for path in sorted(selected.difference(existing)):
+                module = CustomScriptModule(project=self, source_path=path, enabled=True)
+                module.full_clean()
+                module.save(using=using)
+            for path, module in existing.items():
+                enabled = path in selected
+                if module.enabled != enabled:
+                    module.enabled = enabled
+                    module.save(using=using, update_fields=('enabled', 'last_updated'))
+
+    def _source_paths(self):
+        """Return every project-relative path of the source this project currently has."""
+        # A data source is readable before anything is staged, so it wins over the manifest.
+        if self.source_type == ProjectSourceTypeChoices.DATA_SOURCE and self.data_source_id:
+            prefix = self.data_path.split('/') if self.data_path else []
+            paths = []
+            for path in self.data_source.datafiles.values_list('path', flat=True):
+                segments = path.split('/')
+                # Segment-wise, so "automation/netbox" does not claim "automation/netbox-old".
+                if segments[: len(prefix)] != prefix or len(segments) == len(prefix):
+                    continue
+                paths.append('/'.join(segments[len(prefix) :]))
+            return paths
+        revision = self.active_revision or (
+            self.revisions.using(self._read_alias()).filter(digest__isnull=False).order_by('-created').first()
+        )
+        return [entry['path'] for entry in revision.manifest] if revision else []
+
     def _read_alias(self):
         """Return the alias this instance's persisted state should be read from."""
         return self._state.db or router.db_for_read(type(self), instance=self)
 
     def _overlapping_sibling(self):
+        """Return a project on the same Data Source whose path contains or sits under this one's, if any."""
         siblings = (
             type(self)
             .objects.using(self._read_alias())
@@ -413,3 +484,7 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)
+
+    def get_status_color(self):
+        """Return the badge color configured for this revision's status."""
+        return RevisionStatusChoices.colors.get(self.status)

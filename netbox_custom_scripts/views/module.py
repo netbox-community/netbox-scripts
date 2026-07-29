@@ -5,12 +5,7 @@ from netbox.views import generic
 from utilities.views import register_model_view
 
 from ..filtersets import CustomScriptModuleFilterSet
-from ..forms import (
-    CustomScriptModuleBulkEditForm,
-    CustomScriptModuleBulkImportForm,
-    CustomScriptModuleEditForm,
-    CustomScriptModuleFilterForm,
-)
+from ..forms import CustomScriptModuleEditForm, CustomScriptModuleFilterForm
 from ..models import CustomScriptModule
 from ..tables import CustomScriptModuleTable
 from ..ui import CustomScriptModuleDiscoveryPanel, CustomScriptModulePanel
@@ -60,16 +55,6 @@ class CustomScriptModuleDeleteView(generic.ObjectDeleteView):
     queryset = CustomScriptModule.objects.all()
 
 
-@register_model_view(CustomScriptModule, 'bulk_edit', path='edit', detail=False)
-class CustomScriptModuleBulkEditView(generic.BulkEditView):
-    """Bulk edit view for Custom Script Modules."""
-
-    queryset = CustomScriptModule.objects.all()
-    filterset = CustomScriptModuleFilterSet
-    table = CustomScriptModuleTable
-    form = CustomScriptModuleBulkEditForm
-
-
 @register_model_view(CustomScriptModule, 'bulk_delete', path='delete', detail=False)
 class CustomScriptModuleBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete view for Custom Script Modules."""
@@ -77,11 +62,3 @@ class CustomScriptModuleBulkDeleteView(generic.BulkDeleteView):
     queryset = CustomScriptModule.objects.all()
     filterset = CustomScriptModuleFilterSet
     table = CustomScriptModuleTable
-
-
-@register_model_view(CustomScriptModule, 'bulk_import', path='import', detail=False)
-class CustomScriptModuleBulkImportView(generic.BulkImportView):
-    """Bulk import view for Custom Script Modules."""
-
-    queryset = CustomScriptModule.objects.all()
-    model_form = CustomScriptModuleBulkImportForm

@@ -33,16 +33,17 @@ repointed row would report a verdict for a file it no longer names.
 
 ## Renaming or moving an entrypoint
 
-There is no rename. When a file moves or is renamed in the project's source,
-declare the new path and disable the old declaration:
+There is no rename. When a file moves or is renamed in the project's source, the
+new path appears as a candidate on the Entrypoints tab and the old one is
+reported as missing. Tick the new path and untick the old one:
 
-1. Declare the new path, which starts at `pending` until the next validation.
-2. Disable the declaration for the old path by clearing `enabled`.
+1. Ticking the new path declares it, starting at `pending` until the next validation.
+2. Unticking the old path clears its `enabled`, which is what selection means.
 
-Disabling rather than deleting keeps the old declaration's discovery history,
-and it keeps its path reserved, because `unique_project_source_path` does not
-consider `enabled`. Renaming the file back therefore re-enables the original
-row instead of colliding with it. Staging includes only enabled declarations, so
+Unticking disables rather than deletes, which keeps the old declaration's
+discovery history and keeps its path reserved, because
+`unique_project_source_path` does not consider `enabled`. Renaming the file back
+therefore re-enables the original row instead of colliding with it. Staging includes only enabled declarations, so
 a disabled one stops reaching new revisions immediately while the revisions it
 was already snapshotted into keep meaning what they meant.
 
@@ -63,11 +64,24 @@ was a mistake that never validated.
 | REST | `/api/plugins/custom-scripts/modules/` |
 | GraphQL | `custom_script_module` / `custom_script_module_list` |
 
-Modules are managed like any other NetBox object: list, detail, edit, delete,
-bulk edit, bulk import, and bulk delete views, REST and GraphQL endpoints, list
-filtering, and global search. Bulk import resolves the owning project by its
-key, and a module's source path is not bulk-editable because one path across a
-selection would collide.
+Entrypoints are selected on the owning Project's **Entrypoints** tab, which
+lists the importable modules of its source at any depth and never asks for a
+typed path. The same operation is available over REST:
+
+```text
+GET  /api/plugins/custom-scripts/projects/<id>/entrypoints/
+PUT  /api/plugins/custom-scripts/projects/<id>/entrypoints/   {"paths": [...]}
+```
+
+`GET` reports every candidate with `selected`, `available`, and its
+`discovery_status`. `PUT` replaces the selection, refusing any path the project
+has no source file at. Both need the Project's change permission and the
+Module's, because the request is scoped to a Project but writes declarations.
+
+Modules keep read surfaces of their own for triage across projects: list,
+detail, filtering, global search, REST, and GraphQL. They carry no top-level
+navigation item, no bulk import, and no bulk edit, because a declaration is a
+Project setting rather than an object managed in bulk.
 
 The three discovery fields are readable and filterable everywhere, and writable
 nowhere: no form, serializer, or GraphQL input accepts them, only project
@@ -86,7 +100,12 @@ rejected up front rather than at validation time:
   segment is a valid Python identifier and not a reserved keyword, and the
   project root `__init__.py` is refused because it names the package itself.
 - Two modules of one project cannot collide when letter case is ignored, since
-  hosts such as macOS treat `Utils.py` and `utils.py` as one file.
+  hosts such as macOS treat `Utils.py` and `utils.py` as one file. The check
+  covers every directory level, so `Lib/deploy.py` and `lib/audit.py` collide
+  too, which is what the source tree they name would do at upload.
+- Two modules of one project cannot import under one module name. `pkg.py` and
+  `pkg/__init__.py` both name `pkg`, the package wins, and the other file would
+  silently never execute.
 
 ## Invariants
 
@@ -96,6 +115,7 @@ rejected up front rather than at validation time:
 | The project cannot be changed | `clean()` for a per-field error, `save()` as the backstop for ORM writes |
 | The source path cannot be changed | `clean()` and `save()`, compared after canonicalization so a re-spelling is not a change |
 | The stored path is canonical | `save()` canonicalizes, so snapshots built straight from rows are safe |
+| The stored path is importable | `save()` refuses an unimportable path, so it cannot freeze into a snapshot that activation could only reject |
 | Discovery fields are system-managed | `editable=False`, only project validation writes them |
 | `last_discovered_revision` belongs to the same project | `clean()` check |
 

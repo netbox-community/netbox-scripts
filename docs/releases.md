@@ -19,6 +19,13 @@
 * `CustomScriptModule` UI, REST API, GraphQL, and global-search surfaces, with
   the discovery fields readable and filterable but writable only by project
   validation, and each project's modules listed on its detail page
+* Entrypoint selection as a Project setting: an Entrypoints tab and a
+  `projects/<id>/entrypoints/` REST operation list the importable modules of a
+  project's source, at any depth, so a path is chosen rather than typed.
+  Selection is expressed as `enabled`, so deselecting keeps a declaration's
+  discovery history and its reserved path
+* A Custom Script Module's project and source path are frozen after creation, so
+  a declaration can never be repointed at a file it did not name
 * Manifest-verified runtime cache: revisions materialize to disposable local
   trees that are verified before every use, purged of compiled files, staged
   whole, published read-only, and rebuilt from the store when damaged

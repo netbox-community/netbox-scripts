@@ -3,7 +3,7 @@ from netbox_custom_scripts.tests.plugin_testing import PluginTestCases
 from utilities.testing import create_tags
 
 
-class CustomScriptModuleTestCase(PluginTestCases.PrimaryObjectViewTestCase):
+class CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase):
     model = CustomScriptModule
 
     @classmethod
@@ -38,26 +38,6 @@ class CustomScriptModuleTestCase(PluginTestCases.PrimaryObjectViewTestCase):
             'enabled': True,
             'comments': 'Some notes',
             'tags': [t.pk for t in tags],
-        }
-
-        cls.csv_data = (
-            'project,source_path,enabled,description',
-            'view-project-1,tools/fourth.py,true,Bulk-imported',
-            'view-project-1,tools/fifth.py,true,Bulk-imported',
-            'view-project-2,tools/sixth.py,false,Bulk-imported',
-        )
-
-        cls.csv_update_data = (
-            'id,description,comments',
-            f'{objs[0].pk},First updated,Note 1',
-            f'{objs[1].pk},Second updated,Note 2',
-            f'{objs[2].pk},Third updated,Note 3',
-        )
-
-        cls.bulk_edit_data = {
-            'description': 'Bulk-edited description',
-            'enabled': False,
-            'comments': 'Bulk-edited notes',
         }
 
     def _form_data_without_identity_fields(self):

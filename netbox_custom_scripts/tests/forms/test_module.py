@@ -1,11 +1,6 @@
 from django.test import TestCase
 
-from netbox_custom_scripts.forms import (
-    CustomScriptModuleBulkEditForm,
-    CustomScriptModuleBulkImportForm,
-    CustomScriptModuleEditForm,
-    CustomScriptModuleFilterForm,
-)
+from netbox_custom_scripts.forms import CustomScriptModuleEditForm, CustomScriptModuleFilterForm
 from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject
 
 
@@ -102,51 +97,7 @@ class CustomScriptModuleEditFormTestCase(TestCase):
         self.assertIn('tags', field_names)
 
 
-class CustomScriptModuleBulkEditFormTestCase(TestCase):
-    def test_source_path_is_not_bulk_editable(self):
-        self.assertNotIn('source_path', CustomScriptModuleBulkEditForm().fields)
-
-    def test_discovery_fields_are_not_bulk_editable(self):
-        form = CustomScriptModuleBulkEditForm()
-        for field in ('discovery_status', 'discovery_error', 'last_discovered_revision'):
-            with self.subTest(field=field):
-                self.assertNotIn(field, form.fields)
-
-
 class CustomScriptModuleFilterFormTestCase(TestCase):
     def test_empty_filter_is_valid(self):
         form = CustomScriptModuleFilterForm(data={})
         self.assertTrue(form.is_valid(), form.errors)
-
-
-class CustomScriptModuleBulkImportFormTestCase(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Import Project', key='import-project')
-
-    def test_good_path(self):
-        form = CustomScriptModuleBulkImportForm(
-            data={
-                'project': self.project.key,
-                'source_path': 'tools/deploy.py',
-                'enabled': True,
-                'description': 'CSV-imported',
-            }
-        )
-        self.assertTrue(form.is_valid(), form.errors)
-
-    def test_missing_required_field(self):
-        form = CustomScriptModuleBulkImportForm(data={'description': 'No project or path'})
-        self.assertFalse(form.is_valid())
-        self.assertIn('project', form.errors)
-        self.assertIn('source_path', form.errors)
-
-    def test_unknown_project_key_is_rejected(self):
-        form = CustomScriptModuleBulkImportForm(
-            data={
-                'project': 'no-such-project',
-                'source_path': 'deploy.py',
-            }
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn('project', form.errors)

@@ -211,8 +211,10 @@ def activate_revision(revision):
     locked and the transaction that moves the pointer stays short. Inside it, the project
     row is locked before the revision row, the same order a project delete takes, so
     concurrent activations serialize rather than deadlock, and the locked row must still
-    carry the digest, manifest, and an activatable status the verified snapshot had,
-    otherwise activation is refused. Activating the revision that is already active is a
+    carry the digest, manifest, entrypoint snapshot, and an activatable status the verified
+    snapshot had, otherwise activation is refused. The entrypoint snapshot is compared
+    alongside its digest because a swap that left the digest field untouched would
+    otherwise activate content the return-trip check never covered. Activating the revision that is already active is a
     no-op, checked after ownership and status. Raises ActivationError for a revision that
     has not passed project validation or that changed while its content was being verified,
     and RevisionCorruptError when its stored tree no longer matches its manifest.
@@ -258,6 +260,7 @@ def activate_revision(revision):
             locked.digest != snapshot.digest
             or locked.manifest != snapshot.manifest
             or locked.entrypoint_digest != snapshot.entrypoint_digest
+            or locked.entrypoint_snapshot != snapshot.entrypoint_snapshot
         ):
             raise ActivationError(f'Revision {locked.pk} changed while its stored tree was being verified.')
         already_active = locked.status == RevisionStatusChoices.ACTIVE and project.active_revision_id == locked.pk

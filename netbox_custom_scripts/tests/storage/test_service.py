@@ -711,6 +711,32 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision)
 
+    def test_activation_rejects_a_snapshot_swapped_after_its_return_trip_check(self):
+        # The pre-lock check proves the snapshot matched its digest when it was read. Only
+        # the locked comparison can prove it still does, so the swap goes in that window
+        # and leaves entrypoint_digest untouched.
+        module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        revision = self.validated()
+        real_verify = store.verify_revision_tree
+
+        def verify_then_swap_snapshot(*args, **kwargs):
+            result = real_verify(*args, **kwargs)
+            CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+                entrypoint_snapshot=[{'module': module.pk, 'source_path': 'swapped.py'}]
+            )
+            return result
+
+        with (
+            mock.patch.object(store, 'verify_revision_tree', side_effect=verify_then_swap_snapshot),
+            self.assertRaises(ActivationError) as ctx,
+        ):
+            service.activate_revision(revision)
+        self.assertIn('changed while', str(ctx.exception))
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
     def test_activation_accepts_a_revision_with_a_sound_snapshot(self):
         module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
         revision = self.validated()

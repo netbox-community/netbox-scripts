@@ -1,6 +1,15 @@
-from netbox_custom_scripts.storage.exceptions import StorageError, UnsafePathError
+"""
+Error taxonomy for the runtime tier.
+
+The cache errors root in the storage hierarchy because a tree the cache cannot produce is a
+failure to deliver stored content. Import and discovery errors do not, because they are
+statements about revision code rather than about storage.
+"""
+
+from ..storage.exceptions import StorageError, UnsafePathError
 
 __all__ = (
+    'DiscoveryError',
     'EntrypointImportError',
     'InvalidModulePathError',
     'LocalCacheCorruptError',
@@ -43,3 +52,18 @@ class EntrypointImportError(Exception):
     def __init__(self, message, detail):
         super().__init__(message)
         self.detail = dict(detail)
+
+
+class DiscoveryError(Exception):
+    """
+    Raised when an imported entrypoint declares an invalid script publication.
+
+    A content statement about the revision: the module imported fine but its script_order
+    or class layout breaks the publication contract. The code attribute holds one of the
+    fixed rejection codes and name identifies the offending class where one exists.
+    """
+
+    def __init__(self, message, code, name=None):
+        super().__init__(message)
+        self.code = code
+        self.name = name

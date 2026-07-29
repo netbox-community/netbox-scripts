@@ -143,6 +143,32 @@ class ScriptMetaTestCase(TestCase):
             f'netbox.plugins.netbox_custom_scripts.scripts.{__name__}.TestScript',
         )
 
+    def test_logger_marker_is_consumed_from_the_class_dict(self):
+        class TestScript(Script):
+            pass
+
+        TestScript._custom_script_logger_name = 'netbox.plugins.netbox_custom_scripts.scripts.alpha.deploy.TestScript'
+
+        self.assertEqual(
+            TestScript().logger.name,
+            'netbox.plugins.netbox_custom_scripts.scripts.alpha.deploy.TestScript',
+        )
+
+    def test_logger_marker_is_not_inherited(self):
+        class Published(Script):
+            pass
+
+        Published._custom_script_logger_name = 'netbox.plugins.netbox_custom_scripts.scripts.alpha.deploy.Published'
+
+        class Derived(Published):
+            pass
+
+        # A derived class was not itself discovered, so it composes its own name
+        self.assertEqual(
+            Derived().logger.name,
+            f'netbox.plugins.netbox_custom_scripts.scripts.{__name__}.Derived',
+        )
+
     def test_str_uses_the_script_name(self):
         class TestScript(Script):
             class Meta:

@@ -39,10 +39,13 @@ class BaseScript:
         # Populated by the execution runner when the script runs inside a request
         self.request = None
 
-        # Scripts in different projects may share a module and class name, which
-        # collapses to one logger name here. The loader assigns a project-qualified
-        # logger identity when project loading ships (tracked for the loader PR).
-        self.logger = logging.getLogger(f'netbox.plugins.netbox_custom_scripts.scripts.{self.module}.{self.class_name}')
+        # Discovery stamps each published class with a project-qualified logger name.
+        # The composed fallback serves classes that never went through discovery. Only
+        # the class's own dictionary is consulted, a subclass composes its own name.
+        logger_name = type(self).__dict__.get('_custom_script_logger_name')
+        self.logger = logging.getLogger(
+            logger_name or f'netbox.plugins.netbox_custom_scripts.scripts.{self.module}.{self.class_name}'
+        )
 
     def __str__(self):
         return self.name

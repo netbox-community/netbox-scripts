@@ -38,3 +38,23 @@
 * Leased revision validation service and background job driving revisions to
   `valid` or `invalid` verdicts, with owner-fenced transitions, sanitized
   stored errors, and per-module discovery results
+* Script upload: a Custom Script Project can be created from one uploaded `.py`
+  file, which is declared as an entrypoint, staged as a revision, validated in a
+  worker, and activated when the Project's activation policy allows. Adding
+  another script stages a revision holding the existing tree plus the new file,
+  and replacing a path the Project already holds needs explicit confirmation
+* Manual activation: a Project whose activation policy is manual can be put into
+  service from its own page, naming the revision that would go live and retiring
+  the previous one in the same step
+* Project-scoped serialization for the storage lifecycle: staging, entrypoint
+  refresh, activation, and physical cleanup hold one advisory lock keyed by the
+  Project's immutable storage key, and cleanup rechecks for a referencing
+  revision under that lock before reclaiming content
+* Source state on the Project page: a plain-language summary plus the current
+  revision's date, status, digest, file count, size, and activation time, with
+  the full revision history on its own Revisions tab
+* Fixed: the runtime cache created its intermediate directories at the process
+  umask while applying its private mode to the leaf only, so its own privacy
+  check rejected the default cache root on any host with a group-writable umask
+* Fixed: activation compared a revision's entrypoint digest but not the snapshot
+  itself, so a snapshot swapped after its return-trip check could be activated

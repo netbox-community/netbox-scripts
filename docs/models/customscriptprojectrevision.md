@@ -169,6 +169,35 @@ Code paths that bypass validation (`QuerySet.update()`, raw SQL) must uphold
 these invariants themselves. The database constraint enforces digest uniqueness
 but not immutability.
 
+## Serialization
+
+Revision rows and stored content are two systems, and the database cannot see the second one.
+Every operation that touches a project's stored content therefore holds a lock scoped to that
+project while it does: staging, restaging under a new entrypoint configuration, activation, and
+the cleanup that reclaims content. The lock is keyed on the project's immutable storage key, so
+it names the content itself and cannot be moved by anything an author edits.
+
+It is a PostgreSQL session-level advisory lock rather than a row lock, because these operations
+hold conversations with the storage backend and a row lock would keep a database transaction
+open for their duration. A session lock is released when the connection drops, so a worker that
+dies without warning frees its own claim and no reclaim timer is needed.
+
+Two operations deliberately stay outside it:
+
+- **Deleting a revision or a project takes no lock.** The cleanup job is what decides whether
+  stored content is still claimed, and it rechecks for a referencing row *under* the lock
+  before removing anything. A bare check before the lock would lose to a revision staged
+  between the check and the delete.
+- **Validation holds it only for its row transitions.** Importing a revision's entrypoints runs
+  arbitrary project code and can take minutes, and the [validation lease](#the-validation-lease)
+  plus job fencing already own that span. Holding the project lock across a whole run would
+  queue every upload to that project behind it.
+
+One consequence a caller has to handle: a project deleted while a staging call is inside its
+write window cascades that revision away, and staging reports the vanished row rather than
+returning one that no longer exists. Its content is reclaimed by the cleanup the delete
+recorded, so nothing leaks.
+
 ## Storage layout
 
 A revision's files live in the storage backend the plugin is configured to use,

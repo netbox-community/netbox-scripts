@@ -22,6 +22,7 @@ logging, global search, REST, and GraphQL.
 | Custom Script Module | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Custom Script Module](models/customscriptmodule.md) |
 | Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
 | Revision validation | The leased background step that imports a revision's entrypoints and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |
+| Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |
 | Private runtime namespace | The generated package names revision code imports under, isolating projects, revisions, and installed packages from each other. | [Runtime and Loading](runtime.md) |
 
 ## Supported workflows
@@ -29,6 +30,9 @@ logging, global search, REST, and GraphQL.
 | Workflow | User | Outcome |
 |---|---|---|
 | Manage projects | Administrator | Create, edit, delete, bulk-import, and tag Custom Script Projects. |
+| Upload a script | Administrator | Create a Project from one `.py` file, or add another to an existing one, without naming a path. See [Uploading Scripts](uploading.md). |
+| Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
+| Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |
 | Select entrypoints | Administrator | Choose which of a Project's source modules discovery imports, on its Entrypoints tab or over REST, without typing a path. |
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
@@ -44,10 +48,10 @@ follow-up releases:
 | Area | Status |
 |---|---|
 | Running authored scripts | Planned |
-| Source uploads | Planned |
-| Revision and script UI and API surfaces | Planned |
+| `CustomScript` objects for discovered scripts | Planned |
+| Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time |
+| Revision REST and GraphQL surfaces | Planned, revisions are read-only history in the UI |
 | Data Source synchronization | Planned |
-| Automatic validation and activation triggers | Planned |
 | Execution and scheduling | Planned |
 | Event Rule actions | Planned |
 | Migration from NetBox's built-in Custom Scripts | Planned |

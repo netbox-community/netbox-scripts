@@ -4,9 +4,9 @@
 
 NetBox Custom Scripts keeps project source in a Django storage backend, configured through
 NetBox's `STORAGES` setting, and reads its remaining settings from the
-`netbox_custom_scripts` entry in NetBox's `PLUGINS_CONFIG`. The storage layer ships in this
-pre-alpha release, but no user-facing way to stage a revision does yet, so a deployment
-that only manages project definitions can defer the storage decision. The
+`netbox_custom_scripts` entry in NetBox's `PLUGINS_CONFIG`. A deployment that
+[uploads scripts](uploading.md) needs the storage entry, since that is where uploaded content
+is written. One that only manages project definitions can defer the decision, and the
 `netbox_custom_scripts.W001` system check reports it until it is made.
 
 ```python
@@ -161,12 +161,23 @@ rebuild from the backend, never data, so nothing about it needs to be backed up 
 shared between nodes. Per-pod scratch space is exactly right on a horizontally scaled
 deployment.
 
-The root is created private to the account NetBox runs as, and materialization refuses a root
-whose ancestors another account could rename. An ancestor writable by other users is accepted
-only when it is sticky, which is what keeps the shared temporary directory usable. On a host
-where other accounts have that reach, point `runtime_cache_root` at a directory NetBox owns:
-verification proves what a tree held when it was checked, and it cannot prove that no one
-swapped the directory afterwards.
+Every directory level the plugin creates is created private to the account NetBox runs as, and
+materialization refuses a root whose ancestors another account could rename. An ancestor
+writable by other users is accepted only when it is sticky, which is what keeps the shared
+temporary directory usable. Verification proves what a tree held when it was checked, and it
+cannot prove that no one swapped the directory afterwards, which is why placement is checked at
+all.
+
+A directory created outside the plugin does not get that treatment, so a `runtime_cache_root`
+prepared by hand under a permissive umask is the common way to hit this. Validation then fails
+as an environment error naming the offending directory, and the fix is to restrict it:
+
+```bash
+chmod 700 /path/to/runtime-cache
+```
+
+Every ancestor is checked, so a private cache directory inside a group-writable parent is still
+refused. Point `runtime_cache_root` somewhere already private, or restrict the parent too.
 
 A cached tree is never trusted because it exists. Every use re-verifies it against the
 revision manifest, and the protocol is built so nothing unverified can execute:

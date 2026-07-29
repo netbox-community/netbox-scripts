@@ -19,7 +19,7 @@ here, follow this document.
 `netbox-custom-scripts` is a NetBox plugin: Custom Scripts for NetBox It is owned by
 NetBox Labs and runs inside NetBox as a Django app (`netbox_custom_scripts`).
 The supported NetBox version range is in `COMPATIBILITY.md`
-(4.6.0–4.7.99 at scaffold time).
+(4.6.0 to 4.7.99 at scaffold time).
 
 Version pins live in two places:
 
@@ -84,7 +84,7 @@ when domain content calls for them.
 │   │   └── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectTable.
-│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
+│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the read-only history table with no list view.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
@@ -116,14 +116,15 @@ when domain content calls for them.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
-│   │   └── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
+│   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
+│   │   └── test_ingestion.py      , Ingestion ordering and failure modes, plus UploadToActiveTestCase: the whole slice end to end against real validation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
-│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views + the Entrypoints tab (needs the project AND module change permissions).
+│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
 │   │   └── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
-│   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel (right) for the detail view layout.
+│   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout.
 │   │   └── attrs.py               , [stub] Custom ObjectAttribute subclasses (comment stub).
 │   ├── search.py                  , [CustomScriptProject] CustomScriptProjectIndex(SearchIndex) registered via @register_search.
 │   ├── graphql/
@@ -137,7 +138,8 @@ when domain content calls for them.
 │   │   ├── paths.py               , Canonical source paths, the case-insensitive comparison, compiled-artifact refusal, storage keys.
 │   │   ├── manifest.py            , Manifest build/validate pair, content digests, per-node letter-case collision rejection.
 │   │   ├── entrypoints.py         , Entrypoint snapshot build/validate pair, the return-trip trust boundary.
-│   │   ├── store.py               , Verified writes and reads against the backend, copy_verified bounded-read primitive.
+│   │   ├── store.py               , Verified writes and reads against the backend, copy_verified bounded-read primitive, read_verified / read_revision_tree in-memory reads.
+│   │   ├── locks.py               , project_lock(): the per-project advisory lock every content operation holds, and the one home of the key derivation.
 │   │   ├── service.py             , stage_revision / refresh_revision_entrypoints / activate_revision + the database-alias contract.
 │   │   └── exceptions.py          , Storage error taxonomy.
 │   ├── runtime/
@@ -149,13 +151,14 @@ when domain content calls for them.
 │   ├── scripts/                   , Authoring API: base.py (BaseScript/Script), variables.py, forms.py, logging.py, exceptions.py.
 │   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all three models, safety checks.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence.
-│   ├── jobs.py                    , ProjectStorageCleanupJob + RevisionValidationJob (JobRunner).
+│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates on a valid verdict when the policy allows).
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds.
-│   ├── object_actions.py          , [add as needed] ObjectAction subclasses for object-level buttons.
+│   ├── ingestion.py               , ingest_upload() / current_source_tree() / uploaded_source_path(): the one source-ingestion entry point, shared by upload and later by Data Source sync.
+│   ├── object_actions.py          , ActivateRevision + AddScript ObjectAction subclasses, with button templates under templates/.../buttons/.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
@@ -194,6 +197,33 @@ entrypoint per row, author-editable declaration fields, system-managed
 discovery fields, enabled declarations frozen into each revision's entrypoint
 snapshot at staging time. `CustomScript` rows and execution land in later PRs
 per the concept.
+
+### Source ingestion
+
+`ingestion.py` is the one entry point that turns supplied files into a revision
+on its way to a verdict: it declares the entrypoints the source implies, stages
+the tree, and enqueues validation. Ordering is load bearing, because a revision
+freezes the project's enabled declarations into its entrypoint snapshot at
+staging time, so declarations are committed before staging. The content write
+stays outside that transaction, since a rollback around stored bytes would leave
+content no revision row names and therefore nothing to record its cleanup.
+
+Upload is its first caller (a create form for a new project, an Add Script view
+for an existing one). Data Source reconciliation (P11) is the second and
+inherits the same ordering and the same lock. Activation is not a separate
+mechanism: the validation job promotes a valid revision when the project's
+`activation_policy` says so, and the Activate view covers the manual policy.
+
+### Serialization
+
+Every operation that touches stored content holds `storage.locks.project_lock()`,
+keyed by the project's immutable `storage_key`. It is a PostgreSQL session-level
+advisory lock on the two-integer keyspace, so it cannot collide with NetBox's own
+single-bigint keys, and it does not hold a database transaction open across
+backend I/O. Two deliberate exclusions: deletion takes no lock, because the
+cleanup job rechecks references under it before reclaiming anything, and
+validation takes it only for its row transitions, because the lease already owns
+the long import span.
 
 ### Integration points with NetBox
 

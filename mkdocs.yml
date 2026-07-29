@@ -44,6 +44,7 @@ nav:
   - Features: features.md
   - Quickstart: quickstart.md
   - Configuration: configuration.md
+  - Uploading Scripts: uploading.md
   - Authoring: authoring.md
   - Runtime and Loading: runtime.md
   - Models:

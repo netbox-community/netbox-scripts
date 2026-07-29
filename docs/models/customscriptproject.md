@@ -72,6 +72,25 @@ bulk destroy iterate the selected objects and call each one's `delete()`, so the
 caveat applies only to migrations, housekeeping commands, tests, and internal
 plugin code.
 
+## Activation policy
+
+`activation_policy` decides whether a revision that passes validation goes into service on its
+own:
+
+| Value | Behaviour |
+|---|---|
+| `manual` | The revision stops at `valid`. An operator activates it from the project's page. |
+| `automatic_if_valid` | The validation job activates the revision itself on a `valid` verdict. |
+
+The **Validate and activate** tick on the [upload form](../uploading.md) sets this, so the
+common case never has to think about the field. An automatic activation that is refused, for
+example because the stored tree no longer matches its manifest, fails the validation job and
+leaves both the verdict and the previously active revision alone.
+
+Activating is always a choice between validated revisions, never a promotion of unvalidated
+content. Retired revisions remain eligible, so returning to an earlier one is a matter of
+selecting it.
+
 ## Identity notes
 
 `storage_key` is the project's internal storage and runtime identity: it will

@@ -13,6 +13,13 @@ _customscriptproject_item = PluginMenuItem(
             icon_class='mdi mdi-plus-thick',
             permissions=['netbox_custom_scripts.add_customscriptproject'],
         ),
+        # The shortest path to a working Project: name it and hand it a script.
+        PluginMenuButton(
+            link='plugins:netbox_custom_scripts:customscriptproject_upload',
+            title=_('Upload Script'),
+            icon_class='mdi mdi-file-upload-outline',
+            permissions=['netbox_custom_scripts.add_customscriptproject'],
+        ),
         PluginMenuButton(
             link='plugins:netbox_custom_scripts:customscriptproject_bulk_import',
             title=_('Import'),

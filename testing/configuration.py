@@ -12,6 +12,12 @@ DATABASE = {
     'HOST': 'localhost',
     'PORT': '',
     'CONN_MAX_AGE': 300,
+    # Named so this plugin's test database is its own. The concurrency suite runs as
+    # TransactionTestCase, which commits and then flushes, so it cannot share a database with
+    # any other suite that might be running at the same time.
+    'TEST': {
+        'NAME': 'test_netbox_custom_scripts',
+    },
 }
 
 PLUGINS = [

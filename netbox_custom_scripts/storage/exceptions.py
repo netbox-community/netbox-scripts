@@ -2,6 +2,7 @@ __all__ = (
     'ActivationError',
     'LimitExceededError',
     'RevisionCorruptError',
+    'RevisionVanishedError',
     'StorageConfigurationError',
     'StorageError',
     'UnsafePathError',
@@ -47,6 +48,17 @@ class LimitExceededError(StorageError):
 
 class ActivationError(StorageError):
     """Raised when a revision cannot become a project's active revision."""
+
+
+class RevisionVanishedError(StorageError):
+    """
+    Raised when a revision's row was deleted while its content was being written.
+
+    Deleting a project cascades its revisions away, and deletion takes no project lock, so a
+    staging call already inside its write window can finish against rows that no longer exist.
+    Its content is reclaimed by the cleanup the delete recorded, which rechecks references
+    under the same lock, so the caller has nothing to undo and nothing to retry.
+    """
 
 
 class RevisionCorruptError(StorageError):

@@ -5,6 +5,11 @@ This module resolves the configuration for one operation and passes it down, and
 transaction and lock boundaries of the storage layer. Staging turns a mapping of source files
 into a revision row and, for valid content, stored content. Activation moves a
 project's active pointer under a row lock, so concurrent activations settle on one winner.
+
+Every operation that touches stored content holds the project lock from locks.py while it does,
+which is what stops cleanup, another stager, and activation from interleaving inside a store
+the database cannot see. Row locks still guard the pointer move, because they order writes to
+the rows themselves.
 """
 
 from typing import NamedTuple
@@ -18,7 +23,8 @@ from ..choices import RevisionStatusChoices
 from ..models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from . import config, store
 from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
-from .exceptions import ActivationError, RevisionCorruptError, StorageError
+from .exceptions import ActivationError, RevisionCorruptError, RevisionVanishedError, StorageError
+from .locks import project_lock
 from .manifest import build_manifest, compute_digest, validate_manifest
 
 
@@ -54,7 +60,9 @@ def stage_revision(project, files):
 
     Status transitions are conditional on the row still being inside its write window, so a
     slow or failed writer cannot demote a revision that validation or activation advanced
-    concurrently. Such a row is returned as that owner left it.
+    concurrently. Such a row is returned as that owner left it. A row deleted underneath the
+    write raises RevisionVanishedError, since deleting a project takes no project lock and its
+    cascade can land while this call is inside its window.
 
     The storage lifecycle runs on the default database, where deletion cleanup can be
     recorded, so a project loaded from any other connection is refused before any row or
@@ -97,57 +105,62 @@ def stage_revision(project, files):
     # storage_key cannot decide where content is written.
     storage_key = CustomScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=project.pk)
 
-    # get_or_create wraps its insert in a savepoint and re-runs the get on IntegrityError,
-    # which is exactly the race the partial unique on the identity triple can lose.
-    revision, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
-        project=project,
-        digest=compute_digest(entries),
-        entrypoint_digest=entrypoint_digest,
-        defaults={'status': RevisionStatusChoices.STAGING, **totals},
-    )
-    while True:
-        if revision.status in constants.STORED_REVISION_STATUSES:
-            store.verify_revision_tree(storage, storage_key, revision.digest, _validated_manifest(revision))
-            return StagedRevision(revision, created)
-        if revision.status not in constants.RETRYABLE_REVISION_STATUSES:
-            # A revision that validation rejected keeps its errors. Re-staging identical content
-            # must neither clear them nor promote it, so the row is returned untouched.
-            return StagedRevision(revision, created)
-        # STAGING covers the whole write window, including a retry. VALIDATING belongs to
-        # project validation, so the storage layer never occupies it. The transition is
-        # conditional, so re-entering the window cannot demote a row another worker advanced
-        # between the read above and this write.
-        claimed = (
-            CustomScriptProjectRevision.objects.using(using)
-            .filter(pk=revision.pk, status__in=constants.RETRYABLE_REVISION_STATUSES)
-            .update(status=RevisionStatusChoices.STAGING, last_updated=timezone.now())
+    # Held from the identity row through the content write to the status that settles it, so
+    # cleanup, another stager, and activation cannot interleave inside a store the database
+    # cannot see. The manifest and snapshot built above touch no stored content.
+    with project_lock(storage_key, using=using):
+        # get_or_create wraps its insert in a savepoint and re-runs the get on IntegrityError,
+        # which is exactly the race the partial unique on the identity triple can lose.
+        revision, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
+            project=project,
+            digest=compute_digest(entries),
+            entrypoint_digest=entrypoint_digest,
+            defaults={'status': RevisionStatusChoices.STAGING, **totals},
         )
-        if claimed:
-            break
-        revision.refresh_from_db(using=using)
-    try:
-        store.write_revision(storage, storage_key, revision.digest, source_files, _validated_manifest(revision))
-    except (OSError, StorageError) as error:
-        # Only a row still inside its write window takes the failure. One a concurrent owner
-        # has advanced keeps that owner's word, and the error still propagates either way.
+        while True:
+            if revision.status in constants.STORED_REVISION_STATUSES:
+                store.verify_revision_tree(storage, storage_key, revision.digest, _validated_manifest(revision))
+                return StagedRevision(revision, created)
+            if revision.status not in constants.RETRYABLE_REVISION_STATUSES:
+                # A revision that validation rejected keeps its errors. Re-staging identical
+                # content must neither clear them nor promote it, so the row is returned
+                # untouched.
+                return StagedRevision(revision, created)
+            # STAGING covers the whole write window, including a retry. VALIDATING belongs to
+            # project validation, so the storage layer never occupies it. The transition is
+            # conditional, so re-entering the window cannot demote a row another worker advanced
+            # between the read above and this write.
+            claimed = (
+                CustomScriptProjectRevision.objects.using(using)
+                .filter(pk=revision.pk, status__in=constants.RETRYABLE_REVISION_STATUSES)
+                .update(status=RevisionStatusChoices.STAGING, last_updated=timezone.now())
+            )
+            if claimed:
+                break
+            _refresh_surviving(revision, using)
+        try:
+            store.write_revision(storage, storage_key, revision.digest, source_files, _validated_manifest(revision))
+        except (OSError, StorageError) as error:
+            # Only a row still inside its write window takes the failure. One a concurrent owner
+            # has advanced keeps that owner's word, and the error still propagates either way.
+            CustomScriptProjectRevision.objects.using(using).filter(
+                pk=revision.pk, status=RevisionStatusChoices.STAGING
+            ).update(
+                status=RevisionStatusChoices.STORAGE_FAILED,
+                validation_errors=[
+                    {'path': None, 'code': 'storage_write_failed', 'message': f'Unable to store the revision: {error}'}
+                ],
+                last_updated=timezone.now(),
+            )
+            raise
+        # The same conditional write settles success, so a slow writer cannot pull a revision
+        # back from VALID or ACTIVE. A write that lost its window self-heals on the next call,
+        # which re-verifies the stored tree.
         CustomScriptProjectRevision.objects.using(using).filter(
             pk=revision.pk, status=RevisionStatusChoices.STAGING
-        ).update(
-            status=RevisionStatusChoices.STORAGE_FAILED,
-            validation_errors=[
-                {'path': None, 'code': 'storage_write_failed', 'message': f'Unable to store the revision: {error}'}
-            ],
-            last_updated=timezone.now(),
-        )
-        raise
-    # The same conditional write settles success, so a slow writer cannot pull a revision
-    # back from VALID or ACTIVE. A write that lost its window self-heals on the next call,
-    # which re-verifies the stored tree.
-    CustomScriptProjectRevision.objects.using(using).filter(
-        pk=revision.pk, status=RevisionStatusChoices.STAGING
-    ).update(status=RevisionStatusChoices.MATERIALIZED, validation_errors=[], last_updated=timezone.now())
-    revision.refresh_from_db(using=using)
-    return StagedRevision(revision, created)
+        ).update(status=RevisionStatusChoices.MATERIALIZED, validation_errors=[], last_updated=timezone.now())
+        _refresh_surviving(revision, using)
+        return StagedRevision(revision, created)
 
 
 def refresh_revision_entrypoints(revision):
@@ -182,21 +195,25 @@ def refresh_revision_entrypoints(revision):
     storage_key = (
         CustomScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=source.project_id)
     )
-    store.verify_revision_tree(storage, storage_key, source.digest, manifest)
+    # The new row claims content this call has just proven present, so the verification and the
+    # row that depends on it happen under one hold. Otherwise cleanup could reclaim the tree in
+    # between and leave a MATERIALIZED revision naming nothing.
+    with project_lock(storage_key, using=using):
+        store.verify_revision_tree(storage, storage_key, source.digest, manifest)
 
-    candidate, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
-        project_id=source.project_id,
-        digest=source.digest,
-        entrypoint_digest=entrypoint_digest,
-        defaults={
-            'status': RevisionStatusChoices.MATERIALIZED,
-            'manifest': manifest,
-            'file_count': source.file_count,
-            'total_size': source.total_size,
-            'entrypoint_snapshot': snapshot,
-        },
-    )
-    return StagedRevision(candidate, created)
+        candidate, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
+            project_id=source.project_id,
+            digest=source.digest,
+            entrypoint_digest=entrypoint_digest,
+            defaults={
+                'status': RevisionStatusChoices.MATERIALIZED,
+                'manifest': manifest,
+                'file_count': source.file_count,
+                'total_size': source.total_size,
+                'entrypoint_snapshot': snapshot,
+            },
+        )
+        return StagedRevision(candidate, created)
 
 
 def activate_revision(revision):
@@ -244,11 +261,22 @@ def activate_revision(revision):
     # against its own digest here, at the same position the manifest gets its return-trip
     # check, before any row is locked.
     validate_entrypoint_snapshot(snapshot.entrypoint_snapshot, snapshot.entrypoint_digest)
-    # Verification reads and hashes every stored file and may hold a remote conversation for
-    # a while, so it runs before any row is locked. The unlocked reads above decide nothing
-    # final, the transaction below re-reads the row against this snapshot.
-    store.verify_revision_tree(storage, project_state['storage_key'], snapshot.digest, _validated_manifest(snapshot))
+    # The project lock covers the verification and the pointer move together, so nothing
+    # reclaims or restages this tree between proving it present and promoting it. It is a
+    # session lock rather than a transactional one precisely so the verification below can take
+    # as long as the backend needs without holding a transaction open.
+    with project_lock(project_state['storage_key'], using=using):
+        # Verification reads and hashes every stored file and may hold a remote conversation for
+        # a while, so it runs before any row is locked. The unlocked reads above decide nothing
+        # final, the transaction below re-reads the row against this snapshot.
+        store.verify_revision_tree(
+            storage, project_state['storage_key'], snapshot.digest, _validated_manifest(snapshot)
+        )
+        return _promote(snapshot, revision_pk, using)
 
+
+def _promote(snapshot, revision_pk, using):
+    """Move a project's active pointer to one verified revision, under the row locks."""
     with transaction.atomic(using=using):
         project = CustomScriptProject.objects.using(using).select_for_update().get(pk=snapshot.project_id)
         locked = (
@@ -285,6 +313,23 @@ def activate_revision(revision):
         project.save(using=using, update_fields=('active_revision', 'last_updated'))
 
     return locked
+
+
+def _refresh_surviving(revision, using):
+    """
+    Re-read a revision's row, reporting a concurrent deletion as such.
+
+    Deleting a project cascades its revisions away and takes no project lock, so a staging
+    call inside its write window can reach here with no row left to read. Django would raise a
+    bare DoesNotExist naming nothing a caller can act on, so it becomes the typed error
+    instead.
+    """
+    try:
+        revision.refresh_from_db(using=using)
+    except CustomScriptProjectRevision.DoesNotExist as error:
+        raise RevisionVanishedError(
+            f'Revision {revision.pk} was deleted while its content was being staged.'
+        ) from error
 
 
 def _require_activatable(revision, already_active):

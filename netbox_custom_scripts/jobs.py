@@ -7,12 +7,13 @@ from core.exceptions import JobFailed
 from netbox.jobs import JobRunner
 
 from . import branching
-from .choices import RevisionStatusChoices
+from .choices import ActivationPolicyChoices, RevisionStatusChoices
 from .constants import VALIDATION_JOB_TIMEOUT
 from .models import CustomScriptProjectRevision
 from .runtime.exceptions import EntrypointImportError
-from .storage import config, store
-from .storage.exceptions import StorageConfigurationError, StorageError
+from .storage import config, service, store
+from .storage.exceptions import ActivationError, StorageConfigurationError, StorageError
+from .storage.locks import project_lock
 from .storage.service import require_default_database
 from .validation import ValidationStateError, build_error_sanitizer, validate_revision
 
@@ -27,6 +28,10 @@ class ProjectStorageCleanupJob(JobRunner):
     queue loses the task. Deletion is by exact key and tolerates content that is already
     gone, so a run that failed partway can be run again and finishes the remainder. A failure
     lands as a failed Job whose log names what was left behind.
+
+    The reference recheck and the removal happen under the project lock, so this job is the
+    one place that decides whether stored content is still claimed. Deletion itself takes no
+    lock, which is why the decision has to be made here rather than trusted from the delete.
     """
 
     class Meta:
@@ -63,26 +68,31 @@ class ProjectStorageCleanupJob(JobRunner):
             )
             self.logger.error(detail)
             raise JobFailed()
-        # The digest can be re-staged under a new entrypoint configuration between the
-        # delete that recorded this job and this run. Content a current revision references
-        # is left in place and the run succeeds, since there is nothing left to reclaim.
-        if CustomScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
-            self.logger.info(
-                f'Leaving stored content in place, a current revision references it again: {storage_key} {digest}'
-            )
-            return
-        try:
-            storage = config.get_storage()
-            store.delete_revision(storage, storage_key, digest, paths)
-        except (OSError, StorageError, StorageConfigurationError) as error:
-            # An unreachable backend or a missing storage entry is an expected operational
-            # failure. The job log carries the detail, and the failed status plus the payload
-            # persisted in data are what an operator or a future reconciler retries from. The
-            # message is rendered up front, because the job log records it verbatim rather
-            # than interpolating lazy logging arguments.
-            detail = f'Storage cleanup left content in the store: {storage_key} {digest}: {error}'
-            self.logger.error(detail)
-            raise JobFailed() from error
+        # The recheck and the removal it authorizes have to be one indivisible step. A staging
+        # call that creates a referencing row between them would otherwise have its content
+        # deleted out from under it, which is why the project lock covers both and why staging
+        # takes the same lock across its write.
+        with project_lock(storage_key):
+            # The digest can be re-staged under a new entrypoint configuration between the
+            # delete that recorded this job and this run. Content a current revision references
+            # is left in place and the run succeeds, since there is nothing left to reclaim.
+            if CustomScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
+                self.logger.info(
+                    f'Leaving stored content in place, a current revision references it again: {storage_key} {digest}'
+                )
+                return
+            try:
+                storage = config.get_storage()
+                store.delete_revision(storage, storage_key, digest, paths)
+            except (OSError, StorageError, StorageConfigurationError) as error:
+                # An unreachable backend or a missing storage entry is an expected operational
+                # failure. The job log carries the detail, and the failed status plus the payload
+                # persisted in data are what an operator or a future reconciler retries from. The
+                # message is rendered up front, because the job log records it verbatim rather
+                # than interpolating lazy logging arguments.
+                detail = f'Storage cleanup left content in the store: {storage_key} {digest}: {error}'
+                self.logger.error(detail)
+                raise JobFailed() from error
 
 
 class RevisionValidationJob(JobRunner):
@@ -145,5 +155,26 @@ class RevisionValidationJob(JobRunner):
             raise JobFailed() from error
         if revision.status == RevisionStatusChoices.INVALID:
             self.logger.warning(f'The revision is invalid, {len(revision.validation_errors)} problem(s) recorded.')
-        else:
-            self.logger.info(f'The revision validated as {revision.status}.')
+            return
+        self.logger.info(f'The revision validated as {revision.status}.')
+        self._activate_if_policy_allows(revision)
+
+    def _activate_if_policy_allows(self, revision):
+        """
+        Promote a valid revision when its project asked for automatic activation.
+
+        The verdict is already recorded and correct, so a refused or failed activation fails the
+        job without touching it. The project keeps serving whatever it served before, which is
+        the outcome the concept requires of a validation that cannot complete its last step.
+        """
+        if revision.project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
+            self.logger.info('Leaving activation to an operator, this project activates manually.')
+            return
+        try:
+            service.activate_revision(revision)
+        except (ActivationError, StorageError, OSError) as error:
+            sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
+            detail = sanitize(f'The revision validated but could not be activated: {error}')
+            self.logger.error(detail)
+            raise JobFailed() from error
+        self.logger.info('The revision is now the active revision of its project.')

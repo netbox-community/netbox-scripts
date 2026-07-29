@@ -3,6 +3,7 @@ from .panels import (
     CustomScriptModulePanel,
     CustomScriptProjectPanel,
     CustomScriptProjectSourcePanel,
+    CustomScriptProjectStatePanel,
 )
 
 __all__ = (
@@ -10,4 +11,5 @@ __all__ = (
     'CustomScriptModulePanel',
     'CustomScriptProjectPanel',
     'CustomScriptProjectSourcePanel',
+    'CustomScriptProjectStatePanel',
 )

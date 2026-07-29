@@ -47,3 +47,24 @@ class CustomScriptProjectSourcePanel(ObjectAttributesPanel):
     data_source = attrs.RelatedObjectAttr('data_source', label=_('Data source'))
     data_path = attrs.TextAttr('data_path', label=_('Data path'))
     activation_policy = attrs.ChoiceAttr('activation_policy', label=_('Activation policy'))
+
+
+class CustomScriptProjectStatePanel(ObjectAttributesPanel):
+    """
+    The revision a project is serving right now (detail view, right column).
+
+    Answers the two questions an operator has after adding source: is it live, and if not what
+    is it waiting on. The state line covers the second, the fields describe the tree currently
+    in force. Earlier revisions are the Revisions tab's business, and the manifest, digests, and
+    lease owner stay out of both.
+    """
+
+    title = _('Current revision')
+
+    source_state = attrs.TextAttr('source_state', label=_('State'))
+    created = attrs.DateTimeAttr('current_revision.created', label=_('Created'))
+    status = attrs.ChoiceAttr('current_revision.status', label=_('Status'))
+    short_digest = attrs.TextAttr('current_revision.short_digest', label=_('Digest'))
+    file_count = attrs.NumericAttr('current_revision.file_count', label=_('Files'))
+    total_size = attrs.NumericAttr('current_revision.total_size', label=_('Size'))
+    activated = attrs.DateTimeAttr('current_revision.activated', label=_('Activated'))

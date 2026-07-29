@@ -1,4 +1,5 @@
 from django import forms
+from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
 from core.models import DataSource
@@ -8,12 +9,15 @@ from utilities.forms.fields import DynamicModelChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import HTMXSelect
 
-from ...choices import ProjectSourceTypeChoices
-from ...models import CustomScriptProject
+from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
+from ...ingestion import current_source_tree, ingest_upload, uploaded_source_path
+from ...models import CustomScriptModule, CustomScriptProject
 
 __all__ = (
+    'CustomScriptProjectAddScriptForm',
     'CustomScriptProjectEditForm',
     'CustomScriptProjectEntrypointsForm',
+    'CustomScriptProjectUploadForm',
 )
 
 
@@ -72,12 +76,172 @@ class CustomScriptProjectEditForm(PrimaryModelForm):
         }
 
 
+class CustomScriptProjectUploadForm(PrimaryModelForm):
+    """
+    Create a Custom Script Project from one uploaded script.
+
+    The form asks for what a user knows and nothing the plugin can work out for itself. The
+    uploaded file's name becomes the source path, the entrypoint is declared automatically, and
+    the checkbox decides whether a valid revision goes live without a second step. Source paths,
+    module names, digests, and storage locations are never asked for.
+    """
+
+    key = SlugField(
+        label=_('Key'),
+        max_length=100,
+        slug_source='name',
+        help_text=_('Stable user-facing project key. Cannot be changed after creation.'),
+    )
+    upload_file = forms.FileField(
+        label=_('Script'),
+        help_text=_('A Python module to publish. Its file name becomes the path within the Project.'),
+    )
+    validate_and_activate = forms.BooleanField(
+        required=False,
+        initial=True,
+        label=_('Validate and activate'),
+        help_text=_('Activate this revision automatically once it validates. Otherwise activate it yourself.'),
+    )
+
+    fieldsets = (
+        FieldSet('name', 'key', 'description', name=_('Project')),
+        FieldSet('upload_file', 'validate_and_activate', name=_('Script')),
+    )
+
+    class Meta:
+        model = CustomScriptProject
+        fields = ('name', 'key', 'description')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Fixed for this form rather than asked for, and set before validation so the model's
+        # own source-ownership check sees the value it will be saved with.
+        self.instance.source_type = ProjectSourceTypeChoices.UPLOAD
+
+    def clean_upload_file(self):
+        """Refuse a name the path policy or the Python-source rule rejects, before anything is created."""
+        upload = self.cleaned_data['upload_file']
+        # Validated here so the message lands on the field the user can fix.
+        uploaded_source_path(upload.name)
+        return upload
+
+    def clean(self):
+        """Map the checkbox onto the activation policy, in time for model validation."""
+        super().clean()
+        self.instance.activation_policy = (
+            ActivationPolicyChoices.AUTOMATIC_IF_VALID
+            if self.cleaned_data.get('validate_and_activate')
+            else ActivationPolicyChoices.MANUAL
+        )
+        return self.cleaned_data
+
+    def save(self, *args, **kwargs):
+        """Create the project, then declare, stage, and enqueue the uploaded script."""
+        project = super().save(*args, **kwargs)
+        upload = self.cleaned_data['upload_file']
+        # Staging writes content, so it runs after the project row is committed. A failure
+        # leaves the project with a recorded storage failure to retry from, not a rollback
+        # that would orphan whatever bytes reached the backend.
+        ingest_upload(project, filename=upload.name, content=upload.read())
+        return project
+
+
+class CustomScriptProjectAddScriptForm(PrimaryModelForm):
+    """
+    Add one more script to a Project that already has source.
+
+    A revision is a whole tree, so this stages everything the Project already holds plus the
+    new file. Replacing a file the Project already has needs the tick, because the file name
+    alone cannot say whether the user meant to.
+    """
+
+    upload_file = forms.FileField(
+        label=_('Script'),
+        help_text=_('A Python module to add. Its file name becomes the path within the Project.'),
+    )
+    confirm_replace = forms.BooleanField(
+        required=False,
+        label=_('Replace the existing file'),
+        help_text=_('Required only when the Project already holds a file at this path.'),
+    )
+
+    fieldsets = (FieldSet('upload_file', 'confirm_replace', name=_('Script')),)
+
+    class Meta:
+        model = CustomScriptProject
+        fields = ()
+
+    def clean_upload_file(self):
+        """Refuse a name the path policy or the Python-source rule rejects."""
+        upload = self.cleaned_data['upload_file']
+        uploaded_source_path(upload.name)
+        return upload
+
+    def clean(self):
+        """Require confirmation for a path the Project already holds, and refuse a colliding one."""
+        super().clean()
+        upload = self.cleaned_data.get('upload_file')
+        if upload is None:
+            return self.cleaned_data
+        path = uploaded_source_path(upload.name)
+
+        # Compared against the canonical path, never the name the browser sent. Django reduces
+        # an uploaded name to its basename, so "automation/deploy.py" and "audit/deploy.py" both
+        # arrive as "deploy.py". Comparing raw names would skip this prompt and silently replace
+        # a file the user believed was a different one. Only the manifest is read here, so
+        # validation costs no content reads.
+        revision = self.instance.current_revision
+        existing = {entry['path'] for entry in revision.manifest} if revision else set()
+        if path in existing and not self.cleaned_data.get('confirm_replace'):
+            self.add_error(
+                'upload_file',
+                _('This Project already holds "{path}". Tick "{label}" to replace its content.').format(
+                    path=path, label=self.fields['confirm_replace'].label
+                ),
+            )
+            return self.cleaned_data
+
+        self._reject_colliding_declaration(path)
+        return self.cleaned_data
+
+    def _reject_colliding_declaration(self, path):
+        """Surface a sibling collision on the upload field rather than letting save() raise."""
+        if CustomScriptModule.objects.filter(project=self.instance, source_path=path).exists():
+            return
+        candidate = CustomScriptModule(project=self.instance, source_path=path, enabled=True)
+        try:
+            candidate.full_clean()
+        except ValidationError as error:
+            # A case variant or a name that collides with a sibling module, for example
+            # "Deploy.py" against an existing "deploy.py".
+            self.add_error('upload_file', error.messages)
+
+    def save(self, *args, **kwargs):
+        """Stage the existing tree plus the new file as one new revision."""
+        upload = self.cleaned_data['upload_file']
+        # The content read happens here rather than during validation, so a rejected upload
+        # never pulls a whole tree out of the store.
+        ingest_upload(
+            self.instance,
+            filename=upload.name,
+            content=upload.read(),
+            base_files=current_source_tree(self.instance),
+        )
+        return self.instance
+
+
+class EntrypointCheckboxSelect(forms.CheckboxSelectMultiple):
+    """A multiple-checkbox widget carrying the Bootstrap markup the rest of the form uses."""
+
+    template_name = 'netbox_custom_scripts/widgets/entrypoint_checkboxes.html'
+
+
 class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
     """Select which of a project's source modules are its executable entrypoints."""
 
     entrypoints = forms.MultipleChoiceField(
         required=False,
-        widget=forms.CheckboxSelectMultiple(),
+        widget=EntrypointCheckboxSelect(),
         label=_('Entrypoints'),
         help_text=_('Source modules whose Custom Scripts this Project publishes. Helpers need no selection.'),
     )
@@ -90,6 +254,11 @@ class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # This form reconciles child declarations and never saves the project itself, so the
+        # attribute fields the base form contributes would accept input and then be discarded.
+        # They belong on the edit form, where saving them means something.
+        for name in ('owner', 'owner_group', 'comments'):
+            self.fields.pop(name, None)
         declared = {module.source_path: module for module in self.instance.modules.all()}
         candidates = set(self.instance.entrypoint_candidates())
         self.fields['entrypoints'].choices = [

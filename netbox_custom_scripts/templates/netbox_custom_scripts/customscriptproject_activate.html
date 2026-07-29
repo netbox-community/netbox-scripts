@@ -1,0 +1,39 @@
+{% extends "generic/confirmation_form.html" %}
+{% load i18n %}
+{% comment %}
+Activation confirmation for a Custom Script Project.
+
+Context:
+  - object:     The Project whose active revision would move
+  - candidate:  The revision that would go live, or None
+  - return_url: Where Cancel goes
+{% endcomment %}
+{% block title %}
+  {% trans "Activate revision" %}
+{% endblock title %}
+{% block confirmation_title %}
+  {% trans "Activate revision" %}
+{% endblock confirmation_title %}
+{% block message %}
+  {% if candidate %}
+    <p>
+      {% blocktrans with revision=candidate.short_digest project=object %}
+        Make revision {{ revision }} the active source of {{ project }}?
+      {% endblocktrans %}
+    </p>
+    <p class="text-secondary">
+      {% blocktrans count counter=candidate.file_count %}
+        It holds {{ counter }} file.
+      {% plural %}
+        It holds {{ counter }} files.
+      {% endblocktrans %}
+      {% if object.active_revision %}
+        {% blocktrans with previous=object.active_revision.short_digest %}
+          Revision {{ previous }} is retired in the same step.
+        {% endblocktrans %}
+      {% endif %}
+    </p>
+  {% else %}
+    <p>{% trans "This Project has no validated revision to activate." %}</p>
+  {% endif %}
+{% endblock message %}

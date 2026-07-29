@@ -331,6 +331,11 @@ max-doc-length = 120
 # One of "google", "numpy", "pep257". Matches the other NetBox Labs plugins.
 convention = "pep257"
 
+# Decorators that make a method a property, so its docstring is held to the noun-phrase rule
+# rather than the imperative-mood one. Without this, a cached_property is checked as a plain
+# function and the two rules contradict each other.
+property-decorators = ["django.utils.functional.cached_property"]
+
 [tool.ruff.format]
 # Use single quotes for strings.
 quote-style = "single"

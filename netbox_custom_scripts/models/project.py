@@ -4,13 +4,28 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models, router, transaction
 from django.db.models import Q
+from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
 from netbox.models import ChangeLoggedModel, PrimaryModel
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from ..constants import ACTIVATABLE_REVISION_STATUSES
 from ..storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from ..validators import data_paths_overlap, normalize_data_path
+
+# What the detail view says about a newest revision that is not the active one. Phrased for an
+# operator asking "is my script live, and if not why", so it names the step in progress rather
+# than the status value the badge already shows.
+_SOURCE_STATE_SUMMARIES = {
+    RevisionStatusChoices.STAGING: _('New source is being stored.'),
+    RevisionStatusChoices.STORAGE_FAILED: _('New source could not be stored.'),
+    RevisionStatusChoices.MATERIALIZED: _('New source is waiting to be validated.'),
+    RevisionStatusChoices.VALIDATING: _('New source is being validated.'),
+    RevisionStatusChoices.VALID: _('New source is valid and waiting to be activated.'),
+    RevisionStatusChoices.INVALID: _('New source failed validation.'),
+    RevisionStatusChoices.RETIRED: _('The newest revision has been retired.'),
+}
 
 
 class CustomScriptProject(PrimaryModel):
@@ -264,6 +279,56 @@ class CustomScriptProject(PrimaryModel):
                     module.enabled = enabled
                     module.save(using=using, update_fields=('enabled', 'last_updated'))
 
+    def activatable_revision(self):
+        """
+        Return the newest revision this project could be pointed at, or None.
+
+        A revision that passed validation and is not already the active one. Retired revisions
+        qualify, so pointing back at a previous one is a matter of choosing it rather than of
+        the lifecycle allowing it. Activation re-checks everything under its own lock, so this
+        answers "is there anything to offer" and never decides the outcome.
+        """
+        candidates = self.revisions.using(self._read_alias()).filter(status__in=ACTIVATABLE_REVISION_STATUSES)
+        if self.active_revision_id:
+            candidates = candidates.exclude(pk=self.active_revision_id)
+        return candidates.order_by('-created').first()
+
+    def latest_revision(self):
+        """
+        Return this project's newest revision whatever its state, or None.
+
+        Unfiltered, unlike current_revision, because the newest attempt is what the source
+        state reports on and a rejected one carries no digest.
+        """
+        return self.revisions.using(self._read_alias()).order_by('-created').first()
+
+    @property
+    def source_state(self):
+        """A short plain-language summary of where this project's source stands."""
+        latest = self.latest_revision()
+        if latest is None:
+            return _('No source has been added yet.')
+        if latest.pk == self.active_revision_id:
+            return _('The active revision is the newest source.')
+        return _SOURCE_STATE_SUMMARIES.get(latest.status, _('A newer revision exists.'))
+
+    @cached_property
+    def current_revision(self):
+        """
+        The revision whose tree is this project's source right now, or None.
+
+        The active revision when there is one, otherwise the newest revision that holds stored
+        content. A project with no active revision still has a source tree to enumerate and
+        build on, which is what makes a second upload possible before anything is activated.
+
+        Cached per instance, because the detail view reads a field of it per panel row. Every
+        caller either holds a freshly loaded project or deliberately wants the tree as it stood
+        before the revision it is about to stage.
+        """
+        return self.active_revision or (
+            self.revisions.using(self._read_alias()).filter(digest__isnull=False).order_by('-created').first()
+        )
+
     def _source_paths(self):
         """Return every project-relative path of the source this project currently has."""
         # A data source is readable before anything is staged, so it wins over the manifest.
@@ -277,9 +342,7 @@ class CustomScriptProject(PrimaryModel):
                     continue
                 paths.append('/'.join(segments[len(prefix) :]))
             return paths
-        revision = self.active_revision or (
-            self.revisions.using(self._read_alias()).filter(digest__isnull=False).order_by('-created').first()
-        )
+        revision = self.current_revision
         return [entry['path'] for entry in revision.manifest] if revision else []
 
     def _read_alias(self):
@@ -484,6 +547,11 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)
+
+    @property
+    def short_digest(self):
+        """The digest prefix a revision is referred to by, empty for a rejected staging."""
+        return self.digest[:12] if self.digest else ''
 
     def get_status_color(self):
         """Return the badge color configured for this revision's status."""

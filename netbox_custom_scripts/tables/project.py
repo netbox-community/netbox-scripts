@@ -1,8 +1,9 @@
 import django_tables2 as tables
+from django.utils.translation import gettext_lazy as _
 
-from netbox.tables import PrimaryModelTable, columns
+from netbox.tables import BaseTable, PrimaryModelTable, columns
 
-from ..models import CustomScriptProject
+from ..models import CustomScriptProject, CustomScriptProjectRevision
 
 
 class CustomScriptProjectTable(PrimaryModelTable):
@@ -43,3 +44,26 @@ class CustomScriptProjectTable(PrimaryModelTable):
             'last_updated',
         )
         default_columns = ('name', 'key', 'source_type', 'data_source', 'enabled')
+
+
+class CustomScriptProjectRevisionTable(BaseTable):
+    """
+    Read-only history of one project's revisions, for the project detail view.
+
+    BaseTable rather than NetBoxTable, because a revision is history rather than an object a
+    user edits: there is no list view to link to, no selection column, and no actions column.
+    Implementation fields stay out, the manifest and the lease belong to a diagnostic view.
+    """
+
+    created = columns.DateTimeColumn(verbose_name=_('Created'))
+    status = columns.ChoiceFieldColumn(verbose_name=_('Status'))
+    short_digest = tables.Column(verbose_name=_('Digest'), accessor='short_digest', orderable=False)
+    file_count = tables.Column(verbose_name=_('Files'))
+    total_size = tables.Column(verbose_name=_('Size'))
+    activated = columns.DateTimeColumn(verbose_name=_('Activated'))
+
+    class Meta(BaseTable.Meta):
+        model = CustomScriptProjectRevision
+        fields = ('created', 'status', 'short_digest', 'file_count', 'total_size', 'activated')
+        default_columns = fields
+        order_by = ('-created',)

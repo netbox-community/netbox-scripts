@@ -605,3 +605,69 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         # Project validation owns VALIDATING, so the storage layer must never re-drive it.
         # Without this the validator's own transition would be reversible by a re-stage.
         self.assertNotIn(RevisionStatusChoices.VALIDATING, stored | retryable)
+
+
+class CustomScriptProjectSourceStateTestCase(TestCase):
+    """The source state a project reports for its detail view."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+
+    def revision(self, status, digest=DIGEST_A, **kwargs):
+        return CustomScriptProjectRevision.objects.create(
+            project=self.project,
+            digest=digest,
+            status=status,
+            manifest=[{'path': 'deploy.py', 'size': 1, 'sha256': DIGEST_A}] if digest else [],
+            file_count=1 if digest else 0,
+            total_size=1 if digest else 0,
+            **kwargs,
+        )
+
+    def test_a_project_with_no_source_says_so(self):
+        self.assertIn('No source', str(self.project.source_state))
+
+    def test_the_newest_revision_is_returned_whatever_its_state(self):
+        self.revision(RevisionStatusChoices.MATERIALIZED)
+        # A rejected staging carries no digest, so current_revision skips it but this must not.
+        rejected = self.revision(RevisionStatusChoices.INVALID, digest=None)
+        self.assertEqual(self.project.latest_revision(), rejected)
+
+    def test_the_active_revision_being_newest_is_reported_as_current(self):
+        active = self.revision(RevisionStatusChoices.ACTIVE)
+        self.project.active_revision = active
+        self.project.save()
+        self.assertIn('newest source', str(self.project.source_state))
+
+    def test_a_valid_revision_awaiting_activation_is_reported(self):
+        self.revision(RevisionStatusChoices.VALID)
+        self.assertIn('waiting to be activated', str(self.project.source_state))
+
+    def test_a_failed_validation_is_reported(self):
+        self.revision(RevisionStatusChoices.INVALID, digest=None)
+        self.assertIn('failed validation', str(self.project.source_state))
+
+    def test_every_status_that_can_be_newest_and_not_active_has_a_summary(self):
+        # A status with no summary falls through to the generic phrase, which tells an operator
+        # nothing about what the project is waiting on. ACTIVE is excluded because a revision
+        # cannot legitimately be ACTIVE without being the pointer: activation sets both in one
+        # transaction, and that case is answered by the earlier branch instead.
+        revision = self.revision(RevisionStatusChoices.STAGING)
+        for status in RevisionStatusChoices.values():
+            if status == RevisionStatusChoices.ACTIVE:
+                continue
+            with self.subTest(status=status):
+                # Moved with update() rather than recreated, because this fixture's manifest is
+                # not a real one, and the deletion signal refuses a revision whose manifest it
+                # cannot validate. Status is not a frozen field, so the move is legitimate.
+                CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=status)
+                self.assertNotIn('A newer revision exists', str(self.project.source_state))
+
+    def test_a_short_digest_is_the_prefix_a_revision_is_named_by(self):
+        revision = self.revision(RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(revision.short_digest, DIGEST_A[:12])
+
+    def test_a_rejected_revision_has_no_short_digest(self):
+        revision = self.revision(RevisionStatusChoices.INVALID, digest=None)
+        self.assertEqual(revision.short_digest, '')

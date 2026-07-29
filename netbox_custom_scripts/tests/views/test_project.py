@@ -1,11 +1,19 @@
+from django.test import override_settings
 from django.urls import reverse
 
 from core.models import DataSource, ObjectType
 from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.plugin_testing import PluginTestCases
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, create_test_user
+
+ACTIVATE_STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    'netbox_custom_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+}
 
 
 class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
@@ -144,8 +152,180 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
         self.grant(CustomScriptModule, 'view', 'change', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
+    def test_the_selection_renders_with_the_forms_own_markup(self):
+        # NetBox's render_field.html has no branch for a multiple-checkbox widget, so the default
+        # Django template renders it with no Bootstrap classes at all.
+        self.grant_both()
+        body = self.client.get(self.url()).content.decode()
+        self.assertIn('form-check-input', body)
+        self.assertIn('form-check-label', body)
+
+    def test_the_tab_offers_no_field_it_would_discard(self):
+        # save() reconciles declarations and never saves the project, so an attribute field here
+        # would take input and silently drop it.
+        self.grant_both()
+        body = self.client.get(self.url()).content.decode()
+        for discarded in ('"id_owner"', '"id_owner_group"', '"id_comments"'):
+            self.assertNotIn(discarded, body)
+
     def test_a_project_without_source_renders_an_empty_selection(self):
         self.grant_both()
         bare = CustomScriptProject.objects.create(name='Bare Project', key='bare-project')
         url = reverse('plugins:netbox_custom_scripts:customscriptproject_entrypoints', args=[bare.pk])
         self.assertHttpStatus(self.client.get(url), 200)
+
+
+class CustomScriptProjectSourceStateViewTestCase(TestCase):
+    """The detail view surfaces source state, revision history, and the add-script action."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = CustomScriptProject.objects.create(name='State Project', key='state-project')
+        cls.revision = CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='d' * 64,
+            status=RevisionStatusChoices.VALID,
+            manifest=[{'path': 'deploy.py', 'size': 1, 'sha256': 'e' * 64}],
+            file_count=1,
+            total_size=1,
+        )
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+
+    def grant(self, model, *actions):
+        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
+
+    def body(self):
+        response = self.client.get(self.project.get_absolute_url())
+        self.assertHttpStatus(response, 200)
+        return response.content.decode()
+
+    def test_the_state_panel_reports_a_revision_awaiting_activation(self):
+        self.grant(CustomScriptProject, 'view')
+        self.assertIn('waiting to be activated', self.body())
+
+    def test_the_panel_describes_the_current_revision(self):
+        self.grant(CustomScriptProject, 'view')
+        body = self.body()
+        # Date, status, digest, files, size, activation, per the panel's contract.
+        self.assertIn('d' * 12, body)
+        self.assertIn('Valid', body)
+        self.assertIn('Current revision', body)
+
+    def test_the_panel_omits_revision_implementation_fields(self):
+        # The manifest and the full digest belong to a diagnostic view. The project's own
+        # storage key is a separate decision, and the Project panel has always shown it.
+        self.grant(CustomScriptProject, 'view')
+        body = self.body()
+        self.assertNotIn('e' * 64, body, 'the manifest checksum leaked into the panel')
+        self.assertNotIn('d' * 64, body, 'the full digest leaked, only the short form belongs here')
+
+    def test_the_revision_history_moved_to_its_own_tab(self):
+        self.grant(CustomScriptProject, 'view')
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+        # Linked from the detail page as a tab, and rendering the history itself.
+        self.assertIn(url, self.body())
+        response = self.client.get(url)
+        self.assertHttpStatus(response, 200)
+        self.assertIn('d' * 12, response.content.decode())
+
+    def test_the_history_tab_offers_no_actions_on_a_revision(self):
+        # A revision is never created or edited by hand, so the tab carries no action buttons.
+        self.grant(CustomScriptProject, 'view')
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+        body = self.client.get(url).content.decode()
+        for absent in ('customscriptprojectrevision_add', 'customscriptprojectrevision_edit'):
+            self.assertNotIn(absent, body)
+
+    def test_a_project_with_no_source_renders(self):
+        self.grant(CustomScriptProject, 'view')
+        bare = CustomScriptProject.objects.create(name='Bare State', key='bare-state')
+        response = self.client.get(bare.get_absolute_url())
+        self.assertHttpStatus(response, 200)
+        self.assertIn('No source', response.content.decode())
+
+    def test_the_add_script_action_links_to_the_upload_route(self):
+        self.grant(CustomScriptProject, 'view', 'change')
+        expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[self.project.pk])
+        self.assertIn(expected, self.body())
+
+    def test_the_add_script_action_is_hidden_without_the_change_permission(self):
+        self.grant(CustomScriptProject, 'view')
+        expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[self.project.pk])
+        self.assertNotIn(expected, self.body())
+
+
+@override_settings(STORAGES=ACTIVATE_STORAGES)
+class CustomScriptProjectActivateViewTestCase(TestCase):
+    """Manual activation, which a project whose policy is manual has no other route to."""
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+        self.project = CustomScriptProject.objects.create(name='Manual Project', key='manual-project')
+        self.revision = service.stage_revision(self.project, {'deploy.py': b'VALUE = 1\n'}).revision
+        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.VALID)
+        self.revision.refresh_from_db()
+
+    def url(self):
+        return reverse('plugins:netbox_custom_scripts:customscriptproject_activate', args=[self.project.pk])
+
+    def grant(self, *actions):
+        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+
+    def test_the_candidate_is_the_newest_validated_revision(self):
+        self.assertEqual(self.project.activatable_revision(), self.revision)
+
+    def test_the_confirmation_names_the_revision_that_would_go_live(self):
+        self.grant('view', 'change')
+        response = self.client.get(self.url())
+        self.assertHttpStatus(response, 200)
+        self.assertIn(self.revision.short_digest, response.content.decode())
+
+    def test_posting_activates_the_revision(self):
+        self.grant('view', 'change')
+        response = self.client.post(self.url())
+        self.assertHttpStatus(response, 302)
+        self.revision.refresh_from_db()
+        self.project.refresh_from_db()
+        self.assertEqual(self.revision.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(self.project.active_revision_id, self.revision.pk)
+
+    def test_an_already_current_project_offers_nothing(self):
+        self.grant('view', 'change')
+        self.client.post(self.url())
+        self.project.refresh_from_db()
+        # The active revision is excluded, so the button disappears rather than re-activating.
+        self.assertIsNone(self.project.activatable_revision())
+        self.assertIn('no validated revision', self.client.get(self.url()).content.decode())
+
+    def test_a_project_with_nothing_valid_is_refused_rather_than_erroring(self):
+        self.grant('view', 'change')
+        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
+            status=RevisionStatusChoices.MATERIALIZED
+        )
+        response = self.client.post(self.url())
+        self.assertHttpStatus(response, 302)
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_the_button_appears_only_when_there_is_something_to_activate(self):
+        self.grant('view', 'change')
+        detail = self.client.get(self.project.get_absolute_url()).content.decode()
+        self.assertIn(self.url(), detail)
+
+        self.client.post(self.url())
+        detail = self.client.get(self.project.get_absolute_url()).content.decode()
+        self.assertNotIn(self.url(), detail)
+
+    def test_the_view_permission_alone_is_not_enough(self):
+        self.grant('view')
+        self.assertHttpStatus(self.client.get(self.url()), 403)

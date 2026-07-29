@@ -1,6 +1,6 @@
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.ui import layout
-from netbox.ui.panels import CommentsPanel
+from netbox.ui.panels import CommentsPanel, ObjectsTablePanel
 from netbox.views import generic
 from utilities.views import register_model_view
 
@@ -40,6 +40,12 @@ class CustomScriptProjectView(generic.ObjectView):
         right_panels=[
             CustomScriptProjectSourcePanel(),
             CustomFieldsPanel(),
+        ],
+        bottom_panels=[
+            ObjectsTablePanel(
+                'netbox_custom_scripts.customscriptmodule',
+                filters={'project_id': lambda context: context['object'].pk},
+            ),
         ],
     )
 

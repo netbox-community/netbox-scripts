@@ -6,11 +6,19 @@ from . import views  # noqa: F401
 
 urlpatterns: tuple = (
     path(
-        'custom-script-projects/',
+        'modules/',
+        include(get_model_urls('netbox_custom_scripts', 'customscriptmodule', detail=False)),
+    ),
+    path(
+        'modules/<int:pk>/',
+        include(get_model_urls('netbox_custom_scripts', 'customscriptmodule')),
+    ),
+    path(
+        'projects/',
         include(get_model_urls('netbox_custom_scripts', 'customscriptproject', detail=False)),
     ),
     path(
-        'custom-script-projects/<int:pk>/',
+        'projects/<int:pk>/',
         include(get_model_urls('netbox_custom_scripts', 'customscriptproject')),
     ),
 )

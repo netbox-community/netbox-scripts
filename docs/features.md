@@ -29,6 +29,7 @@ logging, global search, REST, and GraphQL.
 | Workflow | User | Outcome |
 |---|---|---|
 | Manage projects | Administrator | Create, edit, delete, bulk-import, and tag Custom Script Projects. |
+| Manage modules | Administrator | Create, edit, delete, bulk-import, and tag Custom Script Modules, and filter them by project and discovery status. |
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
 | Author Custom Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
@@ -44,7 +45,7 @@ follow-up releases:
 |---|---|
 | Running authored scripts | Planned |
 | Source uploads | Planned |
-| Module, revision, and script UI and API surfaces | Planned |
+| Revision and script UI and API surfaces | Planned |
 | Data Source synchronization | Planned |
 | Automatic validation and activation triggers | Planned |
 | Execution and scheduling | Planned |

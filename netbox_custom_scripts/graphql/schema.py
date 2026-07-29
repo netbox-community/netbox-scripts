@@ -1,13 +1,15 @@
 import strawberry
 import strawberry_django
 
-from .types import CustomScriptProjectType
+from .types import CustomScriptModuleType, CustomScriptProjectType
 
 
 @strawberry.type(name='Query')
 class NetboxCustomScriptsQuery:
     """GraphQL query fields contributed by the Custom Scripts plugin."""
 
+    custom_script_module: CustomScriptModuleType = strawberry_django.field()
+    custom_script_module_list: list[CustomScriptModuleType] = strawberry_django.field()
     custom_script_project: CustomScriptProjectType = strawberry_django.field()
     custom_script_project_list: list[CustomScriptProjectType] = strawberry_django.field()
 

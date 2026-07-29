@@ -55,32 +55,39 @@ when domain content calls for them.
 .
 ├── netbox_custom_scripts/            , The Django app.
 │   ├── __init__.py                , [stub] PluginConfig (name, version, base_url, min/max NetBox).
-│   ├── urls.py                    , [CustomScriptProject] urlpatterns includes 'custom-script-projects/' + 'custom-script-projects/<int:pk>/' via get_model_urls.
-│   ├── navigation.py              , [CustomScriptProject] PluginMenu 'Custom Scripts' with a Projects group + add button.
+│   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' and their '<int:pk>/' forms via get_model_urls, sorted. Segments never repeat the base_url.
+│   ├── navigation.py              , PluginMenu 'Custom Scripts', one Projects group holding the Projects and Modules items, each with Add + Import buttons.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
-│   │   ├── urls.py                , [CustomScriptProject] router.register('custom-script-projects', CustomScriptProjectViewSet).
-│   │   ├── views.py               , [CustomScriptProject] CustomScriptProjectViewSet(NetBoxModelViewSet).
+│   │   ├── urls.py                , router.register for 'modules' + 'projects'.
+│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet(NetBoxModelViewSet).
 │   │   └── serializers/
-│   │       ├── __init__.py        , [CustomScriptProject] Re-exports CustomScriptProjectSerializer.
-│   │       └── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
+│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectSerializer.
+│   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
+│   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, revision as a bare ID.
 │   ├── filtersets/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectFilterSet.
-│   │   └── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
+│   │   ├── __init__.py            , Re-exports CustomScriptModuleFilterSet, CustomScriptProjectFilterSet.
+│   │   ├── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
+│   │   └── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
 │   ├── forms/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
 │   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm.
+│   │   ├── model_forms/module.py    , CustomScriptModuleEditForm.
 │   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
+│   │   ├── bulk_edit/module.py      , CustomScriptModuleBulkEditForm (no source_path, it is unique per project).
 │   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
-│   │   └── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
+│   │   ├── bulk_import/module.py    , CustomScriptModuleBulkImportForm (project resolved by key).
+│   │   ├── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
+│   │   └── filtersets/module.py     , CustomScriptModuleFilterForm.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , Re-exports CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision.
 │   │   ├── project.py             , CustomScriptProject(PrimaryModel) with identity/ownership invariants + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
 │   │   └── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path, case-fold sibling rejection, system-managed discovery fields.
 │   ├── tables/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectTable.
-│   │   └── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
+│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectTable.
+│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
+│   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
 │   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered).
@@ -99,6 +106,12 @@ when domain content calls for them.
 │   │   ├── graphql/__init__.py    , [CustomScriptProject] Test package anchor.
 │   │   ├── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   │   ├── models/test_module.py  , CustomScriptModule model invariants.
+│   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
+│   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.PrimaryObjectViewTestCase).
+│   │   ├── tables/test_module.py  , CustomScriptModuleTableTestCase(TableTestCases.StandardTableTestCase).
+│   │   ├── forms/test_module.py   , Edit / BulkEdit / Filter / BulkImport form test cases.
+│   │   ├── filtersets/test_module.py , CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
+│   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, revision absent from the type.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
@@ -484,6 +497,13 @@ it in section 6.3.
   `ContactsMixin`, `NetBoxModelSerializer`, `NetBoxModelFilterSet`,
   `BaseFilterSet`) rather than re-implementing the same behaviour.
 - **All UI views use `@register_model_view`** from `utilities.views`.
+- **URL segments never repeat the plugin name.** `PluginConfig.base_url` already
+  scopes every route, so a model's segment is its own plural noun: `modules/`,
+  `projects/`, giving `/api/plugins/custom-scripts/modules/`, never
+  `custom-script-modules/`. Segments are the only thing this affects, since
+  reverse names come from the model (DRF derives the router basename from
+  `queryset.model`, and `register_model_view` / `get_model_urls` name UI routes),
+  so renaming a segment changes no `reverse()` call, table, or menu item.
 - **Detail layouts** use `netbox.ui.layout.SimpleLayout` with panel lists
   from `ui/panels.py`.
 - **Object-level buttons** are `ObjectAction` subclasses in

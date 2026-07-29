@@ -1,3 +1,12 @@
+from .module import (
+    CustomScriptModuleBulkDeleteView,
+    CustomScriptModuleBulkEditView,
+    CustomScriptModuleBulkImportView,
+    CustomScriptModuleDeleteView,
+    CustomScriptModuleEditView,
+    CustomScriptModuleListView,
+    CustomScriptModuleView,
+)
 from .project import (
     CustomScriptProjectBulkDeleteView,
     CustomScriptProjectBulkEditView,
@@ -9,6 +18,13 @@ from .project import (
 )
 
 __all__ = (
+    'CustomScriptModuleBulkDeleteView',
+    'CustomScriptModuleBulkEditView',
+    'CustomScriptModuleBulkImportView',
+    'CustomScriptModuleDeleteView',
+    'CustomScriptModuleEditView',
+    'CustomScriptModuleListView',
+    'CustomScriptModuleView',
     'CustomScriptProjectBulkDeleteView',
     'CustomScriptProjectBulkEditView',
     'CustomScriptProjectBulkImportView',

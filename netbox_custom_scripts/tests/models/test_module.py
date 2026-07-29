@@ -63,8 +63,7 @@ class CustomScriptModuleTestCase(TestCase):
         self.assertEqual(str(instance), 'Module Project 1: tools/deploy.py')
 
     def test_the_discovery_fields_are_system_managed(self):
-        # editable=False keeps them off every form, and the PR 4B REST serializer marks
-        # them read-only. This pins the model half of that contract.
+        # editable=False is what keeps them off every form and serializer.
         for field in ('discovery_status', 'discovery_error', 'last_discovered_revision'):
             with self.subTest(field=field):
                 self.assertFalse(CustomScriptModule._meta.get_field(field).editable)

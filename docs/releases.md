@@ -16,6 +16,9 @@
 * `CustomScriptModule` model declaring project entrypoints, with enabled
   declarations frozen into each revision as its entrypoint snapshot and the
   snapshot digest joining the revision identity
+* `CustomScriptModule` UI, REST API, GraphQL, and global-search surfaces, with
+  the discovery fields readable and filterable but writable only by project
+  validation, and each project's modules listed on its detail page
 * Manifest-verified runtime cache: revisions materialize to disposable local
   trees that are verified before every use, purged of compiled files, staged
   whole, published read-only, and rebuilt from the store when damaged

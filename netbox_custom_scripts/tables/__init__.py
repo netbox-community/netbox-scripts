@@ -1,3 +1,7 @@
+from .module import CustomScriptModuleTable
 from .project import CustomScriptProjectTable
 
-__all__ = ('CustomScriptProjectTable',)
+__all__ = (
+    'CustomScriptModuleTable',
+    'CustomScriptProjectTable',
+)

@@ -36,7 +36,7 @@ and discovered scripts are planned follow-up models.
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | `/api/plugins/custom-scripts/custom-script-projects/` |
+| REST | `/api/plugins/custom-scripts/projects/` |
 | GraphQL | `custom_script_project` / `custom_script_project_list` |
 
 ## Invariants

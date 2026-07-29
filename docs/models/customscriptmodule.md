@@ -39,12 +39,20 @@ start over at `pending`.
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | none in this release |
-| GraphQL | none in this release |
+| REST | `/api/plugins/custom-scripts/modules/` |
+| GraphQL | `custom_script_module` / `custom_script_module_list` |
 
-Modules carry no UI, REST, GraphQL, filterset, or global-search surface yet.
-The full object surface arrives in a follow-up release, in this one rows are
-created from code, for example through `manage.py nbshell`.
+Modules are managed like any other NetBox object: list, detail, edit, delete,
+bulk edit, bulk import, and bulk delete views, REST and GraphQL endpoints, list
+filtering, and global search. Bulk import resolves the owning project by its
+key, and a module's source path is not bulk-editable because one path across a
+selection would collide.
+
+The three discovery fields are readable and filterable everywhere, and writable
+nowhere: no form, serializer, or GraphQL input accepts them, only project
+validation writes them. `last_discovered_revision` appears in REST as a plain
+ID, and is absent from GraphQL, because revisions carry no object surface of
+their own in this release.
 
 ## Validation rules
 

@@ -426,6 +426,58 @@ class RevisionVerificationTestCase(TestCase):
         self.assertEqual(ctx.exception.reasons, ('path_traversal:../escape.py',))
 
 
+class ReadVerifiedTestCase(TestCase):
+    """The in-memory verified read and the whole-tree read built on it."""
+
+    files = {'hello.py': b'print("hi")', 'pkg/util.py': b'VALUE = 1'}
+
+    def setUp(self):
+        self.storage = InMemoryStorage()
+        self.manifest = manifest_for(self.files)
+        self.digest = compute_digest(self.manifest)
+        self.prefix = revision_prefix(STORAGE_KEY, self.digest)
+        store.write_revision(self.storage, STORAGE_KEY, self.digest, self.files, self.manifest)
+
+    def entry(self, path):
+        return next(entry for entry in self.manifest if entry['path'] == path)
+
+    def test_matching_content_is_returned(self):
+        for path, expected in self.files.items():
+            self.assertEqual(store.read_verified(self.storage, f'{self.prefix}{path}', self.entry(path)), expected)
+
+    def test_a_missing_key_is_reported_as_corrupt(self):
+        entry = self.entry('hello.py')
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.read_verified(self.storage, f'{self.prefix}absent.py', entry)
+        self.assertIn('missing:hello.py', ctx.exception.reasons)
+
+    def test_a_size_mismatch_is_reported(self):
+        entry = dict(self.entry('hello.py'), size=self.entry('hello.py')['size'] + 1)
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.read_verified(self.storage, f'{self.prefix}hello.py', entry)
+        self.assertIn('size_mismatch:hello.py', ctx.exception.reasons)
+
+    def test_a_checksum_mismatch_is_reported(self):
+        entry = dict(self.entry('hello.py'), sha256='b' * 64)
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            store.read_verified(self.storage, f'{self.prefix}hello.py', entry)
+        self.assertIn('checksum_mismatch:hello.py', ctx.exception.reasons)
+
+    def test_the_whole_tree_is_returned_by_path(self):
+        self.assertEqual(store.read_revision_tree(self.storage, STORAGE_KEY, self.digest, self.manifest), self.files)
+
+    def test_a_tree_read_validates_the_manifest_first(self):
+        # The paths come from a database row, so a manifest that does not match its own digest
+        # must not get to decide which keys are read.
+        with self.assertRaises(RevisionCorruptError):
+            store.read_revision_tree(self.storage, STORAGE_KEY, 'c' * 64, self.manifest)
+
+    def test_a_damaged_tree_raises_rather_than_returning_partial_content(self):
+        store.delete_revision(self.storage, STORAGE_KEY, self.digest, ['pkg/util.py'])
+        with self.assertRaises(RevisionCorruptError):
+            store.read_revision_tree(self.storage, STORAGE_KEY, self.digest, self.manifest)
+
+
 class CopyVerifiedTestCase(TestCase):
     """Cover the exported bounded verified read that feeds the runtime cache."""
 

@@ -22,6 +22,7 @@ under exactly the contract verification enforces and the two can never drift apa
 """
 
 import hashlib
+import io
 import logging
 from pathlib import Path
 
@@ -150,6 +151,42 @@ def copy_verified(storage, key, entry, destination=None):
         return
     with Path(destination).open('wb') as sink:  # cloud-compat: ok, the runtime cache's staging destination
         _stream_verified(storage, key, entry, _DestinationWriter(sink))
+
+
+def read_verified(storage, key, entry):
+    """
+    Return one stored file's bytes, once they match their manifest entry.
+
+    The in-memory counterpart of copy_verified, on the same bounded-read contract: the size is
+    checked before the object is opened and the read stops one byte past the recorded size, so
+    a lying stream costs bounded work and nothing over the manifest's size is ever held.
+
+    Raises RevisionCorruptError naming the manifest path when the content does not match, and
+    StorageError when the backend cannot be read.
+    """
+    sink = io.BytesIO()
+    _stream_verified(storage, key, entry, sink)
+    return sink.getvalue()
+
+
+def read_revision_tree(storage, storage_key, digest, manifest):
+    """
+    Return one stored revision's whole tree, as a mapping of path to verified bytes.
+
+    Staging a combined tree needs every existing file back in hand, which is why this exists
+    alongside the streaming reads. The tree is therefore held in memory whole, bounded by the
+    maximum project size the deployment configured.
+
+    The manifest is validated before anything is read, for the same reason verify_revision_tree
+    does it: the paths come from a database row and decide which keys are read.
+    """
+    validate_manifest(manifest, digest)
+    prefix = revision_prefix(storage_key, digest)
+    tree = {}
+    for entry in manifest:
+        path = entry['path']
+        tree[path] = read_verified(storage, f'{prefix}{path}', entry)
+    return tree
 
 
 def _canonical_source(files):

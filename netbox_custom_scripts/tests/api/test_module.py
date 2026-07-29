@@ -11,9 +11,9 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
     model = CustomScriptModule
     brief_fields = ['description', 'display', 'id', 'source_path', 'url']
     graphql_filter = {'source_path': {'lookup': 'i_contains', 'value': 'tools'}}
-    # The default update_data falls back to create_data[0], whose path this project claims.
+    # The default update_data falls back to create_data[0], which carries the frozen
+    # project and source_path fields.
     update_data = {
-        'source_path': 'tools/renamed.py',
         'description': 'Updated description',
         'enabled': False,
     }
@@ -62,31 +62,54 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         self.assertEqual(module.discovery_error, '')
         self.assertIsNone(module.last_discovered_revision)
 
-    def test_source_path_is_canonicalized(self):
+    def test_source_path_is_immutable(self):
         self.add_permissions('netbox_custom_scripts.change_customscriptmodule')
-        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/canonical.py')
+        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/frozen.py')
         response = self.client.patch(
-            self._get_detail_url(module), {'source_path': './tools//deploy.py'}, format='json', **self.header
+            self._get_detail_url(module), {'source_path': 'tools/renamed.py'}, format='json', **self.header
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['source_path'], 'tools/deploy.py')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('source_path', response.data)
         module.refresh_from_db()
-        self.assertEqual(module.source_path, 'tools/deploy.py')
+        self.assertEqual(module.source_path, 'tools/frozen.py')
 
-    def test_source_path_rejects_an_unimportable_path(self):
+    def test_project_is_immutable(self):
         self.add_permissions('netbox_custom_scripts.change_customscriptmodule')
-        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/importable.py')
-        response = self.client.patch(
-            self._get_detail_url(module), {'source_path': 'tools/deploy.txt'}, format='json', **self.header
+        other = CustomScriptProject.objects.create(name='API Other Project', key='api-other-project')
+        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/owned.py')
+        response = self.client.patch(self._get_detail_url(module), {'project': other.pk}, format='json', **self.header)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('project', response.data)
+
+    def test_source_path_is_canonicalized_on_creation(self):
+        self.add_permissions('netbox_custom_scripts.add_customscriptmodule')
+        response = self.client.post(
+            self._get_list_url(),
+            {'project': self.project.pk, 'source_path': './tools//created.py'},
+            format='json',
+            **self.header,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['source_path'], 'tools/created.py')
+
+    def test_creation_rejects_an_unimportable_path(self):
+        self.add_permissions('netbox_custom_scripts.add_customscriptmodule')
+        response = self.client.post(
+            self._get_list_url(),
+            {'project': self.project.pk, 'source_path': 'tools/deploy.txt'},
+            format='json',
+            **self.header,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('source_path', response.data)
 
-    def test_source_path_rejects_traversal(self):
-        self.add_permissions('netbox_custom_scripts.change_customscriptmodule')
-        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/safe.py')
-        response = self.client.patch(
-            self._get_detail_url(module), {'source_path': '../outside.py'}, format='json', **self.header
+    def test_creation_rejects_traversal(self):
+        self.add_permissions('netbox_custom_scripts.add_customscriptmodule')
+        response = self.client.post(
+            self._get_list_url(),
+            {'project': self.project.pk, 'source_path': '../outside.py'},
+            format='json',
+            **self.header,
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('source_path', response.data)

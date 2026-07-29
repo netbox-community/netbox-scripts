@@ -6,7 +6,7 @@ from netbox.models import PrimaryModel
 
 from ..choices import ModuleDiscoveryStatusChoices
 from ..storage.exceptions import UnsafePathError
-from ..storage.paths import normalize_source_path
+from ..storage.paths import case_insensitive_nodes, normalize_source_path
 from ..utils import source_path_to_dotted_name
 
 
@@ -19,7 +19,10 @@ class CustomScriptModule(PrimaryModel):
     the entrypoints without being one. Enabled module declarations are snapshotted into
     each revision at staging time, so editing them changes future revisions and never
     what an existing revision was validated against. The discovery fields describe the
-    most recent validation of the current declaration and are system-managed.
+    most recent validation of the current declaration and are system-managed. A
+    declaration is identified by its project and source path, both frozen after creation,
+    so a file that moves is a new declaration rather than a repointed one carrying results
+    from a path it no longer names.
     """
 
     project = models.ForeignKey(
@@ -75,7 +78,7 @@ class CustomScriptModule(PrimaryModel):
         return f'{self.project}: {self.source_path}'
 
     def clean(self):
-        """Canonicalize the source path and validate it declares an importable entrypoint."""
+        """Canonicalize the source path, validate it declares an importable entrypoint, and freeze identity."""
         super().clean()
         errors = {}
 
@@ -91,20 +94,33 @@ class CustomScriptModule(PrimaryModel):
                 errors['source_path'] = error
 
         if 'source_path' not in errors and self.project_id:
-            conflict = self._case_folded_sibling()
+            conflict = self._sibling_path_conflict()
             if conflict is not None:
-                errors['source_path'] = _(
-                    'This path collides with module "{path}" of the same project when letter case is ignored.'
-                ).format(path=conflict.source_path)
+                errors['source_path'] = conflict
 
         if self.last_discovered_revision_id and self.last_discovered_revision.project_id != self.project_id:
             errors['last_discovered_revision'] = _('The last discovered revision must belong to this project.')
+
+        # Compared after canonicalization, so a re-spelling of the stored path is not a change.
+        if not self._state.adding:
+            original = (
+                type(self)
+                .objects.using(self._read_alias())
+                .filter(pk=self.pk)
+                .values('project_id', 'source_path')
+                .first()
+            )
+            if original:
+                if original['project_id'] != self.project_id:
+                    errors['project'] = _('The project cannot be changed once the module has been created.')
+                if 'source_path' not in errors and original['source_path'] != self.source_path:
+                    errors['source_path'] = _('The source path cannot be changed once the module has been created.')
 
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        """Persist the module with its source path in canonical form."""
+        """Persist the module in canonical importable form, refusing any change to an identity field."""
         # Snapshot building reads rows straight from the ORM, so canonical form is an
         # at-rest invariant rather than a clean() nicety. QuerySet.update() bypasses this
         # and must supply canonical values itself.
@@ -112,17 +128,54 @@ class CustomScriptModule(PrimaryModel):
             self.source_path = normalize_source_path(self.source_path)
         except UnsafePathError as error:
             raise ValidationError({'source_path': str(error)}) from error
+        # Same reason: an unimportable path freezes into a snapshot activation can only reject.
+        try:
+            source_path_to_dotted_name(self.source_path)
+        except ValidationError as error:
+            raise ValidationError({'source_path': error}) from error
+        # clean() gives the identity fields friendly per-field errors on the form and REST
+        # paths. This guard is the backstop for ORM writes that skip validation.
+        if not self._state.adding:
+            # The persisted row is read from the alias this save writes to. Reading it from
+            # anywhere else compares the new value against a different database.
+            using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+            original = type(self).objects.using(using).filter(pk=self.pk).values('project_id', 'source_path').first()
+            if original:
+                errors = {}
+                if original['project_id'] != self.project_id:
+                    errors['project'] = _('The project cannot be changed once the module has been created.')
+                if original['source_path'] != self.source_path:
+                    errors['source_path'] = _('The source path cannot be changed once the module has been created.')
+                if errors:
+                    raise ValidationError(errors)
         super().save(*args, **kwargs)
+
+    def get_discovery_status_color(self):
+        """Return the badge color configured for this module's discovery status."""
+        return ModuleDiscoveryStatusChoices.colors.get(self.discovery_status)
 
     def _read_alias(self):
         """Return the alias this instance's persisted state should be read from."""
         return self._state.db or router.db_for_read(type(self), instance=self)
 
-    def _case_folded_sibling(self):
-        """Return a sibling module whose path case-folds to this one's form, if any."""
-        # Accepted paths must materialize on every supported host, and hosts such as APFS
-        # treat "Utils.py" and "utils.py" as one file. The snapshot validator enforces the
-        # same rule, this check just surfaces it where the declaration is made.
-        folded = self.source_path.casefold()
+    def _sibling_path_conflict(self):
+        """Return the error for a sibling declaration this path cannot coexist with, or None."""
+        # Per node, because "Lib/deploy.py" against "lib/audit.py" collides in the directory.
+        mine = case_insensitive_nodes(self.source_path)
+        dotted = source_path_to_dotted_name(self.source_path)
         siblings = type(self).objects.using(self._read_alias()).filter(project=self.project_id).exclude(pk=self.pk)
-        return next((other for other in siblings if other.source_path.casefold() == folded), None)
+        for other in siblings:
+            for form, node in case_insensitive_nodes(other.source_path).items():
+                if form in mine and mine[form] != node:
+                    return _(
+                        'This path collides with module "{path}" of the same project, because "{mine}" and '
+                        '"{theirs}" differ only in letter case.'
+                    ).format(path=other.source_path, mine=mine[form], theirs=node)
+            try:
+                if source_path_to_dotted_name(other.source_path) == dotted:
+                    return _(
+                        'This path imports as "{name}", the same module name as "{path}" of the same project.'
+                    ).format(name=dotted, path=other.source_path)
+            except ValidationError:
+                continue  # A sibling that cannot import claims no module name.
+        return None

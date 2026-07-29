@@ -24,9 +24,30 @@ what an existing revision was validated against.
 | `last_discovered_revision` | FK | system | The revision whose validation last wrote these discovery fields |
 
 The three discovery fields are system-managed. Project validation writes them,
-no form or serializer accepts them, and they describe the current declaration:
-a module renamed after a validation is a different declaration, so its results
-start over at `pending`.
+no form or serializer accepts them, and they describe the current declaration.
+
+A module has no name of its own. It is identified by its project and its source
+path, and both are frozen once the module exists, so a declaration can never be
+repointed at a different file. That keeps the discovery fields honest: a
+repointed row would report a verdict for a file it no longer names.
+
+## Renaming or moving an entrypoint
+
+There is no rename. When a file moves or is renamed in the project's source,
+declare the new path and disable the old declaration:
+
+1. Declare the new path, which starts at `pending` until the next validation.
+2. Disable the declaration for the old path by clearing `enabled`.
+
+Disabling rather than deleting keeps the old declaration's discovery history,
+and it keeps its path reserved, because `unique_project_source_path` does not
+consider `enabled`. Renaming the file back therefore re-enables the original
+row instead of colliding with it. Staging includes only enabled declarations, so
+a disabled one stops reaching new revisions immediately while the revisions it
+was already snapshotted into keep meaning what they meant.
+
+Delete a module only to discard its history, for example when the declaration
+was a mistake that never validated.
 
 ## Relationships
 
@@ -72,6 +93,8 @@ rejected up front rather than at validation time:
 | Invariant | Enforcement |
 |---|---|
 | One path is declared at most once per project | `unique_project_source_path` database constraint |
+| The project cannot be changed | `clean()` for a per-field error, `save()` as the backstop for ORM writes |
+| The source path cannot be changed | `clean()` and `save()`, compared after canonicalization so a re-spelling is not a change |
 | The stored path is canonical | `save()` canonicalizes, so snapshots built straight from rows are safe |
 | Discovery fields are system-managed | `editable=False`, only project validation writes them |
 | `last_discovered_revision` belongs to the same project | `clean()` check |

@@ -104,7 +104,40 @@ class CustomScriptModuleTestCase(TestCase):
         instance = CustomScriptModule(project=self.project, source_path='utils.py')
         with self.assertRaises(ValidationError) as cm:
             instance.full_clean()
-        self.assertIn('letter case is ignored', str(cm.exception.message_dict['source_path']))
+        self.assertIn('differ only in letter case', str(cm.exception.message_dict['source_path']))
+
+    def test_rejects_a_sibling_colliding_only_in_a_parent_directory(self):
+        # The manifest builder rejects this source tree, so accepting the declaration pair
+        # would leave the author with an upload error naming files rather than declarations.
+        CustomScriptModule.objects.create(project=self.project, source_path='Lib/deploy.py')
+        instance = CustomScriptModule(project=self.project, source_path='lib/audit.py')
+        with self.assertRaises(ValidationError) as cm:
+            instance.full_clean()
+        message = str(cm.exception.message_dict['source_path'])
+        self.assertIn('differ only in letter case', message)
+        self.assertIn('Lib', message)
+
+    def test_allows_a_sibling_only_full_caseless_folding_would_merge(self):
+        CustomScriptModule.objects.create(project=self.project, source_path='strasse.py')
+        instance = CustomScriptModule(project=self.project, source_path='straße.py')
+        instance.full_clean()
+        instance.save()
+        self.assertIsNotNone(instance.pk)
+
+    def test_rejects_a_sibling_importing_under_the_same_module_name(self):
+        # "pkg.py" and "pkg/__init__.py" both import as "pkg", so only one could ever run.
+        CustomScriptModule.objects.create(project=self.project, source_path='pkg/__init__.py')
+        instance = CustomScriptModule(project=self.project, source_path='pkg.py')
+        with self.assertRaises(ValidationError) as cm:
+            instance.full_clean()
+        self.assertIn('the same module name', str(cm.exception.message_dict['source_path']))
+
+    def test_save_refuses_an_unimportable_path_without_full_clean(self):
+        instance = CustomScriptModule(project=self.project, source_path='lib/data-helper.py')
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('source_path', cm.exception.message_dict)
+        self.assertFalse(CustomScriptModule.objects.filter(project=self.project).exists())
 
     def test_allows_the_same_path_on_another_project(self):
         CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
@@ -117,6 +150,54 @@ class CustomScriptModuleTestCase(TestCase):
         instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
         instance.description = 'Edited by the test suite.'
         instance.full_clean()
+
+    def test_source_path_is_immutable(self):
+        instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        instance.source_path = 'renamed.py'
+        with self.assertRaises(ValidationError) as cm:
+            instance.full_clean()
+        self.assertIn('source_path', cm.exception.message_dict)
+
+    def test_save_refuses_a_changed_source_path(self):
+        instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        instance.source_path = 'renamed.py'
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('source_path', cm.exception.message_dict)
+
+    def test_project_is_immutable(self):
+        instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        instance.project = self.other_project
+        with self.assertRaises(ValidationError) as cm:
+            instance.full_clean()
+        self.assertIn('project', cm.exception.message_dict)
+
+    def test_save_refuses_a_changed_project(self):
+        instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        instance.project = self.other_project
+        with self.assertRaises(ValidationError) as cm:
+            instance.save()
+        self.assertIn('project', cm.exception.message_dict)
+
+    def test_a_respelled_source_path_is_not_a_change(self):
+        # Canonicalization runs before the comparison, so the same file spelled differently
+        # is accepted rather than read as a rename.
+        instance = CustomScriptModule.objects.create(project=self.project, source_path='tools/deploy.py')
+        instance.source_path = './tools//deploy.py'
+        instance.full_clean()
+        instance.save()
+        instance.refresh_from_db()
+        self.assertEqual(instance.source_path, 'tools/deploy.py')
+
+    def test_the_editable_fields_still_change(self):
+        instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        instance.enabled = False
+        instance.description = 'Suspended by the test suite.'
+        instance.full_clean()
+        instance.save()
+        instance.refresh_from_db()
+        self.assertFalse(instance.enabled)
+        self.assertEqual(instance.description, 'Suspended by the test suite.')
 
     def test_the_exact_duplicate_is_refused_by_the_database(self):
         CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')

@@ -381,10 +381,13 @@ class ClassificationTestCase(TestCase):
 
 class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
     def test_a_row_renamed_since_staging_is_skipped(self):
+        # save() refuses a rename now that the identity fields are frozen, so the mismatch
+        # is produced through QuerySet.update(), the one route that still reaches it. The
+        # persistence guard has to hold on that route too.
         module_row = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
-        module_row.source_path = 'moved.py'
-        module_row.save()
+        CustomScriptModule.objects.filter(pk=module_row.pk).update(source_path='moved.py')
+        module_row.refresh_from_db()
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
         module_row.refresh_from_db()

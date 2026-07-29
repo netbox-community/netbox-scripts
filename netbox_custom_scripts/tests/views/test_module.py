@@ -59,3 +59,16 @@ class CustomScriptModuleTestCase(PluginTestCases.PrimaryObjectViewTestCase):
             'enabled': False,
             'comments': 'Bulk-edited notes',
         }
+
+    def _form_data_without_identity_fields(self):
+        # project and source_path are disabled on the edit form (frozen after creation), so
+        # posted values are ignored and must not be asserted.
+        return {key: value for key, value in self.form_data.items() if key not in ('project', 'source_path')}
+
+    def test_edit_object_with_permission(self):
+        self.form_data = self._form_data_without_identity_fields()
+        super().test_edit_object_with_permission()
+
+    def test_edit_object_with_constrained_permission(self):
+        self.form_data = self._form_data_without_identity_fields()
+        super().test_edit_object_with_constrained_permission()

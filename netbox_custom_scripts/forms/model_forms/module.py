@@ -17,6 +17,14 @@ class CustomScriptModuleEditForm(PrimaryModelForm):
         label=_('Custom Script Project'),
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # project and source_path are frozen after creation (model clean() enforces it), so
+        # the widgets are disabled to match.
+        if self.instance and self.instance.pk:
+            self.fields['project'].disabled = True
+            self.fields['source_path'].disabled = True
+
     fieldsets = (FieldSet('project', 'source_path', 'enabled', 'description', 'tags', name=_('Module')),)
 
     class Meta:

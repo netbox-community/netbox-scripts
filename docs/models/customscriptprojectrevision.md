@@ -1,11 +1,19 @@
 # Custom Script Project Revision
 
 A Custom Script Project Revision is one immutable snapshot of a Custom Script
-Project's complete source tree. A revision records what was staged, not how it
-is served, so a job can be replayed against exactly the tree it ran on.
+Project's complete source tree together with the entrypoint configuration it
+was staged under. A revision records what was staged, not how it is served, so
+a job can be replayed against exactly the tree it ran on.
+
+Revision identity is the project, the source digest, and the entrypoint
+digest. The same source tree staged under a changed set of enabled
+[Custom Script Modules](customscriptmodule.md) is a new, separately validatable
+revision that reuses the stored content, which is what keeps a validation
+verdict meaningful: fixing a module declaration produces a fresh revision to
+validate instead of silently changing what an existing verdict was about.
 
 Revisions are created and moved through their lifecycle by the plugin's storage
-service. They are not edited directly.
+and validation services. They are not edited directly.
 
 ## Fields
 
@@ -18,11 +26,19 @@ service. They are not edited directly.
 | `file_count` | integer | yes | Number of accepted source files |
 | `total_size` | integer | yes | Combined size in bytes of every accepted source file |
 | `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
+| `entrypoint_snapshot` | JSON | yes | Enabled module declarations frozen at staging time, each with its `module` primary key and canonical `source_path`, sorted by path. May be empty |
+| `entrypoint_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
+| `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
+| `validation_started` | datetime | system | When the owning validation claimed the revision |
 | `activated` | datetime | no | When the revision last became the project's active revision |
 
-Each `validation_errors` record carries a `path`, a fixed `code`, and a
-human-readable `message`. The `path` is null for a project-wide limit such as
-`too_many_files` or `project_too_large`.
+Each storage-time `validation_errors` record carries a `path`, a fixed `code`,
+and a human-readable `message`. The `path` is null for a project-wide limit
+such as `too_many_files` or `project_too_large`. Validation-time records
+carry a `source_path`, a fixed `code`, a `message`, and where an exception was
+involved its `exception_type` and a `traceback`. All of them are sanitized:
+runtime namespaces, storage identities, and cache paths never appear, module
+references read project-relative.
 
 ## Relationships
 
@@ -48,6 +64,29 @@ The model is change-logged, so entries will appear in NetBox's change log once a
 request-bound code path stages or activates a revision. Nothing in this release
 provides one, so no entries are recorded yet.
 
+## Entrypoint snapshot
+
+The snapshot freezes the project's enabled module declarations at staging time,
+so a verdict is always about a fixed set of entrypoints. Editing, disabling, or
+deleting a Custom Script Module never changes an existing revision. To validate
+stored content under the declarations as they are now, the storage service
+offers a refresh operation that creates or returns the revision row for the
+same source digest and the current entrypoint digest, without the content being
+uploaded again.
+
+Like the manifest, the snapshot is persisted data that later becomes
+authoritative input, so it is never trusted on the return trip. A canonical
+builder writes it and a validator checks its shape, paths, ordering, uniqueness
+including letter-case collisions and paths that would import under one module
+name, and digest binding everywhere it becomes
+authoritative: the refresh operation, project validation, and activation. A
+snapshot that fails is revision corruption and never a content verdict, so
+tampering fails closed.
+
+A valid revision whose snapshot references a since-deleted module row remains
+activatable. The snapshot is the immutable contract, module deletion is not
+restricted by it.
+
 ## Status lifecycle
 
 Storing a source tree and judging it fit to execute are separate steps, owned by
@@ -56,9 +95,9 @@ separate services.
 - **The storage service** takes a revision as far as `materialized`, meaning the
   tree is stored and matches its manifest.
 - **Project validation** promotes a materialized revision to `valid` or
-  `invalid`, based on Python imports, declared entrypoints, dependency checks,
-  and Script discovery. That service arrives with the project package loader, so
-  in this release nothing advances past `materialized`.
+  `invalid` by importing every entrypoint in the snapshot and running Custom
+  Script discovery on it. See [Runtime and Loading](../runtime.md) for what
+  makes a revision invalid and what counts as environment trouble instead.
 - **The activation service** accepts only `valid` or `retired` revisions.
 
 | From | To | Cause |
@@ -68,8 +107,10 @@ separate services.
 | `staging` | `storage_failed` | The storage write failed, which is retryable |
 | `storage_failed` | `staging` | Re-staging identical content resumes the write |
 | (new) | `invalid` | The submitted content was rejected, so nothing was written |
-| `materialized` | `validating` | Project validation started |
+| `materialized` | `validating` | Project validation claimed the revision |
 | `validating` | `valid` or `invalid` | Project validation reached a verdict |
+| `validating` | `materialized` | Environment trouble rolled the claim back, retryable |
+| `validating` | `validating` | An expired lease was reclaimed by a newer validation run |
 | `valid` or `retired` | `active` | The revision was activated |
 | `active` | `retired` | Another revision of the same project was activated |
 
@@ -82,25 +123,44 @@ that a project imports, so a tree that was merely written can never be served.
 
 Re-staging identical content resumes an interrupted or failed write, but never
 reopens a verdict. A revision that project validation marked `invalid` keeps its
-errors and stays `invalid`, because only the validator may move it.
+errors and stays `invalid`, because only the validator may move it. Fixing the
+content or the declarations produces a new revision identity to validate
+instead.
 
 A retired revision can be activated again, since its source tree is still in
 the store and is verified before it is served.
+
+### The validation lease
+
+A validation claims its revision by moving it to `validating` while recording
+the owning background job and the claim time. The claim is reclaimable purely
+by age: a worker killed without warning leaves its job row running forever, so
+after the lease expires a newer run may take the claim over regardless of what
+the old job row says. The job timeout is deliberately shorter than the lease,
+so a run is stopped before its claim can be handed on.
+
+Every final transition, to `valid`, to `invalid`, and the roll-back to
+`materialized`, is fenced on the owning job: a stale worker resuming after its
+lease was reclaimed matches nothing and commits nothing, neither revision
+fields nor module discovery results. The verdict keeps `validation_job` and
+`validation_started` as its provenance, only the roll-back clears them.
 
 ## Invariants
 
 | Invariant | Enforcement |
 |---|---|
-| `project`, `digest`, `manifest`, `file_count`, and `total_size` cannot change after creation | `save()` guard, no form or serializer exposes them |
-| A project cannot hold two revisions with the same digest | Partial `unique_project_digest` database constraint, applied only when a digest is set |
+| `project`, `digest`, `manifest`, `file_count`, `total_size`, `entrypoint_snapshot`, and `entrypoint_digest` cannot change after creation | `save()` guard, no form or serializer exposes them |
+| A project cannot hold two revisions with the same digest and entrypoint digest | Partial `unique_project_digest` database constraint, applied only when a digest is set |
 | A revision whose tree is stored must have a digest | `stored_revision_requires_digest` database check constraint |
-| An invalid revision carries no digest and is never content-deduplicated | The staging service stores a null digest, which the partial constraint ignores |
+| An invalid revision from rejected content carries no digest and is never content-deduplicated | The staging service stores a null digest, which the partial constraint ignores |
 | Only `valid` or `retired` revisions may be activated | The activation service raises `ActivationError` otherwise |
 | A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
 | A stored tree still matches its manifest before it is reused or activated | `store.verify_revision_tree()`, which raises `RevisionCorruptError` |
+| A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_entrypoint_snapshot()`, which raises `RevisionCorruptError` |
+| Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |
 
-`status`, `validation_errors`, and `activated` stay mutable, because they are the
-lifecycle fields the storage service moves.
+`status`, `validation_errors`, `activated`, and the lease fields stay mutable,
+because they are the lifecycle fields the storage and validation services move.
 
 Two different rejected trees can share the same accepted subset of files. Storing
 them with a null digest is what keeps them from colliding on one content address.
@@ -134,6 +194,12 @@ whether the content is finished, and verification is what confirms it. That also
 makes a write safe to repeat: a key already holding the recorded size and
 checksum is left alone, and one holding anything else is replaced, so an
 interrupted write is completed by the next attempt rather than blocking it.
+
+Two revisions that share one source digest under different entrypoint digests
+share one stored content tree. Deletion accounts for that: the deletion signal
+skips enqueueing cleanup while another revision of the project still references
+the digest, and the cleanup job repeats that check when it runs, leaving shared
+content in place.
 
 Deleting a revision reclaims its stored content through a background cleanup
 job. The exact keys to remove are captured from the revision's manifest while
@@ -169,6 +235,6 @@ for them.
 | Limitation | Impact |
 |---|---|
 | No UI, REST, or GraphQL surface | Revisions can only be created by the storage service, which no user-facing view calls yet |
-| Nothing advances past `materialized` | Project validation arrives with the package loader, so no revision can be activated in this release |
+| Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | An active revision cannot be deleted | Its project protects it. Activate another revision first, or delete the project |
 | Staging is not serialized against itself or against deletion | Concurrent staging of one digest, or a project deleted mid-write, can leave the database and the store briefly disagreeing. The same boundary owns the queued-cleanup race: content re-staged while a deleted twin's cleanup Job is still pending can be removed by that Job once it runs. No caller in this release runs concurrently, and one shared locking model arrives with the first ones |

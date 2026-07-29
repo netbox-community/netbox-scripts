@@ -17,8 +17,12 @@ logging, global search, REST, and GraphQL.
 | Storage key | Immutable internal storage and runtime identity (UUID), not a public identifier. | [Custom Script Project](models/customscriptproject.md) |
 | Source type | Where project content comes from: `upload` or `data_source`, never mixed. | [Custom Script Project](models/customscriptproject.md) |
 | Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Custom Script Project](models/customscriptproject.md) |
-| Project revision | One immutable snapshot of a project's complete source tree, addressed by a content digest. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
+| Project revision | One immutable snapshot of a project's source tree and entrypoint configuration, addressed by a content digest and an entrypoint digest. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
 | Active revision | The single revision of a project that is currently active. Activating another retires it. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
+| Custom Script Module | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Custom Script Module](models/customscriptmodule.md) |
+| Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
+| Revision validation | The leased background step that imports a revision's entrypoints and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |
+| Private runtime namespace | The generated package names revision code imports under, isolating projects, revisions, and installed packages from each other. | [Runtime and Loading](runtime.md) |
 
 ## Supported workflows
 
@@ -28,6 +32,8 @@ logging, global search, REST, and GraphQL.
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
 | Author Custom Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
+| Publish scripts from a project | Developer | Declare entrypoint modules and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
+| Validate revisions | Operator | Run the validation job to drive a materialized revision to a `valid` or `invalid` verdict with sanitized, inspectable errors. |
 
 ## Not yet implemented
 
@@ -36,12 +42,11 @@ follow-up releases:
 
 | Area | Status |
 |---|---|
-| Project modules | Planned |
-| Script discovery | Planned |
 | Running authored scripts | Planned |
 | Source uploads | Planned |
-| Revision UI and API surfaces | Planned |
+| Module, revision, and script UI and API surfaces | Planned |
 | Data Source synchronization | Planned |
-| Package loading, execution, and scheduling | Planned |
+| Automatic validation and activation triggers | Planned |
+| Execution and scheduling | Planned |
 | Event Rule actions | Planned |
 | Migration from NetBox's built-in Custom Scripts | Planned |

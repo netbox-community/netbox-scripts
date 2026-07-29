@@ -1,9 +1,10 @@
 # Authoring Custom Scripts
 
 Custom Scripts are Python classes that extend NetBox with on-demand automation.
-This page covers the authoring API that ships with the plugin. Script discovery,
-uploads, execution, and scheduling are planned follow-ups, so scripts written
-today compile and import cleanly but cannot be run through the plugin yet.
+This page covers the authoring API that ships with the plugin and how a project
+publishes its scripts. Uploads, execution, and scheduling are planned
+follow-ups, so scripts written today validate and are discovered but cannot be
+run through the plugin yet.
 
 ## A minimal Custom Script
 
@@ -107,6 +108,47 @@ def run(self, data, commit):
         raise AbortScript('Explain why the script stopped')
 ```
 
+## Publishing scripts from a project
+
+A project offers scripts through its declared entrypoints, the
+[Custom Script Modules](models/customscriptmodule.md). An entrypoint is one
+Python file of the project tree, and project validation imports it and
+publishes the `Script` subclasses its own body defines, alphabetically:
+
+```text
+my-project/
+├── tools/
+│   ├── deploy.py      <- declared entrypoint, its Script classes publish
+│   └── naming.py      <- helper, importable but never published
+└── audit.py           <- declared entrypoint
+```
+
+Helper modules need no declaration. Entrypoints import them with normal
+relative imports (`from . import naming`, `from .tools import naming`), and a
+root `__init__.py` executes once per revision like any package initializer.
+
+To pin presentation order, or to publish a Script class that lives in a helper
+module, list the classes in a `script_order` at the top of the entrypoint:
+
+```python
+from .helpers import SharedAudit
+
+script_order = [SharedAudit, RenameDevice]
+```
+
+Every entry must be a `Script` subclass defined in this project, listed once.
+Classes imported from installed packages never publish, and `BaseScript`
+building blocks stay unpublished unless they also subclass `Script`.
+
+Two published classes cannot share one module path and class name, within an
+entrypoint or across a revision's entrypoints, while one class re-exported by
+several entrypoints publishes once.
+
+Module-level code runs when validation imports the entrypoint, not only when a
+script executes, so keep module bodies to imports and definitions and put work
+in `run()`. See [Runtime and Loading](runtime.md) for the loading model and
+what makes a revision invalid.
+
 ## Differences from NetBox's built-in scripts
 
 The authoring API is a behavior-compatible rewrite of the script authoring
@@ -138,11 +180,18 @@ surface built into NetBox. The deliberate differences:
   public import surface. The built-in implementation keeps some of these in
   unrelated modules.
 - Storage-coupled members (`filename`, `source`, `get_module_and_script`) are
-  absent. They return with script discovery and package loading.
-- System log records use the `netbox.plugins.netbox_custom_scripts.scripts`
-  namespace. The built-in implementation logs under `netbox.scripts`, so
-  operators with handlers or filters keyed to that name need to update their
-  logging configuration.
+  absent. Discovery identifies scripts through the project, the logical module
+  path, and the class name instead of file bookkeeping on the class.
+- Discovery publishes only what the entrypoint itself defines or explicitly
+  lists in `script_order`. The built-in implementation publishes any Script
+  subclass bound in the module, including ones imported from installed
+  packages.
+- System log records use the
+  `netbox.plugins.netbox_custom_scripts.scripts.<project key>.<module>.<Class>`
+  namespace, so two projects publishing the same class name log apart. The
+  built-in implementation logs under `netbox.scripts`, so operators with
+  handlers or filters keyed to that name need to update their logging
+  configuration.
 
 A compatibility layer for existing scripts that import from `extras.scripts`
 is planned.

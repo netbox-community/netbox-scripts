@@ -75,8 +75,9 @@ when domain content calls for them.
 │   │   └── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
 │   ├── models/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProject.
-│   │   └── project.py                 , [CustomScriptProject] CustomScriptProject(PrimaryModel) with name/key/storage_key/source_type/data_source/data_path/activation_policy/enabled; clean()+save() enforce identity/ownership invariants.
+│   │   ├── __init__.py            , Re-exports CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision.
+│   │   ├── project.py             , CustomScriptProject(PrimaryModel) with identity/ownership invariants + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
+│   │   └── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path, case-fold sibling rejection, system-managed discovery fields.
 │   ├── tables/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectTable.
 │   │   └── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable).
@@ -96,7 +97,12 @@ when domain content calls for them.
 │   │   ├── filtersets/__init__.py , [CustomScriptProject] Test package anchor.
 │   │   ├── filtersets/test_project.py , [CustomScriptProject] CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
 │   │   ├── graphql/__init__.py    , [CustomScriptProject] Test package anchor.
-│   │   └── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
+│   │   ├── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
+│   │   ├── models/test_module.py  , CustomScriptModule model invariants.
+│   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
+│   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py.
+│   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
+│   │   └── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
 │   │   └── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views.
@@ -111,11 +117,30 @@ when domain content calls for them.
 │   │   ├── types.py               , [CustomScriptProject] CustomScriptProjectType(PrimaryObjectType); choice fields expose raw string values.
 │   │   ├── filters.py             , [CustomScriptProject] CustomScriptProjectFilter(PrimaryModelFilter) with enum-typed choice filters; no storage_key filter.
 │   │   └── enums.py               , [CustomScriptProject] ProjectSourceTypeEnum + ActivationPolicyEnum via strawberry.enum(ChoiceSet.as_enum()).
-│   ├── choices.py                 , [CustomScriptProject] ProjectSourceTypeChoices + ActivationPolicyChoices.
+│   ├── storage/
+│   │   ├── config.py              , Resolves the required STORAGES['netbox_custom_scripts'] backend and limit settings.
+│   │   ├── paths.py               , Canonical source paths and storage keys.
+│   │   ├── manifest.py            , Manifest build/validate pair, content digests, case-fold collision rejection.
+│   │   ├── entrypoints.py         , Entrypoint snapshot build/validate pair, the return-trip trust boundary.
+│   │   ├── store.py               , Verified writes and reads against the backend, copy_verified bounded-read primitive.
+│   │   ├── service.py             , stage_revision / refresh_revision_entrypoints / activate_revision + the database-alias contract.
+│   │   └── exceptions.py          , Storage error taxonomy.
+│   ├── runtime/
+│   │   ├── cache.py               , Manifest-verified local materialization of revision trees, the one sanctioned local-write tier.
+│   │   ├── loader.py              , Private-namespace package loader: import sessions, failure sweep, unload.
+│   │   ├── naming.py              , Private module names + the entrypoint dotted-name adapter.
+│   │   ├── discovery.py           , discover_scripts(): publication rules, script_order, identity + logger markers.
+│   │   └── exceptions.py          , Runtime error taxonomy (cache, module path, import, discovery).
+│   ├── scripts/                   , Authoring API: base.py (BaseScript/Script), variables.py, forms.py, logging.py, exceptions.py.
+│   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all three models, safety checks.
+│   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence.
+│   ├── jobs.py                    , ProjectStorageCleanupJob + RevisionValidationJob (JobRunner).
+│   ├── signals.py                 , Revision deletion enqueues storage cleanup, wired in AppConfig.ready().
+│   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
-│   ├── constants.py               , [add as needed] Module-level constants.
+│   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule.
+│   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds.
 │   ├── object_actions.py          , [add as needed] ObjectAction subclasses for object-level buttons.
-│   ├── signals.py                 , [add as needed] Cross-model side-effects; wire in AppConfig.ready().
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
@@ -141,14 +166,19 @@ when domain content calls for them.
 
 ### Domain model
 
-`CustomScriptProject` (concept section 5.1) is the only model so far: one
-project = one script source tree = one future Python package boundary. A
-project owns either uploaded content (`source_type=upload`) or a directory of
-a Core Data Source (`source_type=data_source` + `data_source` + non-empty
-canonical `data_path`), never both. Identity fields are frozen: `key` (public
-identity) and `source_type` are immutable after creation, `storage_key`
-(internal storage/runtime identity) never changes. Revisions, modules,
-discovered scripts, storage, and execution land in later PRs per the concept.
+Three models, all installation-global (`GLOBAL_MODELS` in `branching.py` routes
+them to the main schema under NetBox Branching). `CustomScriptProject` (concept
+5.1): one project = one script source tree = one Python package boundary, owning
+either uploaded content or a Data Source directory, never both, with frozen
+identity fields (`key`, `source_type` immutable, `storage_key` never changes).
+`CustomScriptProjectRevision`: one immutable snapshot of the tree plus the
+entrypoint configuration it was staged under, identity = project + source
+digest + entrypoint digest, moved through its lifecycle by the storage and
+validation services only. `CustomScriptModule` (concept 5.3): one declared
+entrypoint per row, author-editable declaration fields, system-managed
+discovery fields, enabled declarations frozen into each revision's entrypoint
+snapshot at staging time. `CustomScript` rows and execution land in later PRs
+per the concept.
 
 ### Integration points with NetBox
 

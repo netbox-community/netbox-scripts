@@ -45,9 +45,11 @@ nav:
   - Quickstart: quickstart.md
   - Configuration: configuration.md
   - Authoring: authoring.md
+  - Runtime and Loading: runtime.md
   - Models:
       - Custom Script Project: models/customscriptproject.md
       - Custom Script Project Revision: models/customscriptprojectrevision.md
+      - Custom Script Module: models/customscriptmodule.md
   - Releases: releases.md
   - Development:
       - Contributing: development/contributing.md

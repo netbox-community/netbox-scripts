@@ -111,6 +111,7 @@ confirms the copied content arrived intact.
 | `max_file_size` | positive integer (bytes) | 10485760 (10 MiB) | Largest accepted size for a single source file. |
 | `max_project_size` | positive integer (bytes) | 104857600 (100 MiB) | Largest accepted total size of a project's source tree. |
 | `max_file_count` | positive integer | 1000 | Largest accepted number of files in a project's source tree. |
+| `runtime_cache_root` | path | system temporary directory | Directory the [runtime cache](#runtime-cache) materializes revision trees under. |
 
 A limit set to a non-positive or non-integer value is rejected as a configuration error
 when it is read.
@@ -132,6 +133,60 @@ A source file breaking any of these is rejected as content, with the codes
 inspectable invalid revision. Left to the filesystem these would surface later as
 `ENAMETOOLONG` or descriptor exhaustion, recorded as an infrastructure failure that no retry
 of the same content could ever clear.
+
+Two names that differ only in letter case are rejected together under
+`case_fold_conflict`, checked at every directory level rather than only in the full path, so
+a tree holding both `Lib/deploy.py` and `lib/audit.py` is refused. The comparison is simple
+case mapping, matching what APFS, NTFS, and HFS+ do, so names those hosts keep apart stay
+usable.
+
+Compiled Python files and `__pycache__` directories are rejected under `compiled_artifact`.
+Compiled bytecode imports without the source anyone would review, so it is not project
+source.
+
+## Runtime cache
+
+Python imports need a real directory tree, so before a revision loads, its files are
+materialized from the storage backend into a local directory:
+
+```text
+<runtime_cache_root>/<storage_key>/<digest>/
+```
+
+The default root sits under the system temporary directory
+(`<tempdir>/netbox-custom-scripts/runtime-cache`), which is per-process-host, writable,
+and disposable. Set `runtime_cache_root` to place it elsewhere, for example on a larger
+or faster volume. Whatever the location, the cache is scratch state: losing it costs a
+rebuild from the backend, never data, so nothing about it needs to be backed up or
+shared between nodes. Per-pod scratch space is exactly right on a horizontally scaled
+deployment.
+
+The root is created private to the account NetBox runs as, and materialization refuses a root
+whose ancestors another account could rename. An ancestor writable by other users is accepted
+only when it is sticky, which is what keeps the shared temporary directory usable. On a host
+where other accounts have that reach, point `runtime_cache_root` at a directory NetBox owns:
+verification proves what a tree held when it was checked, and it cannot prove that no one
+swapped the directory afterwards.
+
+A cached tree is never trusted because it exists. Every use re-verifies it against the
+revision manifest, and the protocol is built so nothing unverified can execute:
+
+- Compiled Python files are removed before any verification, because a planted one can
+  be flagged to skip its own source check. Verification then requires exactly the
+  manifest's files and nothing else, symbolic links included.
+- A tree that fails verification is set aside next to its slot rather than repaired in
+  place, and a fresh tree is rebuilt from the backend through the same size-preflighted,
+  bounded, checksummed reads the storage layer uses everywhere.
+- A rebuilt tree is staged as a sibling of its final location, verified as a whole,
+  write-protected, and published with one rename, so a reader only ever sees a complete,
+  just-verified, read-only tree. Concurrent builders of one revision serialize on a
+  per-slot file lock that the operating system releases if the process dies.
+
+The root must offer enough space for the revisions in active use, and staging happens
+beside the final location, so the root must be one filesystem. There is no automatic
+eviction: reclaiming stale slots and set-aside failures belongs to a housekeeping
+reconciler planned for a later release, until then the directory can be cleared out of
+band while NetBox is stopped.
 
 ## Storage trust boundary
 

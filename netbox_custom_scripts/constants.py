@@ -19,3 +19,11 @@ STORED_REVISION_STATUSES = ('materialized', 'valid', 'active', 'retired')
 # because both belong to project validation: storage must never re-drive a revision whose
 # lifecycle it does not own, nor resurrect one that validation rejected.
 RETRYABLE_REVISION_STATUSES = ('staging', 'storage_failed')
+
+# Validation lease bounds, in seconds. The job timeout caps one validation run inside the
+# worker, and the lease is deliberately longer, because reclaim is purely time based: a
+# killed worker leaves its Job row running forever, so only an expired lease can hand the
+# claim on. The margin absorbs clock skew and the tail of a run that outlived its own
+# timeout signal.
+VALIDATION_JOB_TIMEOUT = 10 * 60
+VALIDATION_LEASE_SECONDS = 30 * 60

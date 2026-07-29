@@ -1,14 +1,20 @@
 """Background jobs for the Custom Scripts plugin."""
 
 from django.db import transaction
+from rq.timeouts import JobTimeoutException
 
 from core.exceptions import JobFailed
 from netbox.jobs import JobRunner
 
 from . import branching
+from .choices import RevisionStatusChoices
+from .constants import VALIDATION_JOB_TIMEOUT
 from .models import CustomScriptProjectRevision
+from .runtime.exceptions import EntrypointImportError
 from .storage import config, store
 from .storage.exceptions import StorageConfigurationError, StorageError
+from .storage.service import require_default_database
+from .validation import ValidationStateError, build_error_sanitizer, validate_revision
 
 
 class ProjectStorageCleanupJob(JobRunner):
@@ -77,3 +83,67 @@ class ProjectStorageCleanupJob(JobRunner):
             detail = f'Storage cleanup left content in the store: {storage_key} {digest}: {error}'
             self.logger.error(detail)
             raise JobFailed() from error
+
+
+class RevisionValidationJob(JobRunner):
+    """
+    Drive one revision to a validation verdict inside a worker.
+
+    Imports run in this process, the worker is the isolated execution environment the
+    concept prescribes, and the rq job timeout bounds a run while the longer lease in the
+    revision row hands the claim on if this worker dies without a trace. Environment
+    trouble fails the job and leaves the revision claimable again, a verdict is recorded
+    by the validation service itself.
+    """
+
+    class Meta:
+        name = 'Custom Script Revision validation'
+
+    @classmethod
+    def enqueue_validation(cls, revision, **kwargs):
+        """
+        Enqueue one revision's validation with the revision pk persisted on the Job row.
+
+        The atomic block nests inside any caller transaction, so the Job and its payload
+        commit or roll back with whatever staged the revision, and the queue handoff in
+        Job.enqueue()'s commit hook can never run a task whose payload is missing. The rq
+        job timeout travels with the enqueue, it stays below the reclaim lease by the
+        margin constants.py documents.
+        """
+        branching.require_safe_routing()
+        require_default_database(revision)
+        payload = {'revision_pk': revision.pk}
+        with transaction.atomic():
+            job = cls.enqueue(job_timeout=VALIDATION_JOB_TIMEOUT, **payload, **kwargs)
+            job.data = payload
+            job.save(update_fields=('data',))
+        return job
+
+    def run(self, revision_pk=None, **kwargs):
+        """Recheck routing safety, then validate, failing the job on anything but a verdict."""
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            detail = f'Refusing revision validation, because {reason}'
+            self.logger.error(detail)
+            raise JobFailed()
+        revision = CustomScriptProjectRevision.objects.filter(pk=revision_pk).first()
+        if revision is None:
+            self.logger.info(f'Revision {revision_pk} no longer exists, nothing to validate.')
+            return
+        try:
+            revision = validate_revision(revision, job=self.job, passthrough=(JobTimeoutException,))
+        except ValidationStateError as error:
+            self.logger.error(str(error))
+            raise JobFailed() from error
+        except (EntrypointImportError, StorageError, OSError) as error:
+            # An expected environment failure: the claim was rolled back, the revision is
+            # claimable again, and the failed job carries the sanitized reason. The message
+            # is rendered up front, because the job log records it verbatim.
+            sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
+            detail = sanitize(f'Revision validation could not complete and needs another run: {error}')
+            self.logger.error(detail)
+            raise JobFailed() from error
+        if revision.status == RevisionStatusChoices.INVALID:
+            self.logger.warning(f'The revision is invalid, {len(revision.validation_errors)} problem(s) recorded.')
+        else:
+            self.logger.info(f'The revision validated as {revision.status}.')

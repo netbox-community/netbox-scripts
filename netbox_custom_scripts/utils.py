@@ -17,21 +17,29 @@ def source_path_to_dotted_name(path):
     problem.
     """
     if not path.endswith('.py'):
-        raise ValidationError(_('An entrypoint must be a Python module file ending in ".py".'))
+        raise ValidationError(
+            _('An entrypoint must be a Python module file ending in ".py".'),
+            code='not_a_python_file',
+        )
     segments = path[: -len('.py')].split('/')
     if segments[-1] == '__init__':
         segments = segments[:-1]
         if not segments:
-            raise ValidationError(_('The root "__init__.py" names the project package itself, not an entrypoint.'))
+            raise ValidationError(
+                _('The root "__init__.py" names the project package itself, not an entrypoint.'),
+                code='root_entrypoint',
+            )
     for segment in segments:
         if not segment.isidentifier():
             raise ValidationError(
                 _('"{segment}" is not a valid Python identifier, so this path cannot be imported.').format(
                     segment=segment
-                )
+                ),
+                code='invalid_identifier',
             )
         if keyword.iskeyword(segment):
             raise ValidationError(
-                _('"{segment}" is a reserved Python keyword, so this path cannot be imported.').format(segment=segment)
+                _('"{segment}" is a reserved Python keyword, so this path cannot be imported.').format(segment=segment),
+                code='reserved_keyword',
             )
     return '.'.join(segments)

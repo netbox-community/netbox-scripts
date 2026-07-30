@@ -13,7 +13,7 @@ DIGEST = 'e' * 64
 
 
 class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
-    """The read-only Custom Script endpoint and the identity fields NetBox reverses."""
+    """The update-only Custom Script endpoint and the identity fields NetBox reverses."""
 
     model = CustomScript
 
@@ -99,8 +99,8 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         response = self.client.get(self._get_detail_url(self.script), **self.header)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_writes_are_refused(self):
-        # Rows are derived from an activated revision, so no verb may author them.
+    def test_authoring_and_deleting_are_refused(self):
+        # Rows are derived from an activated revision, so no verb may author or destroy one.
         self.add_permissions(
             'netbox_custom_scripts.view_customscript',
             'netbox_custom_scripts.add_customscript',
@@ -114,8 +114,6 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         }
         for method, url in (
             (self.client.post, self._get_list_url()),
-            (self.client.put, self._get_detail_url(self.script)),
-            (self.client.patch, self._get_detail_url(self.script)),
             (self.client.delete, self._get_detail_url(self.script)),
         ):
             with self.subTest(method=method.__name__):
@@ -123,3 +121,43 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
                 self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
         self.assertEqual(CustomScript.objects.count(), 2)
+
+    def test_enabled_is_patchable(self):
+        self.add_permissions(
+            'netbox_custom_scripts.view_customscript',
+            'netbox_custom_scripts.change_customscript',
+        )
+        response = self.client.patch(
+            self._get_detail_url(self.script), {'enabled': False}, format='json', **self.header
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.script.refresh_from_db()
+        self.assertFalse(self.script.enabled)
+
+    def test_a_derived_field_supplied_to_a_patch_is_ignored(self):
+        # A read-only field is silently dropped by DRF. Asserting it stops a future serializer
+        # edit from quietly opening a write path to a synchronization-owned column.
+        self.add_permissions(
+            'netbox_custom_scripts.view_customscript',
+            'netbox_custom_scripts.change_customscript',
+        )
+        response = self.client.patch(
+            self._get_detail_url(self.script),
+            {'display_name': 'Renamed', 'is_retired': True, 'module_path': 'moved'},
+            format='json',
+            **self.header,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.script.refresh_from_db()
+        self.assertEqual(self.script.display_name, 'Deploy Devices')
+        self.assertEqual(self.script.module_path, 'deploy')
+        self.assertFalse(self.script.is_retired)
+
+    def test_patching_requires_the_change_permission(self):
+        self.add_permissions('netbox_custom_scripts.view_customscript')
+        response = self.client.patch(
+            self._get_detail_url(self.script), {'enabled': False}, format='json', **self.header
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

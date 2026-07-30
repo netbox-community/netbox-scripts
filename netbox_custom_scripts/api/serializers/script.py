@@ -33,3 +33,15 @@ class CustomScriptSerializer(PrimaryModelSerializer):
             'last_updated',
         )
         brief_fields = ('id', 'url', 'display', 'module_path', 'class_name', 'display_name')
+        # Everything synchronization owns. Named explicitly rather than left to editable=False,
+        # so opening a write path takes a deliberate edit here.
+        read_only_fields = (
+            'project',
+            'module_path',
+            'class_name',
+            'display_name',
+            'description',
+            'is_retired',
+            'last_seen_revision',
+            'metadata',
+        )

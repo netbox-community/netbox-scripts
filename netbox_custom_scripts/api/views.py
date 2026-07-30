@@ -4,9 +4,9 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as APIValidationError
 from rest_framework.response import Response
 
-from netbox.api.viewsets import NetBoxModelViewSet, NetBoxReadOnlyModelViewSet
+from netbox.api.viewsets import NetBoxModelViewSet
 
-from ..filtersets import CustomScriptModuleFilterSet, CustomScriptProjectFilterSet
+from ..filtersets import CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet
 from ..models import CustomScript, CustomScriptModule, CustomScriptProject
 from .serializers import CustomScriptModuleSerializer, CustomScriptProjectSerializer, CustomScriptSerializer
 
@@ -62,12 +62,17 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
         }
 
 
-class CustomScriptViewSet(NetBoxReadOnlyModelViewSet):
+class CustomScriptViewSet(NetBoxModelViewSet):
     """
     REST API viewset for Custom Scripts.
 
-    Read only, because rows are derived from an activated revision rather than authored.
+    Update only. Rows are derived from an activated revision, so POST and DELETE are refused
+    and the serializer accepts the administrator's fields alone.
     """
 
     queryset = CustomScript.objects.select_related('project')
     serializer_class = CustomScriptSerializer
+    filterset_class = CustomScriptFilterSet
+    # Refuses creation and deletion at the router. PATCH and PUT on the list route stay
+    # available, so an operator can enable or disable many scripts in one call.
+    http_method_names = ('get', 'put', 'patch', 'head', 'options', 'trace')

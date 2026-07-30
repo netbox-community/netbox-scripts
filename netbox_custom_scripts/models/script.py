@@ -1,6 +1,8 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 
+from core.choices import JobNotificationChoices
 from netbox.models import PrimaryModel
 from netbox.models.features import JobsMixin
 
@@ -88,6 +90,10 @@ class CustomScript(JobsMixin, PrimaryModel):
         ordering = ('project', 'module_path', 'class_name')
         verbose_name = _('custom script')
         verbose_name_plural = _('custom scripts')
+        # Running is its own action, not a form of changing the row. The codename has to carry
+        # the model name so that get_permission_for_model() composes the same string and
+        # restrict(user, 'run') resolves. NetBox registers it as an ObjectPermission checkbox.
+        permissions = (('run_customscript', 'Can run a Custom Script'),)
         constraints = [
             models.UniqueConstraint(
                 fields=('project', 'module_path', 'class_name'),
@@ -103,7 +109,51 @@ class CustomScript(JobsMixin, PrimaryModel):
         """Dotted name of the class within its project."""
         return f'{self.module_path}.{self.class_name}'
 
+    # The four execution defaults are read out of metadata rather than off separate columns,
+    # because validation writes them as one JSON record. These accessors are what everything
+    # else reads, so no caller repeats a dictionary key or a fallback.
+
+    @property
+    def commit_default(self):
+        """Whether the run form's commit toggle starts on."""
+        return bool(self.metadata.get('commit_default', True))
+
+    @property
+    def scheduling_enabled(self):
+        """Whether the published class allows this Custom Script to be scheduled."""
+        return bool(self.metadata.get('scheduling_enabled', True))
+
+    @property
+    def job_timeout(self):
+        """The run timeout in seconds, or None to use the system default."""
+        return self.metadata.get('job_timeout')
+
+    @property
+    def job_timeout_display(self):
+        """The run timeout as a phrase, since no timeout is a real setting rather than a gap."""
+        if self.job_timeout is None:
+            return _('System default')
+        return ngettext('%(count)d second', '%(count)d seconds', self.job_timeout) % {'count': self.job_timeout}
+
+    @property
+    def notifications_default(self):
+        """Who is notified when a run of this Custom Script finishes."""
+        return self.metadata.get('notifications_default') or JobNotificationChoices.NOTIFICATION_ALWAYS
+
+    def get_notifications_default_display(self):
+        """Label for the notification policy, following the accessor ChoiceAttr looks for."""
+        return dict(JobNotificationChoices).get(self.notifications_default, self.notifications_default)
+
     @property
     def is_executable(self):
         """Whether every enabling condition for running this script currently holds."""
-        return self.enabled and not self.is_retired and self.project.enabled
+        # The active revision is checked in its own right rather than inferred from retirement.
+        # Deactivation does retire every script in the same transaction, so the two always agree
+        # today, but that is two code paths agreeing rather than a guarantee, and a run has to
+        # resolve its class out of a revision that is actually being served.
+        return (
+            self.enabled
+            and not self.is_retired
+            and self.project.enabled
+            and self.project.active_revision_id is not None
+        )

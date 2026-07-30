@@ -11,6 +11,7 @@ from netbox_custom_scripts.models import (
 )
 
 DIGEST_A = 'a' * 64
+DIGEST_B = 'b' * 64
 
 
 class CustomScriptTestCase(TestCase):
@@ -23,6 +24,17 @@ class CustomScriptTestCase(TestCase):
             digest=DIGEST_A,
             status=RevisionStatusChoices.MATERIALIZED,
         )
+        cls.other_revision = CustomScriptProjectRevision.objects.create(
+            project=cls.other_project,
+            digest=DIGEST_B,
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+        # A script is only executable while its project is serving a revision, so both projects
+        # start out serving one and each test takes away whatever it is about.
+        CustomScriptProject.objects.filter(pk=cls.project.pk).update(active_revision=cls.revision)
+        CustomScriptProject.objects.filter(pk=cls.other_project.pk).update(active_revision=cls.other_revision)
+        cls.project.refresh_from_db()
+        cls.other_project.refresh_from_db()
 
     def _script(self, project=None, module_path='deploy', class_name='DeployDevices', **kwargs):
         return CustomScript.objects.create(
@@ -96,6 +108,14 @@ class CustomScriptTestCase(TestCase):
         self.other_project.save()
         self.assertFalse(self._script(project=self.other_project).is_executable)
 
+    def test_is_not_executable_when_the_project_serves_no_revision(self):
+        # Deactivation retires every script in the same transaction, so this state is normally
+        # unreachable. The check makes the guarantee local rather than an agreement between two
+        # code paths, which is what execution has to be able to trust.
+        CustomScriptProject.objects.filter(pk=self.other_project.pk).update(active_revision=None)
+        self.other_project.refresh_from_db()
+        self.assertFalse(self._script(project=self.other_project).is_executable)
+
     def test_a_description_longer_than_the_inherited_bound_round_trips(self):
         # The model overrides the abstract base CharField with a TextField, so the authoring
         # API's unbounded Meta.description needs no truncation.
@@ -147,3 +167,39 @@ class CustomScriptTestCase(TestCase):
         instance.refresh_from_db()
         self.assertIsNotNone(instance.pk)
         self.assertIsNone(instance.last_seen_revision)
+
+    def test_execution_defaults_fall_back_when_metadata_is_empty(self):
+        instance = self._script()
+        self.assertTrue(instance.commit_default)
+        self.assertTrue(instance.scheduling_enabled)
+        self.assertIsNone(instance.job_timeout)
+        self.assertEqual(instance.notifications_default, 'always')
+
+    def test_execution_defaults_read_what_validation_recorded(self):
+        instance = self._script(
+            metadata={
+                'commit_default': False,
+                'scheduling_enabled': False,
+                'job_timeout': 600,
+                'notifications_default': 'on_failure',
+            }
+        )
+        self.assertFalse(instance.commit_default)
+        self.assertFalse(instance.scheduling_enabled)
+        self.assertEqual(instance.job_timeout, 600)
+        self.assertEqual(instance.notifications_default, 'on_failure')
+
+    def test_the_timeout_reads_as_a_phrase_rather_than_a_bare_number(self):
+        # No timeout is a real setting, not missing data, so it must not render as a placeholder.
+        self.assertEqual(self._script().job_timeout_display, 'System default')
+        self.assertEqual(self._script(class_name='B', metadata={'job_timeout': 600}).job_timeout_display, '600 seconds')
+        self.assertEqual(self._script(class_name='C', metadata={'job_timeout': 1}).job_timeout_display, '1 second')
+
+    def test_the_notification_policy_reads_as_its_label(self):
+        self.assertEqual(self._script().get_notifications_default_display(), 'Always')
+        self.assertEqual(
+            self._script(
+                class_name='B', metadata={'notifications_default': 'on_failure'}
+            ).get_notifications_default_display(),
+            'On failure',
+        )

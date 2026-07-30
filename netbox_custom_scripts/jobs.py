@@ -9,13 +9,33 @@ from netbox.jobs import JobRunner
 from . import activation, branching
 from .choices import ActivationPolicyChoices, RevisionStatusChoices
 from .constants import VALIDATION_JOB_TIMEOUT
-from .models import CustomScriptProjectRevision
-from .runtime.exceptions import EntrypointImportError
+from .execution import ScriptNotExecutableError, run_script
+from .models import CustomScript, CustomScriptProjectRevision
+from .runtime.exceptions import (
+    DiscoveryError,
+    EntrypointImportError,
+    InvalidModulePathError,
+    ScriptMetadataError,
+    ScriptResolutionError,
+)
+from .runtime.loader import revision_import_session, unload_revision
+from .runtime.resolution import resolve_script_class
 from .storage import config, store
-from .storage.exceptions import ActivationError, StorageConfigurationError, StorageError
+from .storage.exceptions import ActivationError, RevisionCorruptError, StorageConfigurationError, StorageError
 from .storage.locks import project_lock
 from .storage.service import require_default_database
 from .validation import ValidationStateError, build_error_sanitizer, validate_revision
+
+# Everything that means "this revision cannot give us the class the row names". Each one is a
+# statement about content or configuration, so a run fails rather than being retried blindly.
+RESOLUTION_FAILURES = (
+    DiscoveryError,
+    EntrypointImportError,
+    InvalidModulePathError,
+    RevisionCorruptError,
+    ScriptMetadataError,
+    ScriptResolutionError,
+)
 
 
 class ProjectStorageCleanupJob(JobRunner):
@@ -178,3 +198,157 @@ class RevisionValidationJob(JobRunner):
             self.logger.error(detail)
             raise JobFailed() from error
         self.logger.info('The revision is now the active revision of its project.')
+
+
+class CustomScriptJob(JobRunner):
+    """
+    Run one Custom Script against the revision its enqueue pinned.
+
+    The revision is fixed when the run is requested, not when the worker picks it up, so a
+    queued run executes the source the operator was looking at even if the project has moved
+    on since. The pin is recorded on the Job row as well as passed to the worker, which is what
+    makes a finished Job say what it ran rather than only what it was called.
+
+    Everything the run needs from the tree is read through the runtime tier, so the source is
+    materialized and verified against its manifest before any of it is imported, and the
+    revision is unloaded afterwards. Each run therefore imports fresh and module-level state
+    cannot carry from one run into the next.
+
+    Declared pip requirements are not checked, that is a later workstream.
+    """
+
+    class Meta:
+        name = 'Run Custom Script'
+
+    @classmethod
+    def enqueue_run(cls, script, *, data, commit, request=None, user=None, **kwargs):
+        """
+        Enqueue one run of a Custom Script, pinned to the revision its project serves now.
+
+        The pinned identity is saved on the Job row inside the enqueueing transaction, so the
+        queue can never run a task whose record of what it runs is missing. The script's own
+        recorded metadata supplies the job timeout and the notification policy. Raises
+        ScriptNotExecutableError when the script cannot run, which covers a disabled or retired
+        script, a disabled project, and a project serving no revision.
+        """
+        branching.require_safe_routing()
+        if not script.is_executable:
+            raise ScriptNotExecutableError(
+                f'"{script}" cannot be run right now. It is disabled, retired, or its project '
+                'is disabled or is not serving a revision.'
+            )
+        revision = script.project.active_revision
+        payload = {
+            'revision_id': revision.pk,
+            'revision_digest': revision.digest,
+            'module_path': script.module_path,
+            'class_name': script.class_name,
+            'commit': bool(commit),
+        }
+        # Input values are deliberately absent from the payload. Variables resolve to model
+        # instances and uploaded files, so they are not JSON, and rendering them for the row
+        # would need a policy on values an author may not want recorded.
+        if script.job_timeout:
+            kwargs.setdefault('job_timeout', script.job_timeout)
+        kwargs.setdefault('notifications', script.notifications_default)
+        with transaction.atomic():
+            job = cls.enqueue(instance=script, user=user, data=data, request=request, **payload, **kwargs)
+            # An immediate run has already finished and recorded its result by the time enqueue()
+            # returns, so the pin goes underneath whatever is there rather than over it.
+            job.data = {**payload, **(job.data or {})}
+            job.save(update_fields=('data',))
+        return job
+
+    def run(self, *, revision_id, revision_digest, module_path, class_name, data, commit, request=None, **kwargs):
+        """Resolve the pinned class out of its revision and run it, recording the result."""
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            self.logger.error(f'Refusing to run a Custom Script, because {reason}')
+            raise JobFailed()
+        # Enabled is the administrator's field, so turning it off has to stop a run that was
+        # already queued. The pinned revision is deliberately not rechecked: the point of
+        # pinning is that a run executes the source it was requested against.
+        script = CustomScript.objects.filter(pk=self.job.object_id).first()
+        if script is not None and not (script.enabled and script.project.enabled):
+            self.logger.error(f'"{script}" was disabled after this run was requested, so it was not run.')
+            raise JobFailed()
+        revision = CustomScriptProjectRevision.objects.filter(pk=revision_id).first()
+        if revision is None:
+            self.logger.error(
+                f'The revision this run was pinned to no longer exists, so {module_path}.{class_name} '
+                'cannot be run as it was requested.'
+            )
+            raise JobFailed()
+
+        storage_key = str(revision.project.storage_key)
+        sanitize = build_error_sanitizer(storage_key, revision.digest)
+        self.logger.info(f'Running {module_path}.{class_name} from revision {revision_digest[:12]}.')
+        try:
+            with revision_import_session(storage_key, revision.digest):
+                try:
+                    script_class = self._resolve(revision, storage_key, module_path, class_name, sanitize)
+                    self._run_class(
+                        script_class, data=data, commit=commit, request=request, revision=revision, sanitize=sanitize
+                    )
+                finally:
+                    unload_revision(storage_key, revision.digest)
+        except (StorageError, StorageConfigurationError, OSError) as error:
+            detail = sanitize(f'The run could not reach the source it was pinned to: {error}')
+            self.logger.error(detail)
+            raise JobFailed() from error
+        except Exception as error:
+            # The run log already carries the detail, so this line only fails the Job.
+            self.logger.error(sanitize(f'The Custom Script did not finish: {error}'))
+            raise JobFailed() from error
+
+    def _resolve(self, revision, storage_key, module_path, class_name, sanitize):
+        """Return the pinned class, failing the Job when this revision cannot supply it."""
+        try:
+            return resolve_script_class(
+                storage_key,
+                revision.digest,
+                discovered_scripts=revision.discovered_scripts,
+                project_key=revision.project.key,
+                module_path=module_path,
+                class_name=class_name,
+                storage=config.get_storage(),
+                manifest=revision.manifest,
+                passthrough=(JobTimeoutException,),
+            )
+        except RESOLUTION_FAILURES as error:
+            detail = sanitize(f'Revision {revision.digest[:12]} cannot supply {module_path}.{class_name}: {error}')
+            self.logger.error(detail)
+            raise JobFailed() from error
+
+    def _run_class(self, script_class, *, data, commit, request, revision, sanitize):
+        """Run one resolved class, recording its log and output on the Job either way."""
+        instance = script_class()
+        instance.request = request
+        # A variable of the FileVar kind is bound in the upload rather than in the posted data,
+        # so the two halves of the form are put back together here.
+        values = dict(data)
+        for name, uploaded in getattr(request, 'FILES', {}).items():
+            values[name] = uploaded
+        try:
+            run_script(instance, data=values, commit=commit, request=request)
+        finally:
+            # The result joins the pin rather than replacing it, so a finished Job still says
+            # which revision and which class it ran, not only what came out.
+            self.job.data = {
+                **(self.job.data or {}),
+                **_sanitized_run_record(instance, sanitize),
+                'revision_digest': revision.digest,
+            }
+
+
+def _sanitized_run_record(instance, sanitize):
+    """Return one run's log and output with the revision's runtime identities stripped out."""
+    # A traceback names the file it was raised in, and that file lives in the runtime cache
+    # under the storage key and digest, so an unhandled exception puts both in the record an
+    # operator reads. The run context builds the log and knows nothing about storage, which is
+    # why the stripping belongs here.
+    record = instance.get_job_data()
+    return {
+        'log': [{**entry, 'message': sanitize(entry.get('message'))} for entry in record.get('log', [])],
+        'output': sanitize(record['output']) if isinstance(record.get('output'), str) else record.get('output'),
+    }

@@ -112,7 +112,8 @@ class BackendLifecycleMixin:
 
             staged.status = RevisionStatusChoices.VALID
             staged.save()
-            self.assertEqual(service.activate_revision(staged).status, RevisionStatusChoices.ACTIVE)
+            promoted = service.promote_revision(staged, on_promote=lambda **kwargs: None)
+            self.assertEqual(promoted.status, RevisionStatusChoices.ACTIVE)
 
             # Deletion hands each revision's cleanup to the job. The enqueue is captured and
             # the job bodies run here, so the lifecycle ends with the backend reclaimed

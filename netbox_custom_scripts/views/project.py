@@ -10,6 +10,7 @@ from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.views import ViewTab, register_model_view
 
+from .. import activation
 from ..filtersets import CustomScriptProjectFilterSet
 from ..forms import (
     CustomScriptProjectAddScriptForm,
@@ -22,7 +23,6 @@ from ..forms import (
 )
 from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..object_actions import ActivateRevision, AddScript
-from ..storage import service
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import CustomScriptProjectRevisionTable, CustomScriptProjectTable
 from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
@@ -106,7 +106,7 @@ class CustomScriptProjectActivateView(generic.ObjectView):
             messages.error(request, _('This Project has no validated revision to activate.'))
             return redirect(project.get_absolute_url())
         try:
-            service.activate_revision(candidate)
+            activation.activate_revision(candidate)
         except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             # The project keeps serving whatever it served before.

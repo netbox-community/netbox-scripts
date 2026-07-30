@@ -12,8 +12,29 @@ about.
 """
 
 from .models import CustomScript
+from .runtime.exceptions import ScriptMetadataError
+from .runtime.introspection import validate_discovered_scripts
+from .storage import service
+from .storage.exceptions import ActivationError
 
-__all__ = ('synchronize_scripts',)
+__all__ = (
+    'activate_revision',
+    'synchronize_scripts',
+)
+
+
+def activate_revision(revision):
+    """
+    Make one revision active and publish its Custom Scripts in a single transaction.
+
+    The recorded snapshot is checked twice, deliberately. The check here fails fast, so a
+    damaged one never takes the project lock or pays for a full tree verification, and the
+    check inside the callback covers the locked row, which is the value rows are actually
+    built from. Raises ActivationError, including for a snapshot no build could have produced,
+    and RevisionCorruptError when the stored tree no longer matches its manifest.
+    """
+    _validated_records(revision)
+    return service.promote_revision(revision, on_promote=_publish_scripts)
 
 
 def synchronize_scripts(*, project, revision, records, using):
@@ -54,6 +75,28 @@ def synchronize_scripts(*, project, revision, records, using):
     for row in rows.values():
         # last_seen_revision keeps naming the last revision that did publish this script.
         _save_changes(row, {'is_retired': True}, using)
+
+
+def _publish_scripts(*, project, revision, using):
+    """Bring a project's Custom Script rows in line with the revision being promoted."""
+    synchronize_scripts(
+        project=project,
+        revision=revision,
+        records=_validated_records(revision),
+        using=using,
+    )
+
+
+def _validated_records(revision):
+    """Return a revision's recorded Custom Scripts, reporting a damaged snapshot as a refusal."""
+    # Callers already handle one activation failure type, and ScriptMetadataError is not one of
+    # them, so an untranslated one would escape as an unhandled error.
+    try:
+        return validate_discovered_scripts(revision.discovered_scripts)
+    except ScriptMetadataError as error:
+        raise ActivationError(
+            f'Revision {revision.pk} cannot be activated, its recorded Custom Scripts are unusable: {error}'
+        ) from error
 
 
 def _save_changes(row, values, using):

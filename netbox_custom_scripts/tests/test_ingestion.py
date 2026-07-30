@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
 from core.models import DataSource, Job
+from netbox_custom_scripts import activation
 from netbox_custom_scripts.choices import (
     ActivationPolicyChoices,
     ModuleDiscoveryStatusChoices,
@@ -16,7 +17,12 @@ from netbox_custom_scripts.choices import (
 )
 from netbox_custom_scripts.ingestion import ingest_upload, uploaded_source_path
 from netbox_custom_scripts.jobs import RevisionValidationJob
-from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.models import (
+    CustomScript,
+    CustomScriptModule,
+    CustomScriptProject,
+    CustomScriptProjectRevision,
+)
 from netbox_custom_scripts.storage import service, store
 from netbox_custom_scripts.storage.exceptions import StorageError
 
@@ -40,6 +46,19 @@ class HelloWorld(Script):
     def run(self, data, commit):
         return data['greeting']
 """
+
+TWO_SCRIPTS = (
+    DISCOVERABLE_SCRIPT
+    + b"""
+
+class Farewell(Script):
+    class Meta:
+        name = 'Farewell'
+
+    def run(self, data, commit):
+        return 'bye'
+"""
+)
 
 
 class UploadedSourcePathTestCase(TestCase):
@@ -303,6 +322,54 @@ class UploadToActiveTestCase(TestCase):
         self.assertEqual(project.active_revision_id, staged.revision.pk)
         self.assertEqual(module.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
         self.assertEqual(module.discovery_error, '')
+
+        # The point of the whole slice: the uploaded class is a first-class object now.
+        script = CustomScript.objects.get(project=project)
+        self.assertEqual(script.class_name, 'HelloWorld')
+        self.assertEqual(script.display_name, 'Hello World')
+        self.assertEqual(script.description, 'Smoke test for the upload path')
+        self.assertEqual(script.last_seen_revision_id, staged.revision.pk)
+        self.assertTrue(script.is_executable)
+
+    def test_a_replacement_that_drops_a_class_retires_it(self):
+        project = CustomScriptProject.objects.create(
+            name='Two Scripts',
+            key='two-scripts',
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
+        )
+        first = ingest_upload(project, filename='hello_world.py', content=TWO_SCRIPTS)
+        self.run_validation(first.revision)
+        self.assertEqual(CustomScript.objects.filter(project=project).count(), 2)
+
+        second = ingest_upload(project, filename='hello_world.py', content=DISCOVERABLE_SCRIPT)
+        self.run_validation(second.revision)
+
+        self.assertTrue(CustomScript.objects.get(project=project, class_name='Farewell').is_retired)
+        self.assertFalse(CustomScript.objects.get(project=project, class_name='HelloWorld').is_retired)
+
+    def test_a_retired_script_returns_when_its_revision_is_activated_again(self):
+        # Reuse of the row rather than a replacement is what preserves the Job history. Driven
+        # through activation rather than a third upload, because re-uploading content the project
+        # has held before resolves to the existing revision, which validation can no longer
+        # claim. That gap is ingestion's, not activation's.
+        project = CustomScriptProject.objects.create(
+            name='Returning',
+            key='returning',
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
+        )
+        first = ingest_upload(project, filename='hello_world.py', content=TWO_SCRIPTS)
+        self.run_validation(first.revision)
+        original_pk = CustomScript.objects.get(project=project, class_name='Farewell').pk
+
+        dropped = ingest_upload(project, filename='hello_world.py', content=DISCOVERABLE_SCRIPT)
+        self.run_validation(dropped.revision)
+        self.assertTrue(CustomScript.objects.get(project=project, class_name='Farewell').is_retired)
+
+        first.revision.refresh_from_db()
+        activation.activate_revision(first.revision)
+        row = CustomScript.objects.get(project=project, class_name='Farewell')
+        self.assertEqual(row.pk, original_pk)
+        self.assertFalse(row.is_retired)
 
     def test_a_manual_project_stops_at_valid_and_still_discovers(self):
         project = CustomScriptProject.objects.create(

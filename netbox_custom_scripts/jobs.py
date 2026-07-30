@@ -6,12 +6,12 @@ from rq.timeouts import JobTimeoutException
 from core.exceptions import JobFailed
 from netbox.jobs import JobRunner
 
-from . import branching
+from . import activation, branching
 from .choices import ActivationPolicyChoices, RevisionStatusChoices
 from .constants import VALIDATION_JOB_TIMEOUT
 from .models import CustomScriptProjectRevision
 from .runtime.exceptions import EntrypointImportError
-from .storage import config, service, store
+from .storage import config, store
 from .storage.exceptions import ActivationError, StorageConfigurationError, StorageError
 from .storage.locks import project_lock
 from .storage.service import require_default_database
@@ -171,7 +171,7 @@ class RevisionValidationJob(JobRunner):
             self.logger.info('Leaving activation to an operator, this project activates manually.')
             return
         try:
-            service.activate_revision(revision)
+            activation.activate_revision(revision)
         except (ActivationError, StorageError, OSError) as error:
             sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
             detail = sanitize(f'The revision validated but could not be activated: {error}')

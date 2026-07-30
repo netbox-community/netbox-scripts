@@ -1,9 +1,18 @@
-from django.test import override_settings
+import uuid
+
+from django.test import RequestFactory, override_settings
 from django.urls import reverse
 
-from core.models import DataSource, ObjectType
+from core.models import DataSource, ObjectChange, ObjectType
+from netbox.context_managers import event_tracking
+from netbox_custom_scripts import activation
 from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
-from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.models import (
+    CustomScript,
+    CustomScriptModule,
+    CustomScriptProject,
+    CustomScriptProjectRevision,
+)
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.plugin_testing import PluginTestCases
 from users.models import ObjectPermission
@@ -329,3 +338,52 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_the_view_permission_alone_is_not_enough(self):
         self.grant('view')
         self.assertHttpStatus(self.client.get(self.url()), 403)
+
+    def publish(self):
+        """Record one Custom Script on the revision, so activation has something to publish."""
+        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
+            discovered_scripts=[
+                {
+                    'module_path': 'deploy',
+                    'class_name': 'Deploy',
+                    'entrypoint_module_id': 1,
+                    'entrypoint_path': 'deploy.py',
+                    'position': 0,
+                    'display_name': 'Deploy',
+                    'description': '',
+                    'metadata': {},
+                }
+            ]
+        )
+        self.revision.refresh_from_db()
+
+    def script_changes(self):
+        """Count the change-log entries recorded against Custom Scripts."""
+        return ObjectChange.objects.filter(changed_object_type=ObjectType.objects.get_for_model(CustomScript)).count()
+
+    def test_activating_through_the_view_publishes_scripts_and_logs_the_change(self):
+        # A request-bound write reverses the model's own routes during event serialization, so
+        # this is also the proof that the identity surface holds up under a real request.
+        self.grant('view', 'change')
+        self.publish()
+        response = self.client.post(self.url())
+        self.assertHttpStatus(response, 302)
+        self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
+        self.assertGreater(self.script_changes(), 0)
+
+    def test_reactivating_the_same_revision_logs_nothing_further(self):
+        # The user-visible form of never saving an unchanged row. The view offers no candidate
+        # once the revision is active, so the repair path is driven directly, inside a request
+        # context because the change-log receiver bails without one.
+        self.grant('view', 'change')
+        self.publish()
+        self.client.post(self.url())
+        before = self.script_changes()
+        self.assertGreater(before, 0)
+
+        request = RequestFactory().post(self.url())
+        request.id = uuid.uuid4()
+        request.user = self.user
+        with event_tracking(request):
+            activation.activate_revision(self.revision)
+        self.assertEqual(self.script_changes(), before)

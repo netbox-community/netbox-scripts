@@ -216,9 +216,18 @@ def refresh_revision_entrypoints(revision):
         return StagedRevision(candidate, created)
 
 
-def activate_revision(revision):
+def promote_revision(revision, *, on_promote):
     """
     Make one revision the active revision of its project and return it, refreshed.
+
+    on_promote is called as on_promote(project=..., revision=..., using=...) inside the
+    transaction that moves the pointer, after both row locks and the identity recheck, and
+    before the pointer moves. It is the seam the domain operation publishes through, so it is
+    required rather than optional: an active revision and whatever is derived from it change
+    together, and a default would leave that bypass one call away. It may do database work on
+    the alias it is given and nothing else, no storage reads, no imports, no network calls. It
+    also runs on the already-active path, so re-promoting the current revision repairs
+    whatever a caller derives from it.
 
     The owning project is read from the database rather than from the supplied instance, so
     the argument contributes only its primary key and a stale or mutated project reference
@@ -227,14 +236,16 @@ def activate_revision(revision):
     content. Verification reads and hashes every stored file, so it runs before any row is
     locked and the transaction that moves the pointer stays short. Inside it, the project
     row is locked before the revision row, the same order a project delete takes, so
-    concurrent activations serialize rather than deadlock, and the locked row must still
-    carry the digest, manifest, entrypoint snapshot, and an activatable status the verified
-    snapshot had, otherwise activation is refused. The entrypoint snapshot is compared
-    alongside its digest because a swap that left the digest field untouched would
-    otherwise activate content the return-trip check never covered. Activating the revision that is already active is a
-    no-op, checked after ownership and status. Raises ActivationError for a revision that
-    has not passed project validation or that changed while its content was being verified,
-    and RevisionCorruptError when its stored tree no longer matches its manifest.
+    concurrent activations serialize rather than deadlock, and the locked row must still carry
+    the digest, manifest, entrypoint snapshot, recorded scripts, and an activatable status the
+    verified snapshot had, otherwise promotion is refused. The entrypoint snapshot is compared
+    alongside its digest because a swap that left the digest field untouched would otherwise
+    activate content the return-trip check never covered, and the recorded scripts are compared
+    for the same reason, because the callback is about to derive rows from them. Promoting the
+    revision that is already active moves nothing, checked after ownership and status. Raises
+    ActivationError for a revision that has not passed project validation or that changed while
+    its content was being verified, and RevisionCorruptError when its stored tree no longer
+    matches its manifest.
 
     Activation runs on the default database like the rest of the storage lifecycle, so a
     revision loaded from any other connection is refused before anything is read or locked,
@@ -272,10 +283,10 @@ def activate_revision(revision):
         store.verify_revision_tree(
             storage, project_state['storage_key'], snapshot.digest, _validated_manifest(snapshot)
         )
-        return _promote(snapshot, revision_pk, using)
+        return _promote(snapshot, revision_pk, using, on_promote)
 
 
-def _promote(snapshot, revision_pk, using):
+def _promote(snapshot, revision_pk, using, on_promote):
     """Move a project's active pointer to one verified revision, under the row locks."""
     with transaction.atomic(using=using):
         project = CustomScriptProject.objects.using(using).select_for_update().get(pk=snapshot.project_id)
@@ -289,10 +300,14 @@ def _promote(snapshot, revision_pk, using):
             or locked.manifest != snapshot.manifest
             or locked.entrypoint_digest != snapshot.entrypoint_digest
             or locked.entrypoint_snapshot != snapshot.entrypoint_snapshot
+            or locked.discovered_scripts != snapshot.discovered_scripts
         ):
             raise ActivationError(f'Revision {locked.pk} changed while its stored tree was being verified.')
         already_active = locked.status == RevisionStatusChoices.ACTIVE and project.active_revision_id == locked.pk
         _require_activatable(locked, already_active)
+        # Before the early return, so re-promoting the revision already in force repairs
+        # whatever the callback derives from it.
+        on_promote(project=project, revision=locked, using=using)
         if already_active:
             return locked
 

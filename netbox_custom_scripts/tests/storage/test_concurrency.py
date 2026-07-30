@@ -131,7 +131,10 @@ class ProjectLockHeldTestCase(SerializationTestCase):
         revision = self.materialize()
         CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
         revision.refresh_from_db()
-        self.assert_locked_during('verify_revision_tree', lambda: service.activate_revision(revision))
+        self.assert_locked_during(
+            'verify_revision_tree',
+            lambda: service.promote_revision(revision, on_promote=lambda **kwargs: None),
+        )
 
     def test_entrypoint_refresh_holds_the_lock_across_the_verification(self):
         revision = self.materialize()
@@ -220,7 +223,7 @@ class SlowStagerTestCase(SerializationTestCase):
         revision = self.materialize()
         CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
         revision.refresh_from_db()
-        service.activate_revision(revision)
+        service.promote_revision(revision, on_promote=lambda **kwargs: None)
 
         staged = service.stage_revision(self.project, SOURCE)
         self.assertEqual(staged.revision.status, RevisionStatusChoices.ACTIVE)

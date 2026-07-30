@@ -55,30 +55,34 @@ when domain content calls for them.
 .
 ├── netbox_custom_scripts/            , The Django app.
 │   ├── __init__.py                , [stub] PluginConfig (name, version, base_url, min/max NetBox).
-│   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' + detail-only 'scripts/<int:pk>/' via get_model_urls, sorted. Segments never repeat the base_url.
-│   ├── navigation.py              , PluginMenu 'Custom Scripts' with a Projects group. Modules get no nav item: a declaration is a Project setting.
+│   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' + 'scripts/' + detail-only 'revisions/<int:pk>/' via get_model_urls, sorted. Segments never repeat the base_url.
+│   ├── navigation.py              , PluginMenu 'Custom Scripts' with a Projects group and a Scripts group, each labelled like every sibling plugin. Scripts get no add button and Modules get no nav item: a declaration is a Project setting.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
 │   │   ├── urls.py                , router.register for 'modules' + 'projects' + 'scripts'.
-│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + read-only CustomScriptViewSet.
+│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + update-only CustomScriptViewSet (http_method_names drops POST and DELETE).
 │   │   └── serializers/
 │   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectRevisionSerializer, CustomScriptProjectSerializer, CustomScriptSerializer.
 │   │       ├── revision.py    , CustomScriptProjectRevisionSerializer: no route, exists only so event serialization can resolve one by model name. Omits url/display_url, a revision has no detail route to reverse.
-│   │       ├── script.py      , CustomScriptSerializer: read-only, importable as api.serializers.CustomScriptSerializer for event serialization.
+│   │       ├── script.py      , CustomScriptSerializer: derived fields in read_only_fields, importable as api.serializers.CustomScriptSerializer for event serialization.
 │   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
 │   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, revision as a bare ID.
 │   ├── filtersets/
-│   │   ├── __init__.py            , Re-exports CustomScriptModuleFilterSet, CustomScriptProjectFilterSet.
+│   │   ├── __init__.py            , Re-exports CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet.
 │   │   ├── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
-│   │   └── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
+│   │   ├── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
+│   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, metadata unfiltered.
 │   ├── forms/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
 │   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm + CustomScriptProjectEntrypointsForm (reconciles the selection onto enabled).
 │   │   ├── model_forms/module.py    , CustomScriptModuleEditForm (project + source_path frozen, so disabled on edit).
 │   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
 │   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
+│   │   ├── model_forms/script.py    , CustomScriptEditForm: writable set is enabled/comments/owner/tags/custom fields, save() scopes update_fields so a stale form cannot revert a derived column.
+│   │   ├── bulk_edit/script.py      , CustomScriptBulkEditForm: enabled only, description removed declaratively since BulkEditView setattr ignores editable=False.
 │   │   ├── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
-│   │   └── filtersets/module.py     , CustomScriptModuleFilterForm.
+│   │   ├── filtersets/module.py     , CustomScriptModuleFilterForm.
+│   │   └── filtersets/script.py     , CustomScriptFilterForm.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision.
@@ -86,12 +90,12 @@ when domain content calls for them.
 │   │   ├── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
 │   │   └── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name, description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync).
 │   ├── tables/
-│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectTable.
+│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable, CustomScriptTable.
 │   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
-│   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered).
+│   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered). PrimaryObjectViewTestCase + NestedObjectViewTestCase + DerivedObjectViewTestCase, the last for models whose rows are derived, so no create, delete, or import.
 │   │   ├── models/__init__.py     , [CustomScriptProject] Test package anchor.
 │   │   ├── models/test_project.py , [CustomScriptProject] CustomScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
 │   │   ├── api/__init__.py        , [CustomScriptProject] Test package anchor.
@@ -108,9 +112,13 @@ when domain content calls for them.
 │   │   ├── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   │   ├── models/test_module.py  , CustomScriptModule model invariants.
 │   │   ├── models/test_script.py  , CustomScript identity, retirement, cascade + is_executable.
-│   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, read-only refusals.
+│   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, patchable enabled, ignored derived fields, refused create/delete.
 │   │   ├── api/test_revision.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
-│   │   ├── views/test_script.py   , CustomScript detail view + changelog rendering.
+│   │   ├── views/test_script.py   , CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase) + detail view, changelog rendering, and the absent create/delete routes.
+│   │   ├── tables/test_script.py  , CustomScriptTableTestCase(TableTestCases.StandardTableTestCase).
+│   │   ├── filtersets/test_script.py , CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), metadata in ignore_fields.
+│   │   ├── forms/test_script.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field.
+│   │   ├── graphql/test_script.py , CustomScriptGraphQLTestCase: last_seen_revision absent from the type.
 │   │   ├── views/test_revision.py , Activate/Deactivate buttons: round trip, refusals, permissions, and which button each status renders.
 │   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
 │   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase).
@@ -128,15 +136,15 @@ when domain content calls for them.
 │   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
 │   │   └── test_ingestion.py      , Ingestion ordering and failure modes, plus UploadToActiveTestCase: the whole slice end to end against real validation.
 │   ├── views/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
-│   │   ├── script.py               , CustomScriptView: detail only, actions = () since no clone/edit/delete route exists.
+│   │   ├── script.py               , List/Detail/Edit/BulkEdit views. No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion.
 │   │   └── revision.py             , Activate + Deactivate for one revision, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
 │   │   └── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel and the two Module panels.
-│   ├── search.py                  , [CustomScriptProject] CustomScriptProjectIndex(SearchIndex) registered via @register_search.
+│   ├── search.py                  , [CustomScriptProject] CustomScriptIndex + CustomScriptModuleIndex + CustomScriptProjectIndex, each registered via @register_search.
 │   ├── graphql/
 │   │   ├── __init__.py            , [CustomScriptProject] Exports schema = [Query].
 │   │   ├── schema.py              , [CustomScriptProject] @strawberry.type(name='Query') with custom_script_project / custom_script_project_list fields.

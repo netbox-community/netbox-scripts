@@ -58,3 +58,23 @@
   check rejected the default cache root on any host with a group-writable umask
 * Fixed: activation compared a revision's entrypoint digest but not the snapshot
   itself, so a snapshot swapped after its return-trip check could be activated
+* `CustomScript` model recording one published Script class per row, parented on
+  the Project because `script_order` lets a helper module publish a class.
+  Activating a revision synchronizes the rows in the same transaction that moves
+  the pointer, and a class the active revision stops publishing is retired
+  rather than deleted, so its Job history survives
+* `CustomScript` UI, REST API, GraphQL, and global-search surfaces. Rows are
+  derived rather than authored, so the surface offers list, detail, edit, and
+  bulk edit, and refuses create, delete, and bulk import on every one of them
+* An administrator can set a Custom Script's `enabled` from its edit form, in
+  bulk from the list view, or with a REST PATCH. The field was documented as the
+  administrator's from the start but no surface could write it, so it was
+  effectively always true. Synchronization still never touches it
+* A Project's detail page lists the Custom Scripts it has published, retired
+  ones included, filtered to that Project
+* Fixed: a Project holding an active revision could not be deleted through any
+  user-facing path, because the active-revision reference protected the Project
+  from itself and cascading revisions had no serializer for their delete events
+* Fixed: re-uploading source a Project has held before resolved to the existing
+  content-addressed revision, which already carried a verdict, so validation was
+  enqueued against a terminal revision and left a failed job

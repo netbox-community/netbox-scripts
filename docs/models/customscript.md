@@ -70,6 +70,10 @@ at.
 A script is executable when it is enabled, not retired, and its project is
 enabled.
 
+Set `enabled` from the Custom Script edit form, in bulk from the list view, or
+with a REST PATCH. Because synchronization never writes it, an activation cannot
+undo an administrator's decision.
+
 ## Relationships
 
 | Relationship | Target | Required | Notes |
@@ -87,15 +91,20 @@ scripts with it. Pruning an old revision never takes scripts with it, so
 | Surface | Endpoint or field |
 |---|---|
 | REST | `/api/plugins/custom-scripts/scripts/` |
+| GraphQL | `custom_script`, `custom_script_list` |
+| UI | Custom Scripts > Scripts |
 
-Read only. Rows are derived from a validated revision, so the API offers list
-and detail and refuses to create, change, or delete. A detail view exists for the
-same reason.
+Update only. Rows are derived from a validated revision, so the API offers list,
+detail, and update, and refuses to create or delete. A PATCH may set `enabled`,
+`comments`, `owner`, tags, and custom fields. Every derived field is read only,
+and a value supplied for one is ignored rather than rejected.
 
-The wider surface, a list view, table, filtering, global search, navigation, and
-GraphQL, arrives with execution. What ships here is the read-only identity
-surface, which a change-logged model needs in order to reverse its own routes
-while an event is serialized.
+The UI has the same shape: list, detail, edit, and bulk edit, with no add, no
+delete, and no bulk import. Retirement replaces deletion, so a script that stops
+being published keeps its primary key and the Job history attached to it.
+
+A project's detail page carries a Custom Scripts panel listing everything that
+project has published, retired scripts included.
 
 ## Invariants
 

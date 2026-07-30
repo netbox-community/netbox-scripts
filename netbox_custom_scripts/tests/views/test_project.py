@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, override_settings
 from django.urls import reverse
 
@@ -267,6 +268,36 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.grant(CustomScriptProject, 'view')
         expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[self.project.pk])
         self.assertNotIn(expected, self.body())
+
+    def synchronized_project(self):
+        source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')
+        return CustomScriptProject.objects.create(
+            name='Synced State',
+            key='synced-state',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=source,
+            data_path='scripts',
+        )
+
+    def test_the_add_script_action_is_absent_on_a_data_source_project(self):
+        # Ingestion refuses an upload into a synchronized project, so offering the button would
+        # put a user on a path that can only fail.
+        self.grant(CustomScriptProject, 'view', 'change')
+        synced = self.synchronized_project()
+        expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[synced.pk])
+        self.assertNotIn(expected, self.client.get(synced.get_absolute_url()).content.decode())
+
+    def test_uploading_into_a_data_source_project_is_a_form_error(self):
+        # A hand-typed URL still reaches the view, and the refusal has to be a form error. Left to
+        # ingestion it surfaces out of form.save(), which ObjectEditView does not catch.
+        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptModule, 'add')
+        synced = self.synchronized_project()
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[synced.pk])
+        response = self.client.post(url, {'upload_file': SimpleUploadedFile('deploy.py', b'X = 1\n')})
+        self.assertHttpStatus(response, 200)
+        self.assertIn('reconciled from its Data Source rather than uploaded', response.content.decode())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(project=synced).exists())
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)

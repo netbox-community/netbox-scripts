@@ -20,6 +20,7 @@ from utilities.permissions import get_permission_for_model
 from utilities.views import ViewTab, register_model_view
 
 from .. import activation
+from ..choices import ProjectSourceTypeChoices
 from ..filtersets import CustomScriptProjectFilterSet
 from ..forms import (
     CustomScriptProjectAddScriptForm,
@@ -30,8 +31,9 @@ from ..forms import (
     CustomScriptProjectFilterForm,
     CustomScriptProjectUploadForm,
 )
+from ..jobs import ProjectReconciliationJob
 from ..models import CustomScriptProject, CustomScriptProjectRevision
-from ..object_actions import ActivateRevision, AddScript
+from ..object_actions import ActivateRevision, AddScript, ReconcileSource
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import CustomScriptProjectRevisionTable, CustomScriptProjectTable
 from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
@@ -44,7 +46,7 @@ class CustomScriptProjectListView(generic.ObjectListView):
     # The default set also includes rename, which this model does not register, and
     # ActionsMixin filters by permission alone rather than by route.
     actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     table = CustomScriptProjectTable
     filterset = CustomScriptProjectFilterSet
     filterset_form = CustomScriptProjectFilterForm
@@ -54,9 +56,10 @@ class CustomScriptProjectListView(generic.ObjectListView):
 class CustomScriptProjectView(generic.ObjectView):
     """Detail view for a single Custom Script Project."""
 
-    queryset = CustomScriptProject.objects.all()
-    # Workflow order: add source, then put it in service.
-    actions = (AddScript, ActivateRevision, CloneObject, EditObject, DeleteObject)
+    queryset = CustomScriptProject.objects.select_related('data_source')
+    # Workflow order: add source, then put it in service. Only one of the first two ever renders,
+    # each for the source type it belongs to.
+    actions = (AddScript, ReconcileSource, ActivateRevision, CloneObject, EditObject, DeleteObject)
     layout = layout.SimpleLayout(
         left_panels=[
             CustomScriptProjectPanel(),
@@ -96,7 +99,7 @@ class CustomScriptProjectActivateView(generic.ObjectView):
     a candidate and reports the outcome rather than deciding anything itself.
     """
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     template_name = 'netbox_custom_scripts/customscriptproject_activate.html'
 
     def get_required_permission(self):
@@ -137,6 +140,50 @@ class CustomScriptProjectActivateView(generic.ObjectView):
         return redirect(project.get_absolute_url())
 
 
+@register_model_view(CustomScriptProject, 'reconcile', path='reconcile')
+class CustomScriptProjectReconcileView(generic.ObjectView):
+    """
+    Rebuild a Data Source-backed Project's source from its directory as it stands now.
+
+    A project created today has no source until its Data Source next synchronizes, which could be
+    hours away, so this reconciles against the current file inventory rather than waiting. It
+    deliberately does not drive the Data Source's own synchronization: that inventory is what a
+    project's source is built from, and refreshing it is the Data Source's own operation.
+
+    The work itself is a job, because the request process performs no storage I/O. GET confirms
+    and POST enqueues, and the queryset is narrowed to Data Source-backed projects, so the route
+    does not apply to a project whose source is uploaded.
+    """
+
+    queryset = CustomScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.DATA_SOURCE).select_related(
+        'data_source'
+    )
+    template_name = 'netbox_custom_scripts/customscriptproject_reconcile.html'
+
+    def get_required_permission(self):
+        """Require the change permission: this changes what the project serves."""
+        return get_permission_for_model(self.queryset.model, 'change')
+
+    def get(self, request, **kwargs):
+        """Confirm, naming the directory the source would be rebuilt from."""
+        project = self.get_object(**kwargs)
+        return render(
+            request,
+            self.template_name,
+            {'object': project, 'return_url': project.get_absolute_url()},
+        )
+
+    def post(self, request, **kwargs):
+        """Enqueue the reconciliation and say that it is under way."""
+        project = self.get_object(**kwargs)
+        ProjectReconciliationJob.enqueue_reconciliation(project)
+        messages.success(
+            request,
+            _('Reconciling the source of {project} from {source}.').format(project=project, source=project.data_source),
+        )
+        return redirect(project.get_absolute_url())
+
+
 @register_model_view(CustomScriptProject, 'revisions', path='revisions')
 class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
     """
@@ -148,7 +195,7 @@ class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
     hand, and the ones that will act on it belong to the revision itself rather than the table.
     """
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     child_model = CustomScriptProjectRevision
     table = CustomScriptProjectRevisionTable
     actions = ()
@@ -167,7 +214,7 @@ class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
 class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
     """Select a Custom Script Project's executable entrypoints from its own source."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     form = CustomScriptProjectEntrypointsForm
     tab = ViewTab(
         label=_('Entrypoints'),
@@ -187,7 +234,7 @@ class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
 class CustomScriptProjectEditView(generic.ObjectEditView):
     """Create and edit view for a Custom Script Project."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     form = CustomScriptProjectEditForm
 
 
@@ -195,7 +242,7 @@ class CustomScriptProjectEditView(generic.ObjectEditView):
 class CustomScriptProjectUploadView(generic.ObjectEditView):
     """Create a Custom Script Project from one uploaded script."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     form = CustomScriptProjectUploadForm
 
     def has_permission(self):
@@ -213,7 +260,7 @@ class CustomScriptProjectAddScriptView(generic.ObjectEditView):
     its source is being changed.
     """
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     form = CustomScriptProjectAddScriptForm
 
     def has_permission(self):
@@ -225,14 +272,14 @@ class CustomScriptProjectAddScriptView(generic.ObjectEditView):
 class CustomScriptProjectDeleteView(generic.ObjectDeleteView):
     """Delete view for a single Custom Script Project."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
 
 
 @register_model_view(CustomScriptProject, 'bulk_edit', path='edit', detail=False)
 class CustomScriptProjectBulkEditView(generic.BulkEditView):
     """Bulk edit view for Custom Script Projects."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     filterset = CustomScriptProjectFilterSet
     table = CustomScriptProjectTable
     form = CustomScriptProjectBulkEditForm
@@ -242,7 +289,7 @@ class CustomScriptProjectBulkEditView(generic.BulkEditView):
 class CustomScriptProjectBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete view for Custom Script Projects."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     filterset = CustomScriptProjectFilterSet
     table = CustomScriptProjectTable
 
@@ -251,5 +298,5 @@ class CustomScriptProjectBulkDeleteView(generic.BulkDeleteView):
 class CustomScriptProjectBulkImportView(generic.BulkImportView):
     """Bulk import view for Custom Script Projects."""
 
-    queryset = CustomScriptProject.objects.all()
+    queryset = CustomScriptProject.objects.select_related('data_source')
     model_form = CustomScriptProjectBulkImportForm

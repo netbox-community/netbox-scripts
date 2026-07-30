@@ -4,9 +4,12 @@ from django.utils.translation import gettext_lazy as _
 
 from netbox.object_actions import ObjectAction
 
+from .choices import ProjectSourceTypeChoices
+
 __all__ = (
     'ActivateRevision',
     'AddScript',
+    'ReconcileSource',
     'RunScript',
 )
 
@@ -35,6 +38,9 @@ class AddScript(ObjectAction):
     """
     Upload one more script into an existing Custom Script Project.
 
+    Only rendered for a project whose source is uploaded, since a Data Source-backed project
+    rebuilds its source from its directory and ingestion refuses an upload into one.
+
     The change permission, not add, because the target route is the project's own detail route
     and what it changes is the project's source. The view additionally requires the Module add
     permission, which an action's permission set cannot express, so a user holding only the
@@ -46,6 +52,31 @@ class AddScript(ObjectAction):
     permissions_required = {'change'}
     url_kwargs = ['pk']
     template_name = 'netbox_custom_scripts/buttons/add_script.html'
+
+    @classmethod
+    def get_context(cls, context, obj):
+        """Tell the template whether this project takes uploads at all."""
+        return {'uploadable': obj.source_type == ProjectSourceTypeChoices.UPLOAD}
+
+
+class ReconcileSource(ObjectAction):
+    """
+    Rebuild a Custom Script Project's source from its Data Source directory now.
+
+    Only rendered for a Data Source-backed project, since an uploaded one has no directory to
+    reconcile against. The change permission, because what it changes is what the project serves.
+    """
+
+    name = 'reconcile'
+    label = _('Reconcile Source')
+    permissions_required = {'change'}
+    url_kwargs = ['pk']
+    template_name = 'netbox_custom_scripts/buttons/reconcile.html'
+
+    @classmethod
+    def get_context(cls, context, obj):
+        """Tell the template whether this project has a directory to reconcile against."""
+        return {'synchronized': obj.source_type == ProjectSourceTypeChoices.DATA_SOURCE}
 
 
 class RunScript(ObjectAction):

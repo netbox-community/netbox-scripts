@@ -1,0 +1,27 @@
+{% extends "generic/confirmation_form.html" %}
+{% load i18n %}
+{% comment %}
+Reconciliation confirmation for a Data Source-backed Project.
+
+Context:
+  - object:     The Project whose source would be rebuilt
+  - return_url: Where Cancel goes, the Project detail view
+{% endcomment %}
+{% block title %}
+  {% trans "Reconcile source" %}
+{% endblock title %}
+{% block confirmation_title %}
+  {% trans "Reconcile source" %}
+{% endblock confirmation_title %}
+{% block message %}
+  <p>
+    {% blocktrans with project=object source=object.data_source path=object.data_path %}
+      Rebuild the source of {{ project }} from "{{ path }}" in {{ source }}?
+    {% endblocktrans %}
+  </p>
+  <p class="text-secondary">
+    {% trans "The directory as it stands now becomes a new revision, which is then validated." %}
+    {% trans "A Python file that has appeared is a candidate, so select it on the Entrypoints tab before it publishes anything." %}
+    {% trans "This does not synchronize the Data Source itself." %}
+  </p>
+{% endblock message %}

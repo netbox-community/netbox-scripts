@@ -1,3 +1,5 @@
-<a href="{{ url }}" class="btn btn-primary" role="button">
-  <i class="mdi mdi-file-upload-outline" aria-hidden="true"></i> {{ label }}
-</a>
+{% if uploadable %}
+  <a href="{{ url }}" class="btn btn-primary" role="button">
+    <i class="mdi mdi-file-upload-outline" aria-hidden="true"></i> {{ label }}
+  </a>
+{% endif %}

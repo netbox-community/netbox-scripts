@@ -180,6 +180,14 @@ class CustomScriptProjectAddScriptForm(PrimaryModelForm):
     def clean(self):
         """Require confirmation for a path the Project already holds, and refuse a colliding one."""
         super().clean()
+        # Refused here rather than left to ingestion, which raises out of save(), where the
+        # editing view does not catch it.
+        if self.instance.source_type != ProjectSourceTypeChoices.UPLOAD:
+            raise ValidationError(
+                _('The source of "{project}" is reconciled from its Data Source rather than uploaded.').format(
+                    project=self.instance
+                )
+            )
         upload = self.cleaned_data.get('upload_file')
         if upload is None:
             return self.cleaned_data

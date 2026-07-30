@@ -410,30 +410,51 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
         self.assertGreater(self.script_changes(), 0)
 
-    def test_the_project_page_links_to_each_published_script(self):
-        # The only route into a Custom Script's detail page until the full surface lands.
+    def scripts_panel_url(self):
+        """The list route the detail page's scripts panel fetches over HTMX, filtered to it."""
+        return f'{reverse("plugins:netbox_custom_scripts:customscript_list")}?project_id={self.project.pk}'
+
+    def test_the_project_page_fetches_its_scripts_panel(self):
+        # The panel renders a card and an hx-get rather than rows, so the page carries the
+        # filtered URL and the fetch behind it is asserted separately below.
+        self.grant('view', 'change')
+        self.grant_scripts('view')
+        self.publish()
+        self.client.post(self.url())
+        body = self.client.get(self.project.get_absolute_url()).content.decode()
+        self.assertIn(f'/plugins/custom-scripts/scripts/?embedded=True&project_id={self.project.pk}', body)
+
+    def test_the_fetched_panel_lists_each_published_script(self):
+        # Following the hx-get is what proves the panel reaches the scripts, and it covers
+        # more than the old inline markup did: the filter, the route, and the row link.
         self.grant('view', 'change')
         self.grant_scripts('view')
         self.publish()
         self.client.post(self.url())
         script = CustomScript.objects.get(project=self.project)
-        body = self.client.get(self.project.get_absolute_url()).content.decode()
+
+        response = self.client.get(self.scripts_panel_url())
+        self.assertHttpStatus(response, 200)
+        body = response.content.decode()
         self.assertIn(script.get_absolute_url(), body)
         self.assertIn(script.display_name, body)
 
-    def test_the_panel_reports_an_empty_project_rather_than_nothing(self):
+    def test_the_panel_renders_for_a_project_with_no_scripts(self):
+        # An empty project still gets the card. The empty state itself is NetBox's standard
+        # table one, rendered by the fetch rather than inline.
         self.grant('view', 'change')
         self.grant_scripts('view')
         body = self.client.get(self.project.get_absolute_url()).content.decode()
-        self.assertIn('No Custom Scripts have been published yet', body)
+        self.assertIn(f'/plugins/custom-scripts/scripts/?embedded=True&project_id={self.project.pk}', body)
 
     def test_the_panel_is_hidden_without_permission_to_view_scripts(self):
+        # should_render() drops the whole card, so the fetch URL is absent rather than the
+        # panel rendering empty.
         self.grant('view', 'change')
         self.publish()
         self.client.post(self.url())
-        script = CustomScript.objects.get(project=self.project)
         body = self.client.get(self.project.get_absolute_url()).content.decode()
-        self.assertNotIn(script.get_absolute_url(), body)
+        self.assertNotIn(f'/plugins/custom-scripts/scripts/?embedded=True&project_id={self.project.pk}', body)
 
     def test_reactivating_the_same_revision_logs_nothing_further(self):
         # The user-visible form of never saving an unchanged row. The view offers no candidate

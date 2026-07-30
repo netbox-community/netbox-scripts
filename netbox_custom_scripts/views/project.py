@@ -3,9 +3,18 @@ from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
-from netbox.object_actions import CloneObject, DeleteObject, EditObject
+from netbox.object_actions import (
+    AddObject,
+    BulkDelete,
+    BulkEdit,
+    BulkExport,
+    BulkImport,
+    CloneObject,
+    DeleteObject,
+    EditObject,
+)
 from netbox.ui import layout
-from netbox.ui.panels import CommentsPanel, ObjectsTablePanel, TemplatePanel
+from netbox.ui.panels import CommentsPanel, ObjectsTablePanel
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.views import ViewTab, register_model_view
@@ -32,6 +41,9 @@ from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, Custo
 class CustomScriptProjectListView(generic.ObjectListView):
     """List view for Custom Script Projects."""
 
+    # The default set also includes rename, which this model does not register, and
+    # ActionsMixin filters by permission alone rather than by route.
+    actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
     queryset = CustomScriptProject.objects.all()
     table = CustomScriptProjectTable
     filterset = CustomScriptProjectFilterSet
@@ -61,7 +73,12 @@ class CustomScriptProjectView(generic.ObjectView):
                 'netbox_custom_scripts.customscriptmodule',
                 filters={'project_id': lambda context: context['object'].pk},
             ),
-            TemplatePanel('netbox_custom_scripts/inc/project_scripts.html'),
+            # Unfiltered by retirement on purpose: hiding a retired script would make one that
+            # stopped being published look deleted while its row and Job history are still there.
+            ObjectsTablePanel(
+                'netbox_custom_scripts.customscript',
+                filters={'project_id': lambda context: context['object'].pk},
+            ),
         ],
     )
 

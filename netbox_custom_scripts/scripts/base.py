@@ -50,10 +50,6 @@ class BaseScript:
     def __str__(self):
         return self.name
 
-    #
-    # Identity
-    #
-
     @classproperty
     def module(cls):
         """Return the logical module name this script is published under."""
@@ -77,10 +73,6 @@ class BaseScript:
     def root_module(cls):
         """Return the first segment of the script's module path."""
         return cls.module.split('.')[0]
-
-    #
-    # Author-defined Meta attributes
-    #
 
     @classproperty
     def name(cls):
@@ -122,10 +114,6 @@ class BaseScript:
         """Return the default job notification policy from Meta."""
         return getattr(cls.Meta, 'notifications_default', JobNotificationChoices.NOTIFICATION_ALWAYS)
 
-    #
-    # Variables
-    #
-
     @classmethod
     def _get_vars(cls):
         script_vars = {}
@@ -148,10 +136,6 @@ class BaseScript:
 
         return ordered_vars
 
-    #
-    # Execution
-    #
-
     def run(self, data, commit):
         """Run the script. Authors must override this method."""
         raise NotImplementedError('A Custom Script must define a run(self, data, commit) method.')
@@ -162,10 +146,6 @@ class BaseScript:
             'log': self.messages,
             'output': self.output,
         }
-
-    #
-    # Run form
-    #
 
     def get_fieldsets(self):
         """Return the run form's fieldsets, either the author's layout or a default one."""
@@ -197,10 +177,6 @@ class BaseScript:
         form.fields['_commit'].initial = self.commit_default
 
         return form
-
-    #
-    # Logging
-    #
 
     def _log(self, message, obj=None, level=LogLevelChoices.LOG_INFO):
         """

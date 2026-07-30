@@ -39,38 +39,18 @@ def stage_revision(project, files):
     """
     Materialize a mapping of source path to content bytes as a revision of a project.
 
-    Success means the tree is stored and matches its manifest, which is MATERIALIZED, not
-    VALID. Promotion to VALID belongs to project validation, so nothing staged here can be
-    activated until imports, entrypoints, and Script discovery have been checked.
+    Reaches MATERIALIZED, never VALID: a verdict belongs to project validation. Bad content
+    never raises, it lands as an INVALID revision with a null digest, and repeated bad uploads
+    stay distinct. Valid content is content-addressed, so an identical tree under an unchanged
+    entrypoint configuration returns the existing revision once its stored tree verifies, and a
+    changed configuration yields a new identity over the same content. Only a revision whose
+    write never completed is re-driven. A row a concurrent owner advanced is returned as that
+    owner left it.
 
-    A content problem never raises. A rejected tree is persisted as an invalid revision with
-    a null digest, so its errors and the accepted part of its manifest stay inspectable and
-    repeated bad uploads stay distinct. Valid content is content-addressed, so re-staging an
-    identical tree under an unchanged entrypoint configuration returns the existing revision
-    after verifying its stored tree, while a changed configuration yields a new revision
-    identity that reuses the stored content. Only a revision whose write never completed is
-    re-driven, so a revision that validation rejected is never resurrected. A storage failure
-    records STORAGE_FAILED and re-raises, since it is an infrastructure fault rather than a
-    property of the content.
-
-    The files mapping is snapshotted and frozen on entry and every step works from that
-    snapshot, so the manifest always describes what was written. Keys must be str and values
-    must be bytes-like, and a caller that breaks either gets a TypeError rather than an
-    invalid revision, because that is a programming fault and not a property of the content.
-
-    Status transitions are conditional on the row still being inside its write window, so a
-    slow or failed writer cannot demote a revision that validation or activation advanced
-    concurrently. Such a row is returned as that owner left it. A row deleted underneath the
-    write raises RevisionVanishedError, since deleting a project takes no project lock and its
-    cascade can land while this call is inside its window.
-
-    The storage lifecycle runs on the default database, where deletion cleanup can be
-    recorded, so a project loaded from any other connection is refused before any row or
-    content is written. Content staged elsewhere could never be reclaimed.
-
-    Refuses with ImproperlyConfigured when NetBox Branching would not keep these models in the
-    main schema, before any row is created, because a revision written under branch-local rows
-    would name source another schema also claims.
+    Raises TypeError for a key that is not str or a value that is not bytes-like,
+    RevisionVanishedError for a project deleted underneath the write, ImproperlyConfigured for
+    an unsafe database or branching route, and re-raises a storage failure after recording
+    STORAGE_FAILED.
     """
     branching.require_safe_routing()
     storage = config.get_storage()
@@ -222,38 +202,19 @@ def promote_revision(revision, *, on_promote):
 
     on_promote is called as on_promote(project=..., revision=..., using=...) inside the
     transaction that moves the pointer, after both row locks and the identity recheck, and
-    before the pointer moves. It is the seam the domain operation publishes through, so it is
-    required rather than optional: an active revision and whatever is derived from it change
-    together, and a default would leave that bypass one call away. It may do database work on
-    the alias it is given and nothing else, no storage reads, no imports, no network calls. It
-    also runs on the already-active path, so re-promoting the current revision repairs
-    whatever a caller derives from it.
+    before the pointer moves. It may do database work on the alias it is given and nothing
+    else, no storage reads, no imports, no network calls. It is required rather than optional,
+    so that an active revision and whatever is derived from it always change together. It also
+    runs on the already-active path, so re-promoting the current revision repairs whatever a
+    caller derives from it while moving nothing.
 
-    The owning project is read from the database rather than from the supplied instance, so
-    the argument contributes only its primary key and a stale or mutated project reference
-    cannot point one project at another project's revision. The stored tree is verified
-    before promotion, because a status is not evidence that the backend still holds the
-    content. Verification reads and hashes every stored file, so it runs before any row is
-    locked and the transaction that moves the pointer stays short. Inside it, the project
-    row is locked before the revision row, the same order a project delete takes, so
-    concurrent activations serialize rather than deadlock, and the locked row must still carry
-    the digest, manifest, entrypoint snapshot, recorded scripts, and an activatable status the
-    verified snapshot had, otherwise promotion is refused. The entrypoint snapshot is compared
-    alongside its digest because a swap that left the digest field untouched would otherwise
-    activate content the return-trip check never covered, and the recorded scripts are compared
-    for the same reason, because the callback is about to derive rows from them. Promoting the
-    revision that is already active moves nothing, checked after ownership and status. Raises
-    ActivationError for a revision that has not passed project validation or that changed while
-    its content was being verified, and RevisionCorruptError when its stored tree no longer
-    matches its manifest.
+    The supplied revision contributes only its primary key. The stored tree is verified first,
+    because a status is not evidence that the backend still holds the content.
 
-    Activation runs on the default database like the rest of the storage lifecycle, so a
-    revision loaded from any other connection is refused before anything is read or locked,
-    and every promoted revision can later record its deletion cleanup.
-
-    Refuses with ImproperlyConfigured when NetBox Branching would not keep these models in the
-    main schema, since a pointer moved inside a branch would not be the pointer the main schema
-    serves scripts from.
+    Raises ActivationError for a revision that has not passed project validation or that
+    changed while its content was being verified, RevisionCorruptError when its stored tree no
+    longer matches its manifest, and ImproperlyConfigured for an unsafe database or branching
+    route.
     """
     branching.require_safe_routing()
     storage = config.get_storage()
@@ -289,12 +250,17 @@ def promote_revision(revision, *, on_promote):
 def _promote(snapshot, revision_pk, using, on_promote):
     """Move a project's active pointer to one verified revision, under the row locks."""
     with transaction.atomic(using=using):
+        # Project row before revision row, the same order a project delete takes, so concurrent
+        # activations serialize rather than deadlock.
         project = CustomScriptProject.objects.using(using).select_for_update().get(pk=snapshot.project_id)
         locked = (
             CustomScriptProjectRevision.objects.using(using)
             .select_for_update()
             .get(pk=revision_pk, project_id=project.pk)
         )
+        # The snapshot and its digest are compared, not just the digest: a swap leaving the digest
+        # field untouched would activate content the return-trip check never covered. The recorded
+        # scripts are compared for the same reason, the callback is about to derive rows from them.
         if (
             locked.digest != snapshot.digest
             or locked.manifest != snapshot.manifest

@@ -180,6 +180,43 @@ class IngestUploadTestCase(TestCase):
         self.assertEqual(first.revision.pk, second.revision.pk)
         self.assertFalse(second.created)
 
+    def test_a_revision_holding_a_verdict_is_not_enqueued_again(self):
+        # Re-uploading identical content resolves to the revision that already has the verdict,
+        # and only a materialized revision is claimable, so enqueueing it would fail a job over
+        # an upload that changed nothing.
+        first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        for status in (
+            RevisionStatusChoices.VALID,
+            RevisionStatusChoices.ACTIVE,
+            RevisionStatusChoices.RETIRED,
+        ):
+            with self.subTest(status=status):
+                CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=status)
+                self.enqueued.reset_mock()
+
+                second = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+                self.assertEqual(second.revision.pk, first.revision.pk)
+                self.assertEqual(second.revision.status, status)
+                self.enqueued.assert_not_called()
+
+    @override_settings(PLUGINS_CONFIG={'netbox_custom_scripts': {'max_file_size': 8}})
+    def test_a_revision_rejected_at_staging_is_not_enqueued(self):
+        # A tree the manifest refuses is persisted as an invalid revision that project validation
+        # never owned, so it is not claimable either.
+        staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        self.assertEqual(staged.revision.status, RevisionStatusChoices.INVALID)
+        self.enqueued.assert_not_called()
+
+    def test_a_still_materialized_revision_is_enqueued_again(self):
+        # The recovery path: a worker that died without recording a verdict leaves the revision
+        # claimable, so a repeated upload has to be able to drive it again.
+        first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        self.enqueued.reset_mock()
+
+        second = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        self.assertEqual(second.revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.enqueued.assert_called_once_with(first.revision)
+
     def test_a_nested_path_is_preserved_at_this_layer(self):
         # Flattening to a basename happens in Django's uploaded-file handling, so it binds the
         # HTTP upload only. Data Source reconciliation reaches this function with real directory

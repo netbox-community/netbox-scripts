@@ -21,7 +21,7 @@ from django.core.exceptions import ValidationError
 from django.db import router, transaction
 from django.utils.translation import gettext as _
 
-from .choices import ProjectSourceTypeChoices
+from .choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from .jobs import RevisionValidationJob
 from .models import CustomScriptModule
 from .storage import config, service, store
@@ -86,6 +86,9 @@ def ingest_upload(project, *, filename, content, base_files=None):
     be Python source. base_files carries the project's existing tree, so a later upload stages
     a revision holding what was there plus the new file. Returns the StagedRevision.
 
+    Validation is enqueued only for a revision that is still claimable, so re-uploading content
+    that already reached a verdict resolves to that revision and leaves it alone.
+
     Raises ValidationError for a name the path policy or the source rule refuses, and whatever
     staging raises for a storage failure or a project deleted underneath the write.
     """
@@ -104,7 +107,11 @@ def ingest_upload(project, *, filename, content, base_files=None):
         _declare_entrypoint(project, path, using)
 
     staged = service.stage_revision(project, files)
-    RevisionValidationJob.enqueue_validation(staged.revision)
+    # Content addressing means identical bytes resolve to the existing revision, carrying whatever
+    # verdict it already holds. Only MATERIALIZED is claimable, so enqueueing any other status
+    # would fail a job over an upload that changed nothing.
+    if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
+        RevisionValidationJob.enqueue_validation(staged.revision)
     return staged
 
 

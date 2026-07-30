@@ -151,3 +151,9 @@ Re-activating the revision already in force is not a no-op. It synchronizes agai
 which repairs rows that went missing, and because synchronization skips any row
 that already matches, the repair writes nothing and logs nothing when nothing is
 wrong.
+
+Deactivation is the reverse: it retires the revision, clears the project's
+pointer, and retires every Custom Script, because a project serving no revision
+publishes nothing. It reads no storage and imports nothing, for the same reason.
+Both operations lock the project row and then the revision row, in that order, so
+a concurrent activation settles on one side or the other rather than interleaving.

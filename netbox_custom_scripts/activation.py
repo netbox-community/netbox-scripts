@@ -11,14 +11,20 @@ verdict the revision already carries, and the recorded snapshot is what the verd
 about.
 """
 
-from .models import CustomScript
+from django.db import transaction
+
+from . import branching
+from .choices import RevisionStatusChoices
+from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
 from .runtime.exceptions import ScriptMetadataError
 from .runtime.introspection import validate_discovered_scripts
 from .storage import service
 from .storage.exceptions import ActivationError
+from .storage.service import require_default_database
 
 __all__ = (
     'activate_revision',
+    'deactivate_revision',
     'synchronize_scripts',
 )
 
@@ -35,6 +41,43 @@ def activate_revision(revision):
     """
     _validated_records(revision)
     return service.promote_revision(revision, on_promote=_publish_scripts)
+
+
+def deactivate_revision(revision):
+    """
+    Stand a project down from the revision it is serving, and return that revision, retired.
+
+    The reverse of activation, and the only way to leave a project serving nothing once it has
+    served something. Nothing is read from storage and no project code is imported, because a
+    project that serves no revision publishes nothing, so there is nothing to describe.
+
+    Its Custom Scripts retire rather than vanish, which is what an empty snapshot means to the
+    synchronizer. They keep their primary keys, their Job history, and whatever enabled an
+    administrator left them at, so re-activating the revision brings back the same rows.
+
+    Both rows are locked in the order the promotion takes, so a concurrent activation settles
+    either side of this rather than interleaving with it. Raises ActivationError when the
+    revision is not the one its project is serving.
+    """
+    branching.require_safe_routing()
+    using = require_default_database(revision)
+    with transaction.atomic(using=using):
+        project = CustomScriptProject.objects.using(using).select_for_update().get(pk=revision.project_id)
+        locked = (
+            CustomScriptProjectRevision.objects.using(using)
+            .select_for_update()
+            .get(pk=revision.pk, project_id=project.pk)
+        )
+        if project.active_revision_id != locked.pk:
+            raise ActivationError(f'Revision {locked.pk} is not the active revision of its project.')
+
+        synchronize_scripts(project=project, revision=locked, records=[], using=using)
+        locked.status = RevisionStatusChoices.RETIRED
+        locked.save(using=using, update_fields=('status', 'last_updated'))
+        project.active_revision = None
+        project.save(using=using, update_fields=('active_revision', 'last_updated'))
+
+    return locked
 
 
 def synchronize_scripts(*, project, revision, records, using):

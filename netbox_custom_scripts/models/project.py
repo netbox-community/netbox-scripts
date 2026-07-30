@@ -552,6 +552,18 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
         """The digest prefix a revision is referred to by, empty for a rejected staging."""
         return self.digest[:12] if self.digest else ''
 
+    @property
+    def is_active(self):
+        """Whether this revision is the one its project is serving."""
+        # The status alone answers it. One active revision per project is a database
+        # constraint, and promotion moves the status and the project's pointer together.
+        return self.status == RevisionStatusChoices.ACTIVE
+
+    @property
+    def is_activatable(self):
+        """Whether this revision's status allows it to be put into service."""
+        return self.status in ACTIVATABLE_REVISION_STATUSES
+
     def get_status_color(self):
         """Return the badge color configured for this revision's status."""
         return RevisionStatusChoices.colors.get(self.status)

@@ -15,6 +15,10 @@ from .project import (
     CustomScriptProjectListView,
     CustomScriptProjectView,
 )
+from .revision import (
+    CustomScriptProjectRevisionActivateView,
+    CustomScriptProjectRevisionDeactivateView,
+)
 from .script import CustomScriptView
 
 __all__ = (
@@ -30,6 +34,8 @@ __all__ = (
     'CustomScriptProjectEditView',
     'CustomScriptProjectEntrypointsView',
     'CustomScriptProjectListView',
+    'CustomScriptProjectRevisionActivateView',
+    'CustomScriptProjectRevisionDeactivateView',
     'CustomScriptProjectView',
     'CustomScriptView',
 )

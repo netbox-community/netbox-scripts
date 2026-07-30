@@ -1,0 +1,33 @@
+{% load i18n %}
+{% comment %}
+Per-row Activate and Deactivate buttons for the Revisions tab, rendered through the table's
+ActionsColumn extra_buttons.
+
+Both POST, because both change what the project serves. The two are mutually exclusive: the
+revision in force offers Deactivate, one whose status allows it offers Activate, and a revision
+that is still staging, validating, invalid, or already superseded offers neither.
+
+Permission is the project's change permission, matching the views, so the buttons appear
+exactly when they would work.
+{% endcomment %}
+{% if perms.netbox_custom_scripts.change_customscriptproject %}
+  {% if record.is_active %}
+    <form method="post"
+          action="{% url 'plugins:netbox_custom_scripts:customscriptprojectrevision_deactivate' pk=record.pk %}"
+          class="d-inline-block">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-outline-warning">
+        <i class="mdi mdi-stop-circle-outline" aria-hidden="true"></i> {% trans "Deactivate" %}
+      </button>
+    </form>
+  {% elif record.is_activatable %}
+    <form method="post"
+          action="{% url 'plugins:netbox_custom_scripts:customscriptprojectrevision_activate' pk=record.pk %}"
+          class="d-inline-block">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-outline-primary">
+        <i class="mdi mdi-play-circle-outline" aria-hidden="true"></i> {% trans "Activate" %}
+      </button>
+    </form>
+  {% endif %}
+{% endif %}

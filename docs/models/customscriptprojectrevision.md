@@ -62,7 +62,21 @@ itself, and no project with an active revision could ever be deleted.
 | REST | none in this release |
 | GraphQL | none in this release |
 
-Revisions carry no UI, REST, GraphQL, filterset, or global-search surface yet.
+Revisions carry no detail page, REST endpoint, GraphQL type, filterset, or
+global-search surface. They do carry two actions, rendered per row on the
+project's **Revisions** tab:
+
+- **Activate** on any revision whose status is `valid` or `retired`, which puts
+  it into service and publishes its [Custom Scripts](customscript.md).
+- **Deactivate** on the revision in force, which retires it, leaves the project
+  serving nothing, and retires its Custom Scripts.
+
+Both need the owning project's change permission, because what they change is
+what the project serves, and both are POST. Deactivation is the only way to
+stand a project down to serving nothing once it has served something. Retiring
+the scripts rather than deleting them is what lets a later activation return the
+same rows, with their Job history and with whatever `enabled` an administrator
+left them at.
 
 A serializer exists all the same, without a route to serve. Event serialization
 resolves a serializer by model name, and it runs on any request that deletes a
@@ -143,7 +157,7 @@ separate services.
 | `validating` | `materialized` | Environment trouble rolled the claim back, retryable |
 | `validating` | `validating` | An expired lease was reclaimed by a newer validation run |
 | `valid` or `retired` | `active` | The revision was activated |
-| `active` | `retired` | Another revision of the same project was activated |
+| `active` | `retired` | Another revision of the same project was activated, or this one was deactivated |
 
 `staging` covers the whole storage write, including a retry, and `validating` belongs to
 project validation. Keeping them apart is what stops a concurrent re-stage from rewriting a
@@ -297,7 +311,8 @@ for them.
 
 | Limitation | Impact |
 |---|---|
-| No UI, REST, or GraphQL surface | Revisions can only be created by the storage service, which no user-facing view calls yet |
+| No detail page, REST endpoint, or GraphQL type | A revision is history. It carries Activate and Deactivate on the project's Revisions tab and nothing else |
 | Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
+| Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |
 | Staging is not serialized against itself or against deletion | Concurrent staging of one digest, or a project deleted mid-write, can leave the database and the store briefly disagreeing. The same boundary owns the queued-cleanup race: content re-staged while a deleted twin's cleanup Job is still pending can be removed by that Job once it runs. No caller in this release runs concurrently, and one shared locking model arrives with the first ones |

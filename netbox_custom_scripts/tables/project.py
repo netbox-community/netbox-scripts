@@ -48,11 +48,15 @@ class CustomScriptProjectTable(PrimaryModelTable):
 
 class CustomScriptProjectRevisionTable(BaseTable):
     """
-    Read-only history of one project's revisions, for the project detail view.
+    One project's revision history, for the project detail view.
 
     BaseTable rather than NetBoxTable, because a revision is history rather than an object a
-    user edits: there is no list view to link to, no selection column, and no actions column.
-    Implementation fields stay out, the manifest and the lease belong to a diagnostic view.
+    user edits: there is no list view to link to and no selection column. Implementation fields
+    stay out, the manifest and the lease belong to a diagnostic view.
+
+    The actions column carries no standard actions, only the two buttons that move the project
+    between revisions. A revision has no edit, delete, or changelog route for the defaults to
+    point at.
     """
 
     created = columns.DateTimeColumn(verbose_name=_('Created'))
@@ -61,6 +65,15 @@ class CustomScriptProjectRevisionTable(BaseTable):
     file_count = tables.Column(verbose_name=_('Files'))
     total_size = tables.Column(verbose_name=_('Size'))
     activated = columns.DateTimeColumn(verbose_name=_('Activated'))
+    actions = columns.ActionsColumn(
+        actions=(),
+        extra_buttons="{% include 'netbox_custom_scripts/inc/revision_actions.html' %}",
+    )
+
+    # BaseTable hides every column a user has not selected, and column selection is not offered
+    # for a table with no list view, so the actions column has to be exempt to render at all.
+    # NetBoxTable exempts its own for the same reason.
+    exempt_columns = ('actions',)
 
     class Meta(BaseTable.Meta):
         model = CustomScriptProjectRevision

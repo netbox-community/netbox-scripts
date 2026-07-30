@@ -87,7 +87,7 @@ when domain content calls for them.
 │   │   └── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name, description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync).
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectTable.
-│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the read-only history table with no list view.
+│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
@@ -111,6 +111,7 @@ when domain content calls for them.
 │   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, read-only refusals.
 │   │   ├── api/test_revision.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
 │   │   ├── views/test_script.py   , CustomScript detail view + changelog rendering.
+│   │   ├── views/test_revision.py , Activate/Deactivate buttons: round trip, refusals, permissions, and which button each status renders.
 │   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
 │   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase).
 │   │   ├── tables/test_module.py  , CustomScriptModuleTableTestCase(TableTestCases.StandardTableTestCase).
@@ -130,11 +131,11 @@ when domain content calls for them.
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
-│   │   └── script.py               , CustomScriptView: detail only, actions = () since no clone/edit/delete route exists.
+│   │   ├── script.py               , CustomScriptView: detail only, actions = () since no clone/edit/delete route exists.
+│   │   └── revision.py             , Activate + Deactivate POST views for one revision. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
-│   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel and the two Module panels.
-│   │   └── attrs.py               , [stub] Custom ObjectAttribute subclasses (comment stub).
+│   │   └── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel and the two Module panels.
 │   ├── search.py                  , [CustomScriptProject] CustomScriptProjectIndex(SearchIndex) registered via @register_search.
 │   ├── graphql/
 │   │   ├── __init__.py            , [CustomScriptProject] Exports schema = [Query].
@@ -161,7 +162,7 @@ when domain content calls for them.
 │   ├── scripts/                   , Authoring API: base.py (BaseScript/Script), variables.py, forms.py, logging.py, exceptions.py.
 │   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all four models, safety checks.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
-│   ├── activation.py              , activate_revision() domain orchestrator + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
+│   ├── activation.py              , activate_revision() / deactivate_revision() domain orchestrators + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
 │   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows).
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
@@ -609,6 +610,27 @@ it in section 6.3.
 - **GraphQL choice fields** follow NetBox core: typed enums (from
   `graphql/enums.py`) appear on filter inputs only; object types expose raw
   choice values as strings.
+- **Docstrings carry the contract, not the reasoning.** One line by default. It
+  earns more lines only for behaviour a caller has to branch on, never for
+  rationale: that a call does not raise on bad input, that it deduplicates, what
+  it returns, what it raises. If a sentence explains *why* the code is written
+  the way it is, it does not belong in a docstring. Three rules follow, and each
+  names where the displaced prose goes instead:
+  - Rationale about one specific line is an **inline comment at that line**,
+    not a paragraph in the docstring. `storage/paths.py` (the `MAX_PATH_BYTES`
+    budget) and `runtime/cache.py` (the `mkdir` mode and bytecode traps) are
+    the reference examples.
+  - Cross-cutting rationale (lock discipline, fail-closed policy, the
+    database-alias contract) belongs in `docs/` and the Architecture section
+    above, stated once and referenced. Do not restate it per module or per
+    function.
+  - A docstring that only rewords its own identifier and base class is noise.
+    `class FooListView(generic.ObjectListView)` needs no docstring at all.
+
+  No section-banner comments (`# Validation`, `# Helpers`). Split the module
+  instead if it needs signposting. The `cloud-compat: ok` markers are not prose
+  and this entry does not apply to them, `scripts/check_cloud_compat.py`
+  requires their exact form.
 - **Linting.** ruff config lives under `[tool.ruff*]` in `pyproject.toml`;
   no separate `ruff.toml`. Line length 120, single quotes, LF line endings,
   `preview = true`. See `pyproject.toml` for the full rule set.

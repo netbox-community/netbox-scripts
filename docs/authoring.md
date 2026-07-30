@@ -67,8 +67,8 @@ defaults:
 
 | Attribute | Default | Purpose |
 |---|---|---|
-| `name` | Class name | Human-friendly script name shown in the UI. |
-| `description` | Empty | Short description of what the script does. |
+| `name` | Class name | Human-friendly script name shown in the UI. At most 255 characters. |
+| `description` | Empty | Short description of what the script does. Any length. |
 | `field_order` | None | Pins the listed variables to the front of the form. Unlisted variables keep their declaration order. |
 | `fieldsets` | None | Groups variables into named form sections, replacing the default single group. |
 | `commit_default` | True | Initial state of the "Commit changes" checkbox. |
@@ -148,6 +148,27 @@ Module-level code runs when validation imports the entrypoint, not only when a
 script executes, so keep module bodies to imports and definitions and put work
 in `run()`. See [Runtime and Loading](runtime.md) for the loading model and
 what makes a revision invalid.
+
+Each published class becomes a [Custom Script](models/customscript.md) once the
+revision is activated, identified by the module that defines it, so a class
+re-exported through `script_order` keeps the identity of its own file.
+
+## What validation checks about a class
+
+Importing a class is not enough to prove it usable, so validation builds its run
+form as well. A variable only stores its keyword arguments when the class is
+defined, so a combination Django rejects stays invisible until something asks for
+the form. Asking during validation means these become an invalid revision instead
+of a failure at the first attempt to run:
+
+- A variable Django cannot build a field from, for example a `max_length` its
+  field type does not accept.
+- A variable using a name the run form reserves, such as `_commit`. It would
+  silently replace the form's own field.
+- A `Meta.fieldsets` entry naming something that is not a variable. Fieldsets are
+  not filtered, so an unknown name reaches the template and breaks the page.
+- A `Meta.name` longer than 255 characters, which is more than the published
+  Custom Script can record.
 
 ## Differences from NetBox's built-in scripts
 

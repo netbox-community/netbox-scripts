@@ -26,6 +26,7 @@ and validation services. They are not edited directly.
 | `file_count` | integer | yes | Number of accepted source files |
 | `total_size` | integer | yes | Combined size in bytes of every accepted source file |
 | `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
+| `discovered_scripts` | JSON | no | Custom Scripts the most recent successful validation published, in publication order. May be empty |
 | `entrypoint_snapshot` | JSON | yes | Enabled module declarations frozen at staging time, each with its `module` primary key and canonical `source_path`, sorted by path. May be empty |
 | `entrypoint_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
 | `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
@@ -60,9 +61,30 @@ deleted while it is being served.
 
 Revisions carry no UI, REST, GraphQL, filterset, or global-search surface yet.
 
-The model is change-logged, so entries will appear in NetBox's change log once a
-request-bound code path stages or activates a revision. Nothing in this release
-provides one, so no entries are recorded yet.
+The model is change-logged. Activating through the Project's **Activate** button
+is a request-bound path, so it records entries. Automatic activation happens
+inside a job, where NetBox records no change-log entries at all, so a project
+whose policy activates automatically leaves none.
+
+## Recorded Custom Scripts
+
+`discovered_scripts` is what project validation learned by importing the tree:
+one record per published class, in publication order, each carrying the defining
+module path and class name, the entrypoint that published it, and the display
+name, description, and execution defaults read from the class. It is written once,
+in the same statement as the verdict, so no reader ever sees a valid revision
+without it. An invalid verdict records an empty list.
+
+[Activation](../runtime.md) derives [Custom Script](customscript.md) rows from
+it, which is why a revision from before this field existed publishes nothing when
+re-activated: it has no record to derive from, and only re-validation writes one.
+
+Unlike the manifest and the entrypoint snapshot, it carries no digest. Those two
+are inputs execution trusts, so they are bound to an address that proves they are
+unchanged. This one is derived data that activation rebuilds rows from rather than
+content it executes, so a shape validator on the return trip is the whole
+requirement. Validation is its only writer, so a value that fails that check
+means the row was changed outside that path.
 
 ## Entrypoint snapshot
 
@@ -157,10 +179,13 @@ fields nor module discovery results. The verdict keeps `validation_job` and
 | A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
 | A stored tree still matches its manifest before it is reused or activated | `store.verify_revision_tree()`, which raises `RevisionCorruptError` |
 | A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_entrypoint_snapshot()`, which raises `RevisionCorruptError` |
+| A persisted list of published Custom Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row |
+| Neither the tree nor what it publishes changed while the tree was being verified | The locked row is compared against the verified one, digests, manifest, snapshot, and published scripts alike |
 | Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |
 
-`status`, `validation_errors`, `activated`, and the lease fields stay mutable,
-because they are the lifecycle fields the storage and validation services move.
+`status`, `validation_errors`, `discovered_scripts`, `activated`, and the lease
+fields stay mutable, because they are the lifecycle fields the storage and
+validation services move.
 
 Two different rejected trees can share the same accepted subset of files. Storing
 them with a null digest is what keeps them from colliding on one content address.

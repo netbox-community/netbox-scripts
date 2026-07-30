@@ -119,5 +119,35 @@ discovery on it. The verdict rules:
   identities, and cache paths never appear in them or in job logs, module
   references read project-relative.
 
+Validation also proves each published class is usable, not merely importable. It
+builds the class's run form and resolves its fieldsets, so a variable Django
+cannot turn into a field, a variable whose name the run form reserves, a fieldset
+naming something that is not a variable, and a display name too long to record all
+make the revision `invalid` instead of failing at the first attempt to run it.
+What it learns is recorded on the revision as its [published Custom
+Scripts](models/customscriptprojectrevision.md).
+
 Ownership, the validation lease, and why a crashed validation recovers by
 itself are described on the [revision page](models/customscriptprojectrevision.md).
+
+## What activation does
+
+Activation makes one validated revision the project's active revision and
+publishes its [Custom Scripts](models/customscript.md) as rows. Both happen in a
+single database transaction, so a reader sees either the old revision with its old
+scripts or the new revision with its new ones, never a mix.
+
+Activation performs **no import**. It works entirely from what validation already
+recorded, because re-importing could reach a different answer than the verdict the
+revision carries, and a revision's meaning is fixed at its verdict.
+
+Verifying the stored tree happens first and outside the transaction, since reading
+and hashing every stored file can hold a conversation with a remote backend for a
+while and the transaction that moves the pointer stays short. The project's
+advisory lock covers both halves, so nothing restages or reclaims the tree between
+proving it present and promoting it.
+
+Re-activating the revision already in force is not a no-op. It synchronizes again,
+which repairs rows that went missing, and because synchronization skips any row
+that already matches, the repair writes nothing and logs nothing when nothing is
+wrong.

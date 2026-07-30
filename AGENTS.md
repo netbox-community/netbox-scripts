@@ -55,14 +55,15 @@ when domain content calls for them.
 .
 ├── netbox_custom_scripts/            , The Django app.
 │   ├── __init__.py                , [stub] PluginConfig (name, version, base_url, min/max NetBox).
-│   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' and their '<int:pk>/' forms via get_model_urls, sorted. Segments never repeat the base_url.
+│   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' + detail-only 'scripts/<int:pk>/' via get_model_urls, sorted. Segments never repeat the base_url.
 │   ├── navigation.py              , PluginMenu 'Custom Scripts' with a Projects group. Modules get no nav item: a declaration is a Project setting.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
-│   │   ├── urls.py                , router.register for 'modules' + 'projects'.
-│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action.
+│   │   ├── urls.py                , router.register for 'modules' + 'projects' + 'scripts'.
+│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + read-only CustomScriptViewSet.
 │   │   └── serializers/
-│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectSerializer.
+│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectSerializer, CustomScriptSerializer.
+│   │       ├── script.py      , CustomScriptSerializer: read-only, importable as api.serializers.CustomScriptSerializer for event serialization.
 │   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
 │   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, revision as a bare ID.
 │   ├── filtersets/
@@ -79,9 +80,10 @@ when domain content calls for them.
 │   │   └── filtersets/module.py     , CustomScriptModuleFilterForm.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
 │   ├── models/
-│   │   ├── __init__.py            , Re-exports CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision.
+│   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision.
 │   │   ├── project.py             , CustomScriptProject(PrimaryModel) with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
-│   │   └── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
+│   │   ├── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
+│   │   └── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name, description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync).
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectTable.
 │   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the read-only history table with no list view.
@@ -104,6 +106,9 @@ when domain content calls for them.
 │   │   ├── graphql/__init__.py    , [CustomScriptProject] Test package anchor.
 │   │   ├── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   │   ├── models/test_module.py  , CustomScriptModule model invariants.
+│   │   ├── models/test_script.py  , CustomScript identity, retirement, cascade + is_executable.
+│   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, read-only refusals.
+│   │   ├── views/test_script.py   , CustomScript detail view + changelog rendering.
 │   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
 │   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase).
 │   │   ├── tables/test_module.py  , CustomScriptModuleTableTestCase(TableTestCases.StandardTableTestCase).
@@ -114,17 +119,19 @@ when domain content calls for them.
 │   │   ├── filtersets/test_module.py , CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
 │   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, revision absent from the type.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
-│   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py.
+│   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
 │   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
+│   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
 │   │   └── test_ingestion.py      , Ingestion ordering and failure modes, plus UploadToActiveTestCase: the whole slice end to end against real validation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports the seven CustomScriptProject view classes.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
-│   │   └── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
+│   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
+│   │   └── script.py               , CustomScriptView: detail only, actions = () since no clone/edit/delete route exists.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
-│   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout.
+│   │   ├── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel and the two Module panels.
 │   │   └── attrs.py               , [stub] Custom ObjectAttribute subclasses (comment stub).
 │   ├── search.py                  , [CustomScriptProject] CustomScriptProjectIndex(SearchIndex) registered via @register_search.
 │   ├── graphql/
@@ -140,23 +147,25 @@ when domain content calls for them.
 │   │   ├── entrypoints.py         , Entrypoint snapshot build/validate pair, the return-trip trust boundary.
 │   │   ├── store.py               , Verified writes and reads against the backend, copy_verified bounded-read primitive, read_verified / read_revision_tree in-memory reads.
 │   │   ├── locks.py               , project_lock(): the per-project advisory lock every content operation holds, and the one home of the key derivation.
-│   │   ├── service.py             , stage_revision / refresh_revision_entrypoints / activate_revision + the database-alias contract.
+│   │   ├── service.py             , stage_revision / refresh_revision_entrypoints / promote_revision (mandatory on_promote callback) + the database-alias contract.
 │   │   └── exceptions.py          , Storage error taxonomy.
 │   ├── runtime/
 │   │   ├── cache.py               , Manifest-verified local materialization of revision trees, the one sanctioned local-write tier.
 │   │   ├── loader.py              , Private-namespace package loader: import sessions, failure sweep, unload.
 │   │   ├── naming.py              , Private module names + the entrypoint dotted-name adapter.
 │   │   ├── discovery.py           , discover_scripts(): publication rules, script_order, identity + logger markers.
+│   │   ├── introspection.py       , describe_script / validate_discovered_scripts: forces run-form construction, the JSON-safe published-script record.
 │   │   └── exceptions.py          , Runtime error taxonomy (cache, module path, import, discovery).
 │   ├── scripts/                   , Authoring API: base.py (BaseScript/Script), variables.py, forms.py, logging.py, exceptions.py.
-│   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all three models, safety checks.
-│   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence.
-│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates on a valid verdict when the policy allows).
+│   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all four models, safety checks.
+│   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
+│   ├── activation.py              , activate_revision() domain orchestrator + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
+│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows).
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule.
-│   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds.
+│   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
 │   ├── ingestion.py               , ingest_upload() / current_source_tree() / uploaded_source_path(): the one source-ingestion entry point, shared by upload and later by Data Source sync.
 │   ├── object_actions.py          , ActivateRevision + AddScript ObjectAction subclasses, with button templates under templates/.../buttons/.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
@@ -195,8 +204,14 @@ digest + entrypoint digest, moved through its lifecycle by the storage and
 validation services only. `CustomScriptModule` (concept 5.3): one declared
 entrypoint per row, author-editable declaration fields, system-managed
 discovery fields, enabled declarations frozen into each revision's entrypoint
-snapshot at staging time. `CustomScript` rows and execution land in later PRs
-per the concept.
+snapshot at staging time. `CustomScript` (concept 5.4): one published Script
+class per row, parented on the **project** rather than the Module, because
+`script_order` lets a helper-defined class publish and helpers have no Module
+row, so the publishing entrypoint is provenance in the revision snapshot instead.
+Rows are derived from an activated revision, never authored: `enabled` is the
+administrator's and synchronization never writes it, while retirement replaces
+deletion so accumulated Job history survives. Execution lands in a later PR per
+the concept.
 
 ### Source ingestion
 
@@ -224,6 +239,18 @@ backend I/O. Two deliberate exclusions: deletion takes no lock, because the
 cleanup job rechecks references under it before reclaiming anything, and
 validation takes it only for its row transitions, because the lease already owns
 the long import span.
+
+Activation is the domain operation and promotion is the storage primitive, and the
+primitive cannot be called without a synchronizer. `storage.service.promote_revision()`
+takes a **required** `on_promote` callback and invokes it inside the transaction that
+moves the pointer, after both row locks and the identity recheck, so an active revision
+and the `CustomScript` rows derived from it change together. `activation.activate_revision()`
+is the only caller that passes a real one. A default would leave that bypass one call
+away, which is why the parameter is required and why the rename from `activate_revision`
+was worth roughly thirty test call sites: a missed one fails loudly instead of silently
+skipping synchronization. The callback also runs on the already-active path, so
+re-activating the current revision repairs rows, and because synchronization skips a row
+that already matches, the repair writes nothing when nothing is wrong.
 
 ### Integration points with NetBox
 

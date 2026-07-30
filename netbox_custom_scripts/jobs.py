@@ -8,9 +8,9 @@ from netbox.jobs import JobRunner
 
 from . import activation, branching
 from .choices import ActivationPolicyChoices, RevisionStatusChoices
-from .constants import VALIDATION_JOB_TIMEOUT
+from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_JOB_TIMEOUT
 from .execution import ScriptNotExecutableError, run_script
-from .models import CustomScript, CustomScriptProjectRevision
+from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
 from .runtime.exceptions import (
     DiscoveryError,
     EntrypointImportError,
@@ -113,6 +113,98 @@ class ProjectStorageCleanupJob(JobRunner):
                 detail = f'Storage cleanup left content in the store: {storage_key} {digest}: {error}'
                 self.logger.error(detail)
                 raise JobFailed() from error
+
+
+class ProjectReconciliationJob(JobRunner):
+    """
+    Rebuild one project's source from its Data Source directory and drive it to a verdict.
+
+    The directory is read when this runs rather than when it was enqueued, so two jobs queued by
+    two quick synchronizations are not a correctness problem: the second stages identical content,
+    resolves to the revision the first created, and enqueues no second validation.
+
+    Reconciliation is per project rather than per Data Source, because each project has its own
+    lock, its own revision chain and its own activation policy, so one project's failure leaves
+    its siblings to reconcile on their own.
+    """
+
+    class Meta:
+        name = 'Custom Script Project source reconciliation'
+
+    @classmethod
+    def enqueue_reconciliation(cls, project):
+        """
+        Enqueue one project's reconciliation with its pk persisted on the Job row.
+
+        The pk travels in the payload rather than as an instance link, because Job.clean()
+        refuses an object type without the jobs feature and a project is a plain PrimaryModel.
+        The atomic block nests inside any caller transaction, so the Job and its payload commit
+        together and the queue handoff in Job.enqueue()'s commit hook can never run a task whose
+        payload is missing.
+        """
+        payload = {'project_id': project.pk}
+        with transaction.atomic():
+            job = cls.enqueue(**payload)
+            job.data = payload
+            job.save(update_fields=('data',))
+        return job
+
+    def run(self, project_id=None, **kwargs):
+        """Recheck routing safety, then stage the project's current directory as a revision."""
+        # Ingestion imports this module for the validation job, so the import is local.
+        from . import ingestion
+
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            detail = f'Refusing Custom Script Project reconciliation, because {reason}'
+            self.logger.error(detail)
+            raise JobFailed()
+        project = CustomScriptProject.objects.filter(pk=project_id).first()
+        if project is None:
+            self.logger.info(f'Custom Script Project {project_id} no longer exists, nothing to reconcile.')
+            return
+        try:
+            staged = ingestion.ingest_data_source(project)
+        except (StorageError, StorageConfigurationError, OSError) as error:
+            # The storage key is named deliberately, as in storage cleanup: the audience is an
+            # operator working out why a synchronization produced no revision.
+            detail = f'Reconciling the source of "{project}" failed and needs another run: {error}'
+            self.logger.error(detail)
+            raise JobFailed() from error
+
+        revision = staged.revision
+        if revision.status == RevisionStatusChoices.INVALID:
+            self.logger.warning(
+                f'The synchronized source cannot be stored, {len(revision.validation_errors)} problem(s) recorded.'
+            )
+        elif revision.status == RevisionStatusChoices.MATERIALIZED:
+            self.logger.info(f'Revision {revision.digest[:12]} is staged and queued for validation.')
+        elif revision.pk == project.active_revision_id:
+            self.logger.info('The source has not changed, this project already serves it.')
+        elif revision.status in ACTIVATABLE_REVISION_STATUSES:
+            self._activate_what_the_source_matches(project, revision)
+        else:
+            self.logger.info(f'Revision {revision.digest[:12]} matches the source and another run owns it.')
+
+    def _activate_what_the_source_matches(self, project, revision):
+        """Promote the validated revision a reverted directory resolved to, when the policy allows."""
+        # A directory reverted to a tree this project held before is content it has already
+        # validated, so content addressing hands back that revision and no validation can claim it
+        # again. Activation is the only step left, and without it a revert in the source would
+        # silently change nothing.
+        if project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
+            self.logger.info(
+                f'The source matches revision {revision.digest[:12]}, which is validated and waiting for an '
+                'operator to activate it.'
+            )
+            return
+        try:
+            activation.activate_revision(revision)
+        except (ActivationError, StorageError, OSError) as error:
+            detail = f'The source matches revision {revision.digest[:12]}, which could not be activated: {error}'
+            self.logger.error(detail)
+            raise JobFailed() from error
+        self.logger.info(f'Revision {revision.digest[:12]} is the active revision of its project again.')
 
 
 class RevisionValidationJob(JobRunner):

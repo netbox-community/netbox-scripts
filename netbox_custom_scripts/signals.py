@@ -17,6 +17,11 @@ intent that could commit independently.
 Deleting a Custom Script Project needs no receiver of its own: the cascade collects every
 revision it owns, and registering these receivers rules out Django's signal-free fast-delete
 path for the revision model, so each cascaded revision records its own cleanup.
+
+A completed Data Source synchronization enqueues one reconciliation Job per project backed by
+that source. The receiver only enqueues, so the committing process performs no storage I/O, and
+it swallows its own failures because core sends post_sync as the last statement of
+DataSource.sync() and would otherwise fail an operator's synchronization over this plugin.
 """
 
 import logging
@@ -26,9 +31,12 @@ from django.db import DEFAULT_DB_ALIAS
 from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 
+from core.signals import post_sync
+
 from . import branching
-from .jobs import ProjectStorageCleanupJob
-from .models import CustomScriptProjectRevision
+from .choices import ProjectSourceTypeChoices
+from .jobs import ProjectReconciliationJob, ProjectStorageCleanupJob
+from .models import CustomScriptProject, CustomScriptProjectRevision
 from .storage.exceptions import RevisionCorruptError
 from .storage.manifest import validate_manifest
 
@@ -135,3 +143,28 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
         )
         return
     ProjectStorageCleanupJob.enqueue_cleanup(storage_key=storage_key, digest=digest, paths=paths)
+
+
+@receiver(post_sync, dispatch_uid='netbox_custom_scripts.reconcile_sources')
+def reconcile_project_sources(sender, instance, **kwargs):
+    """
+    Enqueue reconciliation for every project backed by the Data Source that just synchronized.
+
+    Never raises, and never touches storage. Core sends this signal with send() rather than
+    send_robust(), as the last statement of DataSource.sync(), so an escaping exception would
+    fail an operator's own synchronization over a plugin they may barely use. A project that
+    does not get its Job stays on the source it already serves until the next synchronization
+    or a manual reconciliation.
+    """
+    try:
+        projects = CustomScriptProject.objects.filter(
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=instance,
+        )
+        for project in projects:
+            ProjectReconciliationJob.enqueue_reconciliation(project)
+    except Exception:
+        logger.exception(
+            'Could not enqueue Custom Script Project source reconciliation after "%s" synchronized.',
+            instance,
+        )

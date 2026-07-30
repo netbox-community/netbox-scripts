@@ -1,0 +1,33 @@
+{% extends "generic/confirmation_form.html" %}
+{% load i18n %}
+{% comment %}
+Deactivation confirmation for the revision a Project is serving, reached from the Revisions tab.
+
+Context:
+  - object:     The revision in force
+  - project:    Its owning Project
+  - return_url: Where Cancel goes, the Revisions tab
+{% endcomment %}
+{% block title %}
+  {% trans "Deactivate revision" %}
+{% endblock title %}
+{% block confirmation_title %}
+  {% trans "Deactivate revision" %}
+{% endblock confirmation_title %}
+{% block message %}
+  <p>
+    {% blocktrans with revision=object.short_digest project=project %}
+      Stand {{ project }} down from revision {{ revision }}?
+    {% endblocktrans %}
+  </p>
+  <p class="text-secondary">
+    {% trans "The Project serves nothing until a revision is activated again." %}
+    {% blocktrans count counter=project.scripts.count %}
+      Its {{ counter }} Custom Script is retired, not deleted, so activating again brings the same
+      row back with its Job history.
+    {% plural %}
+      Its {{ counter }} Custom Scripts are retired, not deleted, so activating again brings the
+      same rows back with their Job history.
+    {% endblocktrans %}
+  </p>
+{% endblock message %}

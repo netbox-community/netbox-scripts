@@ -125,13 +125,44 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(first.status, RevisionStatusChoices.RETIRED)
         self.assertEqual(second.status, RevisionStatusChoices.ACTIVE)
 
-    def test_a_get_goes_back_to_the_tab_without_changing_anything(self):
+    def test_a_get_confirms_without_changing_anything(self):
         self.grant(CustomScriptProject, 'view', 'change')
         revision = self.valid_revision()
         response = self.client.get(self.url(revision, 'activate'))
-        self.assertHttpStatus(response, 302)
+        self.assertHttpStatus(response, 200)
+        self.assertIn(revision.short_digest, response.content.decode())
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+
+    def test_the_deactivate_confirmation_renders(self):
+        self.grant(CustomScriptProject, 'view', 'change')
+        revision = self.valid_revision()
+        self.client.post(self.url(revision, 'activate'))
+        response = self.client.get(self.url(revision, 'deactivate'))
+        self.assertHttpStatus(response, 200)
+        body = response.content.decode()
+        self.assertIn('Deactivate revision', body)
+        self.assertIn(revision.short_digest, body)
+        # The confirmation warns that retirement is not deletion, which is the whole contract.
+        self.assertIn('retired, not deleted', body)
+
+    def test_the_row_buttons_are_links_and_not_nested_forms(self):
+        # The children view wraps its table in a form for bulk actions, and a nested form is
+        # invalid HTML that browsers discard, so a button inside one submits the OUTER form to
+        # the tab URL. That is exactly what happened: POST to the tab, 405. Links cannot.
+        self.grant(CustomScriptProject, 'view', 'change')
+        revision = self.valid_revision()
+        body = self.client.get(self.tab_url()).content.decode()
+        target = self.url(revision, 'activate')
+        self.assertIn(f'href="{target}"', body)
+        self.assertNotIn(f'action="{target}"', body)
+
+    def test_the_tab_url_refuses_a_post(self):
+        # The 405 the owner hit. Nothing should ever post here, and this pins that the tab is
+        # not a state-changing route if a future template regresses to a nested form.
+        self.grant(CustomScriptProject, 'view', 'change')
+        self.valid_revision()
+        self.assertHttpStatus(self.client.post(self.tab_url()), 405)
 
     def test_the_project_view_permission_alone_is_not_enough(self):
         self.grant(CustomScriptProject, 'view')

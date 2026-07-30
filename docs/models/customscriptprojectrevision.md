@@ -72,7 +72,9 @@ project's **Revisions** tab:
   serving nothing, and retires its Custom Scripts.
 
 Both need the owning project's change permission, because what they change is
-what the project serves, and both are POST. Deactivation is the only way to
+what the project serves. Each opens a confirmation page that posts back, rather
+than acting straight from the table, because the table sits inside the bulk-action
+form and a nested form would not survive the browser. Deactivation is the only way to
 stand a project down to serving nothing once it has served something. Retiring
 the scripts rather than deleting them is what lets a later activation return the
 same rows, with their Job history and with whatever `enabled` an administrator

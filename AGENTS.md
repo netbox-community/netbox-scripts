@@ -132,7 +132,7 @@ when domain content calls for them.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   │   ├── script.py               , CustomScriptView: detail only, actions = () since no clone/edit/delete route exists.
-│   │   └── revision.py             , Activate + Deactivate POST views for one revision. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects.
+│   │   └── revision.py             , Activate + Deactivate for one revision, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
 │   │   └── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel and the two Module panels.

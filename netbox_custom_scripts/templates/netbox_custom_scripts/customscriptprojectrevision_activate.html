@@ -1,0 +1,36 @@
+{% extends "generic/confirmation_form.html" %}
+{% load i18n %}
+{% comment %}
+Activation confirmation for one specific revision, reached from the Revisions tab.
+
+Context:
+  - object:     The revision that would go live
+  - project:    Its owning Project
+  - return_url: Where Cancel goes, the Revisions tab
+{% endcomment %}
+{% block title %}
+  {% trans "Activate revision" %}
+{% endblock title %}
+{% block confirmation_title %}
+  {% trans "Activate revision" %}
+{% endblock confirmation_title %}
+{% block message %}
+  <p>
+    {% blocktrans with revision=object.short_digest project=project %}
+      Make revision {{ revision }} the active source of {{ project }}?
+    {% endblocktrans %}
+  </p>
+  <p class="text-secondary">
+    {% blocktrans count counter=object.file_count %}
+      It holds {{ counter }} file.
+    {% plural %}
+      It holds {{ counter }} files.
+    {% endblocktrans %}
+    {% if project.active_revision %}
+      {% blocktrans with previous=project.active_revision.short_digest %}
+        Revision {{ previous }} is retired in the same step.
+      {% endblocktrans %}
+    {% endif %}
+    {% trans "Its Custom Scripts are published, and any the new revision no longer publishes are retired." %}
+  </p>
+{% endblock message %}

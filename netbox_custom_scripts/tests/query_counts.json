@@ -1,7 +1,7 @@
 {
   "customscript:list_objects_with_permission": 20,
   "customscriptmodule:api_list_objects": 13,
-  "customscriptmodule:list_objects_with_permission": 21,
+  "customscriptmodule:list_objects_with_permission": 20,
   "customscriptproject:api_list_objects": 13,
   "customscriptproject:list_objects_with_permission": 21
 }

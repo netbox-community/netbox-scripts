@@ -1,4 +1,5 @@
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
+from netbox.object_actions import AddObject, BulkDelete, BulkExport
 from netbox.ui import layout
 from netbox.ui.panels import CommentsPanel
 from netbox.views import generic
@@ -15,7 +16,10 @@ from ..ui import CustomScriptModuleDiscoveryPanel, CustomScriptModulePanel
 class CustomScriptModuleListView(generic.ObjectListView):
     """List view for Custom Script Modules."""
 
-    queryset = CustomScriptModule.objects.all()
+    # The default set includes import, bulk edit, and rename, none of which this model
+    # registers, and ActionsMixin filters by permission alone rather than by route.
+    actions = (AddObject, BulkExport, BulkDelete)
+    queryset = CustomScriptModule.objects.select_related('project')
     table = CustomScriptModuleTable
     filterset = CustomScriptModuleFilterSet
     filterset_form = CustomScriptModuleFilterForm
@@ -25,7 +29,7 @@ class CustomScriptModuleListView(generic.ObjectListView):
 class CustomScriptModuleView(generic.ObjectView):
     """Detail view for a single Custom Script Module."""
 
-    queryset = CustomScriptModule.objects.all()
+    queryset = CustomScriptModule.objects.select_related('project')
     layout = layout.SimpleLayout(
         left_panels=[
             CustomScriptModulePanel(),
@@ -44,7 +48,7 @@ class CustomScriptModuleView(generic.ObjectView):
 class CustomScriptModuleEditView(generic.ObjectEditView):
     """Create and edit view for a Custom Script Module."""
 
-    queryset = CustomScriptModule.objects.all()
+    queryset = CustomScriptModule.objects.select_related('project')
     form = CustomScriptModuleEditForm
 
 
@@ -52,13 +56,13 @@ class CustomScriptModuleEditView(generic.ObjectEditView):
 class CustomScriptModuleDeleteView(generic.ObjectDeleteView):
     """Delete view for a single Custom Script Module."""
 
-    queryset = CustomScriptModule.objects.all()
+    queryset = CustomScriptModule.objects.select_related('project')
 
 
 @register_model_view(CustomScriptModule, 'bulk_delete', path='delete', detail=False)
 class CustomScriptModuleBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete view for Custom Script Modules."""
 
-    queryset = CustomScriptModule.objects.all()
+    queryset = CustomScriptModule.objects.select_related('project')
     filterset = CustomScriptModuleFilterSet
     table = CustomScriptModuleTable

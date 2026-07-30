@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.object_actions import CloneObject, DeleteObject, EditObject
 from netbox.ui import layout
-from netbox.ui.panels import CommentsPanel, ObjectsTablePanel
+from netbox.ui.panels import CommentsPanel, ObjectsTablePanel, TemplatePanel
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.views import ViewTab, register_model_view
@@ -61,6 +61,7 @@ class CustomScriptProjectView(generic.ObjectView):
                 'netbox_custom_scripts.customscriptmodule',
                 filters={'project_id': lambda context: context['object'].pk},
             ),
+            TemplatePanel('netbox_custom_scripts/inc/project_scripts.html'),
         ],
     )
 

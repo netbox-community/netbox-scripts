@@ -290,6 +290,12 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         obj_perm.users.add(self.user)
         obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
 
+    def grant_scripts(self, *actions):
+        obj_perm = ObjectPermission(name=f'script {"/".join(actions)}', actions=list(actions))
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScript))
+
     def test_the_candidate_is_the_newest_validated_revision(self):
         self.assertEqual(self.project.activatable_revision(), self.revision)
 
@@ -370,6 +376,31 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertHttpStatus(response, 302)
         self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
         self.assertGreater(self.script_changes(), 0)
+
+    def test_the_project_page_links_to_each_published_script(self):
+        # The only route into a Custom Script's detail page until the full surface lands.
+        self.grant('view', 'change')
+        self.grant_scripts('view')
+        self.publish()
+        self.client.post(self.url())
+        script = CustomScript.objects.get(project=self.project)
+        body = self.client.get(self.project.get_absolute_url()).content.decode()
+        self.assertIn(script.get_absolute_url(), body)
+        self.assertIn(script.display_name, body)
+
+    def test_the_panel_reports_an_empty_project_rather_than_nothing(self):
+        self.grant('view', 'change')
+        self.grant_scripts('view')
+        body = self.client.get(self.project.get_absolute_url()).content.decode()
+        self.assertIn('No Custom Scripts have been published yet', body)
+
+    def test_the_panel_is_hidden_without_permission_to_view_scripts(self):
+        self.grant('view', 'change')
+        self.publish()
+        self.client.post(self.url())
+        script = CustomScript.objects.get(project=self.project)
+        body = self.client.get(self.project.get_absolute_url()).content.decode()
+        self.assertNotIn(script.get_absolute_url(), body)
 
     def test_reactivating_the_same_revision_logs_nothing_further(self):
         # The user-visible form of never saving an unchanged row. The view offers no candidate

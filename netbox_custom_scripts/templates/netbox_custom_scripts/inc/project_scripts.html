@@ -1,0 +1,43 @@
+{% load i18n %}
+{% comment %}
+Custom Scripts a Project has published, rendered by a TemplatePanel on the detail view.
+
+Its own rows rather than an ObjectsTablePanel, which fetches them over HTMX from the model's
+list route. Custom Scripts have only a detail route until the full object surface lands, so
+that panel would have nothing to fetch. Retired scripts are listed too, because omitting them
+would make a script that stopped being published look deleted while its row and Job history
+are still there.
+{% endcomment %}
+{% if perms.netbox_custom_scripts.view_customscript %}
+  <div class="card">
+    <h2 class="card-header">{% trans "Custom Scripts" %}</h2>
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th scope="col">{% trans "Name" %}</th>
+          <th scope="col">{% trans "Class" %}</th>
+          <th scope="col">{% trans "Enabled" %}</th>
+          <th scope="col">{% trans "Retired" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for script in object.scripts.all %}
+          <tr>
+            <td>
+              <a href="{{ script.get_absolute_url }}">{{ script.display_name }}</a>
+            </td>
+            <td class="font-monospace">{{ script.full_name }}</td>
+            <td>{% checkmark script.enabled %}</td>
+            <td>{% checkmark script.is_retired %}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" class="text-muted">
+              {% trans "No Custom Scripts have been published yet. Activate a validated revision to publish them." %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}

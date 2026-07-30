@@ -13,7 +13,11 @@ checked before use. It carries no digest, unlike those two, because activation r
 rows from it rather than executing it.
 """
 
-from ..constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MODULE_PATH_LENGTH
+from ..constants import (
+    MAX_SCRIPT_CLASS_NAME_LENGTH,
+    MAX_SCRIPT_DISPLAY_NAME_LENGTH,
+    MAX_SCRIPT_MODULE_PATH_LENGTH,
+)
 from ..scripts.forms import ScriptForm
 from .exceptions import ScriptMetadataError
 
@@ -43,6 +47,8 @@ def describe_script(discovered, *, entrypoint_module_id, entrypoint_path, positi
     cls = discovered.cls
     _require_free_variable_names(cls)
     _require_storable_identity(discovered.logical_module, discovered.name)
+    display_name = str(cls.name)
+    _require_storable_display_name(display_name, discovered.name)
 
     try:
         instance = cls()
@@ -63,7 +69,7 @@ def describe_script(discovered, *, entrypoint_module_id, entrypoint_path, positi
         'entrypoint_module_id': entrypoint_module_id,
         'entrypoint_path': entrypoint_path,
         'position': position,
-        'display_name': str(cls.name),
+        'display_name': display_name,
         'description': str(cls.description),
         'metadata': {
             'commit_default': bool(cls.commit_default),
@@ -110,6 +116,7 @@ def validate_discovered_scripts(value):
                 name='metadata',
             )
         _require_storable_identity(record['module_path'], record['class_name'])
+        _require_storable_display_name(record['display_name'], record['class_name'])
         identity = (record['module_path'], record['class_name'])
         if identity in identities:
             raise ScriptMetadataError(
@@ -161,6 +168,18 @@ def _require_storable_identity(module_path, class_name):
         raise ScriptMetadataError(
             f'The module path of "{class_name}" is too long to store.',
             code='identity_too_long',
+            name=class_name,
+        )
+
+
+def _require_storable_display_name(display_name, class_name):
+    """Refuse a display name longer than the field a published script records it in."""
+    # Meta.name has no length bound of its own, so this is the only thing standing between an
+    # over-long one and a database error at activation.
+    if len(display_name) > MAX_SCRIPT_DISPLAY_NAME_LENGTH:
+        raise ScriptMetadataError(
+            f'The display name of "{class_name}" is too long to store.',
+            code='display_name_too_long',
             name=class_name,
         )
 

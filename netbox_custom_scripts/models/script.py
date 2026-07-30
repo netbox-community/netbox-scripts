@@ -4,7 +4,11 @@ from django.utils.translation import gettext_lazy as _
 from netbox.models import PrimaryModel
 from netbox.models.features import JobsMixin
 
-from ..constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MODULE_PATH_LENGTH
+from ..constants import (
+    MAX_SCRIPT_CLASS_NAME_LENGTH,
+    MAX_SCRIPT_DISPLAY_NAME_LENGTH,
+    MAX_SCRIPT_MODULE_PATH_LENGTH,
+)
 
 
 class CustomScript(JobsMixin, PrimaryModel):
@@ -42,7 +46,7 @@ class CustomScript(JobsMixin, PrimaryModel):
     )
     display_name = models.CharField(
         verbose_name=_('display name'),
-        max_length=255,
+        max_length=MAX_SCRIPT_DISPLAY_NAME_LENGTH,
         editable=False,
     )
     # Overrides the abstract base field. The authoring API bounds Meta.description nowhere,

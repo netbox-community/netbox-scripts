@@ -182,6 +182,21 @@ class RunFormValidationTestCase(TestCase):
         (record,) = describe(module)
         self.assertEqual(record['class_name'], name)
 
+    def test_a_display_name_too_long_to_store_is_refused(self):
+        # Meta.name is unbounded, so nothing but this check stands between an over-long one
+        # and a database error when activation writes the row.
+        module = build(f'class Sync(Script):\n    class Meta:\n        name = "{"N" * 256}"\n')
+        with self.assertRaises(ScriptMetadataError) as captured:
+            describe(module)
+        self.assertEqual(captured.exception.code, 'display_name_too_long')
+        self.assertEqual(captured.exception.name, 'Sync')
+
+    def test_a_display_name_at_the_limit_is_accepted(self):
+        name = 'N' * 255
+        module = build(f'class Sync(Script):\n    class Meta:\n        name = "{name}"\n')
+        (record,) = describe(module)
+        self.assertEqual(record['display_name'], name)
+
 
 class ValidateDiscoveredScriptsTestCase(TestCase):
     def setUp(self):
@@ -256,6 +271,13 @@ class ValidateDiscoveredScriptsTestCase(TestCase):
         with self.assertRaises(ScriptMetadataError) as captured:
             validate_discovered_scripts(damaged)
         self.assertEqual(captured.exception.code, 'identity_too_long')
+
+    def test_an_over_long_display_name_is_refused(self):
+        damaged = [dict(self.snapshot[0])]
+        damaged[0]['display_name'] = 'N' * 256
+        with self.assertRaises(ScriptMetadataError) as captured:
+            validate_discovered_scripts(damaged)
+        self.assertEqual(captured.exception.code, 'display_name_too_long')
 
     def test_a_duplicate_identity_is_refused(self):
         damaged = [dict(self.snapshot[0]), dict(self.snapshot[0])]

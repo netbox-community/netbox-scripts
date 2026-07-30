@@ -433,6 +433,15 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
             'itself mean the revision is valid.'
         ),
     )
+    discovered_scripts = models.JSONField(
+        verbose_name=_('discovered scripts'),
+        default=list,
+        blank=True,
+        help_text=_(
+            'Custom Scripts this revision published, in publication order. Written once, when the '
+            'revision becomes valid.'
+        ),
+    )
     entrypoint_snapshot = models.JSONField(
         verbose_name=_('entrypoint snapshot'),
         default=list,

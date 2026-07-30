@@ -20,6 +20,13 @@ STORED_REVISION_STATUSES = ('materialized', 'valid', 'active', 'retired')
 # lifecycle it does not own, nor resurrect one that validation rejected.
 RETRYABLE_REVISION_STATUSES = ('staging', 'storage_failed')
 
+# Persisted bounds on a published Custom Script's identity. The model fields the discovery
+# snapshot feeds declare these lengths, and validation enforces them while it still owns a
+# verdict, so an over-long name is a content failure rather than a database error at
+# activation.
+MAX_SCRIPT_CLASS_NAME_LENGTH = 79
+MAX_SCRIPT_MODULE_PATH_LENGTH = 1000
+
 # Validation lease bounds, in seconds. The job timeout caps one validation run inside the
 # worker, and the lease is deliberately longer, because reclaim is purely time based: a
 # killed worker leaves its Job row running forever, so only an expired lease can hand the

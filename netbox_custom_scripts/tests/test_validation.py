@@ -306,6 +306,158 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertIn('deploy.py', serialized)
 
 
+class PublicationTestCase(ValidationTestMixin, TestCase):
+    def test_a_valid_verdict_records_what_the_revision_publishes(self):
+        self.declare('deploy.py')
+        result = validate_revision(self.stage(SCRIPT_FILES), job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.VALID)
+        (record,) = result.discovered_scripts
+        self.assertEqual(record['module_path'], 'deploy')
+        self.assertEqual(record['class_name'], 'Deploy')
+        self.assertEqual(record['entrypoint_path'], 'deploy.py')
+        self.assertEqual(record['position'], 0)
+        self.assertEqual(record['metadata']['commit_default'], True)
+
+    def test_the_recorded_entrypoint_is_the_declaration_that_published_the_class(self):
+        module_row = self.declare('deploy.py')
+        result = validate_revision(self.stage(SCRIPT_FILES), job=self.job)
+        (record,) = result.discovered_scripts
+        self.assertEqual(record['entrypoint_module_id'], module_row.pk)
+
+    def test_a_helper_defined_class_records_its_defining_module(self):
+        self.declare('deploy.py')
+        files = {
+            'helpers.py': script_source('Shared'),
+            'deploy.py': b'from .helpers import Shared\n\nscript_order = [Shared]\n',
+        }
+        result = validate_revision(self.stage(files), job=self.job)
+        (record,) = result.discovered_scripts
+        # No Module row names helpers.py, which is why a published class cannot be identified
+        # by its entrypoint declaration.
+        self.assertEqual(record['module_path'], 'helpers')
+        self.assertEqual(record['entrypoint_path'], 'deploy.py')
+
+    def test_positions_number_the_publication_set_across_entries(self):
+        self.declare('deploy.py')
+        self.declare('audit.py')
+        files = {'deploy.py': script_source('Deploy'), 'audit.py': script_source('Audit')}
+        result = validate_revision(self.stage(files), job=self.job)
+        self.assertEqual([record['position'] for record in result.discovered_scripts], [0, 1])
+        self.assertEqual(len({record['class_name'] for record in result.discovered_scripts}), 2)
+
+    def test_one_class_reexported_by_two_entries_is_recorded_once(self):
+        self.declare('first.py')
+        self.declare('second.py')
+        files = {
+            'helpers.py': script_source('Shared'),
+            'first.py': b'from .helpers import Shared\n\nscript_order = [Shared]\n',
+            'second.py': b'from .helpers import Shared\n\nscript_order = [Shared]\n',
+        }
+        result = validate_revision(self.stage(files), job=self.job)
+        self.assertEqual(len(result.discovered_scripts), 1)
+        self.assertEqual(result.discovered_scripts[0]['position'], 0)
+
+    def test_an_empty_snapshot_publishes_nothing(self):
+        result = validate_revision(self.stage(SCRIPT_FILES), job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.VALID)
+        self.assertEqual(result.discovered_scripts, [])
+
+    def test_a_run_form_fault_is_an_invalid_verdict_that_publishes_nothing(self):
+        self.declare('deploy.py')
+        source = (
+            b'from netbox_custom_scripts.scripts import Script\n'
+            b'from netbox_custom_scripts.scripts.variables import ScriptVariable\n\n\n'
+            b'class Broken(ScriptVariable):\n'
+            b'    def __init__(self):\n'
+            b'        super().__init__()\n'
+            b"        self.field_attrs['max_digits'] = 4\n\n\n"
+            b'class Deploy(Script):\n'
+            b'    alpha = Broken()\n'
+        )
+        result = validate_revision(self.stage({'deploy.py': source}), job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(result.discovered_scripts, [])
+        (record,) = result.validation_errors
+        self.assertEqual(record['code'], 'form_construction_failed')
+        self.assertEqual(record['source_path'], 'deploy.py')
+
+    def test_a_variable_shadowing_the_commit_toggle_is_an_invalid_verdict(self):
+        self.declare('deploy.py')
+        source = (
+            b'from netbox_custom_scripts.scripts import Script\n'
+            b'from netbox_custom_scripts.scripts.variables import StringVar\n\n\n'
+            b'class Deploy(Script):\n'
+            b'    _commit = StringVar()\n'
+        )
+        result = validate_revision(self.stage({'deploy.py': source}), job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(result.validation_errors[0]['code'], 'reserved_variable_name')
+
+    def test_a_fieldset_naming_a_missing_variable_is_an_invalid_verdict(self):
+        self.declare('deploy.py')
+        source = (
+            b'from netbox_custom_scripts.scripts import Script\n'
+            b'from netbox_custom_scripts.scripts.variables import StringVar\n\n\n'
+            b'class Deploy(Script):\n'
+            b'    alpha = StringVar()\n\n'
+            b'    class Meta:\n'
+            b"        fieldsets = (('Data', ('alpha', 'missing')),)\n"
+        )
+        result = validate_revision(self.stage({'deploy.py': source}), job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(result.validation_errors[0]['code'], 'unknown_fieldset_field')
+
+    def test_one_form_fault_is_charged_only_to_its_own_entry(self):
+        good = self.declare('deploy.py')
+        bad = self.declare('broken.py')
+        source = (
+            b'from netbox_custom_scripts.scripts import Script\n'
+            b'from netbox_custom_scripts.scripts.variables import StringVar\n\n\n'
+            b'class Broken(Script):\n'
+            b'    _commit = StringVar()\n'
+        )
+        files = {'deploy.py': script_source('Deploy'), 'broken.py': source}
+        result = validate_revision(self.stage(files), job=self.job)
+        # One verdict covers the whole revision, so nothing publishes, but the failure is
+        # charged to the entry that carried it rather than to its sibling.
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(result.discovered_scripts, [])
+        self.assertEqual({record['source_path'] for record in result.validation_errors}, {'broken.py'})
+        good.refresh_from_db()
+        bad.refresh_from_db()
+        self.assertEqual(good.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(bad.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+
+    def test_an_environment_failure_leaves_the_publication_set_alone(self):
+        self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+        with self.assertRaises(EntrypointImportError):
+            validate_revision(revision, job=self.job)
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(revision.discovered_scripts, [])
+
+    def test_a_run_that_lost_its_lease_publishes_nothing(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        original = validation._finalize
+
+        def steal_then_finalize(target, job, status, validation_errors, discovered_scripts):
+            CustomScriptProjectRevision.objects.filter(pk=target.pk).update(validation_job=self.make_job())
+            return original(target, job, status, validation_errors, discovered_scripts)
+
+        with mock.patch.object(validation, '_finalize', steal_then_finalize):
+            validate_revision(revision, job=self.job)
+        revision.refresh_from_db()
+        self.assertEqual(revision.discovered_scripts, [])
+        self.assertEqual(revision.status, RevisionStatusChoices.VALIDATING)
+
+    def test_the_publication_set_is_json_safe(self):
+        self.declare('deploy.py')
+        result = validate_revision(self.stage(SCRIPT_FILES), job=self.job)
+        self.assertEqual(json.loads(json.dumps(result.discovered_scripts)), result.discovered_scripts)
+
+
 class ClassificationTestCase(TestCase):
     PREFIX = revision_module_name(uuid.UUID('9f1c6d24-0b2a-4d3e-8f57-2c9a4b6e1d80'), 'a' * 64)
 

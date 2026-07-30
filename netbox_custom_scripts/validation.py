@@ -2,8 +2,9 @@
 Project validation for stored revisions.
 
 Validation is the lifecycle step between MATERIALIZED and a verdict. It imports every
-entrypoint the revision's snapshot names, discovers the Scripts they publish, and records
-VALID or INVALID. A verdict is a statement about revision content, so environment trouble
+entrypoint the revision's snapshot names, discovers the Scripts they publish, builds each one's
+run form to prove it usable, and records VALID or INVALID along with the published set a valid
+revision offers. A verdict is a statement about revision content, so environment trouble
 (an unreachable backend, a broken cache, a missing external distribution) never produces
 one: the revision reverts to MATERIALIZED and the failure propagates for the job layer to
 retry.
@@ -32,7 +33,8 @@ from .constants import VALIDATION_LEASE_SECONDS
 from .models import CustomScriptModule, CustomScriptProjectRevision
 from .runtime.cache import local_revision_dir
 from .runtime.discovery import discover_scripts
-from .runtime.exceptions import DiscoveryError, EntrypointImportError, InvalidModulePathError
+from .runtime.exceptions import DiscoveryError, EntrypointImportError, InvalidModulePathError, ScriptMetadataError
+from .runtime.introspection import describe_script
 from .runtime.loader import import_entrypoint, revision_import_session, unload_revision
 from .runtime.naming import PRIVATE_ROOT, project_module_name, revision_module_name
 from .storage import config
@@ -64,7 +66,8 @@ def validate_revision(revision, *, job, passthrough=()):
     live Module rows, and an empty snapshot is vacuously VALID. Content problems across
     all entries collect into one INVALID verdict with sanitized validation_errors, and
     Module rows named by the snapshot receive their discovery outcomes only after the
-    verdict commits under the ownership fence. passthrough lists exception types that
+    verdict commits under the ownership fence. A VALID verdict carries the described
+    publication set, an INVALID one carries an empty set. passthrough lists exception types that
     must escape unwrapped, they roll the claim back and re-raise, as does every
     environment failure. Raises ValidationStateError when the revision is not claimable.
     """
@@ -92,7 +95,7 @@ def validate_revision(revision, *, job, passthrough=()):
         raise
 
     if not entries:
-        _finalize(revision, job, RevisionStatusChoices.VALID, [])
+        _finalize(revision, job, RevisionStatusChoices.VALID, [], [])
         revision.refresh_from_db()
         return revision
 
@@ -104,6 +107,7 @@ def validate_revision(revision, *, job, passthrough=()):
     failures = []
     outcomes = {}
     identities = {}
+    records = []
     try:
         storage = config.get_storage()
         with revision_import_session(storage_key, digest):
@@ -133,7 +137,7 @@ def validate_revision(revision, *, job, passthrough=()):
                             raise
                         outcomes[source_path] = _content_failure(failures, sanitize, source_path, error)
                         continue
-                    outcomes[source_path] = _collect_identities(failures, identities, sanitize, source_path, found)
+                    outcomes[source_path] = _collect_publications(failures, identities, records, sanitize, entry, found)
             finally:
                 unload_revision(storage_key, digest)
     except BaseException:
@@ -141,7 +145,8 @@ def validate_revision(revision, *, job, passthrough=()):
         raise
 
     status = RevisionStatusChoices.INVALID if failures else RevisionStatusChoices.VALID
-    if _finalize(revision, job, status, failures):
+    published = [] if failures else records
+    if _finalize(revision, job, status, failures, published):
         _persist_module_results(revision, entries, outcomes, failures)
     revision.refresh_from_db()
     return revision
@@ -250,41 +255,57 @@ def _content_failure(failures, sanitize, source_path, error):
     return ModuleDiscoveryStatusChoices.FAILED
 
 
-def _collect_identities(failures, identities, sanitize, source_path, found):
+def _collect_publications(failures, identities, records, sanitize, entry, found):
     """
-    Fold one entry's discoveries into the revision-wide identity map.
+    Fold one entry's discoveries into the revision-wide identity map and snapshot.
 
-    One class re-exported by several entrypoints is one publication, but two different
-    classes sharing one logical identity are a content failure charged to the entry that
-    surfaced the collision.
+    One class re-exported by several entrypoints is one publication, so it is described once
+    and keeps the position of the entry that surfaced it first. Two different classes sharing
+    one logical identity are a content failure charged to the entry that surfaced the
+    collision, as is a class whose run form cannot be built.
     """
+    source_path = entry['source_path']
     outcome = ModuleDiscoveryStatusChoices.DISCOVERED
     for item in found:
         identity = (item.logical_module, item.name)
         existing = identities.get(identity)
-        if existing is None:
-            identities[identity] = item.cls
-        elif existing is not item.cls:
-            failures.append(
-                {
-                    'source_path': source_path,
-                    'code': 'duplicate_identity',
-                    'message': sanitize(f'Two script classes publish as "{item.logical_module}.{item.name}".'),
-                    'exception_type': None,
-                    'traceback': None,
-                }
+        if existing is not None:
+            if existing is not item.cls:
+                failures.append(
+                    {
+                        'source_path': source_path,
+                        'code': 'duplicate_identity',
+                        'message': sanitize(f'Two script classes publish as "{item.logical_module}.{item.name}".'),
+                        'exception_type': None,
+                        'traceback': None,
+                    }
+                )
+                outcome = ModuleDiscoveryStatusChoices.FAILED
+            continue
+        try:
+            record = describe_script(
+                item,
+                entrypoint_module_id=entry['module'],
+                entrypoint_path=source_path,
+                position=len(records),
             )
-            outcome = ModuleDiscoveryStatusChoices.FAILED
+        except ScriptMetadataError as error:
+            outcome = _content_failure(failures, sanitize, source_path, error)
+            continue
+        identities[identity] = item.cls
+        records.append(record)
     return outcome
 
 
-def _finalize(revision, job, status, validation_errors):
+def _finalize(revision, job, status, validation_errors, discovered_scripts):
     """Commit one verdict under the ownership fence, reporting whether this run still owned it."""
+    # The published set lands in the same statement as the verdict, so a run that lost its
+    # lease publishes nothing, and no reader ever sees a valid revision without its scripts.
     updated = CustomScriptProjectRevision.objects.filter(
         pk=revision.pk,
         status=RevisionStatusChoices.VALIDATING,
         validation_job=job,
-    ).update(status=status, validation_errors=validation_errors)
+    ).update(status=status, validation_errors=validation_errors, discovered_scripts=discovered_scripts)
     return bool(updated)
 
 

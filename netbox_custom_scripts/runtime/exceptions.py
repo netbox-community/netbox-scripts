@@ -2,8 +2,8 @@
 Error taxonomy for the runtime tier.
 
 The cache errors root in the storage hierarchy because a tree the cache cannot produce is a
-failure to deliver stored content. Import and discovery errors do not, because they are
-statements about revision code rather than about storage.
+failure to deliver stored content. Import, discovery, and metadata errors do not, because
+they are statements about revision code rather than about storage.
 """
 
 from ..storage.exceptions import StorageError, UnsafePathError
@@ -14,6 +14,7 @@ __all__ = (
     'InvalidModulePathError',
     'LocalCacheCorruptError',
     'LocalCacheError',
+    'ScriptMetadataError',
 )
 
 
@@ -61,6 +62,22 @@ class DiscoveryError(Exception):
     A content statement about the revision: the module imported fine but its script_order
     or class layout breaks the publication contract. The code attribute holds one of the
     fixed rejection codes and name identifies the offending class where one exists.
+    """
+
+    def __init__(self, message, code, name=None):
+        super().__init__(message)
+        self.code = code
+        self.name = name
+
+
+class ScriptMetadataError(Exception):
+    """
+    Raised when a published script class cannot be described for storage.
+
+    A content statement about the revision, like DiscoveryError: the class published, but
+    its run form cannot be built or its identity does not fit what a row can hold. The code
+    attribute holds one of the fixed rejection codes and name identifies the offending class,
+    variable, or field. __cause__ carries the original exception when project code raised.
     """
 
     def __init__(self, message, code, name=None):

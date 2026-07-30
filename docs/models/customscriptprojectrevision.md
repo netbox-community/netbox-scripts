@@ -48,9 +48,12 @@ references read project-relative.
 | `project` | `CustomScriptProject` | yes | `on_delete=CASCADE`, reverse name `revisions` |
 
 The owning project also points back at one of its revisions through
-`CustomScriptProject.active_revision`, an `on_delete=PROTECT` reference with the
-reverse name `active_revision_for`. An active revision therefore cannot be
-deleted while it is being served.
+`CustomScriptProject.active_revision`, an `on_delete=SET_NULL` reference with the
+reverse name `active_revision_for`. Deleting the revision a project is serving
+clears the pointer and leaves the project serving nothing, which is the state it
+starts life in. The pointer cannot be `PROTECT`: a project's revisions cascade
+when it is deleted, so protecting one of them would have the project protect
+itself, and no project with an active revision could ever be deleted.
 
 ## API
 
@@ -60,6 +63,12 @@ deleted while it is being served.
 | GraphQL | none in this release |
 
 Revisions carry no UI, REST, GraphQL, filterset, or global-search surface yet.
+
+A serializer exists all the same, without a route to serve. Event serialization
+resolves a serializer by model name, and it runs on any request that deletes a
+revision, which a project delete does by cascade. It omits the `url` and
+`display_url` fields the other models expose, because both reverse a detail route
+and a revision has none.
 
 The model is change-logged. Activating through the Project's **Activate** button
 is a request-bound path, so it records entries. Automatic activation happens
@@ -290,5 +299,5 @@ for them.
 |---|---|
 | No UI, REST, or GraphQL surface | Revisions can only be created by the storage service, which no user-facing view calls yet |
 | Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
-| An active revision cannot be deleted | Its project protects it. Activate another revision first, or delete the project |
+| A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
 | Staging is not serialized against itself or against deletion | Concurrent staging of one digest, or a project deleted mid-write, can leave the database and the store briefly disagreeing. The same boundary owns the queued-cleanup race: content re-staged while a deleted twin's cleanup Job is still pending can be removed by that Job once it runs. No caller in this release runs concurrently, and one shared locking model arrives with the first ones |

@@ -26,7 +26,7 @@ package boundary used when loading and executing scripts.
 |---|---|---|---|
 | `data_source` | `core.DataSource` | conditional | `on_delete=PROTECT`, no reverse relation, set only when `source_type` is `data_source` |
 | `revisions` | `CustomScriptProjectRevision` | no | Reverse of the revision's `project`, `on_delete=CASCADE`. Every snapshot ever staged for this project |
-| `active_revision` | `CustomScriptProjectRevision` | no | `on_delete=PROTECT`, reverse name `active_revision_for`. Set only by the storage activation service |
+| `active_revision` | `CustomScriptProjectRevision` | no | `on_delete=SET_NULL`, reverse name `active_revision_for`. Set only by the storage activation service |
 
 Each project owns a history of immutable source snapshots, documented on the
 [Custom Script Project Revision](customscriptprojectrevision.md) page. Modules
@@ -55,7 +55,7 @@ operation at `projects/<id>/entrypoints/`.
 | `data_source` projects require a non-empty `data_path`. The repository root is not a valid project root | `clean()` plus the `enforce_source_ownership` database constraint |
 | `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
 | `active_revision` must belong to this project | `clean()` |
-| Deleting a project clears `active_revision` first, so its own revision cannot protect it | `delete()` override, inside one transaction |
+| A project whose active revision is deleted keeps serving nothing rather than blocking the delete | `SET_NULL` on `active_revision`, which is also what lets a project be deleted at all, since its revisions cascade |
 
 Code paths that bypass validation (`QuerySet.update()`, raw SQL) must supply
 canonical values themselves. The database constraint enforces the ownership

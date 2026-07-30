@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
-from django.db.models import ProtectedError
+from django.db.models.deletion import Collector
 from django.db.utils import ConnectionDoesNotExist
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -369,22 +369,40 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertFalse(CustomScriptProject.objects.filter(key='ar-delete').exists())
         self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=digest).exists())
 
-    def test_delete_active_revision_directly_raises_protected_error(self):
-        project = CustomScriptProject.objects.create(name='AR Protect', key='ar-protect')
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest='3' * 64)
+    def test_deleting_the_active_revision_clears_the_pointer(self):
+        # SET_NULL rather than PROTECT. A project that loses its active revision serves nothing
+        # until another is activated, which is the same state it starts life in.
+        project = CustomScriptProject.objects.create(name='AR Clear', key='ar-clear')
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest=compute_digest([]))
         project.active_revision = revision
         project.save()
-        with self.assertRaises(ProtectedError):
-            revision.delete()
+        revision.delete()
+        project.refresh_from_db()
+        self.assertIsNone(project.active_revision_id)
 
-    def test_bulk_queryset_delete_bypasses_active_revision_clearing(self):
-        # Documents the caveat: QuerySet.delete() never calls the model's delete().
+    def test_a_queryset_delete_removes_a_project_with_an_active_revision(self):
+        # The regression test for the pointer that protected its own project. PROTECT fired
+        # here even though the protecting row was the project being deleted.
         project = CustomScriptProject.objects.create(name='AR Bulk', key='ar-bulk')
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest='4' * 64)
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest=compute_digest([]))
         project.active_revision = revision
         project.save()
-        with self.assertRaises(ProtectedError), transaction.atomic():
-            CustomScriptProject.objects.filter(pk=project.pk).delete()
+        CustomScriptProject.objects.filter(pk=project.pk).delete()
+        self.assertFalse(CustomScriptProject.objects.filter(key='ar-bulk').exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=revision.pk).exists())
+
+    def test_collecting_dependents_of_an_active_project_does_not_raise(self):
+        # What the delete confirmation page does before any deletion happens. It ran the
+        # collector, PROTECT fired, and the page refused with the project named as its own
+        # dependent object.
+        project = CustomScriptProject.objects.create(name='AR Collect', key='ar-collect')
+        revision = CustomScriptProjectRevision.objects.create(project=project, digest=compute_digest([]))
+        project.active_revision = revision
+        project.save()
+        collector = Collector(using=DEFAULT_DB_ALIAS)
+        collector.collect([project])
+        collected = {model for model, _instances in collector.instances_with_model()}
+        self.assertIn(CustomScriptProjectRevision, collected)
 
 
 class CustomScriptProjectRevisionTestCase(TestCase):

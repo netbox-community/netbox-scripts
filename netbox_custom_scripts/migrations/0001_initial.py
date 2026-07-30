@@ -75,7 +75,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='customscriptproject',
             name='active_revision',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='active_revision_for', to='netbox_custom_scripts.customscriptprojectrevision'),
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='active_revision_for', to='netbox_custom_scripts.customscriptprojectrevision'),
         ),
         migrations.CreateModel(
             name='CustomScriptModule',

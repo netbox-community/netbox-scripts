@@ -62,7 +62,8 @@ when domain content calls for them.
 │   │   ├── urls.py                , router.register for 'modules' + 'projects' + 'scripts'.
 │   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + read-only CustomScriptViewSet.
 │   │   └── serializers/
-│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectSerializer, CustomScriptSerializer.
+│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectRevisionSerializer, CustomScriptProjectSerializer, CustomScriptSerializer.
+│   │       ├── revision.py    , CustomScriptProjectRevisionSerializer: no route, exists only so event serialization can resolve one by model name. Omits url/display_url, a revision has no detail route to reverse.
 │   │       ├── script.py      , CustomScriptSerializer: read-only, importable as api.serializers.CustomScriptSerializer for event serialization.
 │   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
 │   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, revision as a bare ID.
@@ -108,6 +109,7 @@ when domain content calls for them.
 │   │   ├── models/test_module.py  , CustomScriptModule model invariants.
 │   │   ├── models/test_script.py  , CustomScript identity, retirement, cascade + is_executable.
 │   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, read-only refusals.
+│   │   ├── api/test_revision.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
 │   │   ├── views/test_script.py   , CustomScript detail view + changelog rendering.
 │   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
 │   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase).

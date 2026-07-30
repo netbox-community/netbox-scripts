@@ -345,6 +345,39 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.grant('view')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
+    def delete_project_url(self):
+        return reverse('plugins:netbox_custom_scripts:customscriptproject_delete', args=[self.project.pk])
+
+    def test_the_delete_page_renders_for_a_project_with_an_active_revision(self):
+        # The confirmation page runs the deletion collector before deleting anything. With the
+        # pointer declared PROTECT, that raised and the page refused, naming the project as its
+        # own dependent object, so an activated project could not be deleted through the UI.
+        self.grant('view', 'change', 'delete')
+        self.publish()
+        self.client.post(self.url())
+        self.assertHttpStatus(self.client.get(self.delete_project_url()), 200)
+
+    def test_deleting_an_active_project_through_the_ui_succeeds(self):
+        # Also covers the second half: cascading the revisions away queues delete events, which
+        # serialize eagerly, so the revision needs a serializer resolvable by model name.
+        self.grant('view', 'change', 'delete')
+        self.publish()
+        self.client.post(self.url())
+        response = self.client.post(self.delete_project_url(), {'confirm': True})
+        self.assertHttpStatus(response, 302)
+        self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
+        self.assertFalse(CustomScript.objects.exists())
+
+    def test_bulk_deleting_an_active_project_succeeds(self):
+        self.grant('view', 'change', 'delete')
+        self.publish()
+        self.client.post(self.url())
+        bulk = reverse('plugins:netbox_custom_scripts:customscriptproject_bulk_delete')
+        response = self.client.post(bulk, {'pk': [self.project.pk], 'confirm': True, '_confirm': True})
+        self.assertHttpStatus(response, 302)
+        self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+
     def publish(self):
         """Record one Custom Script on the revision, so activation has something to publish."""
         CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(

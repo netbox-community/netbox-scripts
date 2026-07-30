@@ -82,10 +82,14 @@ class CustomScriptProject(PrimaryModel):
             'Whether new revisions of this project activate automatically when valid, or require manual activation.'
         ),
     )
+    # SET_NULL rather than PROTECT: the project's own revisions cascade, so protecting one of
+    # them here would have the project protect itself against its own deletion. Nothing is lost
+    # by clearing instead, because a project stops serving through enabled, not through this
+    # pointer.
     active_revision = models.ForeignKey(
         to='netbox_custom_scripts.CustomScriptProjectRevision',
         verbose_name=_('active revision'),
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         blank=True,
         null=True,
         related_name='active_revision_for',
@@ -212,20 +216,6 @@ class CustomScriptProject(PrimaryModel):
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)
-
-    def delete(self, using=None, **kwargs):
-        """Delete the project, clearing the active revision pointer so PROTECT does not fire."""
-        # PROTECT fires even when the protecting row is part of the same cascade, so the
-        # pointer must go first. QuerySet.delete() bypasses this and must clear it itself.
-        # The alias is resolved once so the transaction guards the connection that both the
-        # pointer clear and the delete itself run on. The clear is unconditional because an
-        # instance loaded before another caller activated a revision still reports none, and
-        # skipping the update on that word leaves the row protected and the delete failing.
-        using = using or router.db_for_write(type(self), instance=self)
-        with transaction.atomic(using=using):
-            type(self).objects.using(using).filter(pk=self.pk).update(active_revision=None)
-            self.active_revision = None
-            return super().delete(using=using, **kwargs)
 
     def get_source_type_color(self):
         """Return the badge color configured for this project's source type."""

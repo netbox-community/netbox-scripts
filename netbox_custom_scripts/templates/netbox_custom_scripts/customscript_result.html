@@ -1,0 +1,71 @@
+{% extends "generic/_base.html" %}
+{% load helpers %}
+{% load i18n %}
+{% load render_table from django_tables2 %}
+{% comment %}
+Result page for one run of a Custom Script.
+
+The log and the output come from the Job's recorded data, so a run still in flight renders the
+status and nothing else.
+
+Context:
+  - object: The Custom Script
+  - job:    The Job this run was recorded on
+  - table:  Its log entries, already filtered to the requested level
+  - output: Whatever the script returned
+{% endcomment %}
+{% block title %}
+  {{ object }}
+{% endblock title %}
+{% block subtitle %}
+  <div class="text-secondary">
+    {% blocktrans with digest=job.data.revision_digest|slice:":12" %}Revision {{ digest }}{% endblocktrans %}
+  </div>
+{% endblock subtitle %}
+{% block content %}
+  <div class="row mb-3">
+    <div class="col">
+      <div class="card">
+        <h2 class="card-header">{% trans "Run" %}</h2>
+        <table class="table table-hover attr-table">
+          <tr>
+            <th scope="row">{% trans "Status" %}</th>
+            <td>{% badge job.get_status_display bg_color=job.get_status_color %}</td>
+          </tr>
+          <tr>
+            <th scope="row">{% trans "Started" %}</th>
+            <td>{{ job.started|placeholder }}</td>
+          </tr>
+          <tr>
+            <th scope="row">{% trans "Completed" %}</th>
+            <td>{{ job.completed|placeholder }}</td>
+          </tr>
+          <tr>
+            <th scope="row">{% trans "User" %}</th>
+            <td>{{ job.user|placeholder }}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="row mb-3">
+    <div class="col">
+      <div class="card">
+        <h2 class="card-header">{% trans "Log" %}</h2>
+        {% render_table table 'inc/table.html' %}
+      </div>
+    </div>
+  </div>
+  {% if output %}
+    <div class="row mb-3">
+      <div class="col">
+        <div class="card">
+          <h2 class="card-header">{% trans "Output" %}</h2>
+          <div class="card-body">
+            <pre class="block">{{ output }}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock content %}

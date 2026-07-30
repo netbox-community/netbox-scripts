@@ -25,7 +25,12 @@ class CustomScriptStatePanel(ObjectAttributesPanel):
     is_retired = attrs.BooleanAttr('is_retired', label=_('Retired'))
     # Not a RelatedObjectAttr: revisions have no detail view.
     last_seen_revision = attrs.TextAttr('last_seen_revision', label=_('Last seen revision'))
-    metadata = attrs.TextAttr('metadata', label=_('Execution defaults'))
+    # One row per execution default rather than the metadata JSON, which rendered as a raw dict.
+    # Each reads a model accessor, so the panel never reaches into the record itself.
+    commit_default = attrs.BooleanAttr('commit_default', label=_('Commit by default'))
+    job_timeout_display = attrs.TextAttr('job_timeout_display', label=_('Run timeout'))
+    notifications_default = attrs.ChoiceAttr('notifications_default', label=_('Notifications'))
+    scheduling_enabled = attrs.BooleanAttr('scheduling_enabled', label=_('Scheduling allowed'))
 
 
 class CustomScriptModulePanel(ObjectAttributesPanel):

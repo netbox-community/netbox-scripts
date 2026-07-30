@@ -1,0 +1,24 @@
+{% load i18n %}
+{% comment %}
+Run button for one Custom Script.
+
+Rendered inert rather than hidden when the script cannot run, so an operator sees that running
+is unavailable instead of finding no button and wondering where it went.
+
+Context:
+  - url:        The script's run route
+  - label:      The button label
+  - executable: Whether the script can be run right now
+{% endcomment %}
+{% if executable %}
+  <a href="{{ url }}" class="btn btn-primary" role="button">
+    <i class="mdi mdi-play" aria-hidden="true"></i> {{ label }}
+  </a>
+{% else %}
+  <button type="button"
+          class="btn btn-primary"
+          disabled
+          title="{% trans "This Custom Script cannot be run right now." %}">
+    <i class="mdi mdi-play" aria-hidden="true"></i> {{ label }}
+  </button>
+{% endif %}

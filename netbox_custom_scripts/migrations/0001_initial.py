@@ -126,6 +126,7 @@ class Migration(migrations.Migration):
                 'verbose_name': 'custom script',
                 'verbose_name_plural': 'custom scripts',
                 'ordering': ('project', 'module_path', 'class_name'),
+                'permissions': (('run_customscript', 'Can run a Custom Script'),),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),

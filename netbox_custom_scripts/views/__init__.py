@@ -23,6 +23,8 @@ from .script import (
     CustomScriptBulkEditView,
     CustomScriptEditView,
     CustomScriptListView,
+    CustomScriptResultView,
+    CustomScriptRunView,
     CustomScriptView,
 )
 
@@ -45,5 +47,7 @@ __all__ = (
     'CustomScriptProjectRevisionActivateView',
     'CustomScriptProjectRevisionDeactivateView',
     'CustomScriptProjectView',
+    'CustomScriptResultView',
+    'CustomScriptRunView',
     'CustomScriptView',
 )

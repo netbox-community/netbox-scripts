@@ -7,6 +7,7 @@ from netbox.object_actions import ObjectAction
 __all__ = (
     'ActivateRevision',
     'AddScript',
+    'RunScript',
 )
 
 
@@ -45,3 +46,24 @@ class AddScript(ObjectAction):
     permissions_required = {'change'}
     url_kwargs = ['pk']
     template_name = 'netbox_custom_scripts/buttons/add_script.html'
+
+
+class RunScript(ObjectAction):
+    """
+    Run one Custom Script against the revision its project is serving.
+
+    Its own permission rather than change, because running a script is not editing the row, and
+    the two are granted to different people. The button is rendered inert rather than hidden
+    when the script cannot run, so an operator sees why instead of finding nothing.
+    """
+
+    name = 'run'
+    label = _('Run')
+    permissions_required = {'run'}
+    url_kwargs = ['pk']
+    template_name = 'netbox_custom_scripts/buttons/run.html'
+
+    @classmethod
+    def get_context(cls, context, obj):
+        """Tell the template whether this script can be run right now."""
+        return {'executable': obj.is_executable}

@@ -7,7 +7,7 @@ from strawberry_django import BaseFilterLookup, FilterLookup, StrFilterLookup
 
 from netbox.graphql.filters import PrimaryModelFilter
 
-from ..models import CustomScriptModule, CustomScriptProject
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject
 
 if TYPE_CHECKING:
     from core.graphql.filters import DataSourceFilter
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .enums import ActivationPolicyEnum, ModuleDiscoveryStatusEnum, ProjectSourceTypeEnum
 
 __all__ = (
+    'CustomScriptFilter',
     'CustomScriptModuleFilter',
     'CustomScriptProjectFilter',
 )
@@ -59,3 +60,18 @@ class CustomScriptModuleFilter(PrimaryModelFilter):
         BaseFilterLookup[Annotated['ModuleDiscoveryStatusEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]]
         | None
     ) = strawberry_django.filter_field()
+
+
+# last_seen_revision is not filterable here, matching the object type. REST filters it by ID.
+# No enum lookups: this model has no choice field.
+@strawberry_django.filter_type(CustomScript, lookups=True)
+class CustomScriptFilter(PrimaryModelFilter):
+    """GraphQL filter for the Custom Script model."""
+
+    project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
+    project_id: ID | None = strawberry_django.filter_field()
+    module_path: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    class_name: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    display_name: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
+    is_retired: FilterLookup[bool] | None = strawberry_django.filter_field()

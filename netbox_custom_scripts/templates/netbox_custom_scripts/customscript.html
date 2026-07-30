@@ -1,22 +1,16 @@
 {% extends "generic/object.html" %}
-{% load i18n %}
 {% comment %}
 Detail-view template for the CustomScript model.
 
 The view class (`CustomScriptView` in `views/script.py`) declares its layout
 via the `layout = layout.SimpleLayout(...)` attribute. "generic/object.html" renders
-the panels declaratively.
+the panels declaratively, so this template only needs to exist to satisfy NetBox's
+per-model template lookup.
 
-Unlike the other models here, this template also has to replace "breadcrumbs". The
-default block reverses the model's list route unconditionally, and Custom Scripts have
-no list view until the full object surface lands. A script belongs to a project, so the
-trail leads through the project instead of a list of every script.
+Extend the blocks defined by "generic/object.html" to customise:
+
+  - "breadcrumbs" (add parent-context breadcrumbs)
+  - "extra_controls" (add object-specific action buttons)
+  - "subtitle", "tabs", "alerts", "modals" (see "templates/generic/object.html"
+    in the NetBox checkout for the full list).
 {% endcomment %}
-{% block breadcrumbs %}
-  <li class="breadcrumb-item">
-    <a href="{% url 'plugins:netbox_custom_scripts:customscriptproject_list' %}">{% trans "Custom Script Projects" %}</a>
-  </li>
-  <li class="breadcrumb-item">
-    <a href="{{ object.project.get_absolute_url }}">{{ object.project }}</a>
-  </li>
-{% endblock breadcrumbs %}

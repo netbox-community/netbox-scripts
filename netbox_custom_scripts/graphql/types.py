@@ -5,8 +5,8 @@ import strawberry_django
 
 from netbox.graphql.types import PrimaryObjectType
 
-from ..models import CustomScriptModule, CustomScriptProject
-from .filters import CustomScriptModuleFilter, CustomScriptProjectFilter
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject
+from .filters import CustomScriptFilter, CustomScriptModuleFilter, CustomScriptProjectFilter
 
 if TYPE_CHECKING:
     from core.graphql.types import DataSourceType
@@ -39,6 +39,24 @@ class CustomScriptProjectType(PrimaryObjectType):
 )
 class CustomScriptModuleType(PrimaryObjectType):
     """GraphQL object type for the Custom Script Module model."""
+
+    project: CustomScriptProjectType
+
+    @classmethod
+    def get_queryset(cls, queryset, info, **kwargs):
+        """Return the base queryset with the project fetched in the same query."""
+        return super().get_queryset(queryset, info, **kwargs).select_related('project')
+
+
+@strawberry_django.type(
+    CustomScript,
+    # Revisions have no registered type, so strawberry cannot resolve the relation.
+    exclude=('last_seen_revision',),
+    filters=CustomScriptFilter,
+    pagination=True,
+)
+class CustomScriptType(PrimaryObjectType):
+    """GraphQL object type for the Custom Script model."""
 
     project: CustomScriptProjectType
 

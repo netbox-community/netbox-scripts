@@ -4,7 +4,7 @@ from netbox.plugins import PluginMenu, PluginMenuButton, PluginMenuItem
 
 _customscriptproject_item = PluginMenuItem(
     link='plugins:netbox_custom_scripts:customscriptproject_list',
-    link_text=_('Custom Script Projects'),
+    link_text=_('Projects'),
     permissions=['netbox_custom_scripts.view_customscriptproject'],
     buttons=(
         PluginMenuButton(
@@ -29,8 +29,18 @@ _customscriptproject_item = PluginMenuItem(
     ),
 )
 
+# No add button: rows are derived from an activated revision, never authored.
+_customscript_item = PluginMenuItem(
+    link='plugins:netbox_custom_scripts:customscript_list',
+    link_text=_('Scripts'),
+    permissions=['netbox_custom_scripts.view_customscript'],
+)
+
 menu = PluginMenu(
     label=_('Custom Scripts'),
-    groups=((_('Projects'), (_customscriptproject_item,)),),
+    groups=(
+        (_('Projects'), (_customscriptproject_item,)),
+        (_('Scripts'), (_customscript_item,)),
+    ),
     icon_class='mdi mdi-script-text',
 )

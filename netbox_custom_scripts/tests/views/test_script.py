@@ -1,10 +1,42 @@
 from django.contrib.auth import get_user_model
 from django.test import Client
+from django.urls import NoReverseMatch, reverse
 
 from core.models import ObjectChange
 from core.tables import ObjectChangeTable
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject
-from utilities.testing import TestCase
+from netbox_custom_scripts.tests.plugin_testing import PluginTestCases
+from utilities.testing import TestCase, create_tags
+
+
+class CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
+    model = CustomScript
+
+    @classmethod
+    def setUpTestData(cls):
+        project = CustomScriptProject.objects.create(name='Surface Project', key='surface-project')
+        scripts = (
+            CustomScript(project=project, module_path='a', class_name='First', display_name='First'),
+            CustomScript(project=project, module_path='b', class_name='Second', display_name='Second'),
+            CustomScript(project=project, module_path='c', class_name='Third', display_name='Third'),
+        )
+        for script in scripts:
+            script.save()
+
+        tags = create_tags('Alpha', 'Bravo', 'Charlie')
+
+        # Only the administrator's fields. Everything else is editable=False, so a posted
+        # value would be ignored and assertInstanceEqual would fail on it.
+        cls.form_data = {
+            'enabled': False,
+            'comments': 'Paused',
+            'tags': [t.pk for t in tags],
+        }
+        # enabled leads: the first key drives the constrained-permission test and must
+        # transition, and all three fixtures default to enabled.
+        cls.bulk_edit_data = {
+            'enabled': False,
+        }
 
 
 class CustomScriptViewTestCase(TestCase):
@@ -35,13 +67,40 @@ class CustomScriptViewTestCase(TestCase):
         self.assertIn('tools.deploy', content)
         self.assertIn('DeployDevices', content)
 
-    def test_the_breadcrumbs_lead_through_the_project(self):
-        # The default breadcrumb block reverses the model's list route unconditionally, and
-        # this model has none, so the template replaces the block rather than extending it.
+    def test_the_breadcrumbs_reverse_the_list_route(self):
+        # The default breadcrumb block reverses the model's list route, which the template
+        # used to have to replace because no such route existed.
         response = self.client.get(self.script.get_absolute_url())
-        content = response.content.decode()
-        self.assertIn(self.project.get_absolute_url(), content)
-        self.assertIn('/plugins/custom-scripts/projects/', content)
+        self.assertIn('/plugins/custom-scripts/scripts/', response.content.decode())
+
+    def test_the_list_view_renders(self):
+        response = self.client.get('/plugins/custom-scripts/scripts/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Deploy Devices', response.content.decode())
+
+    def test_the_list_view_requires_permission(self):
+        client = Client()
+        client.force_login(get_user_model().objects.create_user(username='listless'))
+        response = client.get('/plugins/custom-scripts/scripts/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_no_create_route_is_registered(self):
+        # Rows are derived from an activated revision, so authoring one has no route.
+        for name in ('customscript_add', 'customscript_bulk_delete'):
+            with self.subTest(route=name), self.assertRaises(NoReverseMatch):
+                reverse(f'plugins:netbox_custom_scripts:{name}')
+
+    def test_no_delete_route_is_registered(self):
+        # Retirement replaces deletion so accumulated Job history survives.
+        with self.assertRaises(NoReverseMatch):
+            reverse('plugins:netbox_custom_scripts:customscript_delete', args=[self.script.pk])
+
+    def test_the_edit_route_requires_the_change_permission(self):
+        url = reverse('plugins:netbox_custom_scripts:customscript_edit', args=[self.script.pk])
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        self.add_permissions('netbox_custom_scripts.change_customscript')
+        self.assertEqual(self.client.get(url).status_code, 200)
 
     def test_the_inherited_feature_tabs_render(self):
         # JobsMixin and the PrimaryModel feature set register these routes automatically, so

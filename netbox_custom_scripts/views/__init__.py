@@ -19,9 +19,17 @@ from .revision import (
     CustomScriptProjectRevisionActivateView,
     CustomScriptProjectRevisionDeactivateView,
 )
-from .script import CustomScriptView
+from .script import (
+    CustomScriptBulkEditView,
+    CustomScriptEditView,
+    CustomScriptListView,
+    CustomScriptView,
+)
 
 __all__ = (
+    'CustomScriptBulkEditView',
+    'CustomScriptEditView',
+    'CustomScriptListView',
     'CustomScriptModuleBulkDeleteView',
     'CustomScriptModuleDeleteView',
     'CustomScriptModuleEditView',

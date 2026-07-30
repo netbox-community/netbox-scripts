@@ -49,6 +49,18 @@ class PluginTestCases:
 
         maxDiff = None
 
+    class DerivedObjectViewTestCase(
+        PluginViewTestCase,
+        ViewTestCases.GetObjectViewTestCase,
+        ViewTestCases.GetObjectChangelogViewTestCase,
+        ViewTestCases.EditObjectViewTestCase,
+        ViewTestCases.ListObjectsViewTestCase,
+        ViewTestCases.BulkEditObjectsViewTestCase,
+    ):
+        """Composite for a model whose rows are derived, so no create, delete, or import."""
+
+        maxDiff = None
+
 
 class PluginAPIViewTestCases:
     """Plugin-aware variants of the standard API view test cases.

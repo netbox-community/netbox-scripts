@@ -27,7 +27,10 @@ urlpatterns: tuple = (
         'revisions/<int:pk>/',
         include(get_model_urls('netbox_custom_scripts', 'customscriptprojectrevision')),
     ),
-    # Detail only: Custom Scripts have no list view until the full object surface lands.
+    path(
+        'scripts/',
+        include(get_model_urls('netbox_custom_scripts', 'customscript', detail=False)),
+    ),
     path(
         'scripts/<int:pk>/',
         include(get_model_urls('netbox_custom_scripts', 'customscript')),

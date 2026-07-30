@@ -33,8 +33,10 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 # behaviour, which is the right default for one that holds no storage. Two things are worth
 # checking when adding one: whether it owns bytes on disk, in which case it belongs here, and
 # whether it gains a concrete relation to a branch-aware model, which would leave a row in the
-# main schema pointing at a row that exists only inside a branch.
-GLOBAL_MODELS = ('customscriptmodule', 'customscriptproject', 'customscriptprojectrevision')
+# main schema pointing at a row that exists only inside a branch. Custom Scripts hold no bytes
+# and are listed for a third reason: activation writes them in the same transaction that moves
+# a project's active revision, so splitting them across schemas would split that transaction.
+GLOBAL_MODELS = ('customscript', 'customscriptmodule', 'customscriptproject', 'customscriptprojectrevision')
 
 # The two things unsafe routing can need, in one hint because there is one error path. Which one
 # applies is already named by the reason the check and the guard report, and the configuration on

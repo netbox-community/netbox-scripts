@@ -4,6 +4,30 @@ from netbox.ui import attrs
 from netbox.ui.panels import ObjectAttributesPanel
 
 
+class CustomScriptPanel(ObjectAttributesPanel):
+    """Identity attributes of a Custom Script (detail view, left column)."""
+
+    title = _('Script')
+
+    project = attrs.RelatedObjectAttr('project', label=_('Custom Script Project'))
+    module_path = attrs.TextAttr('module_path', label=_('Module path'))
+    class_name = attrs.TextAttr('class_name', label=_('Class name'))
+    display_name = attrs.TextAttr('display_name', label=_('Display name'))
+    description = attrs.TextAttr('description', label=_('Description'))
+    enabled = attrs.BooleanAttr('enabled', label=_('Enabled'))
+
+
+class CustomScriptStatePanel(ObjectAttributesPanel):
+    """System-managed publication state of a Custom Script (detail view, right column)."""
+
+    title = _('Publication')
+
+    is_retired = attrs.BooleanAttr('is_retired', label=_('Retired'))
+    # Not a RelatedObjectAttr: revisions have no detail view.
+    last_seen_revision = attrs.TextAttr('last_seen_revision', label=_('Last seen revision'))
+    metadata = attrs.TextAttr('metadata', label=_('Execution defaults'))
+
+
 class CustomScriptModulePanel(ObjectAttributesPanel):
     """Declaration attributes of a Custom Script Module (detail view, left column)."""
 

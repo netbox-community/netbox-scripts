@@ -15,6 +15,7 @@ from .project import (
     CustomScriptProjectListView,
     CustomScriptProjectView,
 )
+from .script import CustomScriptView
 
 __all__ = (
     'CustomScriptModuleBulkDeleteView',
@@ -30,4 +31,5 @@ __all__ = (
     'CustomScriptProjectEntrypointsView',
     'CustomScriptProjectListView',
     'CustomScriptProjectView',
+    'CustomScriptView',
 )

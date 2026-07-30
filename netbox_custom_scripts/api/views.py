@@ -4,11 +4,11 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as APIValidationError
 from rest_framework.response import Response
 
-from netbox.api.viewsets import NetBoxModelViewSet
+from netbox.api.viewsets import NetBoxModelViewSet, NetBoxReadOnlyModelViewSet
 
 from ..filtersets import CustomScriptModuleFilterSet, CustomScriptProjectFilterSet
-from ..models import CustomScriptModule, CustomScriptProject
-from .serializers import CustomScriptModuleSerializer, CustomScriptProjectSerializer
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject
+from .serializers import CustomScriptModuleSerializer, CustomScriptProjectSerializer, CustomScriptSerializer
 
 
 class CustomScriptModuleViewSet(NetBoxModelViewSet):
@@ -60,3 +60,14 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
                 for path in project.declarable_entrypoints()
             ],
         }
+
+
+class CustomScriptViewSet(NetBoxReadOnlyModelViewSet):
+    """
+    REST API viewset for Custom Scripts.
+
+    Read only, because rows are derived from an activated revision rather than authored.
+    """
+
+    queryset = CustomScript.objects.select_related('project')
+    serializer_class = CustomScriptSerializer

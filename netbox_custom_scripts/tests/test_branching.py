@@ -91,8 +91,8 @@ class ResolverTestCase(TestCase):
     def test_a_model_outside_global_models_is_left_alone(self):
         # None defers, so a model added to this plugin later keeps NetBox's ordinary behaviour,
         # which is the right default for one that holds no storage or validation configuration.
-        # CustomScript is the discovered-script model a later release adds.
-        self.assertIsNone(branching.resolve_branching_support(fake_model('customscript')))
+        # The name has to stay fictional, because every model this plugin ships is listed.
+        self.assertIsNone(branching.resolve_branching_support(fake_model('unlistedmodel')))
 
     def test_other_applications_are_left_alone(self):
         from core.models import DataSource

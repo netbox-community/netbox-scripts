@@ -15,6 +15,7 @@ __all__ = (
     'LocalCacheCorruptError',
     'LocalCacheError',
     'ScriptMetadataError',
+    'ScriptResolutionError',
 )
 
 
@@ -78,6 +79,21 @@ class ScriptMetadataError(Exception):
     its run form cannot be built or its identity does not fit what a row can hold. The code
     attribute holds one of the fixed rejection codes and name identifies the offending class,
     variable, or field. __cause__ carries the original exception when project code raised.
+    """
+
+    def __init__(self, message, code, name=None):
+        super().__init__(message)
+        self.code = code
+        self.name = name
+
+
+class ScriptResolutionError(Exception):
+    """
+    Raised when a stored script identity does not name a class this revision publishes.
+
+    A statement about the pairing rather than about either side: the revision imports and the
+    row exists, but the two disagree. The code attribute holds one of the fixed rejection
+    codes and name carries the dotted identity that could not be resolved.
     """
 
     def __init__(self, message, code, name=None):

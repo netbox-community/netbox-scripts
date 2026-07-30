@@ -12,6 +12,7 @@ from netbox.models import ChangeLoggedModel, PrimaryModel
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from ..constants import ACTIVATABLE_REVISION_STATUSES
 from ..storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
+from ..utils import data_source_relative_path
 from ..validators import data_paths_overlap, normalize_data_path
 
 # What the detail view says about a newest revision that is not the active one. Phrased for an
@@ -323,15 +324,12 @@ class CustomScriptProject(PrimaryModel):
         """Return every project-relative path of the source this project currently has."""
         # A data source is readable before anything is staged, so it wins over the manifest.
         if self.source_type == ProjectSourceTypeChoices.DATA_SOURCE and self.data_source_id:
-            prefix = self.data_path.split('/') if self.data_path else []
-            paths = []
-            for path in self.data_source.datafiles.values_list('path', flat=True):
-                segments = path.split('/')
-                # Segment-wise, so "automation/netbox" does not claim "automation/netbox-old".
-                if segments[: len(prefix)] != prefix or len(segments) == len(prefix):
-                    continue
-                paths.append('/'.join(segments[len(prefix) :]))
-            return paths
+            # Only the paths, never the content: the Entrypoints tab calls this on every render.
+            return [
+                relative
+                for path in self.data_source.datafiles.values_list('path', flat=True)
+                if (relative := data_source_relative_path(path, self.data_path)) is not None
+            ]
         revision = self.current_revision
         return [entry['path'] for entry in revision.manifest] if revision else []
 

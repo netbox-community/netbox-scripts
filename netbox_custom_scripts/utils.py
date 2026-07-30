@@ -3,7 +3,25 @@ import keyword
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
-__all__ = ('source_path_to_dotted_name',)
+__all__ = (
+    'data_source_relative_path',
+    'source_path_to_dotted_name',
+)
+
+
+def data_source_relative_path(path, data_path):
+    """
+    Return a Data Source file's path relative to data_path, or None if it sits outside.
+
+    An empty data_path takes the whole Data Source. A file whose path is the directory itself is
+    outside it, because a project's source is what the directory contains.
+    """
+    prefix = data_path.split('/') if data_path else []
+    segments = path.split('/')
+    # Segment-wise, so "automation/netbox" does not claim "automation/netbox-old".
+    if segments[: len(prefix)] != prefix or len(segments) == len(prefix):
+        return None
+    return '/'.join(segments[len(prefix) :])
 
 
 def source_path_to_dotted_name(path):

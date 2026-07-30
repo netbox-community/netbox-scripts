@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import tempfile
 import uuid
@@ -6,8 +7,9 @@ from unittest import mock
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
-from core.models import DataSource, Job
+from core.models import DataFile, DataSource, Job
 from netbox_custom_scripts import activation
 from netbox_custom_scripts.choices import (
     ActivationPolicyChoices,
@@ -15,7 +17,7 @@ from netbox_custom_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
-from netbox_custom_scripts.ingestion import ingest_upload, uploaded_source_path
+from netbox_custom_scripts.ingestion import ingest_data_source, ingest_upload, uploaded_source_path
 from netbox_custom_scripts.jobs import RevisionValidationJob
 from netbox_custom_scripts.models import (
     CustomScript,
@@ -59,6 +61,19 @@ class Farewell(Script):
         return 'bye'
 """
 )
+
+
+def data_file(source, path, content=b'x'):
+    """Add one file to a Data Source's synchronized inventory."""
+    # last_updated is editable=False with no auto_now, so a fixture has to set it.
+    return DataFile.objects.create(
+        source=source,
+        path=path,
+        size=len(content),
+        hash=hashlib.sha256(content).hexdigest(),
+        data=content,
+        last_updated=timezone.now(),
+    )
 
 
 class UploadedSourcePathTestCase(TestCase):
@@ -219,8 +234,7 @@ class IngestUploadTestCase(TestCase):
 
     def test_a_nested_path_is_preserved_at_this_layer(self):
         # Flattening to a basename happens in Django's uploaded-file handling, so it binds the
-        # HTTP upload only. Data Source reconciliation reaches this function with real directory
-        # paths and needs them kept.
+        # HTTP form only. This layer keeps whatever path it is handed.
         staged = ingest_upload(self.project, filename='automation/deploy.py', content=SCRIPT)
         self.assertEqual([entry['path'] for entry in staged.revision.manifest], ['automation/deploy.py'])
         self.assertEqual(CustomScriptModule.objects.get(project=self.project).source_path, 'automation/deploy.py')
@@ -258,6 +272,150 @@ class IngestUploadTestCase(TestCase):
             sorted(entry['source_path'] for entry in staged.revision.entrypoint_snapshot),
             ['audit.py', 'deploy.py'],
         )
+
+
+@override_settings(STORAGES=IN_MEMORY_STORAGES)
+class IngestDataSourceTestCase(TestCase):
+    """Turning a project's Data Source directory into a revision on its way to a verdict."""
+
+    def setUp(self):
+        self.source = DataSource.objects.create(
+            name='Scripts Repo', type='local', source_url='file:///tmp/scripts-repo/'
+        )
+        self.project = CustomScriptProject.objects.create(
+            name='Repo Project',
+            key='repo-project',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.source,
+            data_path='automation/netbox',
+        )
+        self.enqueued = self.enterContext(
+            mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None)
+        )
+
+    def populate(self):
+        """Synchronize a repository holding the project's directory, a sibling, and bytecode."""
+        for path in (
+            'automation/netbox/deploy.py',
+            'automation/netbox/lib/shared.py',
+            'automation/netbox/README.md',
+            'automation/netbox/__pycache__/deploy.cpython-312.pyc',
+            'automation/netbox/lib/stale.pyc',
+            'automation/netbox-old/legacy.py',
+            'unrelated/other.py',
+        ):
+            data_file(self.source, path)
+
+    def staged_paths(self, staged):
+        return sorted(entry['path'] for entry in staged.revision.manifest)
+
+    def test_the_directory_is_staged_with_its_prefix_stripped(self):
+        self.populate()
+        staged = ingest_data_source(self.project)
+        self.assertEqual(staged.revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(self.staged_paths(staged), ['README.md', 'deploy.py', 'lib/shared.py'])
+
+    def test_a_nested_path_is_preserved(self):
+        # Unlike an upload, which Django has already reduced to a basename by the time a form
+        # sees it.
+        self.populate()
+        self.assertIn('lib/shared.py', self.staged_paths(ingest_data_source(self.project)))
+
+    def test_a_file_outside_the_directory_is_excluded(self):
+        self.populate()
+        paths = self.staged_paths(ingest_data_source(self.project))
+        self.assertNotIn('other.py', paths)
+        self.assertNotIn('unrelated/other.py', paths)
+
+    def test_a_sibling_directory_sharing_a_prefix_is_excluded(self):
+        # Segment-wise, so "automation/netbox" does not claim "automation/netbox-old".
+        self.populate()
+        self.assertNotIn('legacy.py', self.staged_paths(ingest_data_source(self.project)))
+
+    def test_a_non_python_file_is_stored(self):
+        # A directory legitimately holds helper data a script reads. The Python-only rule binds
+        # uploads, where every file is an entrypoint.
+        self.populate()
+        self.assertIn('README.md', self.staged_paths(ingest_data_source(self.project)))
+
+    def test_compiled_artifacts_are_skipped_silently(self):
+        self.populate()
+        staged = ingest_data_source(self.project)
+        self.assertEqual(staged.revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(staged.revision.validation_errors, [])
+        self.assertEqual([path for path in self.staged_paths(staged) if path.endswith('.pyc')], [])
+        self.assertEqual([path for path in self.staged_paths(staged) if '__pycache__' in path], [])
+
+    def test_any_other_refused_path_invalidates_the_revision(self):
+        # Only bytecode is skipped. Everything else the path policy refuses falls through to
+        # staging, which records it as an invalid revision naming the path.
+        data_file(self.source, 'automation/netbox/{}.py'.format('x' * 300))
+        staged = ingest_data_source(self.project)
+        self.assertEqual(staged.revision.status, RevisionStatusChoices.INVALID)
+        self.assertEqual([error['code'] for error in staged.revision.validation_errors], ['path_component_too_long'])
+        self.assertEqual(staged.revision.validation_errors[0]['path'], '{}.py'.format('x' * 300))
+        self.enqueued.assert_not_called()
+
+    def test_no_entrypoint_is_declared(self):
+        # A new Python file becomes a candidate that has to be selected, never an entrypoint by
+        # arrival, which is what makes the selection survive a synchronization.
+        self.populate()
+        staged = ingest_data_source(self.project)
+        self.assertFalse(CustomScriptModule.objects.filter(project=self.project).exists())
+        self.assertEqual(staged.revision.entrypoint_snapshot, [])
+
+    def test_an_enabled_declaration_is_frozen_into_the_snapshot(self):
+        self.populate()
+        self.project.select_entrypoints(['deploy.py'])
+        staged = ingest_data_source(self.project)
+        self.assertEqual([entry['source_path'] for entry in staged.revision.entrypoint_snapshot], ['deploy.py'])
+
+    def test_a_declaration_whose_file_is_gone_is_still_frozen_in(self):
+        # The verdict has to be able to name the missing path, so the snapshot carries the
+        # declaration even though the manifest no longer holds the file.
+        self.populate()
+        self.project.select_entrypoints(['deploy.py'])
+        DataFile.objects.filter(path='automation/netbox/deploy.py').delete()
+
+        staged = ingest_data_source(self.project)
+        self.assertEqual([entry['source_path'] for entry in staged.revision.entrypoint_snapshot], ['deploy.py'])
+        self.assertNotIn('deploy.py', self.staged_paths(staged))
+
+    def test_validation_is_enqueued_once_for_the_staged_revision(self):
+        self.populate()
+        staged = ingest_data_source(self.project)
+        self.enqueued.assert_called_once_with(staged.revision)
+
+    def test_a_synchronization_that_changed_nothing_is_a_no_op(self):
+        # Identical content under an unchanged entrypoint configuration resolves to the revision
+        # that already holds a verdict, and only a materialized revision is claimable, so
+        # enqueueing it again would fail a job over a synchronization that changed nothing.
+        self.populate()
+        first = ingest_data_source(self.project)
+        CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.VALID)
+        self.enqueued.reset_mock()
+
+        second = ingest_data_source(self.project)
+        self.assertEqual(second.revision.pk, first.revision.pk)
+        self.assertFalse(second.created)
+        self.assertEqual(CustomScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+        self.enqueued.assert_not_called()
+
+    def test_an_empty_directory_stages_an_empty_revision(self):
+        # Staged faithfully rather than specially refused. A project with no declarations reaches
+        # a vacuously valid revision that publishes nothing, and one with declarations reaches an
+        # invalid verdict naming every missing path.
+        staged = ingest_data_source(self.project)
+        self.assertEqual(staged.revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(staged.revision.manifest, [])
+
+    def test_an_upload_project_is_refused(self):
+        upload = CustomScriptProject.objects.create(name='Uploaded', key='uploaded')
+        with self.assertRaises(ValidationError) as ctx:
+            ingest_data_source(upload)
+        self.assertIn('uploaded', str(ctx.exception))
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(project=upload).exists())
+        self.enqueued.assert_not_called()
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
@@ -435,3 +593,78 @@ class UploadToActiveTestCase(TestCase):
         self.assertEqual(staged.revision.status, RevisionStatusChoices.INVALID)
         self.assertTrue(staged.revision.validation_errors)
         self.assertEqual(module.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+
+
+@override_settings(STORAGES=IN_MEMORY_STORAGES)
+class DataSourceToActiveTestCase(TestCase):
+    """
+    A Data Source-backed project through real validation, one synchronization at a time.
+
+    Exercises what P11 exists for: the entrypoint selection survives a synchronization, and a
+    selected entrypoint that disappears from the source invalidates the new revision while the
+    project keeps serving the one it already had.
+    """
+
+    def setUp(self):
+        # A private cache root per test. The default sits under the shared temporary directory,
+        # where a group-writable ancestor makes the tier refuse to import.
+        root = Path(tempfile.mkdtemp(prefix='nbcs-sync-'))
+        root.chmod(0o700)
+        self.addCleanup(shutil.rmtree, root, True)
+        self.enterContext(
+            override_settings(PLUGINS_CONFIG={'netbox_custom_scripts': {'runtime_cache_root': str(root)}})
+        )
+        # Enqueueing hands the task to a real queue, and this test drives the job itself.
+        self.enterContext(mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None))
+
+        self.source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')
+        self.project = CustomScriptProject.objects.create(
+            name='Repo Project',
+            key='repo-project',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.source,
+            data_path='scripts',
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
+        )
+
+    def reconcile(self):
+        """Reconcile the project and drive the revision it staged to a verdict, as a sync does."""
+        staged = ingest_data_source(self.project)
+        if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
+            runner = RevisionValidationJob(Job.objects.create(name='validation', job_id=uuid.uuid4()))
+            runner.run(revision_pk=staged.revision.pk, job_id='x')
+        staged.revision.refresh_from_db()
+        # Re-read rather than refresh, because current_revision is cached per instance.
+        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        return staged.revision
+
+    def test_the_selection_survives_and_a_vanished_entrypoint_spares_the_active_revision(self):
+        data_file(self.source, 'scripts/hello_world.py', DISCOVERABLE_SCRIPT)
+        # Nothing is declared yet, so the first synchronization publishes nothing.
+        self.reconcile()
+        self.assertFalse(CustomScript.objects.filter(project=self.project).exists())
+
+        self.project.select_entrypoints(['hello_world.py'])
+        first = self.reconcile()
+        self.assertEqual(first.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(self.project.active_revision_id, first.pk)
+        script = CustomScript.objects.get(project=self.project)
+        self.assertTrue(script.is_executable)
+
+        # A Python file added to the source is a candidate, so the selection is unchanged and
+        # nothing new publishes until someone selects it.
+        data_file(self.source, 'scripts/audit.py', SCRIPT)
+        active = self.reconcile()
+        self.assertEqual(active.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual([entry['source_path'] for entry in active.entrypoint_snapshot], ['hello_world.py'])
+        self.assertEqual(CustomScript.objects.filter(project=self.project, is_retired=False).count(), 1)
+
+        # The selected file is deleted from the source.
+        DataFile.objects.filter(path='scripts/hello_world.py').delete()
+        vanished = self.reconcile()
+
+        self.assertEqual(vanished.status, RevisionStatusChoices.INVALID)
+        self.assertIn('hello_world.py', str(vanished.validation_errors))
+        self.assertEqual(self.project.active_revision_id, active.pk)
+        script.refresh_from_db()
+        self.assertTrue(script.is_executable)

@@ -1,10 +1,14 @@
 """
 Source ingestion for Custom Script Projects.
 
-One entry point turns supplied source files into a revision that is on its way to a verdict:
-it declares the entrypoints the upload implies, stages the tree, and enqueues validation. The
-upload path is its first caller and Data Source reconciliation will be its second, which is why
-it takes a project that already exists rather than creating one.
+This module turns supplied source files into a revision that is on its way to a verdict: it
+declares the entrypoints the source implies, stages the tree, and enqueues validation. Upload and
+Data Source reconciliation are its two callers, which is why an entry point here takes a project
+that already exists rather than creating one.
+
+The two differ in what the source implies. An uploaded file is always an entrypoint, so it is
+declared. A synchronized directory declares nothing, because a Python file that appears in a
+repository is a candidate somebody selects rather than something to publish on arrival.
 
 Ordering here is load bearing. A revision freezes the project's enabled declarations into its
 entrypoint snapshot at staging time, so a declaration created afterwards would not be part of
@@ -25,10 +29,13 @@ from .choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from .jobs import RevisionValidationJob
 from .models import CustomScriptModule
 from .storage import config, service, store
+from .storage.exceptions import UnsafePathError
 from .storage.paths import normalize_source_path
+from .utils import data_source_relative_path
 
 __all__ = (
     'current_source_tree',
+    'ingest_data_source',
     'ingest_upload',
     'uploaded_source_path',
 )
@@ -47,8 +54,7 @@ def uploaded_source_path(filename):
     can execute. Raises ValidationError, since the immediate caller is a form field.
 
     Django reduces an uploaded file's name to its basename before a form sees it, so an upload
-    can only ever name a file at the project root. The traversal and absolute-path rules below
-    still matter, because Data Source reconciliation reaches this with real directory paths.
+    can only ever name a file at the project root.
     """
     try:
         path = normalize_source_path(filename)
@@ -113,6 +119,61 @@ def ingest_upload(project, *, filename, content, base_files=None):
     if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
         RevisionValidationJob.enqueue_validation(staged.revision)
     return staged
+
+
+def ingest_data_source(project):
+    """
+    Stage the project's Data Source directory as a revision and enqueue its validation.
+
+    The complete current directory is staged every time, so a file deleted from the source is
+    simply absent from the new revision. Nothing is declared, and staging freezes the
+    declarations that are already enabled, which is what carries an entrypoint selection across a
+    synchronization. Returns the StagedRevision.
+
+    Compiled artifacts are skipped. Every other path the policy refuses is left to staging, which
+    records it as an invalid revision naming the path.
+
+    Validation is enqueued only for a revision that is still claimable, so a synchronization that
+    changed nothing enqueues nothing. Raises ValidationError for a project whose source is
+    uploaded.
+    """
+    if project.source_type != ProjectSourceTypeChoices.DATA_SOURCE:
+        raise ValidationError(
+            _('Only projects backed by a Data Source can be reconciled. "{project}" holds uploaded files.').format(
+                project=project
+            )
+        )
+    staged = service.stage_revision(project, _data_source_tree(project))
+    # An unchanged directory resolves by content addressing to the revision that already holds a
+    # verdict, and only a materialized revision is claimable.
+    if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
+        RevisionValidationJob.enqueue_validation(staged.revision)
+    return staged
+
+
+def _data_source_tree(project):
+    """
+    Return the project's Data Source directory as a mapping of project-relative path to bytes.
+
+    Compiled artifacts are dropped, and every other unsafe path is kept so that staging records
+    it rather than this function hiding it. Keys need no canonicalization of their own, because
+    the store canonicalizes on the way in.
+    """
+    files = {}
+    for path, content in project.data_source.datafiles.values_list('path', 'data'):
+        relative = data_source_relative_path(path, project.data_path)
+        if relative is None:
+            continue
+        # Called for its refusal rather than its result. Bytecode is not source, and a
+        # __pycache__ directory can sit at any depth below the configured one, so the check runs
+        # per path rather than against the prefix.
+        try:
+            normalize_source_path(relative)
+        except UnsafePathError as error:
+            if error.code == 'compiled_artifact':
+                continue
+        files[relative] = content
+    return files
 
 
 def _declare_entrypoint(project, path, using):

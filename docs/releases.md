@@ -78,3 +78,24 @@
 * Fixed: re-uploading source a Project has held before resolved to the existing
   content-addressed revision, which already carried a verdict, so validation was
   enqueued against a terminal revision and left a failed job
+* Custom Script execution: a published script is run from its own page, against
+  the revision its Project was serving when the run was requested, so a queued
+  run executes the source the operator was looking at even after the Project has
+  moved on. The form is built from the class's own variables and fieldsets, and
+  the run is recorded as a Job carrying its log, its output, and the revision it
+  used
+* Commit and dry run preserved: with commit on, changes are written and change
+  logging, webhooks and Event Rules behave as they do for any request, and with
+  commit off everything is rolled back while the log and output are still
+  recorded and no events are queued
+* Running is its own permission, `run`, granted separately from `change`, and it
+  is rechecked when a worker starts, so disabling a script stops a run that was
+  already queued
+* Each run imports its revision fresh and unloads it afterwards, so module-level
+  state never carries from one run into the next, and the run record is stripped
+  of storage keys, digests and cache paths, including inside a traceback
+* Both this plugin's `AbortScript` and the one a script written for NetBox's
+  built-in runner raises end a run cleanly, which matters while the two
+  implementations coexist
+* A Custom Script is executable only while its Project is serving a revision.
+  That was previously implied by retirement rather than checked

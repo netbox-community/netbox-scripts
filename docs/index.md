@@ -33,6 +33,7 @@ capability breakdown and current boundaries.
 | [Uploading Scripts](uploading.md) | Adding source to a Project and putting it in service |
 | [Authoring](authoring.md) | Writing Custom Scripts against the plugin API |
 | [Runtime and Loading](runtime.md) | How revisions load, get discovered, and validate |
+| [Running Custom Scripts](execution.md) | Requesting a run, revision pinning, commit and dry run, reading a result |
 | [Releases](releases.md) | Version history and upgrade notes |
 
 ## Compatibility

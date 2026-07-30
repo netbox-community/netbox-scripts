@@ -22,6 +22,8 @@ logging, global search, REST, and GraphQL.
 | Custom Script Module | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Custom Script Module](models/customscriptmodule.md) |
 | Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
 | Custom Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Custom Script](models/customscript.md) |
+| Run | One execution of a Custom Script, recorded as a Job and pinned to the revision that was being served when it was requested. | [Running Custom Scripts](execution.md) |
+| Commit and dry run | Whether a run's database changes are kept or rolled back when it finishes. | [Running Custom Scripts](execution.md) |
 | Revision validation | The leased background step that imports a revision's entrypoints and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |
 | Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |
 | Private runtime namespace | The generated package names revision code imports under, isolating projects, revisions, and installed packages from each other. | [Runtime and Loading](runtime.md) |
@@ -38,6 +40,8 @@ logging, global search, REST, and GraphQL.
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. |
 | Browse published scripts | Operator | List, search, and filter every published Custom Script, or read a Project's own on its detail page. |
 | Enable or disable a script | Administrator | Toggle `enabled` on a published Custom Script, one at a time or in bulk, without affecting what synchronization owns. |
+| Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Custom Scripts](execution.md). |
+| Read a run | Operator | Follow one run's status, log and output on its result page, and every run a script has performed on its Jobs tab. |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
 | Author Custom Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
 | Publish scripts from a project | Developer | Declare entrypoint modules and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
@@ -50,11 +54,10 @@ follow-up releases:
 
 | Area | Status |
 |---|---|
-| Running authored scripts | Planned |
-| `CustomScript` objects for discovered scripts | Planned |
 | Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time |
 | Revision REST and GraphQL surfaces | Planned, revisions are read-only history in the UI |
 | Data Source synchronization | Planned |
-| Execution and scheduling | Planned |
+| Scheduled and recurring runs | Planned, every run is immediate today |
+| Requesting a run over REST | Planned, runs are requested from the UI |
 | Event Rule actions | Planned |
 | Migration from NetBox's built-in Custom Scripts | Planned |

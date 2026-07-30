@@ -67,8 +67,11 @@ and with it the Job history it has accumulated. Publish the class again and the
 same row returns, with its history and with whatever `enabled` you had left it
 at.
 
-A script is executable when it is enabled, not retired, and its project is
-enabled.
+A script is executable when it is enabled, not retired, its project is enabled,
+and its project is serving a revision. That last condition is normally implied by
+the others, because standing a project down retires every script it publishes in
+the same transaction, but it is checked in its own right so a run always resolves
+its class out of source that is actually being served.
 
 Set `enabled` from the Custom Script edit form, in bulk from the list view, or
 with a REST PATCH. Because synchronization never writes it, an activation cannot
@@ -105,6 +108,13 @@ being published keeps its primary key and the Job history attached to it.
 
 A project's detail page carries a Custom Scripts panel listing everything that
 project has published, retired scripts included.
+
+## Running
+
+A Custom Script is run from its own page, against the revision its project is
+serving when the run is requested. Running is its own permission, `run`, granted
+separately from `change`, and every run is recorded as a Job attached to the row.
+See [Running Custom Scripts](../execution.md).
 
 ## Invariants
 

@@ -47,6 +47,7 @@ nav:
   - Uploading Scripts: uploading.md
   - Authoring: authoring.md
   - Runtime and Loading: runtime.md
+  - Running Custom Scripts: execution.md
   - Models:
       - Custom Script Project: models/customscriptproject.md
       - Custom Script Project Revision: models/customscriptprojectrevision.md
@@ -56,3 +57,4 @@ nav:
   - Development:
       - Contributing: development/contributing.md
       - Releasing: development/releasing.md
+      - NetBox Internals: development/netbox-internals.md

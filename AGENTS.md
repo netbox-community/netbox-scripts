@@ -92,6 +92,7 @@ when domain content calls for them.
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable, CustomScriptTable.
 │   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns.
+│   │   ├── script.py              , CustomScriptTable + CustomScriptLogTable, the run log fed a list of dictionaries rather than a queryset.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
@@ -115,6 +116,8 @@ when domain content calls for them.
 │   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, patchable enabled, ignored derived fields, refused create/delete.
 │   │   ├── api/test_revision.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
 │   │   ├── views/test_script.py   , CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase) + detail view, changelog rendering, and the absent create/delete routes.
+│   │   ├── views/test_run.py      , The run page, the run permission gate, the queued payload, the result page and its level threshold, plus one end-to-end submit-and-execute.
+│   │   ├── views/test_actions.py  , Static guard: every list, detail and row action is checked against the registered routes, because ActionsMixin and ActionsColumn filter by permission alone.
 │   │   ├── tables/test_script.py  , CustomScriptTableTestCase(TableTestCases.StandardTableTestCase).
 │   │   ├── filtersets/test_script.py , CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), metadata in ignore_fields.
 │   │   ├── forms/test_script.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field.
@@ -130,8 +133,9 @@ when domain content calls for them.
 │   │   ├── filtersets/test_module.py , CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
 │   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, revision absent from the type.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
-│   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py.
+│   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py, test_resolution.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
+│   │   ├── test_execution.py      , run_script() suites (commit and dry-run, both abort classes, failure logging, request-processor selection and isolation, the current-request restore) plus CustomScriptJob suites (pinning, the administrative recheck, resolution failures, run-record sanitization).
 │   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
 │   │   └── test_ingestion.py      , Ingestion ordering and failure modes, plus UploadToActiveTestCase: the whole slice end to end against real validation.
@@ -139,7 +143,7 @@ when domain content calls for them.
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
-│   │   ├── script.py               , List/Detail/Edit/BulkEdit views. No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion.
+│   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one.
 │   │   └── revision.py             , Activate + Deactivate for one revision, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
@@ -166,19 +170,21 @@ when domain content calls for them.
 │   │   ├── naming.py              , Private module names + the entrypoint dotted-name adapter.
 │   │   ├── discovery.py           , discover_scripts(): publication rules, script_order, identity + logger markers.
 │   │   ├── introspection.py       , describe_script / validate_discovered_scripts: forces run-form construction, the JSON-safe published-script record.
-│   │   └── exceptions.py          , Runtime error taxonomy (cache, module path, import, discovery).
+│   │   ├── resolution.py          , resolve_script_class(): a stored identity back to a live class through the snapshot's entrypoint provenance. Opens no import session and never unloads, the caller runs what it returns.
+│   │   └── exceptions.py          , Runtime error taxonomy (cache, module path, import, discovery, resolution).
 │   ├── scripts/                   , Authoring API: base.py (BaseScript/Script), variables.py, forms.py, logging.py, exceptions.py.
 │   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all four models, safety checks.
+│   ├── execution.py               , run_script(): the transaction, request-processor and event context one run happens inside. The only home of the five undocumented NetBox symbols execution needs, so the requested generic core context replaces one file.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
 │   ├── activation.py              , activate_revision() / deactivate_revision() domain orchestrators + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
-│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows).
+│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue, resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row).
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
 │   ├── ingestion.py               , ingest_upload() / current_source_tree() / uploaded_source_path(): the one source-ingestion entry point, shared by upload and later by Data Source sync.
-│   ├── object_actions.py          , ActivateRevision + AddScript ObjectAction subclasses, with button templates under templates/.../buttons/.
+│   ├── object_actions.py          , ActivateRevision + AddScript + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. RunScript takes the model's own run action, and renders inert rather than hidden when the script cannot run.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.

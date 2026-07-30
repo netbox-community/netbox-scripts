@@ -16,12 +16,13 @@ authoring API with variable classes, form generation, and structured logging,
 immutable project revisions held in plugin-owned project storage with manifest
 verification, activation, and cleanup, and the loading engine: declared
 entrypoint modules, a manifest-verified runtime cache, an isolating package
-loader, Custom Script discovery, and leased revision validation. It also ships
-the upload path: a Project can be created from one uploaded script and driven
-through staging, validation, discovery, and activation. Data Source
-synchronization, `CustomScript` objects for the scripts discovery finds, and
-execution are planned follow-ups. See [Features](features.md) for the
-capability breakdown and current boundaries.
+loader, Custom Script discovery, and leased revision validation. Source reaches
+a Project two ways, both driven through staging, validation, discovery, and
+activation: one uploaded script at a time, or a directory of a Data Source
+rebuilt every time that source synchronizes. Published `CustomScript` objects and
+execution complete the path, so a script can be run against the revision its
+Project is serving. See [Features](features.md) for the capability breakdown and
+current boundaries.
 
 ## Documentation
 
@@ -31,6 +32,7 @@ capability breakdown and current boundaries.
 | [Quickstart](quickstart.md) | Install and enable the plugin |
 | [Configuration](configuration.md) | Supported settings |
 | [Uploading Scripts](uploading.md) | Adding source to a Project and putting it in service |
+| [Data Source Projects](data-sources.md) | Mirroring a Data Source directory, and what a synchronization does |
 | [Authoring](authoring.md) | Writing Custom Scripts against the plugin API |
 | [Runtime and Loading](runtime.md) | How revisions load, get discovered, and validate |
 | [Running Custom Scripts](execution.md) | Requesting a run, revision pinning, commit and dry run, reading a result |

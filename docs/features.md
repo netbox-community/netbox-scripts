@@ -26,6 +26,8 @@ logging, global search, REST, and GraphQL.
 | Commit and dry run | Whether a run's database changes are kept or rolled back when it finishes. | [Running Custom Scripts](execution.md) |
 | Revision validation | The leased background step that imports a revision's entrypoints and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |
 | Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |
+| Reconciliation | Rebuilding a Data Source-backed project's source from the whole directory as it stands, after a synchronization or on demand. | [Data Source Projects](data-sources.md) |
+| Entrypoint candidate | A Python file in a project's source that could be declared an entrypoint, and publishes nothing until it is. | [Data Source Projects](data-sources.md) |
 | Private runtime namespace | The generated package names revision code imports under, isolating projects, revisions, and installed packages from each other. | [Runtime and Loading](runtime.md) |
 
 ## Supported workflows
@@ -37,7 +39,9 @@ logging, global search, REST, and GraphQL.
 | Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
 | Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |
 | Select entrypoints | Administrator | Choose which of a Project's source modules discovery imports, on its Entrypoints tab or over REST, without typing a path. |
-| Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. |
+| Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. See [Data Source Projects](data-sources.md). |
+| Track a Data Source directory | Operator | Every synchronization of the Data Source rebuilds the project's source from the whole directory, validates it, and activates it when the policy allows. |
+| Reconcile a project on demand | Administrator | Rebuild a Data Source-backed project's source from the current file inventory without waiting for the next synchronization. |
 | Browse published scripts | Operator | List, search, and filter every published Custom Script, or read a Project's own on its detail page. |
 | Enable or disable a script | Administrator | Toggle `enabled` on a published Custom Script, one at a time or in bulk, without affecting what synchronization owns. |
 | Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Custom Scripts](execution.md). |
@@ -54,9 +58,9 @@ follow-up releases:
 
 | Area | Status |
 |---|---|
-| Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time |
+| Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time. A Project needing helpers is managed through a Data Source |
 | Revision REST and GraphQL surfaces | Planned, revisions are read-only history in the UI |
-| Data Source synchronization | Planned |
+| A repository manifest declaring its own entrypoints | Planned, entrypoint selection is a Project setting made in NetBox |
 | Scheduled and recurring runs | Planned, every run is immediate today |
 | Requesting a run over REST | Planned, runs are requested from the UI |
 | Event Rule actions | Planned |

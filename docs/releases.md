@@ -99,3 +99,32 @@
   implementations coexist
 * A Custom Script is executable only while its Project is serving a revision.
   That was previously implied by retirement rather than checked
+* Data Source reconciliation: every completed synchronization of a Data Source
+  rebuilds the source of each Project on it from the whole directory as it
+  stands, stages that as a revision, validates it, and activates it when the
+  Project's activation policy allows. Reconciliation is one background Job per
+  Project, so a Project's own failure never fails the operator's synchronization
+  or affects its siblings, and a synchronization that changed nothing produces no
+  revision at all
+* A Python file appearing in a synchronized directory is a candidate rather than
+  an entrypoint, so a repository cannot publish a Custom Script by itself and an
+  administrator's entrypoint selection survives every synchronization. A
+  selected entrypoint that disappears from the source makes the new revision
+  `invalid` naming the path, while the Project keeps serving the revision it
+  already had
+* Compiled Python files and `__pycache__` directories are skipped wherever they
+  sit in a synchronized directory. Every other refused path is recorded on an
+  invalid revision rather than dropped, and every file is stored rather than only
+  Python modules, because a script reads templates and data next to it
+* Reconcile Source: a Data Source-backed Project can be rebuilt from the current
+  file inventory on demand, which covers a Project created between
+  synchronizations and an entrypoint selection that should take effect now. It
+  deliberately does not synchronize the Data Source itself
+* Returning a synchronized directory to a tree the Project has held before
+  resolves to the revision that already validated it, and an automatically
+  activated Project puts that revision back into service. Without this a revert
+  in the source would silently change nothing
+* Fixed: a Data Source-backed Project offered the Add Script button and answered
+  the upload with a server error, because ingestion refuses an upload into a
+  Project whose source is synchronized and the refusal surfaced out of the form's
+  save rather than its validation

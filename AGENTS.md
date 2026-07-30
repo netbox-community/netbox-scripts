@@ -123,6 +123,7 @@ when domain content calls for them.
 │   │   ├── forms/test_script.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field.
 │   │   ├── graphql/test_script.py , CustomScriptGraphQLTestCase: last_seen_revision absent from the type.
 │   │   ├── views/test_revision.py , Activate/Deactivate buttons: round trip, refusals, permissions, and which button each status renders.
+│   │   ├── views/test_reconcile.py , The Reconcile Source action: the confirmation, the enqueue, the permission gate, and which source type renders the button.
 │   │   ├── api/test_module.py     , CustomScriptModuleAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
 │   │   ├── views/test_module.py   , CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase).
 │   │   ├── tables/test_module.py  , CustomScriptModuleTableTestCase(TableTestCases.StandardTableTestCase).
@@ -138,10 +139,11 @@ when domain content calls for them.
 │   │   ├── test_execution.py      , run_script() suites (commit and dry-run, both abort classes, failure logging, request-processor selection and isolation, the current-request restore) plus CustomScriptJob suites (pinning, the administrative recheck, resolution failures, run-record sanitization).
 │   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
-│   │   └── test_ingestion.py      , Ingestion ordering and failure modes, plus UploadToActiveTestCase: the whole slice end to end against real validation.
+│   │   ├── test_ingestion.py      , Ingestion ordering and failure modes for both callers, plus UploadToActiveTestCase and DataSourceToActiveTestCase: each slice end to end against real validation.
+│   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
-│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate confirmation view.
+│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate and Reconcile confirmation views. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one.
 │   │   └── revision.py             , Activate + Deactivate for one revision, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
@@ -177,14 +179,14 @@ when domain content calls for them.
 │   ├── execution.py               , run_script(): the transaction, request-processor and event context one run happens inside. The only home of the five undocumented NetBox symbols execution needs, so the requested generic core context replaces one file.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
 │   ├── activation.py              , activate_revision() / deactivate_revision() domain orchestrators + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
-│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue, resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row).
-│   ├── signals.py                 , Revision deletion enqueues storage cleanup, wired in AppConfig.ready().
+│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + ProjectReconciliationJob (stages the Data Source directory as it stands at run time, and activates what a reverted directory resolves to) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue, resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row).
+│   ├── signals.py                 , Revision deletion enqueues storage cleanup, and a completed Data Source sync enqueues one reconciliation per project on it. Wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
-│   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule.
+│   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing and ingestion.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
-│   ├── ingestion.py               , ingest_upload() / current_source_tree() / uploaded_source_path(): the one source-ingestion entry point, shared by upload and later by Data Source sync.
-│   ├── object_actions.py          , ActivateRevision + AddScript + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. RunScript takes the model's own run action, and renders inert rather than hidden when the script cannot run.
+│   ├── ingestion.py               , ingest_upload() / ingest_data_source() / current_source_tree() / uploaded_source_path(): the one home of source ingestion. Upload declares the file it carries, a synchronized directory declares nothing.
+│   ├── object_actions.py          , ActivateRevision + AddScript + ReconcileSource + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. RunScript takes the model's own run action, and renders inert rather than hidden when the script cannot run. AddScript and ReconcileSource each render only for the source type they belong to.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
@@ -240,11 +242,31 @@ staging time, so declarations are committed before staging. The content write
 stays outside that transaction, since a rollback around stored bytes would leave
 content no revision row names and therefore nothing to record its cleanup.
 
-Upload is its first caller (a create form for a new project, an Add Script view
-for an existing one). Data Source reconciliation (P11) is the second and
-inherits the same ordering and the same lock. Activation is not a separate
-mechanism: the validation job promotes a valid revision when the project's
-`activation_policy` says so, and the Activate view covers the manual policy.
+It has two callers, and they differ only in what the source implies. Upload
+(a create form for a new project, an Add Script view for an existing one)
+declares the file it carries, because every uploaded file is an entrypoint.
+`ingest_data_source()` declares nothing, because a Python file that appears in a
+repository is a candidate somebody selects rather than something to publish on
+arrival, and staging freezing only the enabled declarations is what carries a
+selection across a synchronization. It stages the complete directory every time,
+so a deleted file is simply absent from the next revision, and it skips compiled
+artifacts while leaving every other refused path to the manifest, which records
+it on an invalid revision. Activation is not a separate mechanism: the validation
+job promotes a valid revision when the project's `activation_policy` says so, and
+the Activate view covers the manual policy.
+
+A completed Data Source synchronization reaches ingestion through a `post_sync`
+receiver that enqueues one `ProjectReconciliationJob` per project on that source
+and does nothing else, because the committing process performs no storage I/O and
+core sends that signal with `send()` as the last statement of `DataSource.sync()`.
+The receiver therefore swallows and logs its own failures rather than failing an
+operator's synchronization. Two synchronizations in quick succession enqueue two
+jobs and need no coalescing: the second stages identical content, resolves to the
+revision the first created, and enqueues no second validation. One case has no
+verdict to wait for. A directory reverted to a tree the project held before
+resolves by content addressing to the revision that already validated it, which
+validation can no longer claim, so the job activates it directly under the same
+policy check.
 
 ### Serialization
 

@@ -29,8 +29,9 @@ package boundary used when loading and executing scripts.
 | `active_revision` | `CustomScriptProjectRevision` | no | `on_delete=SET_NULL`, reverse name `active_revision_for`. Set only by the storage activation service |
 
 Each project owns a history of immutable source snapshots, documented on the
-[Custom Script Project Revision](customscriptprojectrevision.md) page. Modules
-and discovered scripts are planned follow-up models.
+[Custom Script Project Revision](customscriptprojectrevision.md) page. Its
+declared entrypoints are [Custom Script Modules](customscriptmodule.md) and the
+classes an activated revision publishes are [Custom Scripts](customscript.md).
 
 ## API
 
@@ -86,6 +87,10 @@ The **Validate and activate** tick on the [upload form](../uploading.md) sets th
 common case never has to think about the field. An automatic activation that is refused, for
 example because the stored tree no longer matches its manifest, fails the validation job and
 leaves both the verdict and the previously active revision alone.
+
+For a Data Source-backed project the policy is what decides whether a synchronization changes
+what the project serves, so it is the field to reach for when a repository should be tracked
+but not trusted unattended. See [Data Source Projects](../data-sources.md).
 
 Activating is always a choice between validated revisions, never a promotion of unvalidated
 content. Retired revisions remain eligible, so returning to an earlier one is a matter of
@@ -179,5 +184,6 @@ an execution-model decision that lands with the execution work.
 
 | Limitation | Impact |
 |---|---|
-| No user-facing way to stage a revision | Uploads and Data Source synchronization arrive in a follow-up release, so an upload project has no candidates to select from yet |
-| Discovered scripts are not yet modeled | Validation records per-entrypoint results, but the Custom Scripts it finds get no rows of their own yet |
+| A project owns one source, never both kinds | `source_type` is immutable, so moving a project from uploads to a Data Source means creating a new one |
+| No revision REST or GraphQL surface | Revisions are read-only history in the UI, so automation cannot stage or activate one |
+| An entrypoint selection does not restage by itself | An upload project applies a changed selection when its next revision is staged. A Data Source-backed one applies it with **Reconcile Source** |

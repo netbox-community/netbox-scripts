@@ -60,10 +60,17 @@ Script by itself, and the selection an administrator made is not overwritten by 
 repository happens to contain.
 
 The selection is stored on the Project, and each revision freezes the enabled declarations at
-the moment it is staged. Changing the selection therefore takes effect on the next revision,
-not on the one in service. Use **Reconcile Source** to apply it immediately: the same
-directory staged under the new entrypoint configuration is a new revision, which is validated
-and activated like any other.
+the moment it is staged. Saving the Entrypoints tab therefore applies the change to the source
+the Project already holds: the same content staged under the new entrypoint configuration is a
+new revision, which is validated and activated like any other. That runs as a background job,
+so the tab reports it is under way rather than showing the result.
+
+Saving a selection that did not move stages nothing, because a revision is identified by its
+content together with its entrypoint configuration, so the unchanged pair resolves to the
+revision that already exists.
+
+**Reconcile Source** does the same thing against the directory as it stands now, so use it
+when the source has changed as well as the selection.
 
 ## Reconciling on demand
 

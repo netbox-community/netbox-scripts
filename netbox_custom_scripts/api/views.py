@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from netbox.api.viewsets import NetBoxModelViewSet
 
 from ..filtersets import CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet
+from ..jobs import ProjectEntrypointRefreshJob
 from ..models import CustomScript, CustomScriptModule, CustomScriptProject
 from .serializers import CustomScriptModuleSerializer, CustomScriptProjectSerializer, CustomScriptSerializer
 
@@ -37,10 +38,15 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
             paths = request.data.get('paths')
             if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
                 raise APIValidationError({'paths': 'Provide a list of source paths.'})
+            selected = set(project.modules.filter(enabled=True).values_list('source_path', flat=True))
             try:
                 project.select_entrypoints(paths)
             except ValidationError as error:
                 raise APIValidationError(error.message_dict) from error
+            if set(paths) != selected:
+                # The same rule the Entrypoints tab follows, so the two surfaces cannot disagree
+                # about what saving a selection does.
+                ProjectEntrypointRefreshJob.enqueue_refresh(project)
         return Response(self._entrypoint_state(project))
 
     @staticmethod

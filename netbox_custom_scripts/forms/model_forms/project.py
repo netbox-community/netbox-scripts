@@ -11,6 +11,7 @@ from utilities.forms.widgets import HTMXSelect
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ...ingestion import current_source_tree, ingest_upload, uploaded_source_path
+from ...jobs import ProjectEntrypointRefreshJob
 from ...models import CustomScriptModule, CustomScriptProject
 
 __all__ = (
@@ -285,6 +286,15 @@ class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
         return _('{path} ({status})').format(path=path, status=module.get_discovery_status_display())
 
     def save(self, *args, **kwargs):
-        """Reconcile the declarations onto the selection and return the project unchanged."""
-        self.instance.select_entrypoints(self.cleaned_data['entrypoints'])
+        """Reconcile the declarations onto the selection, apply it to the source, and return the project."""
+        selection = self.cleaned_data['entrypoints']
+        changed = set(selection) != set(self.initial.get('entrypoints') or ())
+        self.instance.select_entrypoints(selection)
+        if changed:
+            # A revision freezes the enabled declarations at staging time, so the selection has
+            # no effect until something restages. That is storage work, which never happens in a
+            # request, so it is a job. A selection that did not move would resolve to the
+            # revision that already exists, so the comparison keeps an unchanged save out of the
+            # Job list rather than relying on the job to find nothing to do.
+            ProjectEntrypointRefreshJob.enqueue_refresh(self.instance)
         return self.instance

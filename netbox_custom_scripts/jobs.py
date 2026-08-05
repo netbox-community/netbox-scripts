@@ -20,7 +20,7 @@ from .runtime.exceptions import (
 )
 from .runtime.loader import revision_import_session, unload_revision
 from .runtime.resolution import resolve_script_class
-from .storage import config, store
+from .storage import config, service, store
 from .storage.exceptions import ActivationError, RevisionCorruptError, StorageConfigurationError, StorageError
 from .storage.locks import project_lock
 from .storage.service import require_default_database
@@ -205,6 +205,76 @@ class ProjectReconciliationJob(JobRunner):
             self.logger.error(detail)
             raise JobFailed() from error
         self.logger.info(f'Revision {revision.digest[:12]} is the active revision of its project again.')
+
+
+class ProjectEntrypointRefreshJob(JobRunner):
+    """
+    Restage one project's stored source under its current entrypoint configuration.
+
+    A revision freezes the project's enabled declarations into its entrypoint snapshot at
+    staging time, so changing the selection has no effect until something restages. A Data
+    Source-backed project gets that from a reconciliation, and this is the only route an
+    uploaded project has, because re-uploading identical content resolves to the revision
+    that already exists.
+
+    The content is read when this runs rather than when it was enqueued, so two saves in
+    quick succession are not a correctness problem: the second resolves to the revision the
+    first created and enqueues no second validation.
+    """
+
+    class Meta:
+        name = 'Custom Script Project entrypoint refresh'
+
+    @classmethod
+    def enqueue_refresh(cls, project):
+        """
+        Enqueue one project's entrypoint refresh with its pk persisted on the Job row.
+
+        The pk travels in the payload rather than as an instance link, because Job.clean()
+        refuses an object type without the jobs feature and a project is a plain PrimaryModel.
+        The atomic block nests inside any caller transaction, so the Job and its payload commit
+        together and the queue handoff in Job.enqueue()'s commit hook can never run a task whose
+        payload is missing.
+        """
+        payload = {'project_id': project.pk}
+        with transaction.atomic():
+            job = cls.enqueue(**payload)
+            job.data = payload
+            job.save(update_fields=('data',))
+        return job
+
+    def run(self, project_id=None, **kwargs):
+        """Recheck routing safety, then restage the stored tree under the current selection."""
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            detail = f'Refusing a Custom Script Project entrypoint refresh, because {reason}'
+            self.logger.error(detail)
+            raise JobFailed()
+        project = CustomScriptProject.objects.filter(pk=project_id).first()
+        if project is None:
+            self.logger.info(f'Custom Script Project {project_id} no longer exists, nothing to refresh.')
+            return
+        source = project.current_revision
+        if source is None or not source.digest:
+            # A project that has never ingested stored no content, so there is nothing to
+            # restage and the selection applies to the first revision that arrives.
+            self.logger.info(f'"{project}" holds no stored source yet, so its selection applies to its next revision.')
+            return
+        try:
+            staged = service.refresh_revision_entrypoints(source)
+        except (StorageError, StorageConfigurationError, OSError) as error:
+            detail = f'Refreshing the entrypoints of "{project}" failed and needs another run: {error}'
+            self.logger.error(detail)
+            raise JobFailed() from error
+
+        revision = staged.revision
+        if revision.status == RevisionStatusChoices.MATERIALIZED:
+            RevisionValidationJob.enqueue_validation(revision)
+            self.logger.info(f'Revision {revision.digest[:12]} is staged and queued for validation.')
+        elif revision.pk == project.active_revision_id:
+            self.logger.info('The selection has not changed, this project already serves it.')
+        else:
+            self.logger.info(f'Revision {revision.digest[:12]} already holds a verdict for this selection.')
 
 
 class RevisionValidationJob(JobRunner):

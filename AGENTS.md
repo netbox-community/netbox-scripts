@@ -74,7 +74,7 @@ when domain content calls for them.
 │   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, metadata unfiltered.
 │   ├── forms/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
-│   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm + CustomScriptProjectEntrypointsForm (reconciles the selection onto enabled).
+│   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm + CustomScriptProjectEntrypointsForm (reconciles the selection onto enabled, then enqueues ProjectEntrypointRefreshJob when it moved).
 │   │   ├── model_forms/module.py    , CustomScriptModuleEditForm (project + source_path frozen, so disabled on edit).
 │   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
 │   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
@@ -140,6 +140,7 @@ when domain content calls for them.
 │   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
 │   │   ├── test_ingestion.py      , Ingestion ordering and failure modes for both callers, plus UploadToActiveTestCase and DataSourceToActiveTestCase: each slice end to end against real validation.
+│   │   ├── test_entrypoint_refresh.py , The selection-change path: the enqueue, the Job body, the form's changed-only rule, and the activation policy end to end.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
@@ -179,7 +180,7 @@ when domain content calls for them.
 │   ├── execution.py               , run_script(): the transaction, request-processor and event context one run happens inside. The only home of the five undocumented NetBox symbols execution needs, so the requested generic core context replaces one file.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
 │   ├── activation.py              , activate_revision() / deactivate_revision() domain orchestrators + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
-│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + ProjectReconciliationJob (stages the Data Source directory as it stands at run time, and activates what a reverted directory resolves to) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue, resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row).
+│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + ProjectReconciliationJob (stages the Data Source directory as it stands at run time, and activates what a reverted directory resolves to) + ProjectEntrypointRefreshJob (restages the stored tree under the current selection, the only route an uploaded project has to apply one) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue, resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row).
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, and a completed Data Source sync enqueues one reconciliation per project on it. Wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.

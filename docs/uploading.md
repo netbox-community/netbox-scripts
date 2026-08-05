@@ -96,6 +96,18 @@ example that new source is being validated or that it failed validation.
 The **Revisions** tab lists every revision the Project has ever had. The **Entrypoints** tab
 shows which modules discovery imports, with each declaration's discovery outcome.
 
+### Changing which modules are entrypoints
+
+Saving the Entrypoints tab applies the new selection to the source the Project already holds.
+Each revision freezes the enabled declarations at the moment it is staged, so the change needs
+a revision of its own: the same stored content under the new entrypoint configuration, which is
+validated and then activated if the Project's activation policy allows. That work runs as a
+background job, so the tab reports it is under way rather than showing the result.
+
+Saving a selection that did not move stages nothing and queues nothing. A revision is
+identified by its content together with its entrypoint configuration, so the unchanged pair
+resolves to the revision that already exists.
+
 ## Where the bytes go
 
 Uploaded content is stored through the `netbox_custom_scripts` entry of NetBox's `STORAGES`

@@ -1,0 +1,71 @@
+{% load helpers %}
+{% load i18n %}
+{% load render_table from django_tables2 %}
+{% comment %}
+The live part of one run's result page.
+
+Served on its own to an htmx poll, so it is the whole swap target and carries the polling
+attributes itself. A run that has reached a terminal state polls no further.
+
+Context: see CustomScriptResultView.
+{% endcomment %}
+<div id="run-result"
+     {% if in_flight %}hx-get="{{ poll_url }}" hx-trigger="every {{ poll_interval }}" hx-swap="outerHTML"{% endif %}>
+  <div class="card mb-3">
+    <h2 class="card-header">{% trans "Run" %}</h2>
+    <table class="table table-hover attr-table">
+      <tr>
+        <th scope="row">{% trans "Status" %}</th>
+        <td>{% badge job.get_status_display bg_color=job.get_status_color %}</td>
+      </tr>
+      {% if job.scheduled %}
+        <tr>
+          <th scope="row">{% trans "Scheduled for" %}</th>
+          <td>{{ job.scheduled|isodatetime }}</td>
+        </tr>
+      {% endif %}
+      {% if job.interval %}
+        <tr>
+          <th scope="row">{% trans "Recurs every" %}</th>
+          <td>
+            {% blocktrans trimmed count minutes=job.interval %}
+              {{ minutes }} minute
+            {% plural %}
+              {{ minutes }} minutes
+            {% endblocktrans %}
+          </td>
+        </tr>
+      {% endif %}
+      <tr>
+        <th scope="row">{% trans "Started" %}</th>
+        <td>{{ job.started|placeholder }}</td>
+      </tr>
+      <tr>
+        <th scope="row">{% trans "Completed" %}</th>
+        <td>{{ job.completed|placeholder }}</td>
+      </tr>
+      {% if job.duration %}
+        <tr>
+          <th scope="row">{% trans "Duration" %}</th>
+          <td>{{ job.duration }}</td>
+        </tr>
+      {% endif %}
+      <tr>
+        <th scope="row">{% trans "User" %}</th>
+        <td>{{ job.user|placeholder }}</td>
+      </tr>
+    </table>
+  </div>
+  <div class="card mb-3">
+    <h2 class="card-header">{% trans "Log" %}</h2>
+    {% render_table table 'inc/table.html' %}
+  </div>
+  {% if output %}
+    <div class="card mb-3">
+      <h2 class="card-header">{% trans "Output" %}</h2>
+      <div class="card-body">
+        <pre class="block">{{ output }}</pre>
+      </div>
+    </div>
+  {% endif %}
+</div>

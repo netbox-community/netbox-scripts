@@ -61,7 +61,6 @@ follow-up releases:
 | Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time. A Project needing helpers is managed through a Data Source |
 | Revision REST and GraphQL surfaces | Planned, revisions are read-only history in the UI |
 | A repository manifest declaring its own entrypoints | Planned, entrypoint selection is a Project setting made in NetBox |
-| Scheduled and recurring runs | Planned, every run is immediate today |
 | Requesting a run over REST | Planned, runs are requested from the UI |
 | Event Rule actions | Planned |
 | Migration from NetBox's built-in Custom Scripts | Planned |

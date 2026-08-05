@@ -67,6 +67,15 @@ class CustomScriptViewTestCase(TestCase):
         self.assertIn('tools.deploy', content)
         self.assertIn('DeployDevices', content)
 
+    def test_the_identifier_is_the_one_every_detail_page_shows(self):
+        # generic/object.html centres that row and exposes no block reaching its alignment,
+        # so anything added here shifts either the reference or the breadcrumb.
+        content = self.client.get(self.script.get_absolute_url()).content.decode()
+
+        identifier = ' '.join(content[content.find('<code class="d-block text-muted') :][:400].split())
+        self.assertIn(f'netbox_custom_scripts.customscript:{self.script.pk}', identifier)
+        self.assertNotIn('tools.deploy.DeployDevices', identifier)
+
     def test_the_breadcrumbs_reverse_the_list_route(self):
         # The default breadcrumb block reverses the model's list route, which the template
         # used to have to replace because no such route existed.

@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from django.test import TestCase
 
@@ -12,6 +13,7 @@ from netbox_custom_scripts.scripts import (
     Script,
     StringVar,
 )
+from utilities.datetime import local_now
 
 
 class _Linkable:
@@ -246,7 +248,7 @@ class ScriptFormTestCase(TestCase):
             TestScript().get_fieldsets(),
             [
                 ('Script Data', ['var1', 'var2']),
-                ('Script Execution Parameters', ('_commit',)),
+                ('Script Execution Parameters', ('_commit', '_schedule_at', '_interval', '_notifications')),
             ],
         )
 
@@ -263,7 +265,7 @@ class ScriptFormTestCase(TestCase):
             [
                 ('First', ('var1',)),
                 ('Second', ('var2',)),
-                ('Script Execution Parameters', ('_commit',)),
+                ('Script Execution Parameters', ('_commit', '_schedule_at', '_interval', '_notifications')),
             ],
         )
 
@@ -274,7 +276,10 @@ class ScriptFormTestCase(TestCase):
 
         form = TestScript().as_form()
         # Django orders inherited fields before the dynamically attached ones
-        self.assertEqual(list(form.fields), ['_commit', 'var1', 'var2'])
+        self.assertEqual(
+            list(form.fields),
+            ['_commit', '_schedule_at', '_interval', '_notifications', 'var1', 'var2'],
+        )
 
     def test_as_form_respects_commit_default(self):
         class TestScript(Script):
@@ -290,6 +295,75 @@ class ScriptFormTestCase(TestCase):
 
         form = TestScript().as_form()
         self.assertTrue(form.fields['_commit'].initial)
+
+
+class ScriptSchedulingFormTestCase(TestCase):
+    """The three execution parameters a run carries beyond the commit toggle."""
+
+    class Schedulable(Script):
+        pass
+
+    class Unschedulable(Script):
+        class Meta:
+            scheduling_enabled = False
+
+    class NotifiesOnFailure(Script):
+        class Meta:
+            notifications_default = JobNotificationChoices.NOTIFICATION_ON_FAILURE
+
+    def test_the_scheduling_fields_render_when_the_author_allows_them(self):
+        form = self.Schedulable().as_form()
+        self.assertIn('_schedule_at', form.fields)
+        self.assertIn('_interval', form.fields)
+
+    def test_the_scheduling_fields_are_absent_when_the_author_forbids_them(self):
+        # scheduling_enabled is the author's statement that the script is safe to run
+        # unattended, so it is honoured by omitting the fields rather than refusing a value.
+        form = self.Unschedulable().as_form()
+        self.assertNotIn('_schedule_at', form.fields)
+        self.assertNotIn('_interval', form.fields)
+
+    def test_the_fieldset_drops_the_scheduling_fields_too(self):
+        # A fieldset naming a field the form does not carry renders nothing and hides the rest
+        # of its group, so the layout has to follow the form.
+        self.assertEqual(
+            self.Unschedulable().get_fieldsets()[-1],
+            ('Script Execution Parameters', ('_commit', '_notifications')),
+        )
+
+    def test_notifications_stays_available_when_scheduling_is_off(self):
+        # It is a property of the run, not of the schedule.
+        self.assertIn('_notifications', self.Unschedulable().as_form().fields)
+
+    def test_notifications_initialises_from_the_class_default(self):
+        form = self.NotifiesOnFailure().as_form()
+        self.assertEqual(form.fields['_notifications'].initial, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+
+    def test_a_past_schedule_is_refused(self):
+        form = self.Schedulable().as_form(data={'_schedule_at': local_now() - timedelta(minutes=1)})
+        self.assertFalse(form.is_valid())
+        self.assertIn('Scheduled time must be in the future.', str(form.errors))
+
+    def test_a_future_schedule_is_accepted(self):
+        when = local_now() + timedelta(hours=1)
+        form = self.Schedulable().as_form(data={'_schedule_at': when})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['_schedule_at'], when)
+
+    def test_an_interval_without_a_start_schedules_from_now(self):
+        form = self.Schedulable().as_form(data={'_interval': 60})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNotNone(form.cleaned_data['_schedule_at'])
+
+    def test_an_omitted_notification_choice_falls_back_to_the_class_default(self):
+        form = self.NotifiesOnFailure().as_form(data={})
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['_notifications'], JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+
+    def test_an_interval_below_one_minute_is_refused(self):
+        form = self.Schedulable().as_form(data={'_interval': 0})
+        self.assertFalse(form.is_valid())
+        self.assertIn('_interval', form.errors)
 
 
 class ScriptLoggingTestCase(TestCase):

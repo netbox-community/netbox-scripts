@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
 
+from core.choices import JobStatusChoices
 from core.models import Job
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.object_actions import BulkEdit, BulkExport, EditObject
@@ -12,7 +13,7 @@ from netbox.ui.panels import CommentsPanel
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
-from utilities.views import register_model_view
+from utilities.views import ViewTab, register_model_view
 
 from ..execution import ScriptNotExecutableError
 from ..filtersets import CustomScriptFilterSet
@@ -28,6 +29,10 @@ from ..storage import config
 from ..storage.exceptions import StorageError
 from ..tables import CustomScriptLogTable, CustomScriptTable
 from ..ui import CustomScriptPanel, CustomScriptStatePanel
+
+# A scheduled run can be days out, so it is not polled at the rate of one already moving.
+DEFAULT_POLL_INTERVAL = '5s'
+POLL_INTERVALS = {JobStatusChoices.STATUS_SCHEDULED: '60s'}
 
 
 @register_model_view(CustomScript, 'list', path='', detail=False)
@@ -103,6 +108,13 @@ class CustomScriptRunView(generic.ObjectView):
 
     queryset = CustomScript.objects.all()
     template_name = 'netbox_custom_scripts/customscript_run.html'
+    # Visible for a script that cannot run, matching the button, which renders inert rather
+    # than hidden so an operator sees the reason.
+    tab = ViewTab(
+        label=_('Run'),
+        permission='netbox_custom_scripts.run_customscript',
+        weight=1000,
+    )
 
     def get_required_permission(self):
         """Require the run action rather than view, which is what this page actually does."""
@@ -127,12 +139,19 @@ class CustomScriptRunView(generic.ObjectView):
             return self._render(request, script, form, instance, None)
 
         data = dict(form.cleaned_data)
+        # Popped, so the execution parameters never reach the script as variable values.
         commit = data.pop('_commit', True)
+        schedule_at = data.pop('_schedule_at', None)
+        interval = data.pop('_interval', None)
+        notifications = data.pop('_notifications', None)
         try:
             job = CustomScriptJob.enqueue_run(
                 script,
                 data=data,
                 commit=commit,
+                schedule_at=schedule_at,
+                interval=interval,
+                notifications=notifications,
                 # The worker is another process, so the request has to be picklable and
                 # stripped of anything sensitive before it travels.
                 request=copy_safe_request(request),
@@ -164,6 +183,8 @@ class CustomScriptRunView(generic.ObjectView):
                 # The fieldset layout belongs to the class, not the form it built.
                 'instance': instance,
                 'reason': reason,
+                # model_view_tabs marks a tab active by comparing it to this.
+                'tab': self.tab,
             },
         )
 
@@ -176,27 +197,40 @@ class CustomScriptResultView(generic.ObjectView):
     The log lives in the Job's data rather than in a model of ours, so the table is fed the
     entries the run wrote. Anything below the requested level is left out, which is how a
     debug-heavy run stays readable.
+
+    A run that has not reached a terminal state refreshes itself, and the poll asks for the
+    result body alone rather than re-rendering the page around it.
     """
 
     queryset = CustomScript.objects.all()
     template_name = 'netbox_custom_scripts/customscript_result.html'
+    partial_template_name = 'netbox_custom_scripts/inc/customscript_result_body.html'
 
     def get(self, request, pk, job_pk, **kwargs):
-        """Render one run's log, or a placeholder while the Job has not recorded one yet."""
+        """Render one run's log, or the body alone when the page is polling itself."""
         script = self.get_object(pk=pk)
         job = get_object_or_404(Job.objects.restrict(request.user, 'view'), pk=job_pk, object_id=script.pk)
-        table = CustomScriptLogTable(log_rows(job, request.GET.get('log_threshold')))
+        threshold = request.GET.get('log_threshold')
+        # Normalized here as well as in log_rows, so the dropdown can mark the level in force.
+        if threshold not in LogLevelChoices.SYSTEM_LEVELS:
+            threshold = LogLevelChoices.LOG_INFO
+        table = CustomScriptLogTable(log_rows(job, threshold))
         table.configure(request)
-        return render(
-            request,
-            self.template_name,
-            {
-                'object': script,
-                'job': job,
-                'table': table,
-                'output': (job.data or {}).get('output') or '',
-            },
-        )
+        context = {
+            'object': script,
+            'job': job,
+            'table': table,
+            'output': (job.data or {}).get('output') or '',
+            'log_threshold': threshold,
+            # A mapping, so the template can look the current level up as well as iterate.
+            'log_levels': dict(LogLevelChoices),
+            'in_flight': job.status not in JobStatusChoices.TERMINAL_STATE_CHOICES,
+            'poll_interval': POLL_INTERVALS.get(job.status, DEFAULT_POLL_INTERVAL),
+            # Not reversed in the template, where djLint reads the url tag's kwargs as
+            # repeated HTML attributes.
+            'poll_url': f'{request.path}?log_threshold={threshold}',
+        }
+        return render(request, self.partial_template_name if request.htmx else self.template_name, context)
 
 
 def load_script_class(script):

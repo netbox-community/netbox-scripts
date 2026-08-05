@@ -157,9 +157,13 @@ class BaseScript:
             fields = list(self._get_vars())
             fieldsets.append((_('Script Data'), fields))
 
-        # Scheduling and notifications are not implemented yet, so the execution group
-        # holds only the commit toggle regardless of scheduling_enabled
-        fieldsets.append((_('Script Execution Parameters'), ('_commit',)))
+        # The group has to name only fields the form actually carries, because a fieldset
+        # naming an absent field renders nothing for it and takes the rest of its group down
+        execution = ['_commit']
+        if self.scheduling_enabled:
+            execution += ['_schedule_at', '_interval']
+        execution.append('_notifications')
+        fieldsets.append((_('Script Execution Parameters'), tuple(execution)))
 
         return fieldsets
 
@@ -167,13 +171,20 @@ class BaseScript:
         """
         Construct the run form for this script.
 
-        The form is a ``ScriptForm`` subclass carrying one field per variable plus the
-        commit toggle.
+        The form is a ``ScriptForm`` subclass carrying one field per variable, the commit
+        toggle, the notification policy, and the two scheduling fields unless the class
+        declares ``scheduling_enabled = False``.
         """
         fields = {name: var.as_field() for name, var in self._get_vars().items()}
         form_class = type('ScriptForm', (ScriptForm,), fields)
 
-        form = form_class(data, files, initial=initial)
+        form = form_class(
+            data,
+            files,
+            initial=initial,
+            scheduling_enabled=self.scheduling_enabled,
+            notifications_default=self.notifications_default,
+        )
         form.fields['_commit'].initial = self.commit_default
 
         return form

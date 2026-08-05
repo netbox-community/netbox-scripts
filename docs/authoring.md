@@ -72,9 +72,9 @@ defaults:
 | `field_order` | None | Pins the listed variables to the front of the form. Unlisted variables keep their declaration order. |
 | `fieldsets` | None | Groups variables into named form sections, replacing the default single group. |
 | `commit_default` | True | Initial state of the "Commit changes" checkbox. |
-| `scheduling_enabled` | True | Reserved for scheduled execution (not implemented yet). |
-| `notifications_default` | Always | Reserved for job completion notifications (not implemented yet). |
-| `job_timeout` | None | Reserved for the execution runner (not implemented yet). |
+| `scheduling_enabled` | True | Whether the run form offers the scheduling fields. Set False for a script that is not safe to run unattended. |
+| `notifications_default` | Always | Initial value of the "Notifications" field on the run form. |
+| `job_timeout` | None | Seconds a run may take before the worker stops it. Default is the system setting. |
 
 ## Logging
 
@@ -186,10 +186,11 @@ surface built into NetBox. The deliberate differences:
 - Legacy Report behavior is not supported. Scripts must define `run()`, and
   report-style `test_*` methods, `pre_run()`, `post_run()`, and `run_tests()`
   are not part of the API.
-- Scheduling and notification form fields (`_schedule_at`, `_interval`,
-  `_notifications`) are absent until scheduled execution ships. The
-  `scheduling_enabled`, `notifications_default`, and `job_timeout` Meta
-  attributes are read but not yet consumed.
+- A recurring run resolves the project's active revision at each occurrence
+  rather than carrying the revision it was created against. The built-in
+  implementation has no revision concept, so there is nothing to compare
+  against, but a scheduled run there executes whatever the module holds when it
+  fires, which is the same intent.
 - `TextVar` honors an author-supplied widget instead of always forcing a
   textarea, matching the contract that every variable accepts `widget`.
   The built-in implementation replaces the widget unconditionally.

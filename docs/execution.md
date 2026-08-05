@@ -9,7 +9,7 @@ run's log and output on the Job.
 
 Choose **Run**, either from the row on the Custom Scripts list or from the
 script's own page. The form is whatever the class declares: one field per
-variable, grouped by the class's own fieldsets, plus the commit toggle.
+variable, grouped by the class's own fieldsets, plus the execution parameters.
 Submitting queues a Job and takes you to its result page.
 
 The button is present but inert when the script cannot be run, in both places.
@@ -26,6 +26,23 @@ who may edit a script's administrative fields cannot necessarily run it, and the
 reverse holds too. Grant it like any other action, by ticking **run** on an
 Object Permission for Custom Scripts.
 
+## Scheduling a run
+
+Four execution parameters sit below the script's own fields.
+
+| Field | What it does |
+|---|---|
+| **Commit changes** | Whether the run's database changes are kept. Default is the class's `commit_default`. |
+| **Schedule at** | Run once, at a time in the future. Leave empty to run now. |
+| **Recurs every** | Run repeatedly, in minutes. The picker offers the usual intervals and any whole number is accepted. |
+| **Notifications** | When to notify you about the Job. Default is the class's `notifications_default`. |
+
+A time in the past is refused. Setting a recurrence with no start time begins it
+now. A script whose author set `scheduling_enabled = False` shows neither
+scheduling field, because that flag is a statement that the script is not safe to
+run unattended. Notifications stay available either way, since they describe the
+run rather than the schedule.
+
 ## Revision pinning
 
 The revision is fixed at the moment the run is requested, not at the moment a
@@ -40,6 +57,21 @@ page names it.
 A run is not cancelled by deactivating the project's revision afterwards, for the
 same reason. It is stopped by disabling the script or its project, because
 `enabled` is an administrative control and it is rechecked when the worker starts.
+
+### A recurring run is not pinned
+
+A recurrence resolves the project's active revision at **each** occurrence, and
+records on the Job which one it used.
+
+That is the opposite of a one-shot run, and deliberately so. A one-shot run is
+pinned because there was a moment when somebody read the source and asked for it.
+A recurrence has no such moment after the first, so pinning would mean a nightly
+job still executing the source that was active the day it was created, silently,
+however many times the project was updated since.
+
+The consequence to know about: an occurrence whose project is serving no revision
+fails rather than falling back to what ran last. Reactivating a revision makes the
+next occurrence work again, with no need to recreate the schedule.
 
 ## Commit and dry run
 
@@ -95,7 +127,6 @@ piece of work.
 
 | Gap | Notes |
 |---|---|
-| Scheduling and recurrence | The form carries no `_schedule_at`, `_interval` or notification fields yet, so every run is immediate |
 | REST run endpoint | Runs are requested from the UI only |
 | Declared pip requirements | A script's declared external dependencies are not checked before it runs |
 | Event Rule action | A Custom Script cannot yet be the action of an Event Rule |

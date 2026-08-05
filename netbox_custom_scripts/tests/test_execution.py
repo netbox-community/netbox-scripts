@@ -2,6 +2,7 @@ import json
 import tempfile
 import uuid
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,7 +10,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
-from core.choices import JobStatusChoices
+from core.choices import JobNotificationChoices, JobStatusChoices
+from core.exceptions import JobFailed
 from core.models import Job, ObjectChange
 from core.signals import clear_events
 from extras.models import Tag
@@ -29,6 +31,7 @@ from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.runtime.test_cache import discard_tree
 from netbox_custom_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 from netbox_custom_scripts.validation import validate_revision
+from utilities.datetime import local_now
 from utilities.exceptions import AbortScript as LegacyAbortScript
 from utilities.request import NetBoxFakeRequest
 
@@ -435,6 +438,120 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
 
         with self.assertRaises(ScriptNotExecutableError):
             CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+
+    def test_the_notification_policy_comes_from_the_script_metadata(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+
+        job = CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+
+        self.assertEqual(job.notifications, script.notifications_default)
+
+    def test_a_supplied_notification_policy_wins(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        job = CustomScriptJob.enqueue_run(
+            self.script(),
+            data={},
+            commit=True,
+            user=self.user,
+            notifications=JobNotificationChoices.NOTIFICATION_ON_FAILURE,
+        )
+
+        self.assertEqual(job.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+
+
+class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
+    """
+    Deferred and recurring runs, and which revision each of them executes.
+
+    A one-shot run pins at enqueue, so it executes the source the operator was looking at. A
+    recurring run pins nothing, because JobRunner.handle() re-enqueues a periodic job with the
+    same kwargs, and a pin carried forward would run one frozen revision forever.
+    """
+
+    def test_a_deferred_run_reaches_the_worker_with_its_scheduled_time(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        when = local_now() + timedelta(hours=1)
+
+        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, schedule_at=when)
+
+        self.assertEqual(job.scheduled, when)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_SCHEDULED)
+
+    def test_a_deferred_run_still_pins_its_revision(self):
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+
+        job = CustomScriptJob.enqueue_run(
+            self.script(), data={}, commit=True, user=self.user, schedule_at=local_now() + timedelta(hours=1)
+        )
+
+        self.assertEqual(job.data['revision_id'], revision.pk)
+
+    def test_a_recurring_run_records_its_interval(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        job = CustomScriptJob.enqueue_run(
+            self.script(),
+            data={},
+            commit=True,
+            user=self.user,
+            schedule_at=local_now() + timedelta(minutes=5),
+            interval=60,
+        )
+
+        self.assertEqual(job.interval, 60)
+
+    def test_a_recurring_run_pins_no_revision(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        job = CustomScriptJob.enqueue_run(
+            self.script(),
+            data={},
+            commit=True,
+            user=self.user,
+            schedule_at=local_now() + timedelta(minutes=5),
+            interval=60,
+        )
+
+        self.assertIsNone(job.data['revision_id'])
+        self.assertIsNone(job.data['revision_digest'])
+
+    def occurrence(self, job):
+        """Run one occurrence of a recurring job's body and return the runner."""
+        # The runner records its result on self.job without saving, because JobRunner.handle()
+        # is what terminates and persists. Calling run() directly means reading it in memory.
+        runner = CustomScriptJob(job)
+        runner.run(
+            revision_id=None,
+            revision_digest=None,
+            module_path='deploy',
+            class_name='MakeTag',
+            data={},
+            commit=True,
+        )
+        return runner
+
+    def test_a_recurring_occurrence_runs_the_revision_active_at_the_time(self):
+        # The behaviour the absent pin exists to produce: a project that activates new source
+        # between occurrences runs the new source on the next one.
+        self.publish({'deploy.py': MAKES_A_TAG})
+        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
+        replacement = self.publish({'deploy.py': MAKES_A_TAG.replace(b'From Revision', b'From Replacement')})
+
+        runner = self.occurrence(job)
+
+        self.assertEqual(runner.job.data['revision_digest'], replacement.digest)
+        self.assertTrue(Tag.objects.filter(name='From Replacement').exists())
+
+    def test_a_recurring_occurrence_fails_when_the_project_serves_nothing(self):
+        # Failing loudly beats silently running whatever was last active.
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
+        deactivate_revision(revision)
+
+        with self.assertRaises(JobFailed):
+            self.occurrence(job)
 
 
 class RunJobTestCase(ScriptJobTestMixin, TestCase):

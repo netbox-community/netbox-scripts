@@ -383,13 +383,27 @@ class CustomScriptJob(JobRunner):
         name = 'Run Custom Script'
 
     @classmethod
-    def enqueue_run(cls, script, *, data, commit, request=None, user=None, **kwargs):
+    def enqueue_run(
+        cls,
+        script,
+        *,
+        data,
+        commit,
+        request=None,
+        user=None,
+        schedule_at=None,
+        interval=None,
+        notifications=None,
+        **kwargs,
+    ):
         """
-        Enqueue one run of a Custom Script, pinned to the revision its project serves now.
+        Enqueue one run of a Custom Script, immediately, at a given time, or on a recurrence.
 
-        The pinned identity is saved on the Job row inside the enqueueing transaction, so the
-        queue can never run a task whose record of what it runs is missing. The script's own
-        recorded metadata supplies the job timeout and the notification policy. Raises
+        A one-shot run is pinned to the revision its project serves now, and the pinned identity
+        is saved on the Job row inside the enqueueing transaction, so the queue can never run a
+        task whose record of what it runs is missing. A recurring run is pinned to nothing and
+        resolves the active revision at each occurrence. The script's own recorded metadata
+        supplies the job timeout, and the notification policy unless one is given here. Raises
         ScriptNotExecutableError when the script cannot run, which covers a disabled or retired
         script, a disabled project, and a project serving no revision.
         """
@@ -399,10 +413,13 @@ class CustomScriptJob(JobRunner):
                 f'"{script}" cannot be run right now. It is disabled, retired, or its project '
                 'is disabled or is not serving a revision.'
             )
-        revision = script.project.active_revision
+        # JobRunner.handle() re-enqueues a periodic job with the same kwargs it received, so a
+        # pin carried into a recurrence would execute one frozen revision forever, long after
+        # the project moved on. A recurrence therefore resolves what is active at each run.
+        revision = None if interval else script.project.active_revision
         payload = {
-            'revision_id': revision.pk,
-            'revision_digest': revision.digest,
+            'revision_id': revision.pk if revision else None,
+            'revision_digest': revision.digest if revision else None,
             'module_path': script.module_path,
             'class_name': script.class_name,
             'commit': bool(commit),
@@ -412,39 +429,44 @@ class CustomScriptJob(JobRunner):
         # would need a policy on values an author may not want recorded.
         if script.job_timeout:
             kwargs.setdefault('job_timeout', script.job_timeout)
-        kwargs.setdefault('notifications', script.notifications_default)
+        kwargs.setdefault('notifications', notifications or script.notifications_default)
         with transaction.atomic():
-            job = cls.enqueue(instance=script, user=user, data=data, request=request, **payload, **kwargs)
+            job = cls.enqueue(
+                instance=script,
+                user=user,
+                data=data,
+                request=request,
+                schedule_at=schedule_at,
+                interval=interval,
+                **payload,
+                **kwargs,
+            )
             # An immediate run has already finished and recorded its result by the time enqueue()
             # returns, so the pin goes underneath whatever is there rather than over it.
             job.data = {**payload, **(job.data or {})}
             job.save(update_fields=('data',))
         return job
 
-    def run(self, *, revision_id, revision_digest, module_path, class_name, data, commit, request=None, **kwargs):
-        """Resolve the pinned class out of its revision and run it, recording the result."""
+    def run(
+        self, *, revision_id=None, revision_digest=None, module_path, class_name, data, commit, request=None, **kwargs
+    ):
+        """Resolve the class out of its revision and run it, recording the result."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
             self.logger.error(f'Refusing to run a Custom Script, because {reason}')
             raise JobFailed()
         # Enabled is the administrator's field, so turning it off has to stop a run that was
-        # already queued. The pinned revision is deliberately not rechecked: the point of
+        # already queued. A pinned revision is deliberately not rechecked: the point of
         # pinning is that a run executes the source it was requested against.
         script = CustomScript.objects.filter(pk=self.job.object_id).first()
         if script is not None and not (script.enabled and script.project.enabled):
             self.logger.error(f'"{script}" was disabled after this run was requested, so it was not run.')
             raise JobFailed()
-        revision = CustomScriptProjectRevision.objects.filter(pk=revision_id).first()
-        if revision is None:
-            self.logger.error(
-                f'The revision this run was pinned to no longer exists, so {module_path}.{class_name} '
-                'cannot be run as it was requested.'
-            )
-            raise JobFailed()
+        revision = self._revision_for(revision_id, script, module_path, class_name)
 
         storage_key = str(revision.project.storage_key)
         sanitize = build_error_sanitizer(storage_key, revision.digest)
-        self.logger.info(f'Running {module_path}.{class_name} from revision {revision_digest[:12]}.')
+        self.logger.info(f'Running {module_path}.{class_name} from revision {revision.digest[:12]}.')
         try:
             with revision_import_session(storage_key, revision.digest):
                 try:
@@ -462,6 +484,27 @@ class CustomScriptJob(JobRunner):
             # The run log already carries the detail, so this line only fails the Job.
             self.logger.error(sanitize(f'The Custom Script did not finish: {error}'))
             raise JobFailed() from error
+
+    def _revision_for(self, revision_id, script, module_path, class_name):
+        """Return the revision this run executes, failing the Job when there is not one."""
+        if revision_id is None:
+            # A recurrence carries no pin, so each occurrence runs what the project serves now.
+            revision = script.project.active_revision if script is not None else None
+            if revision is None:
+                self.logger.error(
+                    f'This recurring run has no active revision to resolve, so {module_path}.{class_name} '
+                    'was not run. Its project is serving nothing, or the Custom Script is gone.'
+                )
+                raise JobFailed()
+            return revision
+        revision = CustomScriptProjectRevision.objects.filter(pk=revision_id).first()
+        if revision is None:
+            self.logger.error(
+                f'The revision this run was pinned to no longer exists, so {module_path}.{class_name} '
+                'cannot be run as it was requested.'
+            )
+            raise JobFailed()
+        return revision
 
     def _resolve(self, revision, storage_key, module_path, class_name, sanitize):
         """Return the pinned class, failing the Job when this revision cannot supply it."""

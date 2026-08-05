@@ -1,21 +1,27 @@
 import sys
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.urls import reverse
 
+from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.models import Tag
 from netbox_custom_scripts.activation import activate_revision, deactivate_revision
+from netbox_custom_scripts.jobs import CustomScriptJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
 from netbox_custom_scripts.runtime.naming import PRIVATE_ROOT
+from netbox_custom_scripts.scripts.logging import LogLevelChoices
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.runtime.test_cache import discard_tree
 from netbox_custom_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 from netbox_custom_scripts.validation import validate_revision
 from users.models import ObjectPermission
+from utilities.datetime import local_now
 from utilities.testing import TestCase
 
 TAKES_A_NAME = (
@@ -83,6 +89,51 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertIn('name="label"', content)
         self.assertIn('name="_commit"', content)
 
+    def test_no_template_syntax_reaches_the_browser(self):
+        # A {# #} comment is single-line only in Django, so a two-line one renders as text.
+        self.grant('view', 'run')
+
+        content = self.client.get(self.url()).content.decode()
+
+        for token in ('{#', '#}', '{%', '%}'):
+            self.assertNotIn(token, content, f'raw template syntax {token} leaked into the run page')
+
+    def test_the_run_page_carries_the_standard_tab_strip(self):
+        # Every NetBox page has one, and it is the only way back to the object from here.
+        self.grant('view', 'run')
+
+        content = self.client.get(self.url()).content.decode()
+
+        self.assertIn('nav nav-tabs', content)
+        self.assertIn(f'href="{self.script.get_absolute_url()}"', content)
+        self.assertIn(f'href="{self.url()}" class="nav-link active"', content)
+
+    def test_the_run_tab_appears_on_the_other_views(self):
+        # Registered as a ViewTab, so every view of the script offers it, not just this page.
+        self.grant('view', 'run')
+
+        for page in ('', 'changelog/', 'jobs/'):
+            with self.subTest(page=page or 'detail'):
+                content = self.client.get(f'{self.script.get_absolute_url()}{page}').content.decode()
+                self.assertIn(f'href="{self.url()}"', content)
+
+    def test_the_run_tab_is_hidden_without_the_run_permission(self):
+        self.grant('view', 'change')
+
+        content = self.client.get(self.script.get_absolute_url()).content.decode()
+
+        self.assertNotIn(f'href="{self.url()}"', content)
+
+    def test_the_run_page_names_the_script_it_will_run(self):
+        # The dotted name is the identity an author works with.
+        self.grant('view', 'run')
+
+        content = self.client.get(self.url()).content.decode()
+
+        identifier = ' '.join(content[content.find('<code class="d-block text-muted') :][:300].split())
+        self.assertIn('deploy.MakeTag', identifier)
+        self.assertNotIn('netbox_custom_scripts.customscript', identifier)
+
     def test_the_run_page_is_refused_without_the_run_action(self):
         # View alone is not enough, running is its own permission.
         self.grant('view', 'change')
@@ -144,6 +195,60 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
 
         self.assertEqual(Job.objects.get(object_id=self.script.pk).user, self.user)
 
+    def test_a_submitted_schedule_defers_the_run(self):
+        self.grant('view', 'run')
+        when = local_now() + timedelta(hours=1)
+
+        self.client.post(
+            self.url(),
+            {'label': 'Queued Tag', '_commit': 'on', '_schedule_at': when.strftime('%Y-%m-%d %H:%M:%S')},
+        )
+
+        job = Job.objects.get(object_id=self.script.pk)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_SCHEDULED)
+        self.assertIsNotNone(job.scheduled)
+
+    def test_a_submitted_interval_makes_the_run_recurring(self):
+        self.grant('view', 'run')
+
+        self.client.post(self.url(), {'label': 'Queued Tag', '_commit': 'on', '_interval': '60'})
+
+        job = Job.objects.get(object_id=self.script.pk)
+        self.assertEqual(job.interval, 60)
+        # A recurrence resolves per occurrence, so it carries no pin.
+        self.assertIsNone(job.data['revision_id'])
+
+    def test_the_execution_parameters_never_reach_the_script_as_variables(self):
+        # The Job row deliberately records no input values, so what the view forwarded has to
+        # be observed at the call rather than read back off the row.
+        self.grant('view', 'run')
+        captured = {}
+        original = CustomScriptJob.enqueue_run
+
+        def record(script, **kwargs):
+            captured.update(kwargs)
+            return original(script, **kwargs)
+
+        with patch.object(CustomScriptJob, 'enqueue_run', record):
+            self.client.post(self.url(), {'label': 'Queued Tag', '_commit': 'on', '_interval': '60'})
+
+        self.assertEqual(set(captured['data']), {'label'})
+        self.assertEqual(captured['interval'], 60)
+        self.assertIs(captured['commit'], True)
+
+    def test_a_past_schedule_re_renders_the_form_and_queues_nothing(self):
+        self.grant('view', 'run')
+        when = local_now() - timedelta(hours=1)
+
+        response = self.client.post(
+            self.url(),
+            {'label': 'Queued Tag', '_commit': 'on', '_schedule_at': when.strftime('%Y-%m-%d %H:%M:%S')},
+        )
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn('must be in the future', response.content.decode())
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
 
 class ResultViewTestCase(RunViewTestMixin, TestCase):
     def finished_job(self, **overrides):
@@ -191,12 +296,150 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
         self.assertNotIn('a debug line', default)
         self.assertIn('a debug line', verbose)
 
+    def test_no_template_syntax_reaches_the_browser(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        for token in ('{#', '#}', '{%', '%}'):
+            self.assertNotIn(token, content, f'raw template syntax {token} leaked into the result page')
+
+    def test_the_result_page_carries_the_standard_tab_strip(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertIn('nav nav-tabs', content)
+        self.assertIn(f'href="{self.script.get_absolute_url()}"', content)
+        self.assertIn('nav-link active', content)
+
     def test_a_job_belonging_to_another_script_is_not_found(self):
         self.grant('view', 'run')
         self.grant('view', model=Job)
         other = Job.objects.create(name='Elsewhere', job_id=uuid.uuid4())
 
         self.assertHttpStatus(self.client.get(self.url('result', job_pk=other.pk)), 404)
+
+    def test_every_threshold_is_offered_and_the_active_one_marked(self):
+        # Implemented in the view, so without a control it is reachable only by URL.
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+
+        content = self.client.get(f'{self.url("result", job_pk=job.pk)}?log_threshold=warning').content.decode()
+
+        for level in LogLevelChoices.values():
+            self.assertIn(f'?log_threshold={level}', content)
+        self.assertIn('Warning', content)
+
+    def test_an_unknown_threshold_falls_back_to_info(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+
+        response = self.client.get(f'{self.url("result", job_pk=job.pk)}?log_threshold=nonsense')
+
+        self.assertEqual(response.context['log_threshold'], LogLevelChoices.LOG_INFO)
+
+    def test_a_finished_run_does_not_poll(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_COMPLETED
+        job.save()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertNotIn('hx-trigger', content)
+
+    def test_a_run_in_flight_polls_itself(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_RUNNING
+        job.save()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertIn('hx-trigger="every 5s"', content)
+        self.assertIn('hx-swap="outerHTML"', content)
+
+    def test_a_scheduled_run_polls_less_often(self):
+        # A scheduled run can be days out, so it is not worth the rate of one already moving.
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_SCHEDULED
+        job.save()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertIn('hx-trigger="every 60s"', content)
+
+    def test_the_poll_keeps_the_chosen_threshold(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_RUNNING
+        job.save()
+
+        content = self.client.get(f'{self.url("result", job_pk=job.pk)}?log_threshold=debug').content.decode()
+
+        self.assertIn('log_threshold=debug" hx-trigger', content)
+
+    def test_a_poll_returns_the_body_alone(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_RUNNING
+        job.save()
+
+        content = self.client.get(self.url('result', job_pk=job.pk), headers={'hx-request': 'true'}).content.decode()
+
+        self.assertIn('id="run-result"', content)
+        # No page furniture, which is the point of serving the partial
+        self.assertNotIn('breadcrumb', content)
+        self.assertNotIn('Log threshold', content)
+
+    def test_a_scheduled_run_says_when_and_how_often(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_SCHEDULED
+        job.scheduled = local_now() + timedelta(hours=3)
+        job.interval = 60
+        job.save()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertIn('Scheduled for', content)
+        self.assertIn('Recurs every', content)
+        self.assertIn('60 minutes', content)
+
+    def test_an_immediate_run_says_neither(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertNotIn('Scheduled for', content)
+        self.assertNotIn('Recurs every', content)
+
+    def test_the_table_can_be_configured(self):
+        # table.configure() reads a saved configuration, and the modal is what writes one.
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+
+        content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
+
+        self.assertIn('id="CustomScriptLogTable_config"', content)
+        self.assertIn('data-bs-target="#CustomScriptLogTable_config"', content)
 
 
 class RunEndToEndTestCase(RunViewTestMixin, TestCase):

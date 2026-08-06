@@ -600,9 +600,9 @@ class DataSourceToActiveTestCase(TestCase):
     """
     A Data Source-backed project through real validation, one synchronization at a time.
 
-    Exercises what P11 exists for: the entrypoint selection survives a synchronization, and a
-    selected entrypoint that disappears from the source invalidates the new revision while the
-    project keeps serving the one it already had.
+    The entrypoint selection survives a synchronization, and a selected entrypoint that
+    disappears from the source invalidates the new revision while the project keeps serving
+    the one it already had.
     """
 
     def setUp(self):

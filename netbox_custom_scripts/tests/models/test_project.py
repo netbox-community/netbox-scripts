@@ -211,35 +211,39 @@ class CustomScriptProjectTestCase(TestCase):
             CustomScriptProject.objects.filter(pk=instance.pk).update(data_path='sneaky/path')
 
     def test_data_path_rejects_exact_duplicate_on_same_data_source(self):
-        data_source = DataSource.objects.create(name='DS Q15a', type='local', source_url='file:///tmp/q15a/')
+        data_source = DataSource.objects.create(
+            name='Duplicate Path Source', type='local', source_url='file:///tmp/duplicate-path/'
+        )
         CustomScriptProject.objects.create(
-            name='Q15 First',
-            key='q15-first',
+            name='Automation Netbox',
+            key='automation-netbox',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
         )
         with self.assertRaises(IntegrityError), transaction.atomic():
             CustomScriptProject.objects.create(
-                name='Q15 Duplicate',
-                key='q15-duplicate',
+                name='Automation Netbox Again',
+                key='automation-netbox-again',
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
                 data_source=data_source,
                 data_path='automation/netbox',
             )
 
     def test_data_path_rejects_ancestor_overlap_on_same_data_source(self):
-        data_source = DataSource.objects.create(name='DS Q15b', type='local', source_url='file:///tmp/q15b/')
+        data_source = DataSource.objects.create(
+            name='Ancestor Overlap Source', type='local', source_url='file:///tmp/ancestor-overlap/'
+        )
         CustomScriptProject.objects.create(
-            name='Q15 Parent',
-            key='q15-parent',
+            name='Automation Tree',
+            key='automation-tree',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation',
         )
         child = CustomScriptProject(
-            name='Q15 Child',
-            key='q15-child',
+            name='Automation Subtree',
+            key='automation-subtree',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
@@ -249,17 +253,19 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('data_path', cm.exception.message_dict)
 
     def test_data_path_rejects_descendant_overlap_on_same_data_source(self):
-        data_source = DataSource.objects.create(name='DS Q15c', type='local', source_url='file:///tmp/q15c/')
+        data_source = DataSource.objects.create(
+            name='Descendant Overlap Source', type='local', source_url='file:///tmp/descendant-overlap/'
+        )
         CustomScriptProject.objects.create(
-            name='Q15 Deep',
-            key='q15-deep',
+            name='Deep Path',
+            key='deep-path',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
         )
         ancestor = CustomScriptProject(
-            name='Q15 Ancestor',
-            key='q15-ancestor',
+            name='Enclosing Path',
+            key='enclosing-path',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation',
@@ -269,17 +275,19 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('data_path', cm.exception.message_dict)
 
     def test_data_path_allows_sibling_paths_on_same_data_source(self):
-        data_source = DataSource.objects.create(name='DS Q15d', type='local', source_url='file:///tmp/q15d/')
+        data_source = DataSource.objects.create(
+            name='Sibling Path Source', type='local', source_url='file:///tmp/sibling-paths/'
+        )
         CustomScriptProject.objects.create(
-            name='Q15 Netbox',
-            key='q15-netbox',
+            name='Netbox Scripts',
+            key='netbox-scripts',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
         )
         sibling = CustomScriptProject(
-            name='Q15 Netbox Old',
-            key='q15-netbox-old',
+            name='Netbox Scripts Old',
+            key='netbox-scripts-old',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox-old',
@@ -287,18 +295,22 @@ class CustomScriptProjectTestCase(TestCase):
         sibling.full_clean()
 
     def test_data_path_allows_identical_path_on_different_data_source(self):
-        data_source_one = DataSource.objects.create(name='DS Q15e1', type='local', source_url='file:///tmp/q15e1/')
-        data_source_two = DataSource.objects.create(name='DS Q15e2', type='local', source_url='file:///tmp/q15e2/')
+        data_source_one = DataSource.objects.create(
+            name='First Shared Path Source', type='local', source_url='file:///tmp/shared-path-one/'
+        )
+        data_source_two = DataSource.objects.create(
+            name='Second Shared Path Source', type='local', source_url='file:///tmp/shared-path-two/'
+        )
         CustomScriptProject.objects.create(
-            name='Q15 On DS1',
-            key='q15-on-ds1',
+            name='Same Path First Source',
+            key='same-path-first-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source_one,
             data_path='automation/netbox',
         )
         other = CustomScriptProject(
-            name='Q15 On DS2',
-            key='q15-on-ds2',
+            name='Same Path Second Source',
+            key='same-path-second-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source_two,
             data_path='automation/netbox',
@@ -307,8 +319,8 @@ class CustomScriptProjectTestCase(TestCase):
         other.save()
 
     def test_upload_projects_unaffected_by_data_path_overlap_check(self):
-        first = CustomScriptProject.objects.create(name='Q15 Upload A', key='q15-upload-a')
-        second = CustomScriptProject.objects.create(name='Q15 Upload B', key='q15-upload-b')
+        first = CustomScriptProject.objects.create(name='Overlap Exempt Upload A', key='overlap-exempt-upload-a')
+        second = CustomScriptProject.objects.create(name='Overlap Exempt Upload B', key='overlap-exempt-upload-b')
         first.full_clean()
         second.full_clean()
 

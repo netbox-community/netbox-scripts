@@ -62,8 +62,11 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The 4.7 line ('feature') is a pre-release canary: report, don't block.
-    continue-on-error: ${{ matrix.netbox-ref == 'feature' }}
+    # 'main' (next 4.6 patch) and 'feature' (4.7 pre-release) both move, so a
+    # core change reaches them before any release this plugin supports. They
+    # report without blocking, and the two pinned legs stay authoritative.
+    continue-on-error: >-
+      ${{ matrix.netbox-ref == 'main' || matrix.netbox-ref == 'feature' }}
     env:
       NETBOX_CONFIGURATION: configuration
       PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing

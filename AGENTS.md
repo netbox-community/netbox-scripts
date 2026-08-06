@@ -146,7 +146,7 @@ when domain content calls for them.
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate and Reconcile confirmation views. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
-│   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one.
+│   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one. Run declares a ViewTab gated on the run permission, so every view of the script offers it. Result serves its body as a partial to an htmx poll, so a run that has not reached a terminal state refreshes itself, at a slower rate while it is only scheduled.
 │   │   └── revision.py             , Activate + Deactivate for one revision, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
@@ -415,7 +415,24 @@ periodically.
   UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_custom_scripts.tests
   ```
 
-  NetBox releases that predate the framework ignore the file.
+  NetBox releases that predate the framework ignore the file: it arrived after
+  v4.6.0, so the floor leg asserts nothing.
+
+  **The baseline is a single file, but the CI matrix spans four NetBox refs, and a
+  core change to query behaviour lands on them at different times.** The file
+  therefore tracks the pinned stable ref, `netbox_test_max_ref`, and two rules
+  follow from that:
+
+  - **Regenerate against a checkout at that ref, never against `main` or
+    `feature`.** `UPDATE_QUERY_COUNTS=1` rewrites every key it observes, so a run
+    on a moving ref silently records counts the pinned legs will reject. The local
+    development checkout floats across branches, so check which line it is on
+    first.
+  - **A count that changes only on `main` or `feature` is core's, not a
+    regression.** Both legs are `continue-on-error` for exactly this reason. The
+    baseline moves when the pinned ref moves, not before. Confirm the cause by
+    running the same test against a pristine tree (`git archive HEAD` into a
+    scratch directory, then point `PYTHONPATH` at it) before touching the file.
 
 ### Reporting test results
 

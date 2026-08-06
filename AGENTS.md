@@ -214,24 +214,23 @@ when domain content calls for them.
 ### Domain model
 
 Three models, all installation-global (`GLOBAL_MODELS` in `branching.py` routes
-them to the main schema under NetBox Branching). `CustomScriptProject` (concept
-5.1): one project = one script source tree = one Python package boundary, owning
+them to the main schema under NetBox Branching). `CustomScriptProject`:
+one project = one script source tree = one Python package boundary, owning
 either uploaded content or a Data Source directory, never both, with frozen
 identity fields (`key`, `source_type` immutable, `storage_key` never changes).
 `CustomScriptProjectRevision`: one immutable snapshot of the tree plus the
 entrypoint configuration it was staged under, identity = project + source
 digest + entrypoint digest, moved through its lifecycle by the storage and
-validation services only. `CustomScriptModule` (concept 5.3): one declared
+validation services only. `CustomScriptModule`: one declared
 entrypoint per row, author-editable declaration fields, system-managed
 discovery fields, enabled declarations frozen into each revision's entrypoint
-snapshot at staging time. `CustomScript` (concept 5.4): one published Script
+snapshot at staging time. `CustomScript`: one published Script
 class per row, parented on the **project** rather than the Module, because
 `script_order` lets a helper-defined class publish and helpers have no Module
 row, so the publishing entrypoint is provenance in the revision snapshot instead.
 Rows are derived from an activated revision, never authored: `enabled` is the
 administrator's and synchronization never writes it, while retirement replaces
-deletion so accumulated Job history survives. Execution lands in a later PR per
-the concept.
+deletion so accumulated Job history survives.
 
 ### Source ingestion
 
@@ -603,8 +602,7 @@ commands anywhere in the package, and only a statement carrying the
 `cloud-compat: ok` marker with a reason is exempt. The runtime cache tier is the
 one place those markers belong.
 
-Check this before designing anything that persists bytes. The concept sanctions
-it in section 6.3.
+Check this before designing anything that persists bytes.
 
 ## Conventions and Patterns
 

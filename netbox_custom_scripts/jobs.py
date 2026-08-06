@@ -281,9 +281,9 @@ class RevisionValidationJob(JobRunner):
     """
     Drive one revision to a validation verdict inside a worker.
 
-    Imports run in this process, the worker is the isolated execution environment the
-    concept prescribes, and the rq job timeout bounds a run while the longer lease in the
-    revision row hands the claim on if this worker dies without a trace. Environment
+    Imports run in this process, so the worker is the isolated execution environment, and
+    the rq job timeout bounds a run while the longer lease in the revision row hands the
+    claim on if this worker dies without a trace. Environment
     trouble fails the job and leaves the revision claimable again, a verdict is recorded
     by the validation service itself.
     """
@@ -347,7 +347,7 @@ class RevisionValidationJob(JobRunner):
 
         The verdict is already recorded and correct, so a refused or failed activation fails the
         job without touching it. The project keeps serving whatever it served before, which is
-        the outcome the concept requires of a validation that cannot complete its last step.
+        the required outcome for a validation that cannot complete its last step.
         """
         if revision.project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
             self.logger.info('Leaving activation to an operator, this project activates manually.')

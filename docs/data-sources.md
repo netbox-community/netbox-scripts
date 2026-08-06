@@ -18,11 +18,13 @@ type, which reveals the two fields it needs.
 
 The data path is a directory relative to the Data Source root, with no leading slash.
 Traversal segments are refused. It is compared segment by segment, so a Project at
-`automation/netbox` does not claim `automation/netbox-old`.
+`automation/netbox` does not claim `automation/netbox-old`. Leave it empty to root the
+Project at the Data Source root, which takes every file in the source.
 
 Two Projects on one Data Source cannot overlap. Neither may be the same directory as the
 other, and neither may sit inside the other, because a file would then belong to two Python
-package boundaries at once.
+package boundaries at once. A Project at the Data Source root contains every other path, so
+a source with a root Project holds that Project alone.
 
 Before the first synchronization the Project has no source and its page says so. The
 Entrypoints tab is usable straight away, because the candidate list is read from the Data

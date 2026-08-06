@@ -152,7 +152,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='customscriptproject',
-            constraint=models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership'),
+            constraint=models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source')), _connector='OR'), name='enforce_source_ownership'),
         ),
         migrations.AddConstraint(
             model_name='customscriptproject',

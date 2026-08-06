@@ -115,12 +115,9 @@ class CustomScriptProject(PrimaryModel):
                         data_source__isnull=True,
                         data_path='',
                     )
-                    | (
-                        Q(
-                            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
-                            data_source__isnull=False,
-                        )
-                        & ~Q(data_path='')
+                    | Q(
+                        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+                        data_source__isnull=False,
                     )
                 ),
             ),
@@ -147,10 +144,6 @@ class CustomScriptProject(PrimaryModel):
         if self.source_type == ProjectSourceTypeChoices.DATA_SOURCE:
             if not self.data_source:
                 errors['data_source'] = _('A data source is required for data source-backed projects.')
-            if not self.data_path and 'data_path' not in errors:
-                errors['data_path'] = _(
-                    'A directory path within the data source is required. The repository root is not allowed.'
-                )
         else:
             if self.data_source:
                 errors['data_source'] = _('A data source applies only to data source-backed projects.')
@@ -160,14 +153,13 @@ class CustomScriptProject(PrimaryModel):
         if (
             self.source_type == ProjectSourceTypeChoices.DATA_SOURCE
             and self.data_source_id
-            and self.data_path
             and 'data_path' not in errors
         ):
             conflict = self._overlapping_sibling()
             if conflict is not None:
                 errors['data_path'] = _(
                     'This data path overlaps with project "{name}" ({path}) on the same data source.'
-                ).format(name=conflict.name, path=conflict.data_path)
+                ).format(name=conflict.name, path=conflict.data_path or _('the data source root'))
 
         if self.active_revision_id:
             # The pointer is only ever set by the activation service, so anything else

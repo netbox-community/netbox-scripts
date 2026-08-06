@@ -133,7 +133,7 @@ class CustomScriptProjectTestCase(TestCase):
                     instance.full_clean()
                 self.assertIn('data_path', cm.exception.message_dict)
 
-    def test_data_source_project_requires_nonempty_data_path(self):
+    def test_data_source_project_accepts_the_data_source_root(self):
         data_source = DataSource.objects.create(
             name='Data Source 4',
             type='local',
@@ -146,9 +146,10 @@ class CustomScriptProjectTestCase(TestCase):
             data_source=data_source,
             data_path='',
         )
-        with self.assertRaises(ValidationError) as cm:
-            instance.full_clean()
-        self.assertIn('data_path', cm.exception.message_dict)
+        instance.full_clean()
+        instance.save()
+        instance.refresh_from_db()
+        self.assertEqual(instance.data_path, '')
 
     def test_key_and_source_type_immutable(self):
         instance = CustomScriptProject.objects.create(name='Sample Project 11', key='sample-project-11')
@@ -317,6 +318,91 @@ class CustomScriptProjectTestCase(TestCase):
         )
         other.full_clean()
         other.save()
+
+    def test_a_root_project_overlaps_a_subdirectory_project(self):
+        data_source = DataSource.objects.create(
+            name='Root Overlap Source', type='local', source_url='file:///tmp/root-overlap/'
+        )
+        CustomScriptProject.objects.create(
+            name='Scripts Directory',
+            key='scripts-directory',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='scripts',
+        )
+        root = CustomScriptProject(
+            name='Source Root',
+            key='source-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
+        with self.assertRaises(ValidationError) as cm:
+            root.full_clean()
+        self.assertIn('data_path', cm.exception.message_dict)
+        # Named, so this cannot pass on some other data_path error.
+        self.assertIn('Scripts Directory', str(cm.exception.message_dict['data_path']))
+
+    def test_a_subdirectory_project_overlaps_an_existing_root_project(self):
+        data_source = DataSource.objects.create(
+            name='Root First Source', type='local', source_url='file:///tmp/root-first/'
+        )
+        CustomScriptProject.objects.create(
+            name='Whole Repository',
+            key='whole-repository',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
+        child = CustomScriptProject(
+            name='Scripts Subdirectory',
+            key='scripts-subdirectory',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='scripts',
+        )
+        with self.assertRaises(ValidationError) as cm:
+            child.full_clean()
+        self.assertIn('data_path', cm.exception.message_dict)
+        self.assertIn('Whole Repository', str(cm.exception.message_dict['data_path']))
+
+    def test_a_root_project_allows_a_root_project_on_another_data_source(self):
+        data_source_one = DataSource.objects.create(
+            name='First Root Source', type='local', source_url='file:///tmp/root-source-one/'
+        )
+        data_source_two = DataSource.objects.create(
+            name='Second Root Source', type='local', source_url='file:///tmp/root-source-two/'
+        )
+        CustomScriptProject.objects.create(
+            name='Root On First Source',
+            key='root-on-first-source',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source_one,
+            data_path='',
+        )
+        other = CustomScriptProject(
+            name='Root On Second Source',
+            key='root-on-second-source',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source_two,
+            data_path='',
+        )
+        other.full_clean()
+        other.save()
+
+    def test_the_database_constraint_permits_a_root_data_source_project(self):
+        """objects.create() skips clean(), so this reaches enforce_source_ownership directly."""
+        data_source = DataSource.objects.create(
+            name='Constraint Check Source', type='local', source_url='file:///tmp/constraint-check/'
+        )
+        project = CustomScriptProject.objects.create(
+            name='Unvalidated Root',
+            key='unvalidated-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
+        self.assertIsNotNone(project.pk)
 
     def test_upload_projects_unaffected_by_data_path_overlap_check(self):
         first = CustomScriptProject.objects.create(name='Overlap Exempt Upload A', key='overlap-exempt-upload-a')

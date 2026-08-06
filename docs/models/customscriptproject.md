@@ -53,7 +53,7 @@ operation at `projects/<id>/entrypoints/`.
 | `source_type` cannot change after creation, pending a dedicated source-transition workflow | `clean()`, the edit form disables the field, REST returns 400 |
 | `storage_key` never changes | `save()` guard, the field is excluded from forms and read-only in REST |
 | `data_path` is stored canonically: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize. Absolute paths, `..` traversal, and backslashes are rejected |
-| `data_source` projects require a non-empty `data_path`. The repository root is not a valid project root | `clean()` plus the `enforce_source_ownership` database constraint |
+| `data_source` projects require a `data_source`. An empty `data_path` roots the Project at the Data Source root and claims every file in the source | `clean()` plus the `enforce_source_ownership` database constraint |
 | `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
 | `active_revision` must belong to this project | `clean()` |
 | A project whose active revision is deleted keeps serving nothing rather than blocking the delete | `SET_NULL` on `active_revision`, which is also what lets a project be deleted at all, since its revisions cascade |

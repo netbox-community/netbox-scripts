@@ -331,13 +331,13 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertEqual(self.project.activatable_revision(), self.revision)
 
     def test_the_confirmation_names_the_revision_that_would_go_live(self):
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         response = self.client.get(self.url())
         self.assertHttpStatus(response, 200)
         self.assertIn(self.revision.short_digest, response.content.decode())
 
     def test_posting_activates_the_revision(self):
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         response = self.client.post(self.url())
         self.assertHttpStatus(response, 302)
         self.revision.refresh_from_db()
@@ -346,7 +346,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertEqual(self.project.active_revision_id, self.revision.pk)
 
     def test_an_already_current_project_offers_nothing(self):
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.client.post(self.url())
         self.project.refresh_from_db()
         # The active revision is excluded, so the button disappears rather than re-activating.
@@ -354,7 +354,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertIn('no validated revision', self.client.get(self.url()).content.decode())
 
     def test_a_project_with_nothing_valid_is_refused_rather_than_erroring(self):
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
             status=RevisionStatusChoices.MATERIALIZED
         )
@@ -364,7 +364,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertIsNone(self.project.active_revision_id)
 
     def test_the_button_appears_only_when_there_is_something_to_activate(self):
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         detail = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(self.url(), detail)
 
@@ -383,7 +383,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         # The confirmation page runs the deletion collector before deleting anything. With the
         # pointer declared PROTECT, that raised and the page refused, naming the project as its
         # own dependent object, so an activated project could not be deleted through the UI.
-        self.grant('view', 'change', 'delete')
+        self.grant('view', 'activate', 'delete')
         self.publish()
         self.client.post(self.url())
         self.assertHttpStatus(self.client.get(self.delete_project_url()), 200)
@@ -391,7 +391,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_deleting_an_active_project_through_the_ui_succeeds(self):
         # Also covers the second half: cascading the revisions away queues delete events, which
         # serialize eagerly, so the revision needs a serializer resolvable by model name.
-        self.grant('view', 'change', 'delete')
+        self.grant('view', 'activate', 'delete')
         self.publish()
         self.client.post(self.url())
         response = self.client.post(self.delete_project_url(), {'confirm': True})
@@ -401,7 +401,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertFalse(CustomScript.objects.exists())
 
     def test_bulk_deleting_an_active_project_succeeds(self):
-        self.grant('view', 'change', 'delete')
+        self.grant('view', 'activate', 'delete')
         self.publish()
         self.client.post(self.url())
         bulk = reverse('plugins:netbox_custom_scripts:customscriptproject_bulk_delete')
@@ -434,7 +434,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_activating_through_the_view_publishes_scripts_and_logs_the_change(self):
         # A request-bound write reverses the model's own routes during event serialization, so
         # this is also the proof that the identity surface holds up under a real request.
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.publish()
         response = self.client.post(self.url())
         self.assertHttpStatus(response, 302)
@@ -448,7 +448,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_the_project_page_fetches_its_scripts_panel(self):
         # The panel renders a card and an hx-get rather than rows, so the page carries the
         # filtered URL and the fetch behind it is asserted separately below.
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.grant_scripts('view')
         self.publish()
         self.client.post(self.url())
@@ -458,7 +458,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_the_fetched_panel_lists_each_published_script(self):
         # Following the hx-get is what proves the panel reaches the scripts, and it covers
         # more than the old inline markup did: the filter, the route, and the row link.
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.grant_scripts('view')
         self.publish()
         self.client.post(self.url())
@@ -473,7 +473,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_the_panel_renders_for_a_project_with_no_scripts(self):
         # An empty project still gets the card. The empty state itself is NetBox's standard
         # table one, rendered by the fetch rather than inline.
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.grant_scripts('view')
         body = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(f'/plugins/custom-scripts/scripts/?embedded=True&project_id={self.project.pk}', body)
@@ -481,7 +481,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
     def test_the_panel_is_hidden_without_permission_to_view_scripts(self):
         # should_render() drops the whole card, so the fetch URL is absent rather than the
         # panel rendering empty.
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.publish()
         self.client.post(self.url())
         body = self.client.get(self.project.get_absolute_url()).content.decode()
@@ -491,7 +491,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         # The user-visible form of never saving an unchanged row. The view offers no candidate
         # once the revision is active, so the repair path is driven directly, inside a request
         # context because the change-log receiver bails without one.
-        self.grant('view', 'change')
+        self.grant('view', 'activate')
         self.publish()
         self.client.post(self.url())
         before = self.script_changes()

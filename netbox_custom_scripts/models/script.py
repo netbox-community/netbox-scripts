@@ -90,10 +90,12 @@ class CustomScript(JobsMixin, PrimaryModel):
         ordering = ('project', 'module_path', 'class_name')
         verbose_name = _('custom script')
         verbose_name_plural = _('custom scripts')
-        # Running is its own action, not a form of changing the row. The codename has to carry
-        # the model name so that get_permission_for_model() composes the same string and
-        # restrict(user, 'run') resolves. NetBox registers it as an ObjectPermission checkbox.
-        permissions = (('run_customscript', 'Can run a Custom Script'),)
+        # Their own actions, not forms of changing the row. The codename carries the model name
+        # so get_permission_for_model() composes the same string restrict() resolves.
+        permissions = (
+            ('run_customscript', 'Can run a Custom Script'),
+            ('schedule_customscript', 'Can schedule a Custom Script'),
+        )
         constraints = [
             models.UniqueConstraint(
                 fields=('project', 'module_path', 'class_name'),

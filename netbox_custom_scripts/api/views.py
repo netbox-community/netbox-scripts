@@ -9,6 +9,7 @@ from core.api.serializers import JobSerializer
 from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet
 from utilities.exceptions import RQWorkerNotRunningException
+from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.rqworker import any_workers_for_queue
 
@@ -162,6 +163,12 @@ class CustomScriptViewSet(NetBoxModelViewSet):
         input_serializer = CustomScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
         input_serializer.is_valid(raise_exception=True)
         parameters = input_serializer.validated_data
+        # REST has no form to omit the fields from, so the value is refused instead. Read after
+        # validation, where an interval with no start time is anchored.
+        if (parameters.get('schedule_at') or parameters.get('interval')) and not request.user.has_perm(
+            get_permission_for_model(CustomScript, 'schedule')
+        ):
+            raise PermissionDenied('Scheduling a Custom Script requires the schedule permission.')
 
         # The declared variables are the only authority on what is valid, so the class's own form
         # validates them.

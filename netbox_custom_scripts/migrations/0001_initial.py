@@ -42,6 +42,10 @@ class Migration(migrations.Migration):
                 'verbose_name': 'custom script project',
                 'verbose_name_plural': 'custom script projects',
                 'ordering': ('name',),
+                'permissions': (
+                    ('activate_customscriptproject', 'Can activate a revision of a Custom Script Project'),
+                    ('reconcile_customscriptproject', "Can reconcile a Custom Script Project's source"),
+                ),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
@@ -126,7 +130,10 @@ class Migration(migrations.Migration):
                 'verbose_name': 'custom script',
                 'verbose_name_plural': 'custom scripts',
                 'ordering': ('project', 'module_path', 'class_name'),
-                'permissions': (('run_customscript', 'Can run a Custom Script'),),
+                'permissions': (
+                    ('run_customscript', 'Can run a Custom Script'),
+                    ('schedule_customscript', 'Can schedule a Custom Script'),
+                ),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),

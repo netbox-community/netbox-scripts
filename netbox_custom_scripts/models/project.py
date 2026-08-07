@@ -106,6 +106,11 @@ class CustomScriptProject(PrimaryModel):
         ordering = ('name',)
         verbose_name = _('custom script project')
         verbose_name_plural = _('custom script projects')
+        # Choosing what code a project runs is not a form of changing the row.
+        permissions = (
+            ('activate_customscriptproject', 'Can activate a revision of a Custom Script Project'),
+            ('reconcile_customscriptproject', "Can reconcile a Custom Script Project's source"),
+        )
         constraints = [
             models.CheckConstraint(
                 name='enforce_source_ownership',

@@ -23,8 +23,8 @@ reported rather than configured.
 
 Running is its own permission, `run`, granted separately from `change`. Someone
 who may edit a script's administrative fields cannot necessarily run it, and the
-reverse holds too. Grant it like any other action, by ticking **run** on an
-Object Permission for Custom Scripts.
+reverse holds too. Scheduling is a second permission again, `schedule`. See
+[Permissions](permissions.md) for the full set.
 
 ## Running over REST
 
@@ -63,11 +63,12 @@ an accepted run is the Job itself, at 201:
 Poll that URL for the outcome. The `run` permission is what this route
 requires, not `add` or `change`.
 
-Two refusals are worth knowing about. A run is refused with 503 when no worker
-is running, because a queued run nothing can pick up gives no signal that it
-will never start. And a script whose author set `scheduling_enabled = False`
-refuses `schedule_at` and `interval` with a 400 rather than ignoring them, since
-there is no form here to leave them out of.
+Three refusals are worth knowing about. A run is refused with 503 when no worker
+is running, because a queued run nothing can pick up gives no signal that it will
+never start. A script whose author set `scheduling_enabled = False` refuses
+`schedule_at` and `interval` with a 400. And a caller without the `schedule`
+permission is refused them with a 403. Neither is ignored, because there is no
+form here to leave the fields out of.
 
 ## Scheduling a run
 
@@ -81,10 +82,12 @@ Four execution parameters sit below the script's own fields.
 | **Notifications** | When to notify you about the Job. Default is the class's `notifications_default`. |
 
 A time in the past is refused. Setting a recurrence with no start time begins it
-now. A script whose author set `scheduling_enabled = False` shows neither
-scheduling field, because that flag is a statement that the script is not safe to
-run unattended. Notifications stay available either way, since they describe the
-run rather than the schedule.
+now. Notifications stay available either way, since they describe the run rather
+than the schedule.
+
+Both scheduling fields are absent unless two things hold: the author left
+`scheduling_enabled` on, and you hold the `schedule` permission. Either one
+missing withholds the fields rather than refusing them once submitted.
 
 ## Revision pinning
 

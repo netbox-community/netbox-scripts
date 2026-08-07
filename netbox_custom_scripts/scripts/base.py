@@ -28,6 +28,9 @@ class BaseScript:
     # Keep Django templates from calling the class when they resolve it as a variable
     do_not_call_in_templates = True
 
+    # Set False by a caller whose user may not schedule. The caller decides, this records it.
+    scheduling_permitted = True
+
     class Meta:
         pass
 
@@ -114,6 +117,15 @@ class BaseScript:
         """Return the default job notification policy from Meta."""
         return getattr(cls.Meta, 'notifications_default', JobNotificationChoices.NOTIFICATION_ALWAYS)
 
+    @property
+    def scheduling_offered(self):
+        """
+        Whether the run form carries the two scheduling fields.
+
+        One property, so the fieldsets and the form cannot disagree about which fields exist.
+        """
+        return self.scheduling_enabled and self.scheduling_permitted
+
     @classmethod
     def _get_vars(cls):
         script_vars = {}
@@ -160,7 +172,7 @@ class BaseScript:
         # The group has to name only fields the form actually carries, because a fieldset
         # naming an absent field renders nothing for it and takes the rest of its group down
         execution = ['_commit']
-        if self.scheduling_enabled:
+        if self.scheduling_offered:
             execution += ['_schedule_at', '_interval']
         execution.append('_notifications')
         fieldsets.append((_('Script Execution Parameters'), tuple(execution)))
@@ -172,8 +184,8 @@ class BaseScript:
         Construct the run form for this script.
 
         The form is a ``ScriptForm`` subclass carrying one field per variable, the commit
-        toggle, the notification policy, and the two scheduling fields unless the class
-        declares ``scheduling_enabled = False``.
+        toggle, the notification policy, and the two scheduling fields when
+        ``scheduling_offered`` holds.
         """
         fields = {name: var.as_field() for name, var in self._get_vars().items()}
         form_class = type('ScriptForm', (ScriptForm,), fields)
@@ -182,7 +194,7 @@ class BaseScript:
             data,
             files,
             initial=initial,
-            scheduling_enabled=self.scheduling_enabled,
+            scheduling_enabled=self.scheduling_offered,
             notifications_default=self.notifications_default,
         )
         form.fields['_commit'].initial = self.commit_default

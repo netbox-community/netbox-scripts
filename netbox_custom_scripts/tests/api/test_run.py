@@ -96,7 +96,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertIs(captured['commit'], False)
 
     def test_an_execution_parameter_never_reaches_the_script_as_a_variable(self):
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
         captured = {}
         original = CustomScriptJob.enqueue_run
 
@@ -194,7 +194,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertEqual(job.data['revision_digest'], self.revision.digest)
 
     def test_a_scheduled_run_is_accepted_and_the_job_is_scheduled(self):
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
         when = local_now() + timedelta(hours=1)
 
         response = self.post_run({'data': {'label': 'made-over-rest'}, 'schedule_at': when.isoformat()})
@@ -206,7 +206,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
     def test_a_recurring_run_records_its_interval_and_pins_nothing(self):
         # A pinned recurrence would execute one frozen revision forever.
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
 
         response = self.post_run(
             {
@@ -221,7 +221,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertIsNone(job.data['revision_id'])
 
     def test_a_past_schedule_is_refused(self):
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
         when = local_now() - timedelta(hours=1)
 
         response = self.post_run({'data': {'label': 'made-over-rest'}, 'schedule_at': when.isoformat()})
@@ -232,7 +232,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
     def test_an_interval_with_no_start_schedules_from_now(self):
         # A recurrence alone means "from now", the only reading that does not discard it.
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
 
         response = self.post_run({'data': {'label': 'made-over-rest'}, 'interval': 60})
 
@@ -242,7 +242,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
     def test_scheduling_is_refused_when_the_script_class_forbids_it(self):
         # The run form omits the fields, which is presentation. REST has to refuse the value.
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
         script = self.publish_elsewhere(UNSCHEDULABLE)
 
         response = self.post_run({'data': {}, 'interval': 60}, script=script)
@@ -256,6 +256,32 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         script = self.publish_elsewhere(UNSCHEDULABLE)
 
         response = self.post_run({'data': {}}, script=script)
+
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+
+    def test_a_scheduled_run_is_refused_without_the_schedule_permission(self):
+        # The run form withholds the fields, which is presentation. Here the value is refused.
+        self.grant('view', 'run')
+        when = local_now() + timedelta(hours=1)
+
+        response = self.post_run({'data': {'label': 'made-over-rest'}, 'schedule_at': when.isoformat()})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_a_recurring_run_is_refused_without_the_schedule_permission(self):
+        self.grant('view', 'run')
+
+        response = self.post_run({'data': {'label': 'made-over-rest'}, 'interval': 60})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_run_without_schedule_still_runs_immediately(self):
+        # The separation only works if withholding the schedule leaves running intact.
+        self.grant('view', 'run')
+
+        response = self.post_run({'data': {'label': 'made-over-rest'}})
 
         self.assertHttpStatus(response, status.HTTP_201_CREATED)
 

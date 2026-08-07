@@ -67,7 +67,7 @@ class RevisionServiceViewTestCase(TestCase):
         return f'{self.project.get_absolute_url()}revisions/'
 
     def test_activating_puts_the_revision_into_service(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         response = self.client.post(self.url(revision, 'activate'))
         self.assertHttpStatus(response, 302)
@@ -78,7 +78,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertTrue(CustomScript.objects.get(project=self.project).is_executable)
 
     def test_deactivating_retires_the_revision_and_its_scripts(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         response = self.client.post(self.url(revision, 'deactivate'))
@@ -92,7 +92,7 @@ class RevisionServiceViewTestCase(TestCase):
     def test_reactivating_brings_the_same_rows_back(self):
         # The point of retiring rather than deleting: the primary key and the administrator's
         # enabled both survive a round trip through deactivation.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         script = CustomScript.objects.get(project=self.project)
@@ -107,7 +107,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertFalse(returned.enabled)
 
     def test_deactivating_a_revision_that_is_not_active_is_refused(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         response = self.client.post(self.url(revision, 'deactivate'))
         self.assertHttpStatus(response, 302)
@@ -115,7 +115,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
 
     def test_activating_a_second_revision_retires_the_first(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         first = self.valid_revision()
         self.client.post(self.url(first, 'activate'))
         second = self.valid_revision(records=[record(class_name='Later')])
@@ -126,7 +126,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(second.status, RevisionStatusChoices.ACTIVE)
 
     def test_a_get_confirms_without_changing_anything(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         response = self.client.get(self.url(revision, 'activate'))
         self.assertHttpStatus(response, 200)
@@ -135,7 +135,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
 
     def test_the_deactivate_confirmation_renders(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         response = self.client.get(self.url(revision, 'deactivate'))
@@ -150,7 +150,7 @@ class RevisionServiceViewTestCase(TestCase):
         # The children view wraps its table in a form for bulk actions, and a nested form is
         # invalid HTML that browsers discard, so a button inside one submits the OUTER form to
         # the tab URL. That is exactly what happened: POST to the tab, 405. Links cannot.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         target = self.url(revision, 'activate')
@@ -160,7 +160,7 @@ class RevisionServiceViewTestCase(TestCase):
     def test_the_tab_url_refuses_a_post(self):
         # The 405 the owner hit. Nothing should ever post here, and this pins that the tab is
         # not a state-changing route if a future template regresses to a nested form.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         self.valid_revision()
         self.assertHttpStatus(self.client.post(self.tab_url()), 405)
 
@@ -174,35 +174,35 @@ class RevisionServiceViewTestCase(TestCase):
     def test_no_revision_permission_of_its_own_is_needed(self):
         # The operation changes what the project serves, so the project's permission is the
         # gate. A revision has no other surface an operator would grant a permission for.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.assertHttpStatus(self.client.post(self.url(revision, 'activate')), 302)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
 
     def test_the_tab_offers_activate_for_a_valid_revision_and_nothing_else(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         self.assertIn(self.url(revision, 'activate'), body)
         self.assertNotIn(self.url(revision, 'deactivate'), body)
 
     def test_the_tab_offers_deactivate_for_the_active_revision(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         body = self.client.get(self.tab_url()).content.decode()
         self.assertIn(self.url(revision, 'deactivate'), body)
         self.assertNotIn(self.url(revision, 'activate'), body)
 
-    def test_the_tab_offers_neither_button_without_the_change_permission(self):
+    def test_the_tab_offers_neither_button_without_the_activate_permission(self):
         self.grant(CustomScriptProject, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         self.assertNotIn(self.url(revision, 'activate'), body)
 
     def test_a_materialized_revision_offers_neither_button(self):
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptProject, 'view', 'activate')
         revision = service.stage_revision(self.project, {'deploy.py': b'V = 99\n'}).revision
         self.assertFalse(revision.is_activatable)
         body = self.client.get(self.tab_url()).content.decode()

@@ -85,8 +85,8 @@ It does not synchronize the Data Source itself. The file inventory NetBox alread
 a Project's source is built from, and refreshing that inventory is the Data Source's own
 operation, on its own page.
 
-The action needs the Project's change permission, the same as activation, because what it
-changes is what the Project serves.
+The action needs the Project's `reconcile` permission, granted separately from `change`, because
+what it changes is what the Project serves. See [Permissions](permissions.md).
 
 ## When a selected entrypoint disappears
 

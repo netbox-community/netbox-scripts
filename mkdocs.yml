@@ -49,6 +49,7 @@ nav:
   - Authoring: authoring.md
   - Runtime and Loading: runtime.md
   - Running Custom Scripts: execution.md
+  - Permissions: permissions.md
   - Models:
       - Custom Script Project: models/customscriptproject.md
       - Custom Script Project Revision: models/customscriptprojectrevision.md

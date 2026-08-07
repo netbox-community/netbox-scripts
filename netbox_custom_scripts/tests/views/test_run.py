@@ -195,8 +195,41 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
 
         self.assertEqual(Job.objects.get(object_id=self.script.pk).user, self.user)
 
-    def test_a_submitted_schedule_defers_the_run(self):
+    def test_the_scheduling_fields_are_absent_without_the_schedule_permission(self):
+        # Withheld by omission, so an operator is never offered a choice that is then refused.
         self.grant('view', 'run')
+
+        content = self.client.get(self.url()).content.decode()
+
+        self.assertNotIn('name="_schedule_at"', content)
+        self.assertNotIn('name="_interval"', content)
+        # The rest of the group survives, which a fieldset naming an absent field drops.
+        self.assertIn('name="_notifications"', content)
+        self.assertIn('name="_commit"', content)
+
+    def test_the_scheduling_fields_appear_with_the_schedule_permission(self):
+        self.grant('view', 'run', 'schedule')
+
+        content = self.client.get(self.url()).content.decode()
+
+        self.assertIn('name="_schedule_at"', content)
+        self.assertIn('name="_interval"', content)
+
+    def test_a_schedule_submitted_without_the_permission_is_ignored(self):
+        # A form that never carried the field cannot receive one, so the run goes ahead now.
+        self.grant('view', 'run')
+        when = local_now() + timedelta(hours=1)
+
+        self.client.post(
+            self.url(),
+            {'label': 'Queued Tag', '_commit': 'on', '_schedule_at': when.strftime('%Y-%m-%d %H:%M:%S')},
+        )
+
+        job = Job.objects.get(object_id=self.script.pk)
+        self.assertIsNone(job.scheduled)
+
+    def test_a_submitted_schedule_defers_the_run(self):
+        self.grant('view', 'run', 'schedule')
         when = local_now() + timedelta(hours=1)
 
         self.client.post(
@@ -209,7 +242,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertIsNotNone(job.scheduled)
 
     def test_a_submitted_interval_makes_the_run_recurring(self):
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
 
         self.client.post(self.url(), {'label': 'Queued Tag', '_commit': 'on', '_interval': '60'})
 
@@ -221,7 +254,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
     def test_the_execution_parameters_never_reach_the_script_as_variables(self):
         # The Job row deliberately records no input values, so what the view forwarded has to
         # be observed at the call rather than read back off the row.
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
         captured = {}
         original = CustomScriptJob.enqueue_run
 
@@ -237,7 +270,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertIs(captured['commit'], True)
 
     def test_a_past_schedule_re_renders_the_form_and_queues_nothing(self):
-        self.grant('view', 'run')
+        self.grant('view', 'run', 'schedule')
         when = local_now() - timedelta(hours=1)
 
         response = self.client.post(

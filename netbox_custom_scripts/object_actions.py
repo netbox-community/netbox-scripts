@@ -19,12 +19,13 @@ class ActivateRevision(ObjectAction):
     Put a Custom Script Project's newest validated revision into service.
 
     Only rendered when there is something to activate, so a project already serving its newest
-    revision shows no button. The change permission, because it moves the project's pointer.
+    revision shows no button. Its own permission rather than change, because choosing what code a
+    project runs is more privileged than renaming it.
     """
 
     name = 'activate'
     label = _('Activate')
-    permissions_required = {'change'}
+    permissions_required = {'activate'}
     url_kwargs = ['pk']
     template_name = 'netbox_custom_scripts/buttons/activate.html'
 
@@ -64,12 +65,13 @@ class ReconcileSource(ObjectAction):
     Rebuild a Custom Script Project's source from its Data Source directory now.
 
     Only rendered for a Data Source-backed project, since an uploaded one has no directory to
-    reconcile against. The change permission, because what it changes is what the project serves.
+    reconcile against. Its own permission rather than change, because what it changes is what the
+    project serves.
     """
 
     name = 'reconcile'
     label = _('Reconcile Source')
-    permissions_required = {'change'}
+    permissions_required = {'reconcile'}
     url_kwargs = ['pk']
     template_name = 'netbox_custom_scripts/buttons/reconcile.html'
 

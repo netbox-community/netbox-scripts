@@ -168,7 +168,11 @@ class CustomScriptRunView(generic.ObjectView):
             script_class = load_script_class(script)
         except (ScriptResolutionError, StorageError, OSError) as error:
             return None, _('The Custom Script could not be loaded from its source: {error}').format(error=error)
-        return script_class(), None
+        instance = script_class()
+        # Withheld by omission, so the POST needs no guard: a form without the fields cannot
+        # receive them.
+        instance.scheduling_permitted = self.request.user.has_perm(get_permission_for_model(CustomScript, 'schedule'))
+        return instance, None
 
     def _render(self, request, script, form, instance, reason):
         return render(

@@ -12,10 +12,10 @@ The two are mutually exclusive: the revision in force offers Deactivate, one who
 it offers Activate, and a revision still staging, validating, invalid, or already superseded
 offers neither.
 
-Permission is the project's change permission, matching the views, so the buttons appear exactly
+Permission is the project's activate permission, matching the views, so the buttons appear exactly
 when they would work.
 {% endcomment %}
-{% if perms.netbox_custom_scripts.change_customscriptproject %}
+{% if perms.netbox_custom_scripts.activate_customscriptproject %}
   {% if record.is_active %}
     <a href="{% url 'plugins:netbox_custom_scripts:customscriptprojectrevision_deactivate' pk=record.pk %}"
        class="btn btn-sm btn-outline-warning">

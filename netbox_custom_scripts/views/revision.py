@@ -33,25 +33,24 @@ class RevisionServiceView(generic.ObjectView):
     wraps its table in a form for bulk actions and a nested form is invalid HTML that browsers
     discard, which would submit the outer form to the tab URL instead.
 
-    Permission is the owning project's change permission, because what these change is what the
-    project serves. That needs saying, because the inherited check would otherwise restrict this
-    view's own queryset by a Custom Script Project Revision permission, and a revision has no
-    other surface an operator would ever have granted one for. Object-level project permissions
-    still apply, through the project queryset the revisions are filtered against.
+    Permission is the owning project's activate permission, because what these change is what the
+    project serves. The inherited check would otherwise want a revision permission, and a revision
+    has no other surface anyone would grant one for. Object-level project permissions still apply,
+    through the project queryset the revisions are filtered against.
     """
 
     queryset = CustomScriptProjectRevision.objects.all()
 
     def get_required_permission(self):
-        """Require the owning project's change permission, not the revision's own."""
-        return get_permission_for_model(CustomScriptProject, 'change')
+        """Require the owning project's activate permission, not the revision's own."""
+        return get_permission_for_model(CustomScriptProject, 'activate')
 
     def has_permission(self):
         """Gate on the project permission, and narrow the revisions to permitted projects."""
         user = self.request.user
         if not user.has_perm(self.get_required_permission()):
             return False
-        self.queryset = self.queryset.filter(project__in=CustomScriptProject.objects.restrict(user, 'change'))
+        self.queryset = self.queryset.filter(project__in=CustomScriptProject.objects.restrict(user, 'activate'))
         return True
 
     @staticmethod

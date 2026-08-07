@@ -103,8 +103,8 @@ class CustomScriptProjectActivateView(generic.ObjectView):
     template_name = 'netbox_custom_scripts/customscriptproject_activate.html'
 
     def get_required_permission(self):
-        """Require the change permission: this moves the project's active pointer."""
-        return get_permission_for_model(self.queryset.model, 'change')
+        """Require the activate permission, granted separately from change."""
+        return get_permission_for_model(self.queryset.model, 'activate')
 
     def get(self, request, **kwargs):
         """Show which revision would go live, or say that none can."""
@@ -161,8 +161,8 @@ class CustomScriptProjectReconcileView(generic.ObjectView):
     template_name = 'netbox_custom_scripts/customscriptproject_reconcile.html'
 
     def get_required_permission(self):
-        """Require the change permission: this changes what the project serves."""
-        return get_permission_for_model(self.queryset.model, 'change')
+        """Require the reconcile permission, granted separately from change."""
+        return get_permission_for_model(self.queryset.model, 'reconcile')
 
     def get(self, request, **kwargs):
         """Confirm, naming the directory the source would be rebuilt from."""

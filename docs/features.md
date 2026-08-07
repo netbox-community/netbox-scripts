@@ -38,6 +38,7 @@ logging, global search, REST, and GraphQL.
 | Upload a script | Administrator | Create a Project from one `.py` file, or add another to an existing one, without naming a path. See [Uploading Scripts](uploading.md). |
 | Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
 | Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |
+| Query revision history | Operator | Read a Project's revisions and their validation outcomes over REST or GraphQL, filtered by project, status, or digest. |
 | Select entrypoints | Administrator | Choose which of a Project's source modules discovery imports, on its Entrypoints tab or over REST, without typing a path. |
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. See [Data Source Projects](data-sources.md). |
 | Track a Data Source directory | Operator | Every synchronization of the Data Source rebuilds the project's source from the whole directory, validates it, and activates it when the policy allows. |
@@ -59,7 +60,6 @@ follow-up releases:
 | Area | Status |
 |---|---|
 | Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time. A Project needing helpers is managed through a Data Source |
-| Revision REST and GraphQL surfaces | Planned, revisions are read-only history in the UI |
 | A repository manifest declaring its own entrypoints | Planned, entrypoint selection is a Project setting made in NetBox |
 | Requesting a run over REST | Planned, runs are requested from the UI |
 | Event Rule actions | Planned |

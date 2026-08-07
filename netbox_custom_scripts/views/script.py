@@ -45,7 +45,7 @@ class CustomScriptListView(generic.ObjectListView):
     actions = (BulkExport, BulkEdit)
     # select_related is load bearing: the table linkifies project, so without it the list
     # issues one query per row.
-    queryset = CustomScript.objects.select_related('project')
+    queryset = CustomScript.objects.select_related('project', 'last_seen_revision')
     table = CustomScriptTable
     filterset = CustomScriptFilterSet
     filterset_form = CustomScriptFilterForm

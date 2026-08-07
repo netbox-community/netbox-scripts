@@ -26,6 +26,7 @@ class CustomScriptProjectSerializer(PrimaryModelSerializer):
         fields = (
             'id',
             'url',
+            'display_url',
             'display',
             'name',
             'key',

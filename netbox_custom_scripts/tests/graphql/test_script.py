@@ -10,9 +10,8 @@ class CustomScriptGraphQLTestCase(SimpleTestCase):
     def _field_names():
         return {field.name for field in CustomScriptType.__strawberry_definition__.fields}
 
-    def test_last_seen_revision_not_exposed_on_object_type(self):
-        # Revisions have no registered type, so strawberry cannot resolve the relation.
-        self.assertNotIn('last_seen_revision', self._field_names())
+    def test_last_seen_revision_is_exposed_on_object_type(self):
+        self.assertIn('last_seen_revision', self._field_names())
 
     def test_the_administrator_and_derived_fields_are_readable(self):
         field_names = self._field_names()

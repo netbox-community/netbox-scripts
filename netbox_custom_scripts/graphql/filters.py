@@ -5,19 +5,20 @@ import strawberry_django
 from strawberry.scalars import ID
 from strawberry_django import BaseFilterLookup, FilterLookup, StrFilterLookup
 
-from netbox.graphql.filters import PrimaryModelFilter
+from netbox.graphql.filters import ChangeLoggedModelFilter, PrimaryModelFilter
 
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 
 if TYPE_CHECKING:
     from core.graphql.filters import DataSourceFilter
 
-    from .enums import ActivationPolicyEnum, ModuleDiscoveryStatusEnum, ProjectSourceTypeEnum
+    from .enums import ActivationPolicyEnum, ModuleDiscoveryStatusEnum, ProjectSourceTypeEnum, RevisionStatusEnum
 
 __all__ = (
     'CustomScriptFilter',
     'CustomScriptModuleFilter',
     'CustomScriptProjectFilter',
+    'CustomScriptProjectRevisionFilter',
 )
 
 
@@ -47,7 +48,21 @@ class CustomScriptProjectFilter(PrimaryModelFilter):
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
 
 
-# last_discovered_revision is not filterable here, matching the object type. REST filters it by ID.
+# The manifest and the entrypoint snapshot are not filterable: both are stored documents rather
+# than lookup keys, and the diagnostics surface is where their contents belong.
+@strawberry_django.filter_type(CustomScriptProjectRevision, lookups=True)
+class CustomScriptProjectRevisionFilter(ChangeLoggedModelFilter):
+    """GraphQL filter for the Custom Script Project Revision model."""
+
+    project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
+    project_id: ID | None = strawberry_django.filter_field()
+    digest: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    entrypoint_digest: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    status: (
+        BaseFilterLookup[Annotated['RevisionStatusEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]] | None
+    ) = strawberry_django.filter_field()
+
+
 @strawberry_django.filter_type(CustomScriptModule, lookups=True)
 class CustomScriptModuleFilter(PrimaryModelFilter):
     """GraphQL filter for the Custom Script Module model."""
@@ -60,9 +75,10 @@ class CustomScriptModuleFilter(PrimaryModelFilter):
         BaseFilterLookup[Annotated['ModuleDiscoveryStatusEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]]
         | None
     ) = strawberry_django.filter_field()
+    last_discovered_revision: CustomScriptProjectRevisionFilter | None = strawberry_django.filter_field()
+    last_discovered_revision_id: ID | None = strawberry_django.filter_field()
 
 
-# last_seen_revision is not filterable here, matching the object type. REST filters it by ID.
 # No enum lookups: this model has no choice field.
 @strawberry_django.filter_type(CustomScript, lookups=True)
 class CustomScriptFilter(PrimaryModelFilter):
@@ -75,3 +91,5 @@ class CustomScriptFilter(PrimaryModelFilter):
     display_name: StrFilterLookup[str] | None = strawberry_django.filter_field()
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
     is_retired: FilterLookup[bool] | None = strawberry_django.filter_field()
+    last_seen_revision: CustomScriptProjectRevisionFilter | None = strawberry_django.filter_field()
+    last_seen_revision_id: ID | None = strawberry_django.filter_field()

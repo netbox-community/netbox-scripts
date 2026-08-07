@@ -53,7 +53,12 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertEqual(data['url'], f'/api/plugins/custom-scripts/scripts/{self.script.pk}/')
         self.assertEqual(data['display'], 'Deploy Devices')
         self.assertEqual(data['project']['id'], self.project.pk)
-        self.assertEqual(data['last_seen_revision'], self.revision.pk)
+        # Nested, so the revision's own reversing field resolves through this caller too.
+        self.assertEqual(data['last_seen_revision']['id'], self.revision.pk)
+        self.assertEqual(
+            data['last_seen_revision']['url'],
+            f'/api/plugins/custom-scripts/project-revisions/{self.revision.pk}/',
+        )
 
     def test_serialize_for_event_returns_data(self):
         data = serialize_for_event(self.script)

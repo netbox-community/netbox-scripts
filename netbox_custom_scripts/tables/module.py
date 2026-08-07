@@ -16,8 +16,7 @@ class CustomScriptModuleTable(PrimaryModelTable):
     )
     enabled = columns.BooleanColumn()
     discovery_status = columns.ChoiceFieldColumn()
-    # Not linkified: revisions have no detail view.
-    last_discovered_revision = tables.Column()
+    last_discovered_revision = tables.Column(linkify=True)
     tags = columns.TagColumn(
         url_name='plugins:netbox_custom_scripts:customscriptmodule_list',
     )

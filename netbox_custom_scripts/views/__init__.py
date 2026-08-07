@@ -19,6 +19,7 @@ from .project import (
 from .revision import (
     CustomScriptProjectRevisionActivateView,
     CustomScriptProjectRevisionDeactivateView,
+    CustomScriptProjectRevisionView,
 )
 from .script import (
     CustomScriptBulkEditView,
@@ -48,6 +49,7 @@ __all__ = (
     'CustomScriptProjectReconcileView',
     'CustomScriptProjectRevisionActivateView',
     'CustomScriptProjectRevisionDeactivateView',
+    'CustomScriptProjectRevisionView',
     'CustomScriptProjectView',
     'CustomScriptResultView',
     'CustomScriptRunView',

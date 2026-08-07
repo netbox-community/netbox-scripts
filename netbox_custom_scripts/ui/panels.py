@@ -23,14 +23,35 @@ class CustomScriptStatePanel(ObjectAttributesPanel):
     title = _('Publication')
 
     is_retired = attrs.BooleanAttr('is_retired', label=_('Retired'))
-    # Not a RelatedObjectAttr: revisions have no detail view.
-    last_seen_revision = attrs.TextAttr('last_seen_revision', label=_('Last seen revision'))
+    last_seen_revision = attrs.RelatedObjectAttr('last_seen_revision', label=_('Last seen revision'))
     # One row per execution default rather than the metadata JSON, which rendered as a raw dict.
     # Each reads a model accessor, so the panel never reaches into the record itself.
     commit_default = attrs.BooleanAttr('commit_default', label=_('Commit by default'))
     job_timeout_display = attrs.TextAttr('job_timeout_display', label=_('Run timeout'))
     notifications_default = attrs.ChoiceAttr('notifications_default', label=_('Notifications'))
     scheduling_enabled = attrs.BooleanAttr('scheduling_enabled', label=_('Scheduling allowed'))
+
+
+class CustomScriptProjectRevisionPanel(ObjectAttributesPanel):
+    """Identity attributes of a revision (detail view, left column)."""
+
+    title = _('Revision')
+
+    project = attrs.RelatedObjectAttr('project', label=_('Custom Script Project'))
+    digest = attrs.TextAttr('digest', label=_('Digest'))
+    entrypoint_digest = attrs.TextAttr('entrypoint_digest', label=_('Entrypoint digest'))
+    file_count = attrs.NumericAttr('file_count', label=_('Files'))
+    total_size = attrs.NumericAttr('total_size', label=_('Size'))
+
+
+class CustomScriptProjectRevisionStatePanel(ObjectAttributesPanel):
+    """Lifecycle state of a revision (detail view, right column)."""
+
+    title = _('State')
+
+    status = attrs.ChoiceAttr('status', label=_('Status'))
+    created = attrs.DateTimeAttr('created', label=_('Created'))
+    activated = attrs.DateTimeAttr('activated', label=_('Activated'))
 
 
 class CustomScriptModulePanel(ObjectAttributesPanel):
@@ -50,8 +71,7 @@ class CustomScriptModuleDiscoveryPanel(ObjectAttributesPanel):
     title = _('Discovery')
 
     discovery_status = attrs.ChoiceAttr('discovery_status', label=_('Status'))
-    # Not a RelatedObjectAttr: revisions have no detail view.
-    last_discovered_revision = attrs.TextAttr('last_discovered_revision', label=_('Last discovered revision'))
+    last_discovered_revision = attrs.RelatedObjectAttr('last_discovered_revision', label=_('Last discovered revision'))
     discovery_error = attrs.TextAttr('discovery_error', label=_('Error'))
 
 

@@ -59,12 +59,25 @@ itself, and no project with an active revision could ever be deleted.
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | none in this release |
-| GraphQL | none in this release |
+| REST | `/api/plugins/custom-scripts/project-revisions/` |
+| GraphQL | `custom_script_project_revision` / `custom_script_project_revision_list` |
 
-Revisions carry no detail page, REST endpoint, GraphQL type, filterset, or
-global-search surface. They do carry two actions, rendered per row on the
-project's **Revisions** tab:
+Both surfaces are read-only. A revision is produced by ingestion and moved
+through its lifecycle by the storage and validation services, so every write
+method is refused at the router and activation stays an action rather than a
+writable status field. Filter the list by `project_id`, `project` (the project
+key), `status`, `digest`, or `entrypoint_digest`.
+
+Two fields are deliberately absent from both surfaces. The `manifest` and the
+`entrypoint_snapshot` are stored documents rather than lookup keys, large enough
+to dominate a list response and internal to how content is addressed. The
+validation lease fields are absent for the same reason: they are a fencing
+mechanism, not user-facing state. An advanced diagnostic surface is the right
+owner for all four.
+
+Revisions carry no list page, edit route, delete route, or global-search
+surface. A revision has a detail page, reached from the project's **Revisions**
+tab, which also renders two actions per row:
 
 - **Activate** on any revision whose status is `valid` or `retired`, which puts
   it into service and publishes its [Custom Scripts](customscript.md).
@@ -313,7 +326,8 @@ for them.
 
 | Limitation | Impact |
 |---|---|
-| No detail page, REST endpoint, or GraphQL type | A revision is history. It carries Activate and Deactivate on the project's Revisions tab and nothing else |
+| No list page and no global search | A revision is reached through its project, on the Revisions tab or by filtering the REST and GraphQL surfaces by project |
+| The manifest and the entrypoint snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists |
 | Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
 | Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |

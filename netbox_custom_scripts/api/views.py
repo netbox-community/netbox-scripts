@@ -6,16 +6,26 @@ from rest_framework.response import Response
 
 from netbox.api.viewsets import NetBoxModelViewSet
 
-from ..filtersets import CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet
+from ..filtersets import (
+    CustomScriptFilterSet,
+    CustomScriptModuleFilterSet,
+    CustomScriptProjectFilterSet,
+    CustomScriptProjectRevisionFilterSet,
+)
 from ..jobs import ProjectEntrypointRefreshJob
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject
-from .serializers import CustomScriptModuleSerializer, CustomScriptProjectSerializer, CustomScriptSerializer
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from .serializers import (
+    CustomScriptModuleSerializer,
+    CustomScriptProjectRevisionSerializer,
+    CustomScriptProjectSerializer,
+    CustomScriptSerializer,
+)
 
 
 class CustomScriptModuleViewSet(NetBoxModelViewSet):
     """REST API viewset for Custom Script Modules."""
 
-    queryset = CustomScriptModule.objects.select_related('project')
+    queryset = CustomScriptModule.objects.select_related('project', 'last_discovered_revision')
     serializer_class = CustomScriptModuleSerializer
     filterset_class = CustomScriptModuleFilterSet
 
@@ -68,6 +78,21 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
         }
 
 
+class CustomScriptProjectRevisionViewSet(NetBoxModelViewSet):
+    """
+    Read-only REST API viewset for Custom Script Project Revisions.
+
+    Revisions are produced by ingestion and moved through their lifecycle by the storage and
+    validation services, so every write method is refused at the router. Activation stays an
+    action on the project rather than a writable status field.
+    """
+
+    queryset = CustomScriptProjectRevision.objects.select_related('project')
+    serializer_class = CustomScriptProjectRevisionSerializer
+    filterset_class = CustomScriptProjectRevisionFilterSet
+    http_method_names = ('get', 'head', 'options', 'trace')
+
+
 class CustomScriptViewSet(NetBoxModelViewSet):
     """
     REST API viewset for Custom Scripts.
@@ -76,7 +101,7 @@ class CustomScriptViewSet(NetBoxModelViewSet):
     and the serializer accepts the administrator's fields alone.
     """
 
-    queryset = CustomScript.objects.select_related('project')
+    queryset = CustomScript.objects.select_related('project', 'last_seen_revision')
     serializer_class = CustomScriptSerializer
     filterset_class = CustomScriptFilterSet
     # Refuses creation and deletion at the router. PATCH and PUT on the list route stay

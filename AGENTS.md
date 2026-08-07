@@ -60,16 +60,17 @@ when domain content calls for them.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
 │   │   ├── urls.py                , router.register for 'modules' + 'projects' + 'scripts'.
-│   │   ├── views.py               , CustomScriptModuleViewSet (select_related project) + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + update-only CustomScriptViewSet (http_method_names drops POST and DELETE).
+│   │   ├── views.py               , CustomScriptModuleViewSet + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + read-only CustomScriptProjectRevisionViewSet + update-only CustomScriptViewSet (http_method_names drops POST and DELETE). Each viewset select_relates the revision its serializer nests.
 │   │   └── serializers/
 │   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectRevisionSerializer, CustomScriptProjectSerializer, CustomScriptSerializer.
-│   │       ├── revision.py    , CustomScriptProjectRevisionSerializer: no route, exists only so event serialization can resolve one by model name. Omits url/display_url, a revision has no detail route to reverse.
+│   │       ├── revision.py    , CustomScriptProjectRevisionSerializer: read-only, and also the serializer event serialization resolves by model name. Omits the manifest, the entrypoint snapshot and the validation lease fields.
 │   │       ├── script.py      , CustomScriptSerializer: derived fields in read_only_fields, importable as api.serializers.CustomScriptSerializer for event serialization.
 │   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
-│   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, revision as a bare ID.
+│   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, nested read-only revision.
 │   ├── filtersets/
-│   │   ├── __init__.py            , Re-exports CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet.
+│   │   ├── __init__.py            , Re-exports CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet, CustomScriptProjectRevisionFilterSet.
 │   │   ├── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
+│   │   ├── revision.py            , CustomScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet): project by id + key, status, both digests.
 │   │   ├── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
 │   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, metadata unfiltered.
 │   ├── forms/
@@ -132,7 +133,8 @@ when domain content calls for them.
 │   │   ├── api/test_entrypoints.py , The projects/<id>/entrypoints/ GET + PUT contract.
 │   │   ├── models/test_entrypoint_candidates.py , Candidate enumeration from DataFile and from the newest manifest.
 │   │   ├── filtersets/test_module.py , CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
-│   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, revision absent from the type.
+│   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, the revision relation resolves.
+│   │   ├── graphql/test_revision.py , CustomScriptProjectRevisionGraphQLTestCase: status enum matches the ChoiceSet, stored documents and lease fields stay off the type.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py, test_resolution.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
@@ -147,10 +149,10 @@ when domain content calls for them.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate and Reconcile confirmation views. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one. Run declares a ViewTab gated on the run permission, so every view of the script offers it. Result serves its body as a partial to an htmx poll, so a run that has not reached a terminal state refreshes itself, at a slower rate while it is only scheduled.
-│   │   └── revision.py             , Activate + Deactivate for one revision, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
+│   │   └── revision.py             , Detail view for one revision, plus Activate + Deactivate, GET confirms and POST performs. Gated on the PROJECT's change permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
-│   │   └── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel and the two Module panels.
+│   │   └── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel, the two Module panels, and the two Revision panels.
 │   ├── search.py                  , [CustomScriptProject] CustomScriptIndex + CustomScriptModuleIndex + CustomScriptProjectIndex, each registered via @register_search.
 │   ├── graphql/
 │   │   ├── __init__.py            , [CustomScriptProject] Exports schema = [Query].
@@ -191,6 +193,7 @@ when domain content calls for them.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
+│       ├── customscriptprojectrevision.html       , Detail-view template for one revision, extends `generic/object.html`.
 │       └── *.html                 , [add as needed] Per-model detail templates and bulk-action forms.
 ├── docs/                          , mkdocs site (zensical primary, mkdocs compatible).
 ├── scripts/

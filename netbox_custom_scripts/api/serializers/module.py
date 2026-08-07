@@ -2,19 +2,21 @@ from netbox.api.serializers import PrimaryModelSerializer
 
 from ...models import CustomScriptModule
 from .project import CustomScriptProjectSerializer
+from .revision import CustomScriptProjectRevisionSerializer
 
 
 class CustomScriptModuleSerializer(PrimaryModelSerializer):
     """Serializer for the Custom Script Module model."""
 
     project = CustomScriptProjectSerializer(nested=True)
+    last_discovered_revision = CustomScriptProjectRevisionSerializer(nested=True, read_only=True)
 
     class Meta:
         model = CustomScriptModule
-        # last_discovered_revision stays a bare ID: revisions have no endpoint to nest.
         fields = (
             'id',
             'url',
+            'display_url',
             'display',
             'project',
             'source_path',

@@ -6,7 +6,7 @@ from netbox_custom_scripts.graphql.types import CustomScriptModuleType
 
 
 class CustomScriptModuleGraphQLTestCase(SimpleTestCase):
-    """Pin the GraphQL contract: the discovery enum matches its ChoiceSet, the revision stays absent."""
+    """Pin the GraphQL contract: the discovery enum matches its ChoiceSet, the revision resolves."""
 
     def test_discovery_status_enum_matches_choices(self):
         self.assertEqual(
@@ -14,10 +14,9 @@ class CustomScriptModuleGraphQLTestCase(SimpleTestCase):
             set(ModuleDiscoveryStatusChoices.values()),
         )
 
-    def test_last_discovered_revision_not_exposed_on_object_type(self):
-        # Revisions have no registered type, so strawberry cannot resolve the relation.
+    def test_last_discovered_revision_is_exposed_on_object_type(self):
         field_names = {field.name for field in CustomScriptModuleType.__strawberry_definition__.fields}
-        self.assertNotIn('last_discovered_revision', field_names)
+        self.assertIn('last_discovered_revision', field_names)
 
     def test_discovery_status_exposed_as_a_raw_value(self):
         # Typed enums belong on filter inputs only.

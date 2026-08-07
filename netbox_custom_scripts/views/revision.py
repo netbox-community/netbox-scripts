@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 
+from netbox.ui import layout
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.views import register_model_view
@@ -9,6 +10,18 @@ from utilities.views import register_model_view
 from .. import activation
 from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
+from ..ui import CustomScriptProjectRevisionPanel, CustomScriptProjectRevisionStatePanel
+
+
+@register_model_view(CustomScriptProjectRevision)
+class CustomScriptProjectRevisionView(generic.ObjectView):
+    """Detail view for a single revision, reached from the project's Revisions tab."""
+
+    queryset = CustomScriptProjectRevision.objects.select_related('project')
+    layout = layout.SimpleLayout(
+        left_panels=[CustomScriptProjectRevisionPanel()],
+        right_panels=[CustomScriptProjectRevisionStatePanel()],
+    )
 
 
 class RevisionServiceView(generic.ObjectView):

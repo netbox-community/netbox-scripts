@@ -19,7 +19,7 @@ class CustomScriptModuleListView(generic.ObjectListView):
     # The default set includes import, bulk edit, and rename, none of which this model
     # registers, and ActionsMixin filters by permission alone rather than by route.
     actions = (AddObject, BulkExport, BulkDelete)
-    queryset = CustomScriptModule.objects.select_related('project')
+    queryset = CustomScriptModule.objects.select_related('project', 'last_discovered_revision')
     table = CustomScriptModuleTable
     filterset = CustomScriptModuleFilterSet
     filterset_form = CustomScriptModuleFilterForm

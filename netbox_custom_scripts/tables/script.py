@@ -19,8 +19,7 @@ class CustomScriptTable(PrimaryModelTable):
     )
     enabled = columns.BooleanColumn()
     is_retired = columns.BooleanColumn()
-    # Not linkified: revisions have no detail view.
-    last_seen_revision = tables.Column()
+    last_seen_revision = tables.Column(linkify=True)
     tags = columns.TagColumn(
         url_name='plugins:netbox_custom_scripts:customscript_list',
     )

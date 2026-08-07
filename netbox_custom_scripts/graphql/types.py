@@ -3,10 +3,15 @@ from typing import TYPE_CHECKING, Annotated
 import strawberry
 import strawberry_django
 
-from netbox.graphql.types import PrimaryObjectType
+from netbox.graphql.types import ObjectType, PrimaryObjectType
 
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject
-from .filters import CustomScriptFilter, CustomScriptModuleFilter, CustomScriptProjectFilter
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from .filters import (
+    CustomScriptFilter,
+    CustomScriptModuleFilter,
+    CustomScriptProjectFilter,
+    CustomScriptProjectRevisionFilter,
+)
 
 if TYPE_CHECKING:
     from core.graphql.types import DataSourceType
@@ -31,14 +36,15 @@ class CustomScriptProjectType(PrimaryObjectType):
 
 
 @strawberry_django.type(
-    CustomScriptModule,
-    # Revisions have no registered type, so strawberry cannot resolve the relation.
-    exclude=('last_discovered_revision',),
-    filters=CustomScriptModuleFilter,
+    CustomScriptProjectRevision,
+    # The manifest and the entrypoint snapshot are stored documents, served by the
+    # diagnostics surface rather than by a general-purpose query.
+    exclude=('manifest', 'entrypoint_snapshot', 'validation_job', 'validation_started'),
+    filters=CustomScriptProjectRevisionFilter,
     pagination=True,
 )
-class CustomScriptModuleType(PrimaryObjectType):
-    """GraphQL object type for the Custom Script Module model."""
+class CustomScriptProjectRevisionType(ObjectType):
+    """GraphQL object type for the Custom Script Project Revision model."""
 
     project: CustomScriptProjectType
 
@@ -49,9 +55,26 @@ class CustomScriptModuleType(PrimaryObjectType):
 
 
 @strawberry_django.type(
+    CustomScriptModule,
+    fields='__all__',
+    filters=CustomScriptModuleFilter,
+    pagination=True,
+)
+class CustomScriptModuleType(PrimaryObjectType):
+    """GraphQL object type for the Custom Script Module model."""
+
+    project: CustomScriptProjectType
+    last_discovered_revision: CustomScriptProjectRevisionType | None
+
+    @classmethod
+    def get_queryset(cls, queryset, info, **kwargs):
+        """Return the base queryset with the project fetched in the same query."""
+        return super().get_queryset(queryset, info, **kwargs).select_related('project')
+
+
+@strawberry_django.type(
     CustomScript,
-    # Revisions have no registered type, so strawberry cannot resolve the relation.
-    exclude=('last_seen_revision',),
+    fields='__all__',
     filters=CustomScriptFilter,
     pagination=True,
 )
@@ -59,6 +82,7 @@ class CustomScriptType(PrimaryObjectType):
     """GraphQL object type for the Custom Script model."""
 
     project: CustomScriptProjectType
+    last_seen_revision: CustomScriptProjectRevisionType | None
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):

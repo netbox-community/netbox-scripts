@@ -128,3 +128,40 @@
   the upload with a server error, because ingestion refuses an upload into a
   Project whose source is synchronized and the refusal surfaced out of the form's
   save rather than its validation
+* Fixed: changing the entrypoint selection reported a change it never applied. A
+  revision freezes the Project's enabled declarations when it is staged, so a new
+  selection took effect only at the next ingestion, and an uploaded Project had
+  no route to one at all. Saving the Entrypoints tab, or the REST operation
+  behind it, now restages the stored source under the new selection and drives it
+  to a verdict, and does so only when the selection actually moved
+* Scheduled and recurring runs: a run can be deferred to a time in the future or
+  set to repeat, and a Custom Script whose author disabled scheduling offers
+  neither field. A one-shot run stays pinned to the revision it was requested
+  against, while a recurrence resolves the active revision at each occurrence,
+  because a pinned recurrence would execute one frozen revision indefinitely
+  however often the Project was updated since
+* A Data Source-backed Project may sit at the root of its Data Source, meaning an
+  empty data path, which takes every file in the source. An empty path overlaps
+  every other path on the same Data Source, so two Projects still cannot claim
+  the same files
+* Revisions are readable over REST and GraphQL, filtered by Project, status, or
+  either digest, and each one has a detail page of its own. The manifest, the
+  entrypoint snapshot, and the validation lease stay off both surfaces, being
+  internal to the storage and validation services rather than user-facing state
+* A Custom Script can be run over REST, with `POST scripts/<id>/run/`. The
+  request body is the shape NetBox's built-in script endpoint already accepts, so
+  a caller moving over changes the URL and nothing else, and the reply is the Job
+  that was queued. Variable values nest under `data`, which keeps a variable
+  named `commit` or `interval` from colliding with an execution parameter, and
+  they are validated by the same form the run page renders. A run is refused when
+  no worker is running rather than queued where nothing would pick it up
+* Managing what code a Project runs is separate from editing the Project.
+  Activating a revision and reconciling a source each take their own permission,
+  `activate` and `reconcile`, rather than borrowing `change`, so someone who may
+  rename a Project cannot thereby choose the code it serves. Scheduling is a
+  third new permission on the Custom Script, `schedule`, which composes with the
+  author's own setting: the run form withholds the two scheduling fields unless
+  both allow them, and REST refuses the values because it has no form to leave
+  them out of. Changing entrypoints and reading run results deliberately get no
+  new codename, because the Custom Script Module `change` permission and NetBox's
+  own Job permission already name those privileges exactly

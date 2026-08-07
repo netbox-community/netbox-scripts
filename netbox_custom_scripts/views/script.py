@@ -15,17 +15,14 @@ from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.views import ViewTab, register_model_view
 
-from ..execution import ScriptNotExecutableError
+from ..execution import ScriptNotExecutableError, load_script_class
 from ..filtersets import CustomScriptFilterSet
 from ..forms import CustomScriptBulkEditForm, CustomScriptEditForm, CustomScriptFilterForm
 from ..jobs import CustomScriptJob
 from ..models import CustomScript
 from ..object_actions import RunScript
 from ..runtime.exceptions import ScriptResolutionError
-from ..runtime.loader import revision_import_session, unload_revision
-from ..runtime.resolution import resolve_script_class
 from ..scripts.logging import LogLevelChoices
-from ..storage import config
 from ..storage.exceptions import StorageError
 from ..tables import CustomScriptLogTable, CustomScriptTable
 from ..ui import CustomScriptPanel, CustomScriptStatePanel
@@ -231,32 +228,6 @@ class CustomScriptResultView(generic.ObjectView):
             'poll_url': f'{request.path}?log_threshold={threshold}',
         }
         return render(request, self.partial_template_name if request.htmx else self.template_name, context)
-
-
-def load_script_class(script):
-    """
-    Return the class one Custom Script row names, out of the revision its project serves.
-
-    The form the run view renders has to come from the source that will actually execute, so
-    this is the same resolution the worker performs, against the same revision. Raises
-    ScriptResolutionError when the active revision does not publish the row's identity.
-    """
-    revision = script.project.active_revision
-    storage_key = str(script.project.storage_key)
-    with revision_import_session(storage_key, revision.digest):
-        try:
-            return resolve_script_class(
-                storage_key,
-                revision.digest,
-                discovered_scripts=revision.discovered_scripts,
-                project_key=script.project.key,
-                module_path=script.module_path,
-                class_name=script.class_name,
-                storage=config.get_storage(),
-                manifest=revision.manifest,
-            )
-        finally:
-            unload_revision(storage_key, revision.digest)
 
 
 def log_rows(job, threshold):

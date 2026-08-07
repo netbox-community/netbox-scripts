@@ -26,6 +26,49 @@ who may edit a script's administrative fields cannot necessarily run it, and the
 reverse holds too. Grant it like any other action, by ticking **run** on an
 Object Permission for Custom Scripts.
 
+## Running over REST
+
+`POST /api/plugins/custom-scripts/scripts/<id>/run/` requests a run without a
+browser. The body is the same shape the built-in script endpoint accepts, so a
+caller moving over changes the URL and nothing else.
+
+```json
+{
+  "data": {"site": 3, "count": 5},
+  "commit": true,
+  "schedule_at": "2026-08-11T02:00:00Z",
+  "interval": 1440,
+  "notifications": "on_failure"
+}
+```
+
+Every field is optional. The variable values go in `data`, which keeps a
+variable named `commit` or `interval` from colliding with an execution
+parameter. An omitted `commit` or `notifications` takes the default the script
+class declared.
+
+The values in `data` are validated by the same form the run page renders, so a
+bad value comes back as a 400 naming the variable that was wrong. The reply to
+an accepted run is the Job itself, at 201:
+
+```json
+{
+  "id": 88,
+  "url": "/api/core/jobs/88/",
+  "status": {"value": "scheduled", "label": "Scheduled"},
+  "scheduled": "2026-08-11T02:00:00Z"
+}
+```
+
+Poll that URL for the outcome. The `run` permission is what this route
+requires, not `add` or `change`.
+
+Two refusals are worth knowing about. A run is refused with 503 when no worker
+is running, because a queued run nothing can pick up gives no signal that it
+will never start. And a script whose author set `scheduling_enabled = False`
+refuses `schedule_at` and `interval` with a 400 rather than ignoring them, since
+there is no form here to leave them out of.
+
 ## Scheduling a run
 
 Four execution parameters sit below the script's own fields.
@@ -127,7 +170,6 @@ piece of work.
 
 | Gap | Notes |
 |---|---|
-| REST run endpoint | Runs are requested from the UI only |
 | Declared pip requirements | A script's declared external dependencies are not checked before it runs |
 | Event Rule action | A Custom Script cannot yet be the action of an Event Rule |
 | Recorded input values | The Job records which script and revision ran, and the result, but not the values that were submitted |

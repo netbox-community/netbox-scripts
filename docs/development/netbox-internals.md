@@ -17,10 +17,14 @@ the plugin contract allows explicitly.
 | `netbox.context.current_request` | `execution.py` | Read before a run and restored afterwards, so a failed or nested run leaves no stale request behind |
 | `core.signals.clear_events` | `execution.py` | Discards queued events when a run is abandoned |
 | `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Which database change-logged writes go to, which is a branch schema while a branch is active |
-| `utilities.request.copy_safe_request` | `views/script.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
+| `utilities.request.copy_safe_request` | `views/script.py`, `api/views.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
+| `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Whether a worker is live for the queue, so a REST run that nothing could pick up is refused rather than queued |
+| `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
+| `netbox.api.authentication.TokenPermissions` | `api/views.py` | The permission class the REST run action subclasses, so a POST resolves to the run permission rather than to add |
 
-Two modules, on purpose. If NetBox adds a documented execution context, replacing
-these is a change to `execution.py` and one line of `views/script.py`, not a sweep.
+Three modules, on purpose. If NetBox adds a documented execution context, replacing
+the execution rows is a change to `execution.py` alone. The three `api/views.py`
+rows are the REST run endpoint's, and none of them touch how a run executes.
 
 ## Why they are not avoidable
 

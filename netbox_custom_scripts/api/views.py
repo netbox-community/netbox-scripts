@@ -1,25 +1,41 @@
 from django.core.exceptions import ValidationError
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError as APIValidationError
 from rest_framework.response import Response
 
+from core.api.serializers import JobSerializer
+from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet
+from utilities.exceptions import RQWorkerNotRunningException
+from utilities.request import copy_safe_request
+from utilities.rqworker import any_workers_for_queue
 
+from ..execution import load_script_class
 from ..filtersets import (
     CustomScriptFilterSet,
     CustomScriptModuleFilterSet,
     CustomScriptProjectFilterSet,
     CustomScriptProjectRevisionFilterSet,
 )
-from ..jobs import ProjectEntrypointRefreshJob
+from ..jobs import CustomScriptJob, ProjectEntrypointRefreshJob
 from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from ..runtime.exceptions import ScriptResolutionError
+from ..storage.exceptions import StorageError
 from .serializers import (
     CustomScriptModuleSerializer,
     CustomScriptProjectRevisionSerializer,
     CustomScriptProjectSerializer,
+    CustomScriptRunInputSerializer,
     CustomScriptSerializer,
 )
+
+
+class RunScriptPermissions(TokenPermissions):
+    """Resolve a POST to the run permission, which the method-derived default spells as add."""
+
+    perms_map = {**TokenPermissions.perms_map, 'POST': ['%(app_label)s.run_%(model_name)s']}
 
 
 class CustomScriptModuleViewSet(NetBoxModelViewSet):
@@ -97,8 +113,9 @@ class CustomScriptViewSet(NetBoxModelViewSet):
     """
     REST API viewset for Custom Scripts.
 
-    Update only. Rows are derived from an activated revision, so POST and DELETE are refused
-    and the serializer accepts the administrator's fields alone.
+    Update only, plus a run action. Rows are derived from an activated revision, so creation and
+    deletion are refused and the serializer accepts the administrator's fields alone. Requesting
+    a run is a POST to a detail route, which authors nothing.
     """
 
     queryset = CustomScript.objects.select_related('project', 'last_seen_revision')
@@ -107,3 +124,65 @@ class CustomScriptViewSet(NetBoxModelViewSet):
     # Refuses creation and deletion at the router. PATCH and PUT on the list route stay
     # available, so an operator can enable or disable many scripts in one call.
     http_method_names = ('get', 'put', 'patch', 'head', 'options', 'trace')
+
+    def initial(self, request, *args, **kwargs):
+        """Narrow the run action by the run permission rather than by its HTTP method."""
+        super().initial(request, *args, **kwargs)
+        if self.action == 'run' and request.user.is_authenticated:
+            # Re-derived from the class attribute, since the method-derived narrowing the base
+            # class already applied restricts to what the user may add, and that set is empty.
+            self.queryset = type(self).queryset.restrict(request.user, 'run')
+
+    # http_method_names is checked on every dispatch, so the action declares its own as an
+    # initkwarg, which applies to this route alone and leaves POST refused on the list route.
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='run',
+        permission_classes=[RunScriptPermissions],
+        http_method_names=('post', 'options'),
+    )
+    def run(self, request, pk=None):
+        """Enqueue one run of this Custom Script and return the Job it created."""
+        script = self.get_object()
+        if not script.is_executable:
+            raise APIValidationError(
+                {'detail': 'This Custom Script cannot be run. It is disabled or retired, or its Project is.'}
+            )
+        # Checked before the source is loaded, so a run nothing can pick up does no storage I/O.
+        if not any_workers_for_queue('default'):
+            raise RQWorkerNotRunningException()
+        try:
+            instance = load_script_class(script)()
+        except (ScriptResolutionError, StorageError, OSError) as error:
+            raise APIValidationError(
+                {'detail': f'The Custom Script could not be loaded from its source: {error}'}
+            ) from error
+
+        input_serializer = CustomScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
+        input_serializer.is_valid(raise_exception=True)
+        parameters = input_serializer.validated_data
+
+        # The declared variables are the only authority on what is valid, so the class's own form
+        # validates them.
+        form = instance.as_form(parameters['data'])
+        if not form.is_valid():
+            raise APIValidationError(form.errors)
+        values = dict(form.cleaned_data)
+        # Discarded, so the execution parameters never reach the script as variable values.
+        for name in ('_commit', '_schedule_at', '_interval', '_notifications'):
+            values.pop(name, None)
+
+        job = CustomScriptJob.enqueue_run(
+            script,
+            data=values,
+            # An absent optional field is left out of validated_data, so the class default stands.
+            commit=parameters.get('commit', instance.commit_default),
+            schedule_at=parameters.get('schedule_at'),
+            interval=parameters.get('interval'),
+            notifications=parameters.get('notifications'),
+            # The worker is another process, so the request has to be picklable and sanitized.
+            request=copy_safe_request(request),
+            user=request.user,
+        )
+        return Response(JobSerializer(job, context={'request': request}).data, status=status.HTTP_201_CREATED)

@@ -28,10 +28,14 @@ from netbox.context_managers import event_tracking
 from netbox.registry import registry
 from utilities.exceptions import AbortScript as LegacyAbortScript
 
+from .runtime.loader import revision_import_session, unload_revision
+from .runtime.resolution import resolve_script_class
 from .scripts.exceptions import AbortScript
+from .storage import config
 
 __all__ = (
     'ScriptNotExecutableError',
+    'load_script_class',
     'run_script',
 )
 
@@ -97,6 +101,33 @@ def run_script(instance, *, data, commit, request=None):
             _execute(instance, data=data, commit=commit, request=request)
     finally:
         current_request.set(outer_request)
+
+
+def load_script_class(script):
+    """
+    Return the class one Custom Script row names, out of the revision its project serves.
+
+    This is the same resolution the worker performs, against the same revision, so a form built
+    from the class matches the source that will execute. The namespace is unloaded before this
+    returns, so the class comes back good for introspection rather than for a run. Raises
+    ScriptResolutionError when the active revision does not publish the row's identity.
+    """
+    revision = script.project.active_revision
+    storage_key = str(script.project.storage_key)
+    with revision_import_session(storage_key, revision.digest):
+        try:
+            return resolve_script_class(
+                storage_key,
+                revision.digest,
+                discovered_scripts=revision.discovered_scripts,
+                project_key=script.project.key,
+                module_path=script.module_path,
+                class_name=script.class_name,
+                storage=config.get_storage(),
+                manifest=revision.manifest,
+            )
+        finally:
+            unload_revision(storage_key, revision.digest)
 
 
 def _execute(instance, *, data, commit, request):

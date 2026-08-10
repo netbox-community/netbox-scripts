@@ -166,6 +166,44 @@ class DiscoverScriptsTestCase(TestCase):
         self.assertEqual(caught.exception.code, 'duplicate_identity')
         self.assertEqual(caught.exception.name, 'Foo')
 
+    def test_a_class_declaring_tests_and_no_run_is_refused(self):
+        module = make_module(
+            f'{PREFIX}.deploy',
+            'class Audit(Script):\n    def test_names(self):\n        pass\n',
+            Script=Script,
+        )
+        with self.assertRaises(DiscoveryError) as caught:
+            discover(module)
+        self.assertEqual(caught.exception.code, 'report_style')
+        self.assertEqual(caught.exception.name, 'Audit')
+
+    def test_a_class_carrying_the_report_marker_is_refused(self):
+        # The marker the legacy Report base class sets, read by attribute so discovery stays
+        # independent of the compatibility layer.
+        module = make_module(
+            f'{PREFIX}.deploy',
+            'class Marked(Script):\n    _custom_script_report = True\n\n'
+            '    def run(self, data, commit):\n        pass\n',
+            Script=Script,
+        )
+        with self.assertRaises(DiscoveryError) as caught:
+            discover(module)
+        self.assertEqual(caught.exception.code, 'report_style')
+        self.assertEqual(caught.exception.name, 'Marked')
+
+    def test_a_test_prefixed_attribute_does_not_refuse_a_script(self):
+        module = make_module(f'{PREFIX}.deploy', 'class Runner(Script):\n    test_mode = True\n', Script=Script)
+        self.assertEqual([item.name for item in discover(module)], ['Runner'])
+
+    def test_a_script_declaring_tests_and_a_run_still_publishes(self):
+        module = make_module(
+            f'{PREFIX}.deploy',
+            'class Runner(Script):\n    def test_names(self):\n        pass\n\n'
+            '    def run(self, data, commit):\n        pass\n',
+            Script=Script,
+        )
+        self.assertEqual([item.name for item in discover(module)], ['Runner'])
+
     def test_an_empty_module_publishes_nothing(self):
         module = make_module(f'{PREFIX}.deploy', 'VALUE = 1\n')
         self.assertEqual(discover(module), [])

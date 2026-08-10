@@ -4,7 +4,10 @@ Script discovery for imported entrypoint modules.
 An entrypoint publishes the Script subclasses its own body defines. Classes living in
 other revision modules publish only through an explicit script_order listing, which also
 fixes presentation order, and classes imported from installed packages never publish, so
-what a revision offers is always spelled out in the revision itself. Each published class
+what a revision offers is always spelled out in the revision itself. A class declaring
+tests and no run() is a legacy report rather than a script, and is refused here instead of
+published, because publication is what would offer an operator a script that cannot run.
+Each published class
 receives identity markers in its own class dictionary: the logical module path a user
 recognizes and a project-qualified logger name, so runtime namespaces never leak into
 user-facing identity and two projects always log apart.
@@ -12,7 +15,7 @@ user-facing identity and two projects always log apart.
 
 from typing import NamedTuple
 
-from ..scripts.base import Script
+from ..scripts.base import BaseScript, Script
 from .exceptions import DiscoveryError
 
 __all__ = (
@@ -87,8 +90,26 @@ def _defined_here(module, candidate):
     return isinstance(candidate, type) and issubclass(candidate, Script) and candidate.__module__ == module.__name__
 
 
+def _report_style(cls):
+    """Return whether a class is a legacy report rather than a runnable script."""
+    if getattr(cls, '_custom_script_report', False):
+        return True
+    if cls.run is not BaseScript.run:
+        return False
+    # Only a callable counts: an attribute named test_mode is data, and a script declaring one
+    # has to stay publishable.
+    return any(name.startswith('test_') and callable(getattr(cls, name, None)) for name in dir(cls))
+
+
 def _publish(cls, project_key, revision_prefix):
     """Stamp one class with its identity markers and describe the publication."""
+    if _report_style(cls):
+        raise DiscoveryError(
+            f'"{cls.__name__}" is a report rather than a Custom Script. Reports are not supported. '
+            f'Give the class a run(self, data, commit) method to publish it as a script.',
+            code='report_style',
+            name=cls.__name__,
+        )
     logical_module = cls.__module__[len(revision_prefix) + 1 :]
     cls._custom_script_module = logical_module
     cls._custom_script_logger_name = f'{LOGGER_PREFIX}.{project_key}.{logical_module}.{cls.__name__}'

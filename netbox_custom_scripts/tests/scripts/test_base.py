@@ -99,6 +99,15 @@ class ScriptMetaTestCase(TestCase):
         self.assertEqual(TestScript.notifications_default, 'never')
         self.assertEqual(TestScript.job_timeout, 600)
 
+    def test_a_class_level_description_shadows_the_meta_lookup(self):
+        # How the legacy report dialect declares it, and the spelling a migrated script arrives
+        # with. A plain class attribute shadows the classproperty that reads Meta, and the
+        # author's text resolves either way.
+        class TestScript(Script):
+            description = 'Check the physical connections of each device'
+
+        self.assertEqual(TestScript.description, 'Check the physical connections of each device')
+
     def test_identity_properties(self):
         class TestScript(Script):
             pass

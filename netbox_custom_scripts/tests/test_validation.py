@@ -477,7 +477,7 @@ class ClassificationTestCase(TestCase):
             (ModuleNotFoundError('missing', name=f'{self.PREFIX}.helpers'), 'content'),
             (ModuleNotFoundError('missing', name='numpy_absent'), 'environment'),
             (ImportError('cannot import name', name=self.PREFIX), 'content'),
-            (ImportError('plain'), 'environment'),
+            (ImportError('plain'), 'content'),
             (StorageError('backend down'), 'environment'),
             (OSError('disk failure'), 'environment'),
             (RuntimeError('project code raised'), 'content'),
@@ -487,6 +487,22 @@ class ClassificationTestCase(TestCase):
             with self.subTest(cause=type(cause).__name__ if cause else 'None'):
                 error = self.wrap(cause)
                 self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), expected)
+
+    def test_a_missing_name_in_an_installed_module_is_content(self):
+        # from dcim.models import Devices. The module is there, the name is not, so the author
+        # gets an invalid revision naming the typo instead of a failed job with no verdict.
+        error = self.wrap(ImportError("cannot import name 'Devices' from 'dcim.models'", name='dcim.models'))
+        self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), 'content')
+
+    def test_an_absent_distribution_is_still_environment(self):
+        error = self.wrap(ModuleNotFoundError("No module named 'netaddr'", name='netaddr'))
+        self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), 'environment')
+
+    def test_a_refused_legacy_import_is_content(self):
+        # The compat tier raises a plain ImportError once the host drops a legacy name, and it
+        # carries no name the prefix logic could match. Content is what records a verdict.
+        error = self.wrap(ImportError('"extras.scripts" is no longer part of NetBox.', name='extras.scripts'))
+        self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), 'content')
 
     def test_an_absolute_import_of_the_revisions_own_module_is_content(self):
         # "import helpers" instead of "from . import helpers" raises without the revision

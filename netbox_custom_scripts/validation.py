@@ -159,8 +159,9 @@ def classify_entrypoint_error(error, *, revision_prefix, revision_modules=frozen
     The loader chains the original exception, so the cause is what gets judged. Content
     means the revision itself can never import: bad syntax, a reference to a revision
     module that does not exist, or project code raising at import time. Environment means
-    the process could not give the revision a fair try: a missing external distribution,
-    backend or cache trouble, or host I/O failure. A missing cause is the loader's own
+    the process could not give the revision a fair try: an absent external distribution,
+    backend or cache trouble, or host I/O failure. Only an absent module can be that, a name
+    missing from a module that did import never is. A missing cause is the loader's own
     manifest-membership refusal, which is content by construction.
 
     revision_modules names the top-level modules the revision's own tree ships, which is what
@@ -173,8 +174,11 @@ def classify_entrypoint_error(error, *, revision_prefix, revision_modules=frozen
     if isinstance(cause, SyntaxError):
         return 'content'
     if isinstance(cause, ImportError):
-        # A from-import that names a missing revision member raises with the package
-        # itself as the name, so the prefix match covers that shape too.
+        # Only an absent module can be this host's, so a name missing from a module that did
+        # import is content: an author's typo, or the compat tier refusing a legacy import.
+        if not isinstance(cause, ModuleNotFoundError):
+            return 'content'
+        # A relative import of a module the revision does not ship resolves to a private name.
         name = cause.name or ''
         if name == revision_prefix or name.startswith(f'{revision_prefix}.'):
             return 'content'

@@ -140,6 +140,7 @@ when domain content calls for them.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py, test_resolution.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
+│   │   ├── compat/                , Legacy compatibility suites: test_imports.py (compat_import per statement form, both sides of the transition, no database) and test_dialects.py (every form end to end out of one validation pass).
 │   │   ├── test_execution.py      , run_script() suites (commit and dry-run, both abort classes, failure logging, request-processor selection and isolation, the current-request restore) plus CustomScriptJob suites (pinning, the administrative recheck, resolution failures, run-record sanitization).
 │   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
@@ -181,6 +182,9 @@ when domain content calls for them.
 │   │   ├── resolution.py          , resolve_script_class(): a stored identity back to a live class through the snapshot's entrypoint provenance. Opens no import session and never unloads, the caller runs what it returns.
 │   │   └── exceptions.py          , Runtime error taxonomy (cache, module path, import, discovery, resolution).
 │   ├── scripts/                   , Authoring API: base.py (BaseScript/Script, whose scheduling_offered ANDs the class's scheduling_enabled with the caller-set scheduling_permitted, so the fieldsets and the form cannot disagree), variables.py, forms.py (ScriptForm carries the four execution parameters, and drops the two scheduling fields when scheduling is not offered), logging.py, exceptions.py.
+│   ├── compat/
+│   │   ├── __init__.py            , install() + the name-scoped finder + wrap_loader + compat_import + the extras stand-in + the host probe. One rule: inside revision code the name `extras` resolves through the stand-in.
+│   │   └── legacy.py              , Report, carrying the marker discovery refuses, so an unsupported dialect produces a message rather than a Run button that raises.
 │   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all four models, safety checks.
 │   ├── execution.py               , run_script(): the transaction, request-processor and event context one run happens inside. The only home of the five undocumented NetBox symbols execution needs, so the requested generic core context replaces one file. Also load_script_class(): a stored row to a live class through the revision its project serves, unloaded before it returns, so the class is good for introspection rather than a run. Model-aware, which is why it is here and not in the runtime tier.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
@@ -273,6 +277,29 @@ verdict to wait for. A directory reverted to a tree the project held before
 resolves by content addressing to the revision that already validated it, which
 validation can no longer claim, so the job activates it directly under the same
 policy check.
+
+### Legacy authoring compatibility
+
+The whole compatibility surface for the built-in authoring API is one import line, so
+`compat/` closes it without rewriting stored source. Revision modules execute with
+their own builtins mapping whose `__import__` resolves the name `extras` through a
+plugin-owned stand-in serving `scripts` and `reports`. The whole name resolves, not
+the two dotted ones, because `from extras import scripts` and a bare `import extras`
+both compile with `extras` as the imported name and would otherwise fall through to
+the host silently.
+
+Scoping is by module name, not by time: a `sys.meta_path` finder matching only names
+below `runtime.naming.PRIVATE_ROOT` wraps each revision loader. Nothing process-wide
+is rebound and there is no window, so concurrent workers need no coordination and no
+host module is ever replaced. The revision root is registered by hand rather than
+found, which is why `runtime/loader.py` wraps its loader explicitly.
+
+The redirect is transitional and the clock is the host, never a version literal. Once
+NetBox drops a legacy name the seam keeps intercepting and raises `ImportError` naming
+the migration, because standing aside raises `ModuleNotFoundError`, which classifies as
+`environment` and fails the validation job with no verdict recorded. Report-style
+classes are refused at discovery for the same reason. Silence is what this tier
+removes, so it trades none of it back.
 
 ### Serialization
 

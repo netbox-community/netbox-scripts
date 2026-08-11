@@ -29,6 +29,7 @@ import threading
 import traceback
 from contextlib import contextmanager
 
+from ..compat import wrap_loader
 from ..storage.manifest import validate_manifest
 from .cache import materialize_revision
 from .exceptions import EntrypointImportError
@@ -191,6 +192,8 @@ def _register_revision_package(revision_name, revision_dir, has_root_init, proje
             revision_dir / '__init__.py',
             submodule_search_locations=[str(revision_dir)],
         )
+        # Registered by hand rather than resolved through the finder, so it wraps explicitly.
+        spec.loader = wrap_loader(spec.loader)
     else:
         spec = importlib.machinery.ModuleSpec(revision_name, None, is_package=True)
         spec.submodule_search_locations = [str(revision_dir)]

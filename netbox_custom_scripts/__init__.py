@@ -33,7 +33,7 @@ class AppConfig(PluginConfig):
         super().ready()
         from django.core.checks import register as register_check
 
-        from netbox_custom_scripts import branching, signals  # noqa: F401
+        from netbox_custom_scripts import branching, compat, signals  # noqa: F401
         from netbox_custom_scripts.storage import config as storage_config
 
         # Both models are branch-aware by default, but one project owns one source tree with
@@ -42,6 +42,7 @@ class AppConfig(PluginConfig):
         # operations refuse it, so nothing here needs to prevent NetBox from starting.
         branching.register()
         register_check(branching.check_routing)
+        compat.install()
         # The project storage entry is required. The check reports the gap and the storage
         # operations refuse it, following the same split as the branching check above.
         register_check(storage_config.check_storage_configured)

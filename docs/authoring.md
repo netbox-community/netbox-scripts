@@ -215,5 +215,63 @@ surface built into NetBox. The deliberate differences:
   handlers or filters keyed to that name need to update their logging
   configuration.
 
-A compatibility layer for existing scripts that import from `extras.scripts`
-is planned.
+## Legacy scripts
+
+A script written for NetBox's built-in runner imports its authoring API from
+`extras.scripts`. That import keeps working here, so an existing script
+publishes and runs as a Custom Script with no edit at all. Your source is
+stored exactly as you supplied it and is never rewritten.
+
+Every form of the import resolves, whichever one the script happens to use:
+
+```python
+from extras.scripts import Script, StringVar     # named, aliased, or a wildcard
+import extras.scripts                            # dotted, with or without "as"
+from extras import scripts                       # the submodule from the package
+import extras                                    # then extras.scripts.Script
+```
+
+An import inside a function or a method body resolves the same way. Only one
+form is out of reach, because it does not go through the import statement at
+all:
+
+```python
+importlib.import_module('extras.scripts')        # reaches NetBox, not this plugin
+```
+
+A script using that form publishes nothing, since the class it derives from is
+NetBox's rather than this plugin's. Import it with a statement instead.
+
+Imports of anything else under `extras` are untouched and reach NetBox, so
+`from extras.models import Tag` is the real model.
+
+### Legacy Reports are refused, not emulated
+
+The Report dialect has no equivalent here, so a class that declares `test_*`
+methods and no `run()` makes the revision `invalid` with a message naming the
+class. That is deliberate: the alternative is publishing something that looks
+runnable and fails only once an operator presses Run. Convert a Report by
+giving the class a `run(self, data, commit)` method and doing the work there.
+
+### The compatibility layer is transitional
+
+Legacy imports work for as long as NetBox itself ships `extras.scripts`. When a
+future NetBox release removes it, the import stops working and fails with a
+message pointing at this plugin's own module. Nothing about your Project
+changes in the meantime, and there is no configuration to set.
+
+Treat it as a migration aid rather than a permanent interface. New scripts
+should import from `netbox_custom_scripts.scripts`, and migrating an existing
+one is a single line per file:
+
+```python
+from netbox_custom_scripts.scripts import Script, StringVar
+```
+
+### What the supported surface covers
+
+The stability guarantee covers the authoring API described on this page. A
+script may import anything else the NetBox environment provides, and real
+scripts commonly do, but those imports are NetBox's surface rather than this
+plugin's. A script reaching into an undocumented NetBox symbol can break on a
+NetBox upgrade without anything in this plugin having changed.

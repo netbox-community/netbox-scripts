@@ -165,3 +165,22 @@
   them out of. Changing entrypoints and reading run results deliberately get no
   new codename, because the Custom Script Module `change` permission and NetBox's
   own Job permission already name those privileges exactly
+* A script written for NetBox's built-in runner works unmodified. Its
+  `extras.scripts` import resolves to this plugin's authoring API in every form
+  the language allows, including the dotted and package forms and an import
+  deferred into a function body, while an import of anything else under `extras`
+  still reaches NetBox. Stored source is never rewritten, NetBox's own module is
+  never replaced, and built-in scripts keep running alongside. A dynamic
+  `importlib.import_module('extras.scripts')` is the one form out of reach. The
+  layer is transitional: it serves while NetBox ships that module and then fails
+  with a message naming the migration, so it has an end rather than becoming
+  permanent
+* A legacy Report is refused rather than emulated. A class declaring `test_*`
+  methods and no `run()` makes the revision `invalid` naming the class, instead
+  of publishing something that looks runnable and raises once an operator presses
+  Run. Only a callable counts, so a script with an attribute named `test_mode`
+  still publishes
+* Fixed: an import error naming a member that does not exist was classified as an
+  environment fault, so an author's typo failed the validation job with no
+  verdict recorded rather than producing an invalid revision naming the line.
+  Only an absent module is treated as the environment's now

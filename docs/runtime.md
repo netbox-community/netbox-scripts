@@ -63,6 +63,29 @@ with the worker's permissions, which is why content is verified first and why
 the [storage trust boundary](configuration.md#storage-trust-boundary) treats
 write access to the store as equivalent to code execution.
 
+## How legacy imports resolve
+
+A revision module executes with its own copy of the builtins mapping, whose
+import hook resolves the name `extras` through a stand-in this plugin owns. The
+stand-in serves the two legacy authoring modules itself and passes every other
+attribute through to the real package, which is what lets a script written for
+the built-in runner publish unmodified. See [legacy
+scripts](authoring.md#legacy-scripts) for the author-facing view.
+
+The mapping is installed by the loader that executes each module, and those
+loaders are reached through a finder that can only match names inside the
+private namespace. Two consequences matter operationally. Nothing outside a
+revision is affected, so NetBox's own `extras.scripts` is never replaced and its
+built-in scripts keep running alongside this plugin's. And nothing is rebound
+for a window of time, so two workers importing two revisions at once need no
+coordination.
+
+Whether the redirect serves or refuses is decided by asking the host whether it
+still provides a module under the legacy name, never by comparing versions. Once
+NetBox removes `extras.scripts`, the redirect raises an import error naming the
+migration rather than standing aside, because an absent module would classify as
+an environment fault and leave the revision with no verdict recorded at all.
+
 ## What discovery publishes
 
 After an entrypoint imports, discovery decides which classes it offers:

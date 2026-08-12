@@ -89,6 +89,8 @@ ignore = [
     "testing/configuration.py",
     # Per-view query-count baseline: test-only tooling, not distribution content.
     "netbox_custom_scripts/tests/query_counts.json",
+    # Pre-commit hook script, not distribution content.
+    "scripts/check_cloud_compat.py",
     "uv.lock",
     ".github/ISSUE_TEMPLATE/*.yaml",
     ".github/ISSUE_TEMPLATE/config.yml",

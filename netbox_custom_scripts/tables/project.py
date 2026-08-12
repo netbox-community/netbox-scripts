@@ -80,3 +80,45 @@ class CustomScriptProjectRevisionTable(BaseTable):
         fields = ('created', 'status', 'short_digest', 'file_count', 'total_size', 'activated')
         default_columns = fields
         order_by = ('-created',)
+
+
+class CustomScriptProjectFileTable(BaseTable):
+    """
+    The files of a project's current revision, for the project's Files tab.
+
+    Rows are the manifest's plain dictionaries plus one row per declared path the source no
+    longer holds, so this table is fed a list and has no queryset behind it.
+    """
+
+    path = tables.Column(
+        verbose_name=_('Path'),
+    )
+    size = tables.Column(
+        verbose_name=_('Size'),
+        # Missing-path rows carry None, and ordering list data compares values, so a mixed column cannot sort.
+        orderable=False,
+    )
+    sha256 = tables.Column(
+        verbose_name=_('SHA256'),
+        orderable=False,
+    )
+    entrypoint = columns.BooleanColumn(
+        verbose_name=_('Entrypoint'),
+    )
+
+    class Meta(BaseTable.Meta):
+        # ObjectChildrenView scopes saved table configurations by Meta.model, so the rows' source model stands in.
+        model = CustomScriptProjectRevision
+        empty_text = _('This project has no stored revision yet.')
+        fields = ('path', 'size', 'sha256', 'entrypoint')
+        default_columns = ('path', 'size', 'sha256', 'entrypoint')
+
+    def render_path(self, value, record):
+        """Annotate a declared path the source no longer holds."""
+        if record.get('missing'):
+            return _('{path} (missing from the source)').format(path=value)
+        return value
+
+    def render_sha256(self, value):
+        """Render the short digest form."""
+        return value[:12]

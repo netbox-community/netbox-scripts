@@ -53,6 +53,9 @@
 * Source state on the Project page: a plain-language summary plus the current
   revision's date, status, digest, file count, size, and activation time, with
   the full revision history on its own Revisions tab
+* A read-only Files tab on the Project: the current revision's files with
+  size, short checksum, and entrypoint state, annotating a declared path the
+  source no longer holds
 * Fixed: the runtime cache created its intermediate directories at the process
   umask while applying its private mode to the leaf only, so its own privacy
   check rejected the default cache root on any host with a group-writable umask

@@ -92,8 +92,8 @@ when domain content calls for them.
 │   │   ├── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
 │   │   └── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name, description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync).
 │   ├── tables/
-│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable, CustomScriptTable.
-│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns.
+│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectFileTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable, CustomScriptTable.
+│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + CustomScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns. + CustomScriptProjectFileTable, the Files tab fed the manifest's dictionaries rather than a queryset.
 │   │   ├── script.py              , CustomScriptTable + CustomScriptLogTable, the run log fed a list of dictionaries rather than a queryset.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
@@ -121,6 +121,7 @@ when domain content calls for them.
 │   │   ├── views/test_script.py   , CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase) + detail view, changelog rendering, and the absent create/delete routes.
 │   │   ├── views/test_run.py      , The run page, the run permission gate, the queued payload, the result page and its level threshold, plus one end-to-end submit-and-execute.
 │   │   ├── views/test_actions.py  , Static guard: every list, detail and row action is checked against the registered routes, because ActionsMixin and ActionsColumn filter by permission alone.
+│   │   ├── views/test_files.py    , The Files tab: manifest rows, the entrypoint marker, the missing-path annotation, the empty state, and the view gate.
 │   │   ├── tables/test_script.py  , CustomScriptTableTestCase(TableTestCases.StandardTableTestCase).
 │   │   ├── filtersets/test_script.py , CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), metadata in ignore_fields.
 │   │   ├── forms/test_script.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field.
@@ -150,7 +151,7 @@ when domain content calls for them.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
-│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate and Reconcile confirmation views. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
+│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the read-only Files tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate and Reconcile confirmation views. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one. Run declares a ViewTab gated on the run permission, so every view of the script offers it, and builds its form through execution.load_script_class(), which the REST run action shares. Result serves its body as a partial to an htmx poll, so a run that has not reached a terminal state refreshes itself, at a slower rate while it is only scheduled.
 │   │   └── revision.py             , Detail view for one revision, plus Activate + Deactivate, GET confirms and POST performs. Gated on the PROJECT's activate permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.

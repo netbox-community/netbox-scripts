@@ -45,6 +45,11 @@ imports, and its detail page lists the [Custom Script
 Modules](customscriptmodule.md) it has declared. The selection is also a REST
 operation at `projects/<id>/entrypoints/`.
 
+A project's **Files** tab lists the files of its current revision, one row per
+manifest entry with its size and short checksum, and marks which paths are
+enabled entrypoints. A declared path that is missing from the source is
+annotated, and the tab is empty until a revision holds content.
+
 ## Invariants
 
 | Invariant | Enforcement |

@@ -35,7 +35,7 @@ from ..jobs import ProjectReconciliationJob
 from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..object_actions import ActivateRevision, AddScript, ReconcileSource
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from ..tables import CustomScriptProjectRevisionTable, CustomScriptProjectTable
+from ..tables import CustomScriptProjectFileTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable
 from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
 
 
@@ -227,6 +227,40 @@ class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
         return super().has_permission() and self.request.user.has_perm(
             'netbox_custom_scripts.change_customscriptmodule'
         )
+
+
+@register_model_view(CustomScriptProject, 'files', path='files')
+class CustomScriptProjectFilesView(generic.ObjectChildrenView):
+    """
+    The files a Custom Script Project's current revision holds.
+
+    Read-only rows out of the revision's manifest, so no revision means an empty tab. The live
+    declarations supply the entrypoint marker and any declared path the source no longer holds.
+    """
+
+    queryset = CustomScriptProject.objects.select_related('active_revision')
+    table = CustomScriptProjectFileTable
+    actions = ()
+    tab = ViewTab(
+        label=_('Files'),
+        badge=lambda obj: obj.current_revision.file_count if obj.current_revision else 0,
+        weight=550,
+    )
+
+    def get_children(self, request, parent):
+        """Return one row per manifest entry, plus one per declared path absent from it."""
+        revision = parent.current_revision
+        if revision is None:
+            return []
+        declared = {module.source_path: module.enabled for module in parent.modules.all()}
+        present = {entry['path'] for entry in revision.manifest}
+        rows = [{**entry, 'entrypoint': declared.get(entry['path'], False)} for entry in revision.manifest]
+        rows += [
+            {'path': path, 'size': None, 'sha256': None, 'entrypoint': enabled, 'missing': True}
+            for path, enabled in declared.items()
+            if path not in present
+        ]
+        return sorted(rows, key=lambda row: row['path'])
 
 
 @register_model_view(CustomScriptProject, 'add', detail=False)

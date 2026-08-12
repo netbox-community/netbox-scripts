@@ -38,6 +38,7 @@ logging, global search, REST, and GraphQL.
 | Upload a script | Administrator | Create a Project from one `.py` file, or add another to an existing one, without naming a path. See [Uploading Scripts](uploading.md). |
 | Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
 | Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |
+| List a Project's files | Operator | Read the current revision's files with size, checksum, and entrypoint state on the Files tab. A declared path missing from the source is annotated. |
 | Query revision history | Operator | Read a Project's revisions and their validation outcomes over REST or GraphQL, filtered by project, status, or digest. |
 | Select entrypoints | Administrator | Choose which of a Project's source modules discovery imports, on its Entrypoints tab or over REST, without typing a path. |
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. See [Data Source Projects](data-sources.md). |

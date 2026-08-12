@@ -327,7 +327,7 @@ for them.
 | Limitation | Impact |
 |---|---|
 | No list page and no global search | A revision is reached through its project, on the Revisions tab or by filtering the REST and GraphQL surfaces by project |
-| The manifest and the entrypoint snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists |
+| The manifest and the entrypoint snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Files tab lists the current revision's files in the UI |
 | Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
 | Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |

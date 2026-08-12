@@ -142,6 +142,7 @@ when domain content calls for them.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py, test_resolution.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
 │   │   ├── compat/                , Legacy compatibility suites: test_imports.py (compat_import per statement form, both sides of the transition, no database) and test_dialects.py (every form end to end out of one validation pass).
+│   │   ├── migration/             , Migration tier suites: test_source.py (the read seam against real built-in rows), test_dialects.py (classification per import statement form, no database), test_plan.py (grouping including the nested-folder collapse, the findings, and the inventory job), test_staging.py (both source types end to end, idempotence, and that no staged revision activates).
 │   │   ├── test_execution.py      , run_script() suites (commit and dry-run, both abort classes, failure logging, request-processor selection and isolation, the current-request restore) plus CustomScriptJob suites (pinning, the administrative recheck, resolution failures, run-record sanitization).
 │   │   ├── test_validation.py     , Validation service + RevisionValidationJob suites (claim/reclaim, fencing, classification, sanitization, Module persistence).
 │   │   ├── test_activation.py     , SynchronizeScriptsTestCase (upsert/retire/no-op-write semantics) + ActivateRevisionTestCase + PromotionCallbackTestCase (required callback, savepoint depth, rollback).
@@ -186,17 +187,23 @@ when domain content calls for them.
 │   ├── compat/
 │   │   ├── __init__.py            , install() + the name-scoped finder + wrap_loader + compat_import + the extras stand-in + the host probe. One rule: inside revision code the name `extras` resolves through the stand-in.
 │   │   └── legacy.py              , Report, carrying the marker discovery refuses, so an unsupported dialect produces a message rather than a Run button that raises.
+│   ├── migration/
+│   │   ├── __init__.py            , Tier docstring only, like storage/ and runtime/. No re-exports.
+│   │   ├── source.py              , The ONLY module that reads the built-in Custom Scripts feature, so a supported export service is a change to one file. Read-only, returns frozen dataclasses and plain counts. Opens `file_path` rather than `full_path`, and resolves both content types with for_concrete_model=False because a Job and an Event Rule record the proxy.
+│   │   ├── dialects.py            , ast-based classification of stored source into native / legacy_import / report_style / unparsable. Imports nothing: an inventory must not execute an operator's code to classify it. Report shape outranks a legacy import, because the two cost an author different work.
+│   │   ├── plan.py                , The grouping rule and the inventory report, pure functions over seam output. One Project per folder that holds scripts, and _collapse() merges a folder into the shallowest script-holding folder containing it, because the model refuses two overlapping data paths on one source and the higher Project's tree already holds the deeper file.
+│   │   └── staging.py             , Creates the proposed Projects and delegates to ingestion. Every Project takes the MANUAL policy, since validation would otherwise activate under any other one. Validates rather than get_or_create's, so a path overlapping a hand-made project is refused instead of written.
 │   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all four models, safety checks.
 │   ├── execution.py               , run_script(): the transaction, request-processor and event context one run happens inside. The only home of the five undocumented NetBox symbols execution needs, so the requested generic core context replaces one file. Also load_script_class(): a stored row to a live class through the revision its project serves, unloaded before it returns, so the class is good for introspection rather than a run. Model-aware, which is why it is here and not in the runtime tier.
 │   ├── validation.py              , validate_revision(): lease claim, fenced verdicts, error classifier, sanitizer, Module result persistence, published-script record.
 │   ├── activation.py              , activate_revision() / deactivate_revision() domain orchestrators + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports.
-│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + ProjectReconciliationJob (stages the Data Source directory as it stands at run time, and activates what a reverted directory resolves to) + ProjectEntrypointRefreshJob (restages the stored tree under the current selection, the only route an uploaded project has to apply one) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue for a one-shot run and pins nothing for a recurrence, which resolves the active revision per occurrence because JobRunner re-enqueues a periodic job with the same kwargs, then resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row).
+│   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + ProjectReconciliationJob (stages the Data Source directory as it stands at run time, and activates what a reverted directory resolves to) + ProjectEntrypointRefreshJob (restages the stored tree under the current selection, the only route an uploaded project has to apply one) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows) + CustomScriptJob (pins the revision at enqueue for a one-shot run and pins nothing for a recurrence, which resolves the active revision per occurrence because JobRunner re-enqueues a periodic job with the same kwargs, then resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row) + MigrationInventoryJob (reports what a migration would do, writing nothing) + MigrationStagingJob (refuses on any blocking finding, then stages the proposed Projects). Both migration jobs import the migration tier locally, because staging reaches ingestion, which imports this module. Neither has a trigger yet, so an operator starts them from a shell.
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, and a completed Data Source sync enqueues one reconciliation per project on it. Wired in AppConfig.ready().
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
-│   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing and ingestion.
+│   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing, ingestion and migration staging.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
-│   ├── ingestion.py               , ingest_upload() / ingest_data_source() / current_source_tree() / uploaded_source_path(): the one home of source ingestion. Upload declares the file it carries, a synchronized directory declares nothing.
+│   ├── ingestion.py               , ingest_upload() / ingest_data_source() / current_source_tree() / uploaded_source_path() / declare_entrypoint(): the one home of source ingestion. Upload declares the file it carries, a synchronized directory declares nothing. declare_entrypoint() is public because migration staging shares it, so the rule that a declaration is reused rather than replaced has one home.
 │   ├── object_actions.py          , ActivateRevision + AddScript + ReconcileSource + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. Each takes the model's own action rather than change: activate, reconcile and run. RunScript renders inert rather than hidden when the script cannot run. AddScript and ReconcileSource each render only for the source type they belong to.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
@@ -301,6 +308,38 @@ the migration, because standing aside raises `ModuleNotFoundError`, which classi
 `environment` and fails the validation job with no verdict recorded. Report-style
 classes are refused at discovery for the same reason. Silence is what this tier
 removes, so it trades none of it back.
+
+### Migrating off the built-in feature
+
+`migration/` reads the built-in Custom Scripts feature, reports what moving off it would
+do, and stages that content as inactive Projects. It exists in this shape for a reason
+beyond the feature: **`migration/source.py` is the only module in the plugin that touches
+the built-in implementation**, so the supported export service this needs from NetBox
+Community is a change to one file rather than a search. Deriving that request from working
+code, instead of guessing at it, is the same method that turned the execution-context ask
+into a concrete one.
+
+The tier reads and never imports. Dialect classification parses stored source with `ast`,
+because the built-in `module_scripts` property executes a module to enumerate its classes
+and an inventory must not run an operator's code to describe it. Staging adds no path into
+storage: it creates Projects and declarations and then calls `ingestion`, which is why the
+grouping rule had to fit the existing model rather than the reverse.
+
+Two constraints shape grouping, and both come from the models rather than from preference.
+The built-in feature stores a synchronized file under its base name, so `data_path` is the
+only record of where it came from and the rule reads that path rather than inferring one.
+And `CustomScriptProject.clean()` refuses two projects on one Data Source whose data paths
+are ancestor and descendant, so a folder inside another script-holding folder joins it.
+That is not a compromise: `ingest_data_source()` stages everything under `data_path`, so
+the higher Project already holds the deeper file, and a migrated Project therefore holds
+the helper modules beside a script, which the built-in feature could never synchronize.
+
+Nothing here activates, and every Project is created with the manual policy for that
+reason alone: `RevisionValidationJob` activates a valid revision under any other one. Both
+passes are re-runnable, so a write fence over the built-in feature is not a dependency of
+this tier. Every symbol the tier reads is listed in
+[`docs/development/netbox-internals.md`](./docs/development/netbox-internals.md), together
+with the export service that would replace them.
 
 ### Serialization
 

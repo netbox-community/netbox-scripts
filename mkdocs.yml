@@ -46,6 +46,7 @@ nav:
   - Configuration: configuration.md
   - Uploading Scripts: uploading.md
   - Data Source Projects: data-sources.md
+  - Migration: migration.md
   - Authoring: authoring.md
   - Runtime and Loading: runtime.md
   - Running Custom Scripts: execution.md

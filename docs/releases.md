@@ -187,3 +187,19 @@
   environment fault, so an author's typo failed the validation job with no
   verdict recorded rather than producing an invalid revision naming the line.
   Only an absent module is treated as the environment's now
+* A migration inventory pass reports what moving off NetBox's built-in Custom
+  Scripts would do, and changes nothing. It classifies every built-in module's
+  authoring dialect by parsing the stored source rather than importing it, names
+  the Projects a migration would create, and counts the Event Rules, permissions
+  and Jobs a cutover would have to repoint. Modules on the legacy `extras.scripts`
+  import are reported apart from report-style ones, because the first needs one
+  line changed before NetBox v5.0 and the second needs a rewrite at any version,
+  so the first list is a work queue with a deadline
+* A migration staging pass creates those Projects and stages their content, leaving
+  the built-in feature authoritative and activating nothing. A Project is created
+  per folder that holds scripts, so a migrated Project holds the helper modules
+  beside a script, which the built-in feature could never synchronize. Staging is
+  re-runnable because identity comes from the source rather than from bookkeeping,
+  and it refuses outright while any finding blocks, so a file name nothing could
+  import is fixed before content is written. Both passes are jobs rather than
+  management commands, and neither has an interface yet

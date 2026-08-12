@@ -35,6 +35,7 @@ from .utils import data_source_relative_path
 
 __all__ = (
     'current_source_tree',
+    'declare_entrypoint',
     'ingest_data_source',
     'ingest_upload',
     'uploaded_source_path',
@@ -110,7 +111,7 @@ def ingest_upload(project, *, filename, content, base_files=None):
 
     using = router.db_for_write(type(project), instance=project)
     with transaction.atomic(using=using):
-        _declare_entrypoint(project, path, using)
+        declare_entrypoint(project, path, using)
 
     staged = service.stage_revision(project, files)
     # Content addressing means identical bytes resolve to the existing revision, carrying whatever
@@ -176,13 +177,12 @@ def _data_source_tree(project):
     return files
 
 
-def _declare_entrypoint(project, path, using):
+def declare_entrypoint(project, path, using):
     """
     Make one path an enabled entrypoint of a project, creating its declaration if needed.
 
-    An uploaded file is always an entrypoint, so re-uploading a path that was turned off turns
-    it back on. The row is reused rather than replaced, because Custom Script rows and Job
-    history reference the declaration.
+    A path that was turned off is turned back on. The row is reused rather than replaced,
+    because Custom Script rows and Job history reference the declaration.
     """
     module = CustomScriptModule.objects.using(using).filter(project=project, source_path=path).first()
     if module is None:

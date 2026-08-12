@@ -585,3 +585,45 @@ class MigrationInventoryJob(JobRunner):
             log = self.logger.error if finding['level'] == plan.BLOCKING else self.logger.warning
             log(finding['message'])
         self.logger.info(f'{len(report["projects"])} Custom Script Project(s) would be created.')
+
+
+class MigrationStagingJob(JobRunner):
+    """
+    Stage the built-in Custom Scripts as Projects, leaving the built-in feature authoritative.
+
+    Every Project takes the manual activation policy, so nothing it stages serves anything. The
+    result list is recorded on the Job row.
+    """
+
+    class Meta:
+        name = 'Custom Script migration staging'
+
+    def run(self, **kwargs):
+        """Refuse on any blocking finding, then create the proposed Projects and stage them."""
+        from .migration import plan, source, staging
+
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            detail = f'Refusing Custom Script migration staging, because {reason}'
+            self.logger.error(detail)
+            raise JobFailed()
+
+        modules = source.legacy_modules()
+        # The report is the gate. Its reference sweep is the inventory's business, not staging's,
+        # which is why the modules are supplied rather than read a second time.
+        report = plan.build_report(modules=modules)
+        if report['status'] == plan.BLOCKING:
+            for finding in report['findings']:
+                if finding['level'] == plan.BLOCKING:
+                    self.logger.error(finding['message'])
+            self.logger.error('Refusing to stage anything. Resolve every blocking finding above, then run this again.')
+            raise JobFailed()
+
+        results = staging.stage(plan.group(modules), modules)
+        self.job.data = {'projects': results}
+        for result in results:
+            self.logger.info(
+                f'{"Created" if result["created"] else "Reused"} project {result["key"]}, '
+                f'revision {result["revision_pk"]} is {result["revision_status"]}.'
+            )
+        self.logger.info(f'{len(results)} Custom Script Project(s) staged, none activated.')

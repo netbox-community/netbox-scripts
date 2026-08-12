@@ -557,3 +557,31 @@ def _sanitized_run_record(instance, sanitize):
         'log': [{**entry, 'message': sanitize(entry.get('message'))} for entry in record.get('log', [])],
         'output': sanitize(record['output']) if isinstance(record.get('output'), str) else record.get('output'),
     }
+
+
+class MigrationInventoryJob(JobRunner):
+    """
+    Report what migrating the built-in Custom Scripts would do, changing nothing.
+
+    The report is recorded on the Job row, so it stays readable after the run.
+    """
+
+    class Meta:
+        name = 'Custom Script migration inventory'
+
+    def run(self, **kwargs):
+        """Build the report, log its headline and findings, and record it on the Job."""
+        # Staging reaches ingestion, which imports this module, so the migration tier stays local.
+        from .migration import dialects, plan
+
+        report = plan.build_report()
+        self.job.data = report
+        counts = report['dialects']
+        self.logger.info(
+            f'{len(report["modules"])} module(s): {counts[dialects.NATIVE]} native, '
+            f'{counts[dialects.LEGACY_IMPORT]} on legacy imports, {counts[dialects.REPORT_STYLE]} report-style.'
+        )
+        for finding in report['findings']:
+            log = self.logger.error if finding['level'] == plan.BLOCKING else self.logger.warning
+            log(finding['message'])
+        self.logger.info(f'{len(report["projects"])} Custom Script Project(s) would be created.')

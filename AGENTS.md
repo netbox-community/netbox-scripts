@@ -150,6 +150,7 @@ when domain content calls for them.
 │   │   ├── test_ingestion.py      , Ingestion ordering and failure modes for both callers, plus UploadToActiveTestCase and DataSourceToActiveTestCase: each slice end to end against real validation.
 │   │   ├── test_entrypoint_refresh.py , The selection-change path: the enqueue, the Job body, the form's changed-only rule, and the activation policy end to end.
 │   │   ├── test_permissions.py    , The source-management separation: change alone cannot activate or reconcile, each own action can, and an object constraint narrows both projects and their revisions.
+│   │   ├── test_event_sources.py  , The plugin's models as Event Rule sources: all four qualify, a rule saves against one, the webhook body carries identity and no stored document, and a matching rule reaches the queue. Moves RQ to a scratch Redis database and empties only its own queue, because the developer Redis is shared and RQQueueTestMixin clears by server-wide flushall(). Dispatch needs captureOnCommitCallbacks, since django_rq defers an enqueue to on_commit and a TestCase never commits.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.

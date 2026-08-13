@@ -3,12 +3,12 @@ from django.test import TestCase
 from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.filtersets import CustomScriptFilterSet
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
-from utilities.testing import ChangeLoggedFilterSetTests
+from netbox_custom_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 DIGEST = 'c' * 64
 
 
-class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests):
+class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
     queryset = CustomScript.objects.all()
     filterset = CustomScriptFilterSet
     # metadata holds execution defaults read from the class, not a lookup key.

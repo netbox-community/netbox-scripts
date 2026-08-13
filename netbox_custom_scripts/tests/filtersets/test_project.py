@@ -4,10 +4,10 @@ from core.models import DataSource
 from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from netbox_custom_scripts.filtersets import CustomScriptProjectFilterSet
 from netbox_custom_scripts.models import CustomScriptProject
-from utilities.testing import ChangeLoggedFilterSetTests
+from netbox_custom_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 
-class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests):
+class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
     queryset = CustomScriptProject.objects.all()
     filterset = CustomScriptProjectFilterSet
     # storage_key is deliberately unfiltered (internal storage/runtime identity), and

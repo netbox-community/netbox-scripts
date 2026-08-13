@@ -3,12 +3,12 @@ from django.test import TestCase
 from netbox_custom_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_custom_scripts.filtersets import CustomScriptModuleFilterSet
 from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
-from utilities.testing import ChangeLoggedFilterSetTests
+from netbox_custom_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 DIGEST = 'b' * 64
 
 
-class CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests):
+class CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
     queryset = CustomScriptModule.objects.all()
     filterset = CustomScriptModuleFilterSet
 

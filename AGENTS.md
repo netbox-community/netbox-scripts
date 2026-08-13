@@ -98,7 +98,7 @@ when domain content calls for them.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
-│   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered). PrimaryObjectViewTestCase + NestedObjectViewTestCase + DerivedObjectViewTestCase, the last for models whose rows are derived, so no create, delete, or import.
+│   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered). PrimaryObjectViewTestCase + NestedObjectViewTestCase + DerivedObjectViewTestCase, the last for models whose rows are derived, so no create, delete, or import. Also the one home of ChangeLoggedFilterSetTestMixin, imported under whichever name the host NetBox ships, so the three filterset suites import it from here and raising the floor is a single deletion.
 │   │   ├── models/__init__.py     , [CustomScriptProject] Test package anchor.
 │   │   ├── models/test_project.py , [CustomScriptProject] CustomScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
 │   │   ├── api/__init__.py        , [CustomScriptProject] Test package anchor.

@@ -37,19 +37,26 @@ STORAGES = {
     },
 }
 
+# Databases 14 and 15 rather than the 0 and 1 a running NetBox uses, because the suite really
+# enqueues. Django's test runner isolates the database but nothing isolates Redis, so a
+# TransactionTestCase commits, its on_commit callback enqueues a live RQ job, and any worker on this
+# host executes it. The job's kwargs carry pickled model instances holding TEST primary keys, which
+# Django then inserts verbatim, so the queue is a write path into whichever database that worker
+# serves. That corrupted a development database on 2026-08-13, leaving its core_job sequence behind
+# max(id) so every later insert collided.
 REDIS = {
     'tasks': {
         'HOST': 'localhost',
         'PORT': 6379,
         'PASSWORD': '',
-        'DATABASE': 0,
+        'DATABASE': 15,
         'SSL': False,
     },
     'caching': {
         'HOST': 'localhost',
         'PORT': 6379,
         'PASSWORD': '',
-        'DATABASE': 1,
+        'DATABASE': 14,
         'SSL': False,
     },
 }

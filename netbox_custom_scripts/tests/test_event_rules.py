@@ -3,7 +3,7 @@ import unittest
 
 import django_rq
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from core.events import JOB_COMPLETED, OBJECT_CREATED
 from core.models import Job, ObjectType
@@ -11,7 +11,6 @@ from dcim.models import Device
 from extras.events import EventContext
 from extras.models import EventRule
 from netbox_custom_scripts.models import CustomScript
-from netbox_custom_scripts.tests.test_event_sources import scratch_queues
 from netbox_custom_scripts.tests.test_execution import MAKES_A_TAG, ScriptJobTestMixin
 
 # The registry arrived in NetBox 4.7. Asking what the host provides mirrors compat._host_provides(),
@@ -160,18 +159,16 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
 
 
 @unittest.skipUnless(HAS_EVENT_RULE_ACTIONS, REASON)
-@override_settings(RQ_QUEUES=scratch_queues())
 class ActionInputTestCase(ScriptJobTestMixin, TestCase):
     """That the rule's action_data reaches the script as its input, verbatim."""
 
     # enqueue_run keeps input off the Job row on purpose, because a variable resolves to a model
-    # instance or an uploaded file. So the queued task is the only place it can be read, which is
-    # why this class needs a real queue while the rest of the suite does not.
+    # instance or an uploaded file. So the queued task is the only place it can be read.
 
     def setUp(self):
         super().setUp()
-        # Only this queue's own keys are removed, and it is on a scratch database, because a
-        # developer's Redis is shared with a running NetBox.
+        # The queue is isolated by testing/configuration.py, so this only separates one test from
+        # the next. Never clear with NetBox's RQQueueTestMixin, which uses a server-wide flushall().
         self.queue = django_rq.get_queue('default')
         self.queue.empty()
         self.addCleanup(self.queue.empty)

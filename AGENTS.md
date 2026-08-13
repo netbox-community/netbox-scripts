@@ -139,7 +139,7 @@ when domain content calls for them.
 │   │   ├── filtersets/test_module.py , CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
 │   │   ├── graphql/test_module.py , CustomScriptModuleGraphQLTestCase: discovery enum matches the ChoiceSet, the revision relation resolves.
 │   │   ├── graphql/test_revision.py , CustomScriptProjectRevisionGraphQLTestCase: status enum matches the ChoiceSet, stored documents and lease fields stay off the type.
-│   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract.
+│   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract, concurrency. test_concurrency.py is the suite's only TransactionTestCase, so it is the only one that really commits and therefore the only one whose on_commit callbacks enqueue live RQ jobs. It drains the queue in cleanup so the suite leaves nothing behind even in the isolated database.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py, test_resolution.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
 │   │   ├── compat/                , Legacy compatibility suites: test_imports.py (compat_import per statement form, both sides of the transition, no database) and test_dialects.py (every form end to end out of one validation pass).
@@ -150,8 +150,8 @@ when domain content calls for them.
 │   │   ├── test_ingestion.py      , Ingestion ordering and failure modes for both callers, plus UploadToActiveTestCase and DataSourceToActiveTestCase: each slice end to end against real validation.
 │   │   ├── test_entrypoint_refresh.py , The selection-change path: the enqueue, the Job body, the form's changed-only rule, and the activation policy end to end.
 │   │   ├── test_permissions.py    , The source-management separation: change alone cannot activate or reconcile, each own action can, and an object constraint narrows both projects and their revisions.
-│   │   ├── test_event_rules.py    , The `netbox_custom_scripts.run` action: registration, the refusals validate() makes and the ones it leaves to dispatch, the event payload, and import resolution by project key. Skipped entirely below the 4.7 line through an importlib.util.find_spec probe, which is the only guard the feature needs. One class carries a real queue, because enqueue_run keeps script input off the Job row so the queued task is the only place action_data can be read.
-│   │   ├── test_event_sources.py  , The plugin's models as Event Rule sources: all four qualify, a rule saves against one, the webhook body carries identity and no stored document, and a matching rule reaches the queue. Moves RQ to a scratch Redis database and empties only its own queue, because the developer Redis is shared and RQQueueTestMixin clears by server-wide flushall(). Dispatch needs captureOnCommitCallbacks, since django_rq defers an enqueue to on_commit and a TestCase never commits.
+│   │   ├── test_event_rules.py    , The `netbox_custom_scripts.run` action: registration, the refusals validate() makes and the ones it leaves to dispatch, the event payload, and import resolution by project key. Skipped entirely below the 4.7 line through an importlib.util.find_spec probe, which is the only guard the feature needs. One class reads the queued task, because enqueue_run keeps script input off the Job row so that is the only place action_data can be seen.
+│   │   ├── test_event_sources.py  , The plugin's models as Event Rule sources: all four qualify, a rule saves against one, the webhook body carries identity and no stored document, and a matching rule reaches the queue. The queue is isolated in testing/configuration.py rather than per class, so emptying here only separates one test from the next. Never clear with RQQueueTestMixin, which uses a server-wide flushall(). Dispatch needs captureOnCommitCallbacks, since django_rq defers an enqueue to on_commit and a TestCase never commits.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
@@ -220,7 +220,7 @@ when domain content calls for them.
 ├── scripts/
 │   └── check_cloud_compat.py      , AST checker for the Cloud / Enterprise platform contract (pre-commit hook).
 ├── testing/
-│   └── configuration.py           , NetBox config used by the test workflow (maintainer-added; see Development).
+│   └── configuration.py           , NetBox config used by the test workflow (maintainer-added; see Development). **Points Redis at databases 15 and 14, not the 0 and 1 a running NetBox uses, and is the one home of that isolation.** The test runner isolates the database but nothing isolates Redis, so a committing TransactionTestCase enqueues a live RQ job whose kwargs carry pickled model instances holding TEST primary keys, which any worker on the host then inserts verbatim into whichever database it serves.
 ├── .github/workflows/             , test.yml, release.yml, claude-review.yml.
 ├── AGENTS.md                      , This file. Source of truth for AI agents.
 ├── CLAUDE.md                      , Shim that pulls in AGENTS.md.

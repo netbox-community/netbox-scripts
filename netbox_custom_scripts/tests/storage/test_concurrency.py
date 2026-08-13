@@ -17,6 +17,7 @@ import hashlib
 import uuid
 from unittest import mock
 
+import django_rq
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.test import TransactionTestCase, override_settings
 
@@ -80,6 +81,10 @@ class SerializationTestCase(TransactionTestCase):
 
     def setUp(self):
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
+        # This case commits, so the revision-deletion signal's on_commit callback really enqueues a
+        # cleanup job. The queue is isolated by testing/configuration.py, and draining it here means
+        # the suite leaves nothing behind even there.
+        self.addCleanup(django_rq.get_queue('default').empty)
         self.storage = config.get_storage()
         self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
 

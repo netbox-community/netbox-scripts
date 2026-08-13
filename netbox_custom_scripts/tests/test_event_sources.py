@@ -1,8 +1,5 @@
-import copy
-
 import django_rq
-from django.conf import settings
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from core.events import OBJECT_CREATED
 from core.models import ObjectType
@@ -18,18 +15,6 @@ from netbox_custom_scripts.models import (
 )
 
 EVERY_MODEL = (CustomScriptProject, CustomScriptProjectRevision, CustomScriptModule, CustomScript)
-
-SCRATCH_REDIS_DB = 15
-
-
-def scratch_queues():
-    """Return the host's RQ configuration with every queue moved to a scratch database."""
-    # Dispatch really enqueues, and a developer's Redis is shared with a running NetBox. Derived
-    # from the live setting rather than written out, so a host config change carries.
-    queues = copy.deepcopy(settings.RQ_QUEUES)
-    for config in queues.values():
-        config['DB'] = SCRATCH_REDIS_DB
-    return queues
 
 
 class EventSourceFeatureTestCase(TestCase):
@@ -96,15 +81,13 @@ class EventBodyTestCase(TestCase):
                 self.assertEqual(serialize_for_event(instance)['id'], instance.pk)
 
 
-@override_settings(RQ_QUEUES=scratch_queues())
 class EventDispatchTestCase(TestCase):
     """That a rule matching a plugin object reaches the queue."""
 
     def setUp(self):
         super().setUp()
-        # Only this queue's own keys are removed. NetBox's RQQueueTestMixin is deliberately not
-        # used, because it clears by flushall(), which is server-wide and would take the cache
-        # and every other database with it.
+        # The queue is isolated by testing/configuration.py, so this only separates one test from
+        # the next. Never clear with NetBox's RQQueueTestMixin, which uses a server-wide flushall().
         self.queue = django_rq.get_queue('default')
         self.queue.empty()
         self.addCleanup(self.queue.empty)

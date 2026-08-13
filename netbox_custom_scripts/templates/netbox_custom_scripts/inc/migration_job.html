@@ -1,0 +1,15 @@
+{% load helpers %}
+{% load i18n %}
+{% comment %}
+One pass's most recent run.
+
+Context:
+  - job: The Job, or None
+{% endcomment %}
+{% if job %}
+  <a href="{{ job.get_absolute_url }}">{% trans "Job" %} #{{ job.pk }}</a>
+  {% badge job.get_status_display bg_color=job.get_status_color %}
+  <span class="text-secondary">{{ job.created|date:"SHORT_DATETIME_FORMAT" }}</span>
+{% else %}
+  <span class="text-secondary">{% trans "Never run" %}</span>
+{% endif %}

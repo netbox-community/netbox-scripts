@@ -1,0 +1,47 @@
+{% extends "generic/_base.html" %}
+{% load i18n %}
+{% comment %}
+The page both migration passes are started from.
+
+Context:
+  - inventory_job:  The most recent inventory Job, or None
+  - staging_job:    The most recent staging Job, or None
+  - staging_queued: Whether a staging pass is already under way
+{% endcomment %}
+{% block title %}
+  {% trans "Custom Script migration" %}
+{% endblock title %}
+{% block content %}
+  <div class="row">
+    <div class="col col-md-8 offset-md-2">
+      <div class="card">
+        <h2 class="card-header">{% trans "Migrate from the built-in feature" %}</h2>
+        <div class="card-body">
+          <p>
+            {% trans "The inventory reports what a migration would do and changes nothing. Staging creates the Custom Script Projects it proposes, every one inactive, and the built-in Custom Scripts keep running throughout." %}
+          </p>
+          <table class="table">
+            <tr>
+              <th scope="row">{% trans "Last inventory" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=inventory_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last staging" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=staging_job %}</td>
+            </tr>
+          </table>
+        </div>
+        <div class="card-footer text-end">
+          <form action="{% url 'plugins:netbox_custom_scripts:migration_inventory' %}"
+                method="post"
+                class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-primary">{% trans "Run inventory" %}</button>
+          </form>
+          <a href="{% url 'plugins:netbox_custom_scripts:migration_stage' %}"
+             class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock content %}

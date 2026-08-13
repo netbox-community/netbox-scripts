@@ -21,20 +21,17 @@ at all while anything blocks.
 
 ## Starting a pass
 
-Neither pass has a button yet. On a self-hosted installation, start one from NetBox's shell:
+*Custom Scripts > Migration* carries both passes and names the most recent run of each, so you
+can see whether one is still queued.
 
-```python
-from netbox_custom_scripts.jobs import MigrationInventoryJob, MigrationStagingJob
+**Run inventory** queues the report and takes you to its Job, where the log and the recorded
+result are both on the page. It changes nothing, so run it as often as you like.
 
-MigrationInventoryJob.enqueue()
-MigrationStagingJob.enqueue()
-```
+**Stage Projects** confirms first, because it creates Custom Script Projects. It refuses while
+another staging pass is queued, and it refuses if the inventory reports any blocking finding.
 
-Each call returns the Job it queued, and *Core > Jobs* shows its log and its recorded result.
-
-NetBox Cloud and NetBox Enterprise cannot run a shell or a management command, so on those
-platforms both passes wait for the migration interface in a later release. Until then this page
-describes what the passes will do rather than something you can start today.
+Starting either pass needs permission to add a Custom Script Project, and reading the result
+needs the *Core > Jobs* view permission, which is granted separately.
 
 ## Reading the inventory
 
@@ -119,5 +116,4 @@ anything. Fix the source, run the inventory again, and stage once it is clear.
 | Activating a staged Project | Planned. Staging reaches a verdict and waits, and an operator activates. |
 | Repointing Event Rules, permissions and Job history | Planned, with the cutover. The inventory counts them so the size is known. |
 | Retiring the built-in scripts | Planned, with the cutover. They keep running throughout. |
-| Starting either pass from the interface | Planned. See [Starting a pass](#starting-a-pass). |
 | Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |

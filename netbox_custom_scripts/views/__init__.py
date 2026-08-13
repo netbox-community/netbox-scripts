@@ -1,3 +1,8 @@
+from .migration import (
+    MigrationInventoryView,
+    MigrationStagingView,
+    MigrationView,
+)
 from .module import (
     CustomScriptModuleBulkDeleteView,
     CustomScriptModuleDeleteView,
@@ -54,4 +59,7 @@ __all__ = (
     'CustomScriptResultView',
     'CustomScriptRunView',
     'CustomScriptView',
+    'MigrationInventoryView',
+    'MigrationStagingView',
+    'MigrationView',
 )

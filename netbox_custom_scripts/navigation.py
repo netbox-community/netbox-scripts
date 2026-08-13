@@ -29,6 +29,13 @@ _customscriptproject_item = PluginMenuItem(
     ),
 )
 
+# In the Projects group rather than a group of its own: a pass produces Projects.
+_migration_item = PluginMenuItem(
+    link='plugins:netbox_custom_scripts:migration',
+    link_text=_('Migration'),
+    permissions=['netbox_custom_scripts.add_customscriptproject'],
+)
+
 # No add button: rows are derived from an activated revision, never authored.
 _customscript_item = PluginMenuItem(
     link='plugins:netbox_custom_scripts:customscript_list',
@@ -39,8 +46,17 @@ _customscript_item = PluginMenuItem(
 menu = PluginMenu(
     label=_('Custom Scripts'),
     groups=(
-        (_('Projects'), (_customscriptproject_item,)),
-        (_('Scripts'), (_customscript_item,)),
+        (
+            _('Projects'),
+            (
+                _customscriptproject_item,
+                _migration_item,
+            ),
+        ),
+        (
+            _('Scripts'),
+            (_customscript_item,),
+        ),
     ),
     icon_class='mdi mdi-script-text',
 )

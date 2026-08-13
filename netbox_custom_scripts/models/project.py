@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models, router, transaction
 from django.db.models import Q
+from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
@@ -500,6 +501,11 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
             return f'{self.project} @ {self.digest[:12]}'
         return f'{self.project} @ {self.status}'
 
+    def get_absolute_url(self):
+        """Return the revision's own detail route."""
+        # ChangeLoggedModel supplies none, unlike the base the other three models here use.
+        return reverse('plugins:netbox_custom_scripts:customscriptprojectrevision', args=[self.pk])
+
     def save(self, *args, **kwargs):
         """Persist the revision, refusing any change to a content field after creation."""
         # No form or serializer exposes these fields, so save() is where the invariant
@@ -546,6 +552,21 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
     def short_digest(self):
         """The digest prefix a revision is referred to by, empty for a rejected staging."""
         return self.digest[:12] if self.digest else ''
+
+    @property
+    def problems(self):
+        """One row per recorded problem, in the single shape a reader needs."""
+        # Storage names the rejected file "path" and validation the entrypoint "source_path".
+        # Normalizing here keeps that split out of every reader.
+        return [
+            {
+                'path': record.get('source_path') or record.get('path') or '',
+                'code': record.get('code') or '',
+                'message': record.get('message') or '',
+                'traceback': record.get('traceback') or '',
+            }
+            for record in self.validation_errors
+        ]
 
     @property
     def is_active(self):

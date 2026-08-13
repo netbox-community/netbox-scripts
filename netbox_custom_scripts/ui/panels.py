@@ -113,7 +113,7 @@ class CustomScriptProjectStatePanel(ObjectAttributesPanel):
     source_state = attrs.TextAttr('source_state', label=_('State'))
     created = attrs.DateTimeAttr('current_revision.created', label=_('Created'))
     status = attrs.ChoiceAttr('current_revision.status', label=_('Status'))
-    short_digest = attrs.TextAttr('current_revision.short_digest', label=_('Digest'))
+    revision = attrs.RelatedObjectAttr('current_revision', label=_('Revision'), linkify=True)
     file_count = attrs.NumericAttr('current_revision.file_count', label=_('Files'))
     total_size = attrs.NumericAttr('current_revision.total_size', label=_('Size'))
     activated = attrs.DateTimeAttr('current_revision.activated', label=_('Activated'))

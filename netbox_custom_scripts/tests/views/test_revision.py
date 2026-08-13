@@ -7,6 +7,7 @@ from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.storage.exceptions import ActivationError
+from netbox_custom_scripts.tables import CustomScriptProjectRevisionProblemTable
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -243,3 +244,90 @@ class DeactivateRevisionTestCase(TestCase):
         revision.refresh_from_db()
         self.assertTrue(revision.is_activatable)
         self.assertFalse(revision.is_active)
+
+
+class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
+    """The revision detail view reports the problems its record carries, whichever tier wrote them."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = CustomScriptProject.objects.create(name='Problem Project', key='problem-project')
+        cls.invalid = CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='a' * 64,
+            status=RevisionStatusChoices.INVALID,
+            validation_errors=[
+                {
+                    'source_path': 'broken.py',
+                    'code': 'invalid_job_timeout',
+                    'message': 'The job timeout of "Broken" is not a number of seconds.',
+                    'exception_type': None,
+                    'traceback': 'Traceback (most recent call last):\n  ValueError',
+                }
+            ],
+        )
+        # No digest, the shape the storage tier persists when a manifest rejects a file.
+        cls.rejected = CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest=None,
+            status=RevisionStatusChoices.INVALID,
+            validation_errors=[
+                {'path': 'notes.txt', 'code': 'not_a_python_file', 'message': 'Only Python files are accepted.'},
+                {'path': None, 'code': 'too_many_files', 'message': 'The project has 900 files.'},
+            ],
+        )
+        cls.clean = CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='b' * 64,
+            status=RevisionStatusChoices.VALID,
+        )
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+
+    def grant(self, model, *actions):
+        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
+
+    def body(self, revision):
+        url = reverse('plugins:netbox_custom_scripts:customscriptprojectrevision', args=[revision.pk])
+        response = self.client.get(url)
+        self.assertHttpStatus(response, 200)
+        return response.content.decode()
+
+    def test_a_validation_record_reports_its_path_code_and_message(self):
+        self.grant(CustomScriptProjectRevision, 'view')
+        body = self.body(self.invalid)
+        self.assertIn('Recorded problems', body)
+        self.assertIn('broken.py', body)
+        self.assertIn('invalid_job_timeout', body)
+        self.assertIn('is not a number of seconds', body)
+
+    def test_a_storage_record_reports_its_path_under_the_same_column(self):
+        self.grant(CustomScriptProjectRevision, 'view')
+        body = self.body(self.rejected)
+        self.assertIn('notes.txt', body)
+        self.assertIn('not_a_python_file', body)
+
+    def test_a_record_naming_no_file_is_marked_project_wide(self):
+        self.grant(CustomScriptProjectRevision, 'view')
+        self.assertIn('The whole project', self.body(self.rejected))
+
+    def test_the_traceback_is_available_but_not_shown_by_default(self):
+        self.grant(CustomScriptProjectRevision, 'view')
+        # Behaviour first, then that the column exists at all, so deleting it fails this too.
+        self.assertNotIn('most recent call last', self.body(self.invalid))
+        self.assertIn('traceback', CustomScriptProjectRevisionProblemTable.Meta.fields)
+
+    def test_a_revision_with_no_problems_renders_no_panel(self):
+        self.grant(CustomScriptProjectRevision, 'view')
+        self.assertNotIn('Recorded problems', self.body(self.clean))
+
+    def test_both_shapes_normalize_to_one_row_shape(self):
+        rows = self.rejected.problems
+        self.assertEqual([row['path'] for row in rows], ['notes.txt', ''])
+        self.assertEqual([row['traceback'] for row in rows], ['', ''])
+        self.assertEqual(self.invalid.problems[0]['path'], 'broken.py')

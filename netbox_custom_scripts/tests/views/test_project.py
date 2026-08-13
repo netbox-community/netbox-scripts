@@ -227,6 +227,10 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('Valid', body)
         self.assertIn('Current revision', body)
 
+    def test_the_panel_links_the_current_revision(self):
+        self.grant(CustomScriptProject, 'view')
+        self.assertIn(self.revision.get_absolute_url(), self.body())
+
     def test_the_panel_omits_revision_implementation_fields(self):
         # The manifest and the full digest belong to a diagnostic view. The project's own
         # storage key is a separate decision, and the Project panel has always shown it.
@@ -243,6 +247,33 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         response = self.client.get(url)
         self.assertHttpStatus(response, 200)
         self.assertIn('d' * 12, response.content.decode())
+
+    def test_the_history_tab_leads_with_created_then_the_linked_digest(self):
+        # The linked column is a table's way into the detail page, so it follows the timestamp.
+        self.grant(CustomScriptProject, 'view')
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+        table = self.client.get(url).context['table']
+        self.assertEqual([column.name for column in table.columns][:3], ['created', 'short_digest', 'status'])
+
+    def test_the_history_tab_links_each_revision(self):
+        self.grant(CustomScriptProject, 'view')
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+        body = self.client.get(url).content.decode()
+        self.assertIn(self.revision.get_absolute_url(), body)
+
+    def test_a_staging_with_no_digest_is_named_and_still_linked(self):
+        # The row a reader most wants to open, since a rejected staging stored nothing.
+        self.grant(CustomScriptProject, 'view')
+        rejected = CustomScriptProjectRevision.objects.create(
+            project=self.project,
+            digest=None,
+            status=RevisionStatusChoices.INVALID,
+            validation_errors=[{'path': 'notes.txt', 'code': 'not_a_python_file', 'message': 'Refused.'}],
+        )
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+        body = self.client.get(url).content.decode()
+        self.assertIn('Not stored', body)
+        self.assertIn(rejected.get_absolute_url(), body)
 
     def test_the_history_tab_offers_no_actions_on_a_revision(self):
         # A revision is never created or edited by hand, so the tab carries no action buttons.

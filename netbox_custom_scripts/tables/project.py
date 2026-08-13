@@ -60,8 +60,18 @@ class CustomScriptProjectRevisionTable(BaseTable):
     """
 
     created = columns.DateTimeColumn(verbose_name=_('Created'))
+    # Directly after the timestamp, because the linked column is a table's way into the detail
+    # page and a revision is identified by its digest.
+    short_digest = tables.Column(
+        verbose_name=_('Digest'),
+        accessor='short_digest',
+        orderable=False,
+        linkify=True,
+        # A rejected staging has no digest, and its row is the one whose problems a reader most
+        # wants, so the cell has to render rather than fall through to the empty default.
+        empty_values=(),
+    )
     status = columns.ChoiceFieldColumn(verbose_name=_('Status'))
-    short_digest = tables.Column(verbose_name=_('Digest'), accessor='short_digest', orderable=False)
     file_count = tables.Column(verbose_name=_('Files'))
     total_size = tables.Column(verbose_name=_('Size'))
     activated = columns.DateTimeColumn(verbose_name=_('Activated'))
@@ -77,9 +87,13 @@ class CustomScriptProjectRevisionTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         model = CustomScriptProjectRevision
-        fields = ('created', 'status', 'short_digest', 'file_count', 'total_size', 'activated')
+        fields = ('created', 'short_digest', 'status', 'file_count', 'total_size', 'activated')
         default_columns = fields
         order_by = ('-created',)
+
+    def render_short_digest(self, value):
+        """Name a staging whose content was rejected before anything was stored."""
+        return value or _('Not stored')
 
 
 class CustomScriptProjectFileTable(BaseTable):
@@ -122,3 +136,39 @@ class CustomScriptProjectFileTable(BaseTable):
     def render_sha256(self, value):
         """Render the short digest form."""
         return value[:12]
+
+
+class CustomScriptProjectRevisionProblemTable(BaseTable):
+    """
+    The problems one revision recorded, for its detail view.
+
+    Rows are the normalized dictionaries the revision builds, so this table is fed a list and
+    has no queryset behind it.
+    """
+
+    path = tables.Column(
+        verbose_name=_('Path'),
+        # An empty path is meaningful here, and a column renders its default instead of calling
+        # the renderer for anything it counts as empty.
+        empty_values=(),
+    )
+    code = tables.Column(
+        verbose_name=_('Code'),
+    )
+    message = tables.Column(
+        verbose_name=_('Message'),
+    )
+    # Off by default: it is the detail an import failure needs and noise on every other record.
+    traceback = tables.Column(
+        verbose_name=_('Traceback'),
+    )
+
+    class Meta(BaseTable.Meta):
+        # Required rather than decorative: a table with no model derives no default empty text.
+        empty_text = _('This revision recorded no problems.')
+        fields = ('path', 'code', 'message', 'traceback')
+        default_columns = ('path', 'code', 'message')
+
+    def render_path(self, value):
+        """Name the project itself for a problem no single file owns."""
+        return value or _('The whole project')

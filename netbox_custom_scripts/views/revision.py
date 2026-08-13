@@ -3,6 +3,7 @@ from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 
 from netbox.ui import layout
+from netbox.ui.panels import ContextTablePanel
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.views import register_model_view
@@ -10,6 +11,7 @@ from utilities.views import register_model_view
 from .. import activation
 from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
+from ..tables import CustomScriptProjectRevisionProblemTable
 from ..ui import CustomScriptProjectRevisionPanel, CustomScriptProjectRevisionStatePanel
 
 
@@ -21,7 +23,18 @@ class CustomScriptProjectRevisionView(generic.ObjectView):
     layout = layout.SimpleLayout(
         left_panels=[CustomScriptProjectRevisionPanel()],
         right_panels=[CustomScriptProjectRevisionStatePanel()],
+        bottom_panels=[ContextTablePanel('problems_table', title=_('Recorded problems'))],
     )
+
+    def get_extra_context(self, request, instance):
+        """Supply the problems table, withholding the key entirely when there is nothing to show."""
+        # ContextTablePanel renders nothing for an unresolved key, which is how a revision with
+        # no problems avoids an empty card.
+        if not (problems := instance.problems):
+            return {}
+        table = CustomScriptProjectRevisionProblemTable(problems, orderable=False)
+        table.configure(request)
+        return {'problems_table': table}
 
 
 class RevisionServiceView(generic.ObjectView):

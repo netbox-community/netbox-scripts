@@ -95,6 +95,26 @@ related object when one is given. `log_failure()` also marks the whole run as
 failed. Messages are forwarded to the NetBox system log under the
 `netbox.plugins.netbox_custom_scripts.scripts` namespace.
 
+## What a run knows about its own context
+
+Two attributes are set on the instance before `run()` is called. Each is `None`
+when the run did not come with the thing it carries, so guard before reading it.
+
+| Attribute | Set when | Holds |
+|---|---|---|
+| `self.request` | The run was requested through the UI or the REST API | The requesting user's HTTP request. This is what attributes any changes to that user. |
+| `self.event` | An Event Rule started the run | The JSON-safe part of the event context, including `event_type`, `object_type`, `object_id` and the rule's own name. |
+
+A run somebody started by hand carries no event:
+
+```python
+def run(self, data, commit):
+    if self.event is None:
+        self.log_info('Started by hand.')
+    else:
+        self.log_info(f"Started by the rule {self.event['event_rule']}.")
+```
+
 ## Aborting a script
 
 Raise `AbortScript` to stop execution cleanly with a message:

@@ -42,6 +42,9 @@ class BaseScript:
         # Populated by the execution runner when the script runs inside a request
         self.request = None
 
+        # Populated by the execution runner when an Event Rule drove the run
+        self.event = None
+
         # Discovery stamps each published class with a project-qualified logger name.
         # The composed fallback serves classes that never went through discovery. Only
         # the class's own dictionary is consulted, a subclass composes its own name.

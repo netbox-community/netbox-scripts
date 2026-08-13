@@ -394,6 +394,7 @@ class CustomScriptJob(JobRunner):
         schedule_at=None,
         interval=None,
         notifications=None,
+        event=None,
         **kwargs,
     ):
         """
@@ -423,6 +424,7 @@ class CustomScriptJob(JobRunner):
             'module_path': script.module_path,
             'class_name': script.class_name,
             'commit': bool(commit),
+            'event': event,
         }
         # Input values are deliberately absent from the payload. Variables resolve to model
         # instances and uploaded files, so they are not JSON, and rendering them for the row
@@ -448,7 +450,17 @@ class CustomScriptJob(JobRunner):
         return job
 
     def run(
-        self, *, revision_id=None, revision_digest=None, module_path, class_name, data, commit, request=None, **kwargs
+        self,
+        *,
+        revision_id=None,
+        revision_digest=None,
+        module_path,
+        class_name,
+        data,
+        commit,
+        request=None,
+        event=None,
+        **kwargs,
     ):
         """Resolve the class out of its revision and run it, recording the result."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
@@ -472,7 +484,13 @@ class CustomScriptJob(JobRunner):
                 try:
                     script_class = self._resolve(revision, storage_key, module_path, class_name, sanitize)
                     self._run_class(
-                        script_class, data=data, commit=commit, request=request, revision=revision, sanitize=sanitize
+                        script_class,
+                        data=data,
+                        commit=commit,
+                        request=request,
+                        revision=revision,
+                        sanitize=sanitize,
+                        event=event,
                     )
                 finally:
                     unload_revision(storage_key, revision.digest)
@@ -525,10 +543,11 @@ class CustomScriptJob(JobRunner):
             self.logger.error(detail)
             raise JobFailed() from error
 
-    def _run_class(self, script_class, *, data, commit, request, revision, sanitize):
+    def _run_class(self, script_class, *, data, commit, request, revision, sanitize, event=None):
         """Run one resolved class, recording its log and output on the Job either way."""
         instance = script_class()
         instance.request = request
+        instance.event = event
         # A variable of the FileVar kind is bound in the upload rather than in the posted data,
         # so the two halves of the form are put back together here.
         values = dict(data)

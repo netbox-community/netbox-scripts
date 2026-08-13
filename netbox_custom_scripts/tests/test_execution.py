@@ -373,7 +373,7 @@ class ScriptJobTestMixin:
     def script(self):
         return CustomScript.objects.get(project=self.project)
 
-    def run_job(self, script=None, *, data=None, commit=True, request=None):
+    def run_job(self, script=None, *, data=None, commit=True, request=None, event=None):
         """Enqueue a run immediately and return the finished Job."""
         return CustomScriptJob.enqueue_run(
             script or self.script(),
@@ -381,6 +381,7 @@ class ScriptJobTestMixin:
             commit=commit,
             request=request,
             user=self.user,
+            event=event,
             immediate=True,
         )
 
@@ -402,6 +403,17 @@ RAISES = (
     b'class Boom(Script):\n'
     b'    def run(self, data, commit):\n'
     b"        raise RuntimeError('the script broke')\n"
+)
+
+# Returns what it was handed, so the binding is asserted through a real run rather than
+# by reaching into the instance.
+REPORTS_ITS_EVENT = (
+    b'from netbox_custom_scripts.scripts import Script\n\n\n'
+    b'class ReportEvent(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b'        if self.event is None:\n'
+    b"            return 'no event'\n"
+    b"        return '{} {}'.format(self.event['event_type'], self.event['object_id'])\n"
 )
 
 
@@ -459,6 +471,21 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         )
 
         self.assertEqual(job.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+
+    def test_an_event_payload_is_recorded_on_the_job(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        event = {'event_type': 'object_created', 'object_type': 'dcim.device', 'object_id': 7}
+
+        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, event=event)
+
+        self.assertEqual(job.data['event'], event)
+
+    def test_a_run_no_event_drove_records_none(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+
+        self.assertIsNone(job.data['event'])
 
 
 class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
@@ -574,6 +601,22 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertFalse(Tag.objects.filter(slug='from-revision').exists())
         self.assertEqual(job.data['output'], 'done')
+
+    def test_the_event_reaches_the_running_script(self):
+        self.publish({'deploy.py': REPORTS_ITS_EVENT})
+
+        job = self.run_job(event={'event_type': 'object_updated', 'object_id': 3})
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(job.data['output'], 'object_updated 3')
+
+    def test_a_script_nobody_triggered_sees_no_event(self):
+        self.publish({'deploy.py': REPORTS_ITS_EVENT})
+
+        job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(job.data['output'], 'no event')
 
     def test_the_pinned_revision_runs_even_when_a_newer_one_is_active(self):
         first = self.publish({'deploy.py': MAKES_A_TAG})

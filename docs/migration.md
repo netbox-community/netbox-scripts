@@ -30,11 +30,14 @@ so running one pass without the other is visible rather than implied. Each state
 page renders, so it is the verdict validation reached rather than what a pass recorded, and the
 count beside it is how many Custom Scripts that revision publishes.
 
-**Run inventory** queues the report and takes you to its Job, where the log and the recorded
-result are both on the page. It changes nothing, so run it as often as you like.
+**Run inventory** queues the report. It changes nothing, so run it as often as you like.
 
 **Stage Projects** confirms first, because it creates Custom Script Projects. It refuses while
 another staging pass is queued, and it refuses if the inventory reports any blocking finding.
+
+Either button returns you to this page, with the run it just queued named at the top. Follow that
+link to the Job when you want the detail, because the log and the recorded result are both on the
+Job's own page.
 
 Starting either pass needs permission to add a Custom Script Project, and reading the result
 needs the *Core > Jobs* view permission, which is granted separately.

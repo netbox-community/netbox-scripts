@@ -96,13 +96,15 @@ class MigrationView(BaseMigrationView):
 
 
 class MigrationInventoryView(BaseMigrationView):
-    """Queue the inventory pass and follow it to its Job."""
+    """Queue the inventory pass and return to the Migration page."""
 
     def post(self, request):
         """Queue the report. It writes nothing, so it is not confirmed first."""
-        job = MigrationInventoryJob.enqueue(user=request.user)
+        MigrationInventoryJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration inventory.'))
-        return redirect(job.get_absolute_url())
+        # The page names the run just queued and links to it, so the Job detail is one click away
+        # while the operator stays where the state table and the other pass are.
+        return redirect('plugins:netbox_custom_scripts:migration')
 
 
 class MigrationStagingView(BaseMigrationView):
@@ -125,6 +127,6 @@ class MigrationStagingView(BaseMigrationView):
         if _staging_queued():
             messages.warning(request, _('A Custom Script migration staging pass is already queued.'))
             return redirect('plugins:netbox_custom_scripts:migration')
-        job = MigrationStagingJob.enqueue(user=request.user)
+        MigrationStagingJob.enqueue(user=request.user)
         messages.success(request, _('Queued Custom Script migration staging.'))
-        return redirect(job.get_absolute_url())
+        return redirect('plugins:netbox_custom_scripts:migration')

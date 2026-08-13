@@ -141,7 +141,9 @@ class MigrationTriggerTestCase(TestCase):
         response = self.client.post(self.url('migration_inventory'))
         self.assertHttpStatus(response, 302)
         self.inventory.assert_called_once_with(user=self.user)
-        self.assertEqual(response.url, Job.objects.get(name='queued').get_absolute_url())
+        # Back to the page, which names the run it just queued and links to it. The operator lands
+        # where the state table and the other pass are, rather than one click away from both.
+        self.assertEqual(response.url, self.url('migration'))
 
     def test_the_inventory_route_needs_the_permission(self):
         self.assertHttpStatus(self.client.post(self.url('migration_inventory')), 403)
@@ -159,6 +161,17 @@ class MigrationTriggerTestCase(TestCase):
         response = self.client.post(self.url('migration_stage'))
         self.assertHttpStatus(response, 302)
         self.staging.assert_called_once_with(user=self.user)
+        self.assertEqual(response.url, self.url('migration'))
+
+    def test_both_passes_return_to_the_same_place(self):
+        # The already-queued refusal always came back here. Asserting the three together is what
+        # stops one of them drifting off on its own.
+        self.grant('add')
+        queued = self.client.post(self.url('migration_inventory'))
+        staged = self.client.post(self.url('migration_stage'))
+
+        self.assertEqual(queued.url, self.url('migration'))
+        self.assertEqual(staged.url, self.url('migration'))
 
     def test_staging_refuses_while_a_pass_is_already_queued(self):
         self.grant('add')

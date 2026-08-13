@@ -621,9 +621,22 @@ class MigrationStagingJob(JobRunner):
 
         results = staging.stage(plan.group(modules), modules)
         self.job.data = {'projects': results}
+        labels = dict(RevisionStatusChoices)
         for result in results:
+            status = result['revision_status']
+            # Ingestion queues validation for a materialized revision and nothing else, so any
+            # other status is one the revision already held when content addressing found it.
+            outcome = (
+                'is queued for validation'
+                if status == RevisionStatusChoices.MATERIALIZED
+                else f'is {labels[status]}, so no validation was queued'
+            )
             self.logger.info(
                 f'{"Created" if result["created"] else "Reused"} project {result["key"]}, '
-                f'revision {result["revision_pk"]} is {result["revision_status"]}.'
+                f'revision {result["revision_pk"]} {outcome}.'
             )
-        self.logger.info(f'{len(results)} Custom Script Project(s) staged, none activated.')
+        pending = sum(1 for result in results if result['revision_status'] == RevisionStatusChoices.MATERIALIZED)
+        self.logger.info(
+            f'{len(results)} Custom Script Project(s) staged, none activated. '
+            f'{pending} awaiting a verdict, which each revision records.'
+        )

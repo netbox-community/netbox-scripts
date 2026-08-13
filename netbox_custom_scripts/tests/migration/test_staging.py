@@ -157,6 +157,26 @@ class StageTestCase(TestCase):
         self.assertTrue(all(result['created'] for result in staged))
         self.assertEqual(CustomScriptProject.objects.count(), 2)
 
+    def test_the_job_reports_that_a_verdict_is_still_to_come(self):
+        # The status staging leaves behind is never the verdict, so it must not read like one.
+        job = MigrationStagingJob.enqueue(immediate=True)
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('queued for validation', messages)
+        self.assertIn('2 awaiting a verdict', messages)
+        self.assertNotIn('is materialized', messages)
+
+    def test_the_job_reports_a_revision_that_needs_no_validation(self):
+        # A second pass resolves to the revision already holding that content, verdict included.
+        for result in self.stage_all():
+            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            RevisionValidationJob.enqueue_validation(revision, immediate=True)
+
+        job = MigrationStagingJob.enqueue(immediate=True)
+
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('is Valid, so no validation was queued', messages)
+        self.assertIn('0 awaiting a verdict', messages)
+
     def test_the_job_refuses_to_stage_when_a_finding_blocks(self):
         # A hyphenated name is not a Python identifier, so nothing could ever import it.
         self.legacy_uploaded_module('my-report.py', NATIVE_SCRIPT)

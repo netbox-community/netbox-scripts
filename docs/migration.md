@@ -24,6 +24,12 @@ at all while anything blocks.
 *Custom Scripts > Migration* carries both passes and names the most recent run of each, so you
 can see whether one is still queued.
 
+It also lists every Custom Script Project the two passes name, with the state each is in right
+now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
+so running one pass without the other is visible rather than implied. Each state is read as the
+page renders, so it is the verdict validation reached rather than what a pass recorded, and the
+count beside it is how many Custom Scripts that revision publishes.
+
 **Run inventory** queues the report and takes you to its Job, where the log and the recorded
 result are both on the page. It changes nothing, so run it as often as you like.
 
@@ -102,8 +108,10 @@ Project resolves to the one already covering that folder, an uploaded one to its
 identical content resolves to the revision that already holds it. A second pass creates nothing.
 
 Every Project it creates takes the **manual** activation policy, whatever you might choose for it
-later. So each staged revision reaches its `valid` verdict and then waits. Putting one in service is
-the separate, deliberate step described under
+later. So staging settles nothing on its own: it queues each revision for validation, and the
+verdict lands on the revision rather than on the pass. The job reports which revisions it queued,
+not whether they are good. A revision that fails records what it found, which its own page lists.
+Putting a valid one in service is the separate, deliberate step described under
 [Putting a revision in service](data-sources.md#putting-a-revision-in-service).
 
 If the report is `blocking`, staging logs every blocking finding and stops without creating
@@ -113,7 +121,7 @@ anything. Fix the source, run the inventory again, and stage once it is clear.
 
 | Area | Status |
 |---|---|
-| Activating a staged Project | Planned. Staging reaches a verdict and waits, and an operator activates. |
+| Activating a staged Project | Planned. Validation reaches the verdict, the revision waits, and an operator activates. |
 | Repointing Event Rules, permissions and Job history | Planned, with the cutover. The inventory counts them so the size is known. |
 | Retiring the built-in scripts | Planned, with the cutover. They keep running throughout. |
 | Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |

@@ -7,6 +7,7 @@ Context:
   - inventory_job:  The most recent inventory Job, or None
   - staging_job:    The most recent staging Job, or None
   - staging_queued: Whether a staging pass is already under way
+  - rows:           One {key, name, project} per Project either pass named, project None until staged
 {% endcomment %}
 {% block title %}
   {% trans "Custom Script migration" %}
@@ -30,6 +31,54 @@ Context:
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=staging_job %}</td>
             </tr>
           </table>
+          {% if rows %}
+            <h3 class="fs-4 mt-4">{% trans "Projects" %}</h3>
+            <p class="text-secondary">
+              {% trans "Every Project the passes above name, including one the inventory proposed that staging has not created yet. Each state is read now rather than when a pass ran, so it is the verdict validation reached, and a revision that was refused records why on its own page." %}
+            </p>
+            <table class="table">
+              <tr>
+                <th scope="col">{% trans "Custom Script Project" %}</th>
+                <th scope="col">{% trans "Revision" %}</th>
+                <th scope="col">{% trans "Status" %}</th>
+                <th scope="col">{% trans "Custom Scripts" %}</th>
+              </tr>
+              {% for row in rows %}
+                <tr>
+                  <td>
+                    {% if row.project %}
+                      <a href="{{ row.project.get_absolute_url }}">{{ row.project }}</a>
+                    {% else %}
+                      {{ row.name }}
+                    {% endif %}
+                  </td>
+                  {% with revision=row.project.current_revision %}
+                    <td>
+                      {% if revision %}
+                        <a href="{{ revision.get_absolute_url }}">{% firstof revision.short_digest _("Not stored") %}</a>
+                      {% else %}
+                        {{ ''|placeholder }}
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if revision %}
+                        <span class="badge text-bg-{{ revision.get_status_color }}">{{ revision.get_status_display }}</span>
+                      {% else %}
+                        <span class="badge text-bg-secondary">{% trans "Not staged" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if revision %}
+                        {{ revision.discovered_scripts|length }}
+                      {% else %}
+                        {{ ''|placeholder }}
+                      {% endif %}
+                    </td>
+                  {% endwith %}
+                </tr>
+              {% endfor %}
+            </table>
+          {% endif %}
         </div>
         <div class="card-footer text-end">
           <form action="{% url 'plugins:netbox_custom_scripts:migration_inventory' %}"

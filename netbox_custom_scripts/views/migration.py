@@ -23,6 +23,40 @@ def _latest(job_class):
     return job_class.get_jobs().order_by('-created').first()
 
 
+def _proposed_projects(job):
+    """Return the project entries one pass recorded, keyed by project key."""
+    if not isinstance(getattr(job, 'data', None), dict):
+        return {}
+    entries = job.data.get('projects') or []
+    return {entry['key']: entry for entry in entries if isinstance(entry, dict) and entry.get('key')}
+
+
+def _migration_rows(request, inventory_job, staging_job):
+    """
+    Return one row per Project a migration proposes or has produced, with where it stands now.
+
+    Rows come from both passes, so a Project the inventory proposed but staging has not created
+    yet is listed as well, which is what a run of one pass without the other looks like.
+    """
+    # Neither pass records a verdict: the inventory writes nothing and staging records each
+    # status before validation runs. So state is read live here rather than out of either Job.
+    proposed = _proposed_projects(inventory_job)
+    produced = _proposed_projects(staging_job)
+    keys = list(proposed) + [key for key in produced if key not in proposed]
+    projects = {
+        project.key: project
+        for project in CustomScriptProject.objects.restrict(request.user, 'view').filter(key__in=keys)
+    }
+    return [
+        {
+            'key': key,
+            'name': proposed.get(key, {}).get('name') or key,
+            'project': projects.get(key),
+        }
+        for key in keys
+    ]
+
+
 def _staging_queued():
     """Report whether a staging pass is pending, scheduled or running."""
     return MigrationStagingJob.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
@@ -46,14 +80,17 @@ class MigrationView(BaseMigrationView):
     template_name = 'netbox_custom_scripts/migration.html'
 
     def get(self, request):
-        """Show what each pass does and when each last ran."""
+        """Show what each pass does, when each last ran, and where every Project it names stands."""
+        inventory_job = _latest(MigrationInventoryJob)
+        staging_job = _latest(MigrationStagingJob)
         return render(
             request,
             self.template_name,
             {
-                'inventory_job': _latest(MigrationInventoryJob),
-                'staging_job': _latest(MigrationStagingJob),
+                'inventory_job': inventory_job,
+                'staging_job': staging_job,
                 'staging_queued': _staging_queued(),
+                'rows': _migration_rows(request, inventory_job, staging_job),
             },
         )
 

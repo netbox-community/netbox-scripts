@@ -103,7 +103,7 @@ when the run did not come with the thing it carries, so guard before reading it.
 | Attribute | Set when | Holds |
 |---|---|---|
 | `self.request` | The run was requested through the UI or the REST API | The requesting user's HTTP request. This is what attributes any changes to that user. |
-| `self.event` | An Event Rule started the run | The JSON-safe part of the event context, including `event_type`, `object_type`, `object_id` and the rule's own name. |
+| `self.event` | An Event Rule started the run | The JSON-safe part of the event context, including `event_type`, `object_type`, `object_id` and the rule's own name. See [Event Rules](event-rules.md). |
 
 A run somebody started by hand carries no event:
 

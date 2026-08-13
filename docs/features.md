@@ -48,6 +48,8 @@ logging, global search, REST, and GraphQL.
 | Enable or disable a script | Administrator | Toggle `enabled` on a published Custom Script, one at a time or in bulk, without affecting what synchronization owns. |
 | Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Custom Scripts](execution.md). |
 | Read a run | Operator | Follow one run's status, log and output on its result page, and every run a script has performed on its Jobs tab. |
+| Run a script from an Event Rule | Administrator | Have a rule run a Custom Script when something happens, passing its own data as the script's input. See [Event Rules](event-rules.md). |
+| React to a Custom Script object | Administrator | Point an Event Rule or webhook at any of the plugin's own object types, so an invalid revision or a retired script can raise an alert. See [Event Rules](event-rules.md). |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
 | Author Custom Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
 | Publish scripts from a project | Developer | Declare entrypoint modules and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
@@ -63,5 +65,4 @@ follow-up releases:
 | Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time. A Project needing helpers is managed through a Data Source |
 | A repository manifest declaring its own entrypoints | Planned, entrypoint selection is a Project setting made in NetBox |
 | Requesting a run over REST | Planned, runs are requested from the UI |
-| Event Rule actions | Planned |
 | Migration from NetBox's built-in Custom Scripts | Planned |

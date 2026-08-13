@@ -50,6 +50,7 @@ nav:
   - Authoring: authoring.md
   - Runtime and Loading: runtime.md
   - Running Custom Scripts: execution.md
+  - Event Rules: event-rules.md
   - Permissions: permissions.md
   - Models:
       - Custom Script Project: models/customscriptproject.md

@@ -34,7 +34,7 @@ class Provision(Script):
 """
 
 
-def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts'):
+def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts', scripts=()):
     return LegacyModule(
         pk=pk,
         file_root=file_root,
@@ -42,7 +42,7 @@ def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts'
         python_name=file_path.removesuffix('.py'),
         data_source_id=data_source_id,
         data_path=data_path,
-        script_names=(),
+        scripts=scripts,
     )
 
 
@@ -140,7 +140,7 @@ class FindingsTestCase(SimpleTestCase):
     """Findings an operator has to act on before a migration."""
 
     def test_a_hyphenated_filename_blocks(self):
-        # Phase 2's corpus found five real reports refused for exactly this.
+        # The community collection holds five real reports refused for exactly this.
         modules = [legacy(1, 'my-report.py', data_source_id=7, data_path='scripts/my-report.py')]
         report = plan.build_report(modules=modules, read=lambda module: b'')
         codes = {finding['code']: finding['level'] for finding in report['findings']}

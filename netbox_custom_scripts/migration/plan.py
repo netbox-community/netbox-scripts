@@ -78,7 +78,7 @@ def build_report(modules=None, read=None):
                 'path': _path(module),
                 'file_root': module.file_root,
                 'dialect': dialect,
-                'scripts': list(module.script_names),
+                'scripts': [script.name for script in module.scripts],
             }
         )
         findings.extend(module_findings)

@@ -91,11 +91,13 @@ class LegacyModulesTestCase(TestCase):
         self.assertEqual(entry.file_path, 'deploy.py')
         self.assertEqual(entry.data_source_id, self.data_source.pk)
 
-    def test_a_module_reports_the_script_names_it_published(self):
+    def test_a_module_reports_the_scripts_it_published_with_their_keys(self):
         module = self.synced_module()
         entry = next(item for item in source.legacy_modules() if item.pk == module.pk)
         self.assertEqual(entry.python_name, 'deploy')
-        self.assertEqual(entry.script_names, ('Deploy',))
+        self.assertEqual([script.name for script in entry.scripts], ['Deploy'])
+        # The key is what every reference a migration repoints actually holds.
+        self.assertEqual([script.pk for script in entry.scripts], list(module.scripts.values_list('pk', flat=True)))
 
     def test_read_source_returns_the_stored_bytes(self):
         module = self.synced_module()

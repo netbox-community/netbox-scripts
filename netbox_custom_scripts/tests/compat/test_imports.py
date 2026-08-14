@@ -97,7 +97,7 @@ class TransitionTestCase(SimpleTestCase):
 
 class InstallTestCase(SimpleTestCase):
     def test_the_host_module_is_never_replaced(self):
-        # Concept 9.2: the mechanism replaces no unrelated module. On every supported version
+        # The mechanism replaces no unrelated module. On every supported version
         # NetBox ships its own extras.scripts and it stays exactly where it was.
         install()
         self.assertIsNot(sys.modules['extras.scripts'], netbox_custom_scripts.scripts)

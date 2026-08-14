@@ -15,6 +15,9 @@ Context:
   - activation_job: The most recent activation Job, or None
   - activation_queued: Whether an activation is already under way
   - can_activate:   Whether the fence has been crossed, which is activation's only precondition
+  - references_job: The most recent reference pass Job, or None
+  - references_queued: Whether a reference pass is already under way
+  - can_repoint:    Whether the staged Projects are activated, so a reference has a row to name
 {% endcomment %}
 {% block title %}
   {% trans "Custom Script migration" %}
@@ -56,6 +59,10 @@ Context:
             <tr>
               <th scope="row">{% trans "Last activation" %}</th>
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=activation_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last reference pass" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=references_job %}</td>
             </tr>
           </table>
           {% if rows %}
@@ -128,6 +135,16 @@ Context:
               <button type="submit"
                       class="btn btn-primary"
                       {% if activation_queued %}disabled{% endif %}>{% trans "Activate Projects" %}</button>
+            </form>
+          {% endif %}
+          {% if can_repoint %}
+            <form action="{% url 'plugins:netbox_custom_scripts:migration_repoint' %}"
+                  method="post"
+                  class="d-inline">
+              {% csrf_token %}
+              <button type="submit"
+                      class="btn btn-primary"
+                      {% if references_queued %}disabled{% endif %}>{% trans "Repoint references" %}</button>
             </form>
           {% endif %}
         </div>

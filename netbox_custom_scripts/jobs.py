@@ -754,3 +754,44 @@ class MigrationActivationJob(JobRunner):
             f'{serving} of {len(results)} Custom Script Project(s) are serving a revision, '
             f'publishing {published} Custom Script(s). Repoint the references next.'
         )
+
+
+class MigrationReferencesJob(JobRunner):
+    """
+    Move every reference an installation holds onto the plugin's own rows.
+
+    Runs after activation, because an Event Rule's action object has to name a Custom Script that
+    exists. Each part records its own completion, so a re-run continues rather than repeats.
+    """
+
+    class Meta:
+        name = 'Custom Script migration references'
+
+    def run(self, **kwargs):
+        """Repoint the Event Rules and the permissions, reporting what could not move."""
+        from .migration import cutover, references
+
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            self.logger.error(f'Refusing the Custom Script migration reference pass, because {reason}')
+            raise JobFailed()
+
+        run = MigrationRun.current()
+        try:
+            rules, rule_warnings = references.repoint_event_rules(run)
+            permissions, permission_warnings = references.repoint_permissions(run)
+        except cutover.CutoverRefused as refusal:
+            self.logger.error(str(refusal))
+            raise JobFailed() from refusal
+
+        for warning in (*rule_warnings, *permission_warnings):
+            self.logger.warning(warning)
+        self.logger.info(
+            f'Repointed {rules.get("actions", 0)} Event Rule action(s) and {rules.get("sources", 0)} '
+            f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service.'
+        )
+        self.logger.info(
+            f'Moved {permissions.get("swapped", 0)} permission(s) onto the plugin and split '
+            f'{permissions.get("split", 0)}, leaving {permissions.get("constrained", 0)} constrained '
+            f'permission(s) for manual attention.'
+        )

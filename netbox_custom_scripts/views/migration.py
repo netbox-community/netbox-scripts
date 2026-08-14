@@ -11,7 +11,14 @@ from utilities.permissions import get_permission_for_model
 from utilities.views import ContentTypePermissionRequiredMixin, register_model_view
 
 from ..choices import MigrationStateChoices
-from ..jobs import MigrationActivationJob, MigrationCutoverJob, MigrationInventoryJob, MigrationStagingJob
+from ..jobs import (
+    MigrationActivationJob,
+    MigrationCutoverJob,
+    MigrationInventoryJob,
+    MigrationReferencesJob,
+    MigrationStagingJob,
+)
+from ..migration import cutover
 from ..models import CustomScriptProject, MigrationRun
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
@@ -19,6 +26,7 @@ __all__ = (
     'MigrationActivationView',
     'MigrationCutoverView',
     'MigrationInventoryView',
+    'MigrationReferencesView',
     'MigrationRunView',
     'MigrationStagingView',
     'MigrationView',
@@ -104,8 +112,12 @@ class MigrationView(BaseMigrationView):
                 'cutover_queued': _queued(MigrationCutoverJob),
                 'activation_job': _latest(MigrationActivationJob),
                 'activation_queued': _queued(MigrationActivationJob),
+                'references_job': _latest(MigrationReferencesJob),
+                'references_queued': _queued(MigrationReferencesJob),
                 # Offered once the fence is recorded, which is the only precondition activation has.
-                'can_activate': bool(run and run.step_done('cutover')),
+                'can_activate': bool(run and run.step_done(cutover.STEP)),
+                # The references name plugin rows, and activation is what creates them.
+                'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)),
                 # The fence is offered only while a run is staged and has not crossed, so the page
                 # cannot invite a step the job would refuse.
                 'can_cut_over': bool(run and run.state == MigrationStateChoices.STAGING),
@@ -217,10 +229,24 @@ class MigrationActivationView(BaseMigrationView):
     def post(self, request):
         """Queue the pass unless one is already under way."""
         # Not confirmed first, unlike staging and the cutover. The decision was taken at the fence,
-        # and concept 22.7 makes activation a step of the cutover rather than a separate choice.
+        # and activation is a step of the cutover rather than a separate choice.
         if _queued(MigrationActivationJob):
             messages.warning(request, _('A Custom Script migration activation is already queued.'))
             return redirect('plugins:netbox_custom_scripts:migration')
         MigrationActivationJob.enqueue(user=request.user)
         messages.success(request, _('Queued activation of the staged Custom Script Projects.'))
+        return redirect('plugins:netbox_custom_scripts:migration')
+
+
+class MigrationReferencesView(BaseMigrationView):
+    """Queue the reference pass that moves Event Rules and permissions onto the plugin."""
+
+    def post(self, request):
+        """Queue the pass unless one is already under way."""
+        # Two passes at once would both read the same journal and write the same rows.
+        if _queued(MigrationReferencesJob):
+            messages.warning(request, _('A Custom Script migration reference pass is already queued.'))
+            return redirect('plugins:netbox_custom_scripts:migration')
+        MigrationReferencesJob.enqueue(user=request.user)
+        messages.success(request, _('Queued the Custom Script migration reference pass.'))
         return redirect('plugins:netbox_custom_scripts:migration')

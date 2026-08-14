@@ -6,7 +6,12 @@ from django.urls import reverse
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from netbox_custom_scripts.choices import MigrationStateChoices, RevisionStatusChoices
-from netbox_custom_scripts.jobs import MigrationCutoverJob, MigrationInventoryJob, MigrationStagingJob
+from netbox_custom_scripts.jobs import (
+    MigrationCutoverJob,
+    MigrationInventoryJob,
+    MigrationReferencesJob,
+    MigrationStagingJob,
+)
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
@@ -24,6 +29,9 @@ class MigrationTriggerTestCase(TestCase):
         )
         self.staging = self.enterContext(mock.patch.object(MigrationStagingJob, 'enqueue', side_effect=self.fake_job))
         self.cutover = self.enterContext(mock.patch.object(MigrationCutoverJob, 'enqueue', side_effect=self.fake_job))
+        self.references = self.enterContext(
+            mock.patch.object(MigrationReferencesJob, 'enqueue', side_effect=self.fake_job)
+        )
 
     @staticmethod
     def fake_job(**kwargs):
@@ -233,4 +241,37 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_page_names_the_latest_cutover(self):
         self.grant('add')
         job = self.record(MigrationCutoverJob)
+        self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
+
+    def test_the_repoint_button_appears_only_once_the_projects_are_activated(self):
+        # The references name plugin rows, and activation is what creates them.
+        self.grant('add')
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        self.assertNotIn('Repoint references', self.client.get(self.url('migration')).content.decode())
+
+        run.record_step('activate', projects=[])
+
+        self.assertIn('Repoint references', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_repoint_route_queues_the_job_and_returns_to_the_page(self):
+        self.grant('add')
+        response = self.client.post(self.url('migration_repoint'))
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(response.url, self.url('migration'))
+        self.references.assert_called_once()
+
+    def test_the_repoint_route_refuses_while_one_is_already_queued(self):
+        self.grant('add')
+        self.record(MigrationReferencesJob, status=JobStatusChoices.STATUS_RUNNING)
+        response = self.client.post(self.url('migration_repoint'))
+        self.assertHttpStatus(response, 302)
+        self.references.assert_not_called()
+
+    def test_the_repoint_route_needs_the_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_repoint')), 403)
+        self.references.assert_not_called()
+
+    def test_the_page_names_the_latest_reference_pass(self):
+        self.grant('add')
+        job = self.record(MigrationReferencesJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())

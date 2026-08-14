@@ -7,6 +7,7 @@ from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from netbox_custom_scripts.choices import MigrationStateChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import (
+    MigrationActivationJob,
     MigrationCutoverJob,
     MigrationInventoryJob,
     MigrationReferencesJob,
@@ -29,6 +30,9 @@ class MigrationTriggerTestCase(TestCase):
         )
         self.staging = self.enterContext(mock.patch.object(MigrationStagingJob, 'enqueue', side_effect=self.fake_job))
         self.cutover = self.enterContext(mock.patch.object(MigrationCutoverJob, 'enqueue', side_effect=self.fake_job))
+        self.activation = self.enterContext(
+            mock.patch.object(MigrationActivationJob, 'enqueue', side_effect=self.fake_job)
+        )
         self.references = self.enterContext(
             mock.patch.object(MigrationReferencesJob, 'enqueue', side_effect=self.fake_job)
         )
@@ -241,6 +245,40 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_page_names_the_latest_cutover(self):
         self.grant('add')
         job = self.record(MigrationCutoverJob)
+        self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
+
+    def test_the_activate_button_appears_only_once_the_fence_is_recorded(self):
+        # Crossing the fence is what activation waits for, not merely reaching the cutover state:
+        # a run whose cutover job failed partway has the state and not the step.
+        self.grant('add')
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        self.assertNotIn('Activate Projects', self.client.get(self.url('migration')).content.decode())
+
+        run.record_step('cutover', counts={})
+
+        self.assertIn('Activate Projects', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_activate_route_queues_the_job_and_returns_to_the_page(self):
+        self.grant('add')
+        response = self.client.post(self.url('migration_activate'))
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(response.url, self.url('migration'))
+        self.activation.assert_called_once()
+
+    def test_the_activate_route_refuses_while_one_is_already_queued(self):
+        self.grant('add')
+        self.record(MigrationActivationJob, status=JobStatusChoices.STATUS_RUNNING)
+        response = self.client.post(self.url('migration_activate'))
+        self.assertHttpStatus(response, 302)
+        self.activation.assert_not_called()
+
+    def test_the_activate_route_needs_the_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_activate')), 403)
+        self.activation.assert_not_called()
+
+    def test_the_page_names_the_latest_activation(self):
+        self.grant('add')
+        job = self.record(MigrationActivationJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
     def test_the_repoint_button_appears_only_once_the_projects_are_activated(self):

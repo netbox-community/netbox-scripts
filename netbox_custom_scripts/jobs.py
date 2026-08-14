@@ -746,10 +746,9 @@ class MigrationActivationJob(JobRunner):
         self.job.data = {'projects': results}
         for result in results:
             self.logger.info(f'Project {result["project_key"]} {result["outcome"]}.')
-        serving = CustomScriptProject.objects.filter(
-            key__in=[result['project_key'] for result in results], active_revision__isnull=False
-        ).count()
-        published = CustomScript.objects.filter(project__key__in=[r['project_key'] for r in results]).count()
+        keys = [result['project_key'] for result in results]
+        serving = CustomScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).count()
+        published = CustomScript.objects.filter(project__key__in=keys).count()
         self.logger.info(
             f'{serving} of {len(results)} Custom Script Project(s) are serving a revision, '
             f'publishing {published} Custom Script(s). Repoint the references next.'
@@ -780,18 +779,31 @@ class MigrationReferencesJob(JobRunner):
         try:
             rules, rule_warnings = references.repoint_event_rules(run)
             permissions, permission_warnings = references.repoint_permissions(run)
+            # History before schedules, so preservation happens before anything new is created, and
+            # both before the built-in rows are deleted, since a Script's jobs go with it.
+            history, history_warnings = references.repoint_job_history(run)
+            schedules, schedule_warnings = references.recreate_schedules(run)
         except cutover.CutoverRefused as refusal:
             self.logger.error(str(refusal))
             raise JobFailed() from refusal
 
-        for warning in (*rule_warnings, *permission_warnings):
+        for warning in (*rule_warnings, *permission_warnings, *history_warnings, *schedule_warnings):
             self.logger.warning(warning)
         self.logger.info(
             f'Repointed {rules.get("actions", 0)} Event Rule action(s) and {rules.get("sources", 0)} '
             f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service.'
         )
+        left = permissions.get('constrained', 0) + permissions.get('unmappable', 0)
         self.logger.info(
             f'Moved {permissions.get("swapped", 0)} permission(s) onto the plugin and split '
-            f'{permissions.get("split", 0)}, leaving {permissions.get("constrained", 0)} constrained '
-            f'permission(s) for manual attention.'
+            f'{permissions.get("split", 0)}, leaving {left} withdrawn for manual attention.'
+        )
+        self.logger.info(
+            f'Moved {history.get("moved", 0)} Job(s) of history onto the Custom Scripts, leaving '
+            f'{history.get("unresolved", 0)} unresolved script(s) and {history.get("modules", 0)} '
+            f'module Job(s) where they are.'
+        )
+        self.logger.info(
+            f'Recreated {schedules.get("recreated", 0)} schedule(s), {schedules.get("shifted", 0)} of them '
+            f'starting now rather than when they were due, and skipped {schedules.get("skipped", 0)}.'
         )

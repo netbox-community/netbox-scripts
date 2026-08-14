@@ -45,10 +45,6 @@ class ReferenceMigrationMixin(LegacySourceMixin):
         """Return the Custom Script the built-in Deploy migrated to."""
         return CustomScript.objects.get(class_name='Deploy')
 
-    #
-    # Fixtures
-    #
-
     def action_rule(self, name='on device change'):
         """A rule that runs the built-in Script."""
         rule = EventRule.objects.create(
@@ -274,7 +270,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertTrue(permission.enabled)
         # Who held it is untouched, because the row itself is what moved.
         self.assertEqual([item.name for item in permission.groups.all()], ['operators'])
-        self.assertEqual(counts, {'swapped': 1, 'split': 0, 'constrained': 0})
+        self.assertEqual(counts, {'swapped': 1, 'split': 0, 'constrained': 0, 'unmappable': 0})
         self.assertEqual(warnings, [])
 
     def test_a_permission_on_the_built_in_modules_moves_onto_the_projects(self):
@@ -312,7 +308,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(sibling.actions, ['view', 'run'])
         self.assertTrue(sibling.enabled)
         self.assertEqual([item.name for item in sibling.groups.all()], ['operators'])
-        self.assertEqual(counts, {'swapped': 0, 'split': 1, 'constrained': 0})
+        self.assertEqual(counts, {'swapped': 0, 'split': 1, 'constrained': 0, 'unmappable': 0})
 
     def test_a_constrained_permission_is_reported_and_left_untouched(self):
         # Its filters name fields the plugin models do not have, so neither copying nor dropping
@@ -328,6 +324,41 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(counts['constrained'], 1)
         self.assertEqual(counts['swapped'], 0)
         self.assertTrue(any(permission.name in warning for warning in warnings))
+
+    def test_a_permission_with_nothing_left_to_grant_is_left_withdrawn(self):
+        # Swapping it would leave an enabled permission granting nothing, so it is treated the way
+        # a constrained one is: withdrawn and named.
+        permission = self.permission(actions=('add', 'delete'))
+        self.cross_over()
+
+        counts, warnings = references.repoint_permissions(self.migration)
+
+        permission.refresh_from_db()
+        self.assertEqual(set(permission.object_types.values_list('pk', flat=True)), {self.script_type.pk})
+        self.assertFalse(permission.enabled)
+        self.assertEqual(permission.actions, ['add', 'delete'])
+        self.assertEqual(counts['unmappable'], 1)
+        self.assertEqual(counts['swapped'], 0)
+        self.assertTrue(any('none of which' in warning for warning in warnings))
+
+    def test_two_permissions_sharing_a_name_each_get_their_own_sibling(self):
+        # ObjectPermission.name is not unique, so keying the sibling on it would make the second
+        # permission adopt the first's and silently drop its own users and groups.
+        first = self.permission(extra_type=self.site_type)
+        second = self.permission(extra_type=self.site_type)
+        group = Group.objects.create(name='second holders')
+        second.groups.add(group)
+        self.cross_over()
+
+        counts, _warnings = references.repoint_permissions(self.migration)
+
+        self.assertEqual(counts['split'], 2)
+        siblings = ObjectPermission.objects.filter(name__endswith=references._SIBLING_SUFFIX)
+        self.assertEqual(siblings.count(), 2)
+        # The second permission's own holders reached its own sibling.
+        self.assertEqual(sorted(item.name for sibling in siblings for item in sibling.groups.all()), ['second holders'])
+        self.migration.refresh_from_db()
+        self.assertEqual(sorted(self.migration.journal['split_permissions']), sorted([str(first.pk), str(second.pk)]))
 
     def test_an_action_the_plugin_does_not_separate_is_reported_rather_than_granted(self):
         permission = self.permission(actions=('view', 'add', 'delete'))
@@ -392,6 +423,25 @@ class MigrationReferencesJobTestCase(ReferenceMigrationMixin, TestCase):
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('Event Rule action(s)', messages)
         self.assertIn('Moved 1 permission(s)', messages)
+        # One button does all four repoints, so the job speaks for every one of them.
+        self.assertIn('Job(s) of history', messages)
+        self.assertIn('Recreated 0 schedule(s)', messages)
+
+    def test_the_job_records_all_four_steps_so_a_re_run_repeats_none(self):
+        self.action_rule()
+        self.cross_over()
+
+        MigrationReferencesJob.enqueue(immediate=True)
+
+        self.migration.refresh_from_db()
+        for step in (
+            references.EVENT_RULES_STEP,
+            references.PERMISSIONS_STEP,
+            references.HISTORY_STEP,
+            references.SCHEDULES_STEP,
+        ):
+            with self.subTest(step=step):
+                self.assertTrue(self.migration.step_done(step))
 
     def test_the_job_logs_every_warning_it_raised(self):
         permission = self.permission(constraints={'name': 'Deploy'})

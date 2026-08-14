@@ -1,0 +1,25 @@
+{% extends "generic/confirmation_form.html" %}
+{% load i18n %}
+{% comment %}
+Cutover confirmation.
+
+Context:
+  - return_url: Where Cancel goes, the migration page
+{% endcomment %}
+{% block title %}
+  {% trans "Enter the cutover" %}
+{% endblock title %}
+{% block confirmation_title %}
+  {% trans "Enter the cutover" %}
+{% endblock confirmation_title %}
+{% block message %}
+  <p>{% trans "Close the built-in Custom Scripts and hand this installation over to the plugin?" %}</p>
+  <p class="text-danger">
+    {% trans "There is no way back. Recovery after this point means restoring the database and the source storage together from a backup taken before it." %}
+  </p>
+  <p class="text-secondary">
+    {% trans "Permissions granting access to the built-in Custom Scripts are withdrawn, Event Rules that use one are disabled, queued and scheduled runs are cancelled, and the source directories are deregistered from synchronization." %}
+    {% trans "Nothing that carries history is deleted, and every reference is recorded first so the next steps can move it onto the plugin." %}
+    {% trans "The cutover refuses while any built-in Script job is still running, so wait for those to finish first." %}
+  </p>
+{% endblock message %}

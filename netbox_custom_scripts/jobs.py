@@ -7,10 +7,10 @@ from core.exceptions import JobFailed
 from netbox.jobs import JobRunner
 
 from . import activation, branching
-from .choices import ActivationPolicyChoices, RevisionStatusChoices
+from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_JOB_TIMEOUT
 from .execution import ScriptNotExecutableError, run_script
-from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
+from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from .runtime.exceptions import (
     DiscoveryError,
     EntrypointImportError,
@@ -618,13 +618,21 @@ class MigrationStagingJob(JobRunner):
         name = 'Custom Script migration staging'
 
     def run(self, **kwargs):
-        """Refuse on any blocking finding, then create the proposed Projects and stage them."""
+        """Refuse past the fence or on any blocking finding, then create and stage the Projects."""
         from .migration import plan, source, staging
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
             detail = f'Refusing Custom Script migration staging, because {reason}'
             self.logger.error(detail)
+            raise JobFailed()
+
+        run = MigrationRun.current()
+        if run and run.state not in (MigrationStateChoices.LEGACY, MigrationStateChoices.STAGING):
+            self.logger.error(
+                f'Refusing to stage anything. The migration is already in the {run.state} state, and '
+                'nothing may be staged once the cutover has begun.'
+            )
             raise JobFailed()
 
         modules = source.legacy_modules()
@@ -637,6 +645,12 @@ class MigrationStagingJob(JobRunner):
                     self.logger.error(finding['message'])
             self.logger.error('Refusing to stage anything. Resolve every blocking finding above, then run this again.')
             raise JobFailed()
+
+        # The state moves before the work, not after, because a pass that fails partway has still
+        # copied source into Projects, which is what the staging state means.
+        run = run or MigrationRun.start(user=self.job.user)
+        if run.state == MigrationStateChoices.LEGACY:
+            run.advance(MigrationStateChoices.STAGING)
 
         results = staging.stage(plan.group(modules), modules)
         self.job.data = {'projects': results}
@@ -658,4 +672,85 @@ class MigrationStagingJob(JobRunner):
         self.logger.info(
             f'{len(results)} Custom Script Project(s) staged, none activated. '
             f'{pending} awaiting a verdict, which each revision records.'
+        )
+
+
+class MigrationCutoverJob(JobRunner):
+    """
+    Cross the migration fence: capture every reference to replay, then close what a plugin can.
+
+    Irreversible by policy rather than by mechanism. Nothing carrying history is deleted here, and
+    re-running the job after a partial failure resumes rather than repeats.
+    """
+
+    class Meta:
+        name = 'Custom Script migration cutover'
+
+    def run(self, **kwargs):
+        """Refuse if the state or a running job forbids it, then capture and close."""
+        from .migration import cutover
+
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            self.logger.error(f'Refusing the Custom Script migration cutover, because {reason}')
+            raise JobFailed()
+
+        run = MigrationRun.current()
+        try:
+            counts = cutover.enter_cutover(run)
+        except cutover.CutoverRefused as refusal:
+            self.logger.error(str(refusal))
+            raise JobFailed() from refusal
+
+        run.refresh_from_db()
+        for warning in run.warnings:
+            self.logger.warning(warning)
+        self.logger.info(
+            f'Withdrew {counts["permissions"]} permission(s) on the built-in feature, disabled '
+            f'{counts["event_rules"]} Event Rule(s), cancelled {counts["schedules"]} queued job(s), '
+            f'and deregistered {counts["auto_sync"]} synchronization record(s).'
+        )
+        self.logger.info(
+            'The built-in Custom Scripts accept no further work from any user this installation '
+            'grants permissions to. Activate the staged Projects next.'
+        )
+
+
+class MigrationActivationJob(JobRunner):
+    """
+    Put the staged Projects into service, so the plugin serves and its Custom Script rows exist.
+
+    Runs after the fence and before the references move, because a reference has to name a row that
+    exists. Safe to run again: a project already serving its newest revision has its rows repaired.
+    """
+
+    class Meta:
+        name = 'Custom Script migration activation'
+
+    def run(self, **kwargs):
+        """Activate every staged Project, reporting each outcome rather than stopping at the first."""
+        from .migration import cutover
+
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            self.logger.error(f'Refusing Custom Script migration activation, because {reason}')
+            raise JobFailed()
+
+        run = MigrationRun.current()
+        try:
+            results = cutover.activate_staged(run)
+        except cutover.CutoverRefused as refusal:
+            self.logger.error(str(refusal))
+            raise JobFailed() from refusal
+
+        self.job.data = {'projects': results}
+        for result in results:
+            self.logger.info(f'Project {result["project_key"]} {result["outcome"]}.')
+        serving = CustomScriptProject.objects.filter(
+            key__in=[result['project_key'] for result in results], active_revision__isnull=False
+        ).count()
+        published = CustomScript.objects.filter(project__key__in=[r['project_key'] for r in results]).count()
+        self.logger.info(
+            f'{serving} of {len(results)} Custom Script Project(s) are serving a revision, '
+            f'publishing {published} Custom Script(s). Repoint the references next.'
         )

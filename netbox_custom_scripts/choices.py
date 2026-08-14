@@ -4,6 +4,7 @@ from utilities.choices import ChoiceSet
 
 __all__ = (
     'ActivationPolicyChoices',
+    'MigrationStateChoices',
     'ModuleDiscoveryStatusChoices',
     'ProjectSourceTypeChoices',
     'RevisionStatusChoices',
@@ -79,4 +80,27 @@ class RevisionStatusChoices(ChoiceSet):
         (INVALID, _('Invalid'), 'red'),
         (ACTIVE, _('Active'), 'teal'),
         (RETIRED, _('Retired'), 'gray'),
+    )
+
+
+class MigrationStateChoices(ChoiceSet):
+    """
+    States of one migration off the built-in Custom Scripts feature.
+
+    LEGACY and STAGING are both reversible: the built-in feature stays authoritative and the
+    migration can be abandoned by deleting what staging produced. CUTOVER is the point of no
+    return, and MIGRATED means the plugin serves and the built-in rows are gone. The order the
+    members are declared in is the only order a run may move through.
+    """
+
+    LEGACY = 'legacy'
+    STAGING = 'staging'
+    CUTOVER = 'cutover'
+    MIGRATED = 'migrated'
+
+    CHOICES = (
+        (LEGACY, _('Legacy'), 'gray'),
+        (STAGING, _('Staging'), 'cyan'),
+        (CUTOVER, _('Cutover'), 'orange'),
+        (MIGRATED, _('Migrated'), 'green'),
     )

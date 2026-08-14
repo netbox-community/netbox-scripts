@@ -75,6 +75,29 @@ class CustomScriptModuleDiscoveryPanel(ObjectAttributesPanel):
     discovery_error = attrs.TextAttr('discovery_error', label=_('Error'))
 
 
+class MigrationRunPanel(ObjectAttributesPanel):
+    """State of one migration off the built-in feature (detail view, left column)."""
+
+    title = _('Migration')
+
+    state = attrs.ChoiceAttr('state', label=_('State'))
+    created = attrs.DateTimeAttr('created', label=_('Started'))
+    cutover_started = attrs.DateTimeAttr('cutover_started', label=_('Cutover started'))
+    completed = attrs.DateTimeAttr('completed', label=_('Completed'))
+    user = attrs.RelatedObjectAttr('user', label=_('Started by'))
+
+
+class MigrationRunVersionPanel(ObjectAttributesPanel):
+    """The versions a migration ran against (detail view, right column)."""
+
+    # Recorded because the supported reversal is restoring the database and the source storage
+    # together with the versions that wrote them, so an operator needs to read them back.
+    title = _('Versions')
+
+    netbox_version = attrs.TextAttr('netbox_version', label=_('NetBox'))
+    plugin_version = attrs.TextAttr('plugin_version', label=_('Plugin'))
+
+
 class CustomScriptProjectPanel(ObjectAttributesPanel):
     """Identity attributes of a Custom Script Project (detail view, left column)."""
 

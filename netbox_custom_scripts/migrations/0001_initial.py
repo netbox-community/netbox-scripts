@@ -4,6 +4,7 @@ import netbox.models.deletion
 import taggit.managers
 import utilities.json
 import uuid
+from django.conf import settings
 from django.db import migrations, models
 
 
@@ -15,6 +16,7 @@ class Migration(migrations.Migration):
         ('core', '0024_job_notifications'),
         ('extras', '0138_customfieldchoiceset_choice_colors'),
         ('users', '0016_default_ordering_indexes'),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
@@ -134,6 +136,28 @@ class Migration(migrations.Migration):
                     ('run_customscript', 'Can run a Custom Script'),
                     ('schedule_customscript', 'Can schedule a Custom Script'),
                 ),
+            },
+            bases=(netbox.models.deletion.DeleteMixin, models.Model),
+        ),
+        migrations.CreateModel(
+            name='MigrationRun',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
+                ('created', models.DateTimeField(auto_now_add=True, null=True)),
+                ('last_updated', models.DateTimeField(auto_now=True, null=True)),
+                ('state', models.CharField(default='legacy', editable=False, max_length=50)),
+                ('netbox_version', models.CharField(blank=True, editable=False, max_length=50)),
+                ('plugin_version', models.CharField(blank=True, editable=False, max_length=50)),
+                ('cutover_started', models.DateTimeField(blank=True, editable=False, null=True)),
+                ('completed', models.DateTimeField(blank=True, editable=False, null=True)),
+                ('journal', models.JSONField(blank=True, default=dict, editable=False)),
+                ('warnings', models.JSONField(blank=True, default=list, editable=False)),
+                ('user', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)),
+            ],
+            options={
+                'verbose_name': 'Custom Script migration',
+                'verbose_name_plural': 'Custom Script migrations',
+                'ordering': ('-created',),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),

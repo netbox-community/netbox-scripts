@@ -36,7 +36,16 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 # main schema pointing at a row that exists only inside a branch. Custom Scripts hold no bytes
 # and are listed for a third reason: activation writes them in the same transaction that moves
 # a project's active revision, so splitting them across schemas would split that transaction.
-GLOBAL_MODELS = ('customscript', 'customscriptmodule', 'customscriptproject', 'customscriptprojectrevision')
+# A migration run is listed for a fourth reason: a run started inside a branch would leave the
+# cutover state invisible on the main schema, so the built-in feature would look un-fenced to
+# everything outside that branch.
+GLOBAL_MODELS = (
+    'customscript',
+    'customscriptmodule',
+    'customscriptproject',
+    'customscriptprojectrevision',
+    'migrationrun',
+)
 
 # The two things unsafe routing can need, in one hint because there is one error path. Which one
 # applies is already named by the reason the check and the guard report, and the configuration on
@@ -47,9 +56,11 @@ ROUTING_HINT = (
     'Use a NetBox Branching release that exposes the supports_branching API, since this plugin '
     'cannot confirm the routing without it. If these models are still routed to a branch, add the '
     "labels to PLUGINS_CONFIG['netbox_branching']['exempt_models']: "
+    '"netbox_custom_scripts.customscript", '
     '"netbox_custom_scripts.customscriptmodule", '
     '"netbox_custom_scripts.customscriptproject", '
-    '"netbox_custom_scripts.customscriptprojectrevision".'
+    '"netbox_custom_scripts.customscriptprojectrevision", '
+    '"netbox_custom_scripts.migrationrun".'
 )
 
 logger = logging.getLogger('netbox.plugins.netbox_custom_scripts.branching')

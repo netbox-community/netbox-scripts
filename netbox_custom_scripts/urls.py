@@ -10,6 +10,13 @@ urlpatterns: tuple = (
     path('migration/', views.MigrationView.as_view(), name='migration'),
     path('migration/inventory/', views.MigrationInventoryView.as_view(), name='migration_inventory'),
     path('migration/stage/', views.MigrationStagingView.as_view(), name='migration_stage'),
+    path('migration/cutover/', views.MigrationCutoverView.as_view(), name='migration_cutover'),
+    path('migration/activate/', views.MigrationActivationView.as_view(), name='migration_activate'),
+    # Detail only, like a revision: a run is opened by a pass and read from the Migration page.
+    path(
+        'migration/runs/<int:pk>/',
+        include(get_model_urls('netbox_custom_scripts', 'migrationrun')),
+    ),
     path(
         'modules/',
         include(get_model_urls('netbox_custom_scripts', 'customscriptmodule', detail=False)),

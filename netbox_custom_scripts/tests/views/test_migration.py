@@ -5,9 +5,9 @@ from django.urls import reverse
 
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
-from netbox_custom_scripts.choices import RevisionStatusChoices
-from netbox_custom_scripts.jobs import MigrationInventoryJob, MigrationStagingJob
-from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.choices import MigrationStateChoices, RevisionStatusChoices
+from netbox_custom_scripts.jobs import MigrationCutoverJob, MigrationInventoryJob, MigrationStagingJob
+from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -23,6 +23,7 @@ class MigrationTriggerTestCase(TestCase):
             mock.patch.object(MigrationInventoryJob, 'enqueue', side_effect=self.fake_job)
         )
         self.staging = self.enterContext(mock.patch.object(MigrationStagingJob, 'enqueue', side_effect=self.fake_job))
+        self.cutover = self.enterContext(mock.patch.object(MigrationCutoverJob, 'enqueue', side_effect=self.fake_job))
 
     @staticmethod
     def fake_job(**kwargs):
@@ -184,3 +185,52 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_staging_route_needs_the_permission(self):
         self.assertHttpStatus(self.client.post(self.url('migration_stage')), 403)
         self.staging.assert_not_called()
+
+    def open_run(self, state):
+        """Open a migration run in one state, as a pass would have left it."""
+        return MigrationRun.objects.create(state=state)
+
+    def test_the_cutover_button_appears_only_once_a_run_is_staged(self):
+        self.grant('add')
+        self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
+        self.open_run(MigrationStateChoices.STAGING)
+
+        self.assertIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_cutover_button_is_gone_once_the_fence_has_been_crossed(self):
+        # The page must not offer a step the job would refuse.
+        self.grant('add')
+        self.open_run(MigrationStateChoices.CUTOVER)
+
+        self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_cutover_confirmation_queues_nothing(self):
+        self.grant('add')
+        response = self.client.get(self.url('migration_cutover'))
+        self.assertHttpStatus(response, 200)
+        self.assertIn('no way back', response.content.decode())
+        self.cutover.assert_not_called()
+
+    def test_the_cutover_route_queues_the_job_and_returns_to_the_page(self):
+        self.grant('add')
+        response = self.client.post(self.url('migration_cutover'))
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(response.url, self.url('migration'))
+        self.cutover.assert_called_once()
+
+    def test_the_cutover_refuses_while_one_is_already_queued(self):
+        self.grant('add')
+        self.record(MigrationCutoverJob, status=JobStatusChoices.STATUS_RUNNING)
+        response = self.client.post(self.url('migration_cutover'))
+        self.assertHttpStatus(response, 302)
+        self.cutover.assert_not_called()
+
+    def test_the_cutover_route_needs_the_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_cutover')), 403)
+        self.cutover.assert_not_called()
+
+    def test_the_page_names_the_latest_cutover(self):
+        self.grant('add')
+        job = self.record(MigrationCutoverJob)
+        self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())

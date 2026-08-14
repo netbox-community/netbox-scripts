@@ -1,5 +1,8 @@
 from .migration import (
+    MigrationActivationView,
+    MigrationCutoverView,
     MigrationInventoryView,
+    MigrationRunView,
     MigrationStagingView,
     MigrationView,
 )
@@ -59,7 +62,10 @@ __all__ = (
     'CustomScriptResultView',
     'CustomScriptRunView',
     'CustomScriptView',
+    'MigrationActivationView',
+    'MigrationCutoverView',
     'MigrationInventoryView',
+    'MigrationRunView',
     'MigrationStagingView',
     'MigrationView',
 )

@@ -8,16 +8,32 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
 from netbox_custom_scripts import branching
-from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.models import (
+    CustomScript,
+    CustomScriptModule,
+    CustomScriptProject,
+    CustomScriptProjectRevision,
+    MigrationRun,
+)
 
 PACKAGE = 'netbox_branching'
 MODULE = f'{PACKAGE}.utilities'
 
-GLOBAL_MODELS = (CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision)
+# Every model in branching.GLOBAL_MODELS, so a model added there without being listed here fails
+# rather than going unchecked.
+GLOBAL_MODELS = (
+    CustomScript,
+    CustomScriptModule,
+    CustomScriptProject,
+    CustomScriptProjectRevision,
+    MigrationRun,
+)
 GLOBAL_LABELS = [
+    'netbox_custom_scripts.customscript',
     'netbox_custom_scripts.customscriptmodule',
     'netbox_custom_scripts.customscriptproject',
     'netbox_custom_scripts.customscriptprojectrevision',
+    'netbox_custom_scripts.migrationrun',
 ]
 
 try:  # The real package, when a developer has it installed alongside this plugin.
@@ -81,6 +97,19 @@ def fake_model(model_name, app_label=branching.APP_LABEL):
 
 
 class ResolverTestCase(TestCase):
+    def test_this_suite_covers_every_global_model(self):
+        # Both fixtures above are hand-written, so a model added to branching.GLOBAL_MODELS without
+        # being added here would be routed to the main schema and never checked, and would be left
+        # out of the hint an operator acts on.
+        self.assertEqual(
+            sorted(model._meta.model_name for model in GLOBAL_MODELS),
+            sorted(branching.GLOBAL_MODELS),
+        )
+        self.assertEqual(
+            GLOBAL_LABELS,
+            sorted(f'{branching.APP_LABEL}.{name}' for name in branching.GLOBAL_MODELS),
+        )
+
     def test_the_global_models_are_not_branchable(self):
         # False is what routes a model to the main schema, so one project keeps one row set,
         # one source tree, and one entrypoint configuration no matter which branch is active.

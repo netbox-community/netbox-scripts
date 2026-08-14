@@ -8,6 +8,13 @@ Context:
   - staging_job:    The most recent staging Job, or None
   - staging_queued: Whether a staging pass is already under way
   - rows:           One {key, name, project} per Project either pass named, project None until staged
+  - run:            The open MigrationRun, or None before the first staging pass
+  - cutover_job:    The most recent cutover Job, or None
+  - cutover_queued: Whether a cutover is already under way
+  - can_cut_over:   Whether the run is staged and has not crossed the fence
+  - activation_job: The most recent activation Job, or None
+  - activation_queued: Whether an activation is already under way
+  - can_activate:   Whether the fence has been crossed, which is activation's only precondition
 {% endcomment %}
 {% block title %}
   {% trans "Custom Script migration" %}
@@ -23,12 +30,32 @@ Context:
           </p>
           <table class="table">
             <tr>
+              <th scope="row">{% trans "State" %}</th>
+              <td>
+                {% if run %}
+                  <a href="{{ run.get_absolute_url }}">
+                    <span class="badge text-bg-{{ run.get_state_color }}">{{ run.get_state_display }}</span>
+                  </a>
+                {% else %}
+                  <span class="badge text-bg-gray">{% trans "Not started" %}</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
               <th scope="row">{% trans "Last inventory" %}</th>
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=inventory_job %}</td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last staging" %}</th>
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=staging_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last cutover" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=cutover_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last activation" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=activation_job %}</td>
             </tr>
           </table>
           {% if rows %}
@@ -89,6 +116,20 @@ Context:
           </form>
           <a href="{% url 'plugins:netbox_custom_scripts:migration_stage' %}"
              class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>
+          {% if can_cut_over %}
+            <a href="{% url 'plugins:netbox_custom_scripts:migration_cutover' %}"
+               class="btn btn-danger{% if cutover_queued %} disabled{% endif %}">{% trans "Enter cutover" %}</a>
+          {% endif %}
+          {% if can_activate %}
+            <form action="{% url 'plugins:netbox_custom_scripts:migration_activate' %}"
+                  method="post"
+                  class="d-inline">
+              {% csrf_token %}
+              <button type="submit"
+                      class="btn btn-primary"
+                      {% if activation_queued %}disabled{% endif %}>{% trans "Activate Projects" %}</button>
+            </form>
+          {% endif %}
         </div>
       </div>
     </div>

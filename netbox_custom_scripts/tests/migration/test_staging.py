@@ -10,10 +10,20 @@ from django.utils import timezone
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.models import DataFile, DataSource
 from extras.models import Script, ScriptModule
-from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_custom_scripts.choices import (
+    ActivationPolicyChoices,
+    MigrationStateChoices,
+    ProjectSourceTypeChoices,
+    RevisionStatusChoices,
+)
 from netbox_custom_scripts.jobs import MigrationStagingJob, RevisionValidationJob
 from netbox_custom_scripts.migration import plan, source, staging
-from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.models import (
+    CustomScriptModule,
+    CustomScriptProject,
+    CustomScriptProjectRevision,
+    MigrationRun,
+)
 from netbox_custom_scripts.tests.runtime.test_cache import discard_tree
 from netbox_custom_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 
@@ -40,8 +50,8 @@ HELPER = b"""def describe():
 """
 
 
-class StageTestCase(TestCase):
-    """Staging creates Projects and revisions and activates nothing."""
+class LegacySourceMixin:
+    """The built-in content every staging and cutover suite works from."""
 
     def setUp(self):
         scripts_root = tempfile.mkdtemp(prefix='legacy-scripts-')
@@ -101,6 +111,10 @@ class StageTestCase(TestCase):
 
     def project_for(self, source_type):
         return CustomScriptProject.objects.get(source_type=source_type)
+
+
+class StageTestCase(LegacySourceMixin, TestCase):
+    """Staging creates Projects and revisions and activates nothing."""
 
     def test_a_synced_directory_becomes_a_project_holding_its_whole_folder(self):
         self.stage_all()
@@ -199,3 +213,40 @@ class StageTestCase(TestCase):
         self.assertEqual(
             list(Script.objects.values('pk', 'module_id', 'name', 'is_executable').order_by('pk')), before_scripts
         )
+
+    def test_the_job_opens_a_migration_run_and_moves_it_to_staging(self):
+        self.assertIsNone(MigrationRun.current())
+
+        MigrationStagingJob.enqueue(immediate=True)
+
+        run = MigrationRun.current()
+        self.assertEqual(run.state, MigrationStateChoices.STAGING)
+        self.assertTrue(run.netbox_version)
+
+    def test_a_second_pass_reuses_the_open_run(self):
+        MigrationStagingJob.enqueue(immediate=True)
+        first = MigrationRun.current()
+
+        MigrationStagingJob.enqueue(immediate=True)
+
+        self.assertEqual(MigrationRun.current(), first)
+        self.assertEqual(MigrationRun.objects.count(), 1)
+
+    def test_a_blocked_pass_opens_no_run(self):
+        # The state says source has been copied into Projects, so a pass that copied none must not
+        # claim it.
+        self.legacy_uploaded_module('my-report.py', NATIVE_SCRIPT)
+
+        MigrationStagingJob.enqueue(immediate=True)
+
+        self.assertIsNone(MigrationRun.current())
+
+    def test_the_job_refuses_to_stage_once_the_cutover_has_begun(self):
+        MigrationRun.objects.create(state=MigrationStateChoices.CUTOVER)
+
+        job = MigrationStagingJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertIn('cutover', ' '.join(entry['message'] for entry in job.log_entries))

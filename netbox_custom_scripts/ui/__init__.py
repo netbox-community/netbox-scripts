@@ -8,6 +8,8 @@ from .panels import (
     CustomScriptProjectSourcePanel,
     CustomScriptProjectStatePanel,
     CustomScriptStatePanel,
+    MigrationRunPanel,
+    MigrationRunVersionPanel,
 )
 
 __all__ = (
@@ -20,4 +22,6 @@ __all__ = (
     'CustomScriptProjectSourcePanel',
     'CustomScriptProjectStatePanel',
     'CustomScriptStatePanel',
+    'MigrationRunPanel',
+    'MigrationRunVersionPanel',
 )

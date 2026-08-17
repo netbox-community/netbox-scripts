@@ -44,6 +44,7 @@ logging, global search, REST, and GraphQL.
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. See [Data Source Projects](data-sources.md). |
 | Track a Data Source directory | Operator | Every synchronization of the Data Source rebuilds the project's source from the whole directory, validates it, and activates it when the policy allows. |
 | Reconcile a project on demand | Administrator | Rebuild a Data Source-backed project's source from the current file inventory without waiting for the next synchronization. |
+| Migrate off the built-in feature | Administrator | Report what moving off NetBox's built-in Custom Scripts would do, stage that content as inactive Projects, then cut over and move Job history, Event Rules, permissions, and schedules onto the plugin. See [Migration](migration.md). |
 | Browse published scripts | Operator | List, search, and filter every published Custom Script, or read a Project's own on its detail page. |
 | Enable or disable a script | Administrator | Toggle `enabled` on a published Custom Script, one at a time or in bulk, without affecting what synchronization owns. |
 | Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Custom Scripts](execution.md). |
@@ -64,5 +65,10 @@ follow-up releases:
 |---|---|
 | Uploading helper modules, archives, and other resources | Planned, uploads are one executable module at a time. A Project needing helpers is managed through a Data Source |
 | A repository manifest declaring its own entrypoints | Planned, entrypoint selection is a Project setting made in NetBox |
-| Requesting a run over REST | Planned, runs are requested from the UI |
-| Migration from NetBox's built-in Custom Scripts | Planned |
+| Declared pip requirements | Planned, a revision's external dependencies are neither read nor installed |
+| Recorded input values | Planned, a run records which script and revision ran and the result, but not the values submitted |
+| Configurable execution defaults | Planned, the timeout, notification policy and commit default come from the script class and cannot be overridden per installation |
+
+The Event Rule action needs NetBox 4.7, where the plugin action hook exists. On
+4.6 the plugin runs without it, and the plugin's objects still work as Event
+Rule sources.

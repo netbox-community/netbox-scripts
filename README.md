@@ -8,29 +8,43 @@ the Python package boundary used when loading and executing scripts.
 
 ## Status
 
-This is a pre-alpha release.
+This is a pre-alpha release. The complete path from source to a running script
+works end to end.
 
 Implemented:
 
-- the `CustomScriptProject` model with full UI, REST API, GraphQL, and
-  global-search surfaces
+- four models with full UI, REST API, GraphQL, and global-search surfaces:
+  `CustomScriptProject`, `CustomScriptProjectRevision`, `CustomScriptModule`,
+  and `CustomScript`
 - the plugin-owned script authoring API: `Script` base classes, variable
   types, dynamic form generation, structured logging, and `AbortScript`
+- compatibility with the built-in authoring API, so a script importing from
+  `extras.scripts` runs unchanged
 - immutable project revisions, each addressed by a canonical manifest and a
-  content digest
-- plugin-owned project storage: revision staging, filesystem verification,
-  activation, and cleanup on deletion
+  content digest, held in plugin-owned storage with verified reads, activation,
+  and cleanup on deletion
+- both source routes: uploading one script at a time, and mirroring a directory
+  of a NetBox Data Source that rebuilds on every synchronization
+- entrypoint selection as a Project setting, on a tab or over REST
+- the loading engine: a manifest-verified runtime cache, a private package
+  loader, Custom Script discovery, and leased revision validation
+- execution: running a script from the UI or over REST, committing or as a dry
+  run, deferred and recurring runs, and a result page with the run log
+- running a Custom Script from an Event Rule, and using the plugin's own objects
+  as Event Rule sources (the action needs NetBox 4.7)
+- migration off the built-in Custom Scripts feature: an inventory pass, a
+  staging pass, and a cutover that moves Job history, Event Rules, permissions,
+  and schedules onto the plugin
 
 Not yet implemented, planned for follow-up releases:
 
-- source uploads and Data Source synchronization
-- project modules and entrypoint selection
-- script discovery and semantic validation
-- package loading
-- execution and scheduling
-- Event Rule actions
-- revision UI and API surfaces
-- migration from NetBox's built-in Custom Scripts
+- uploading helper modules, archives, and other resources, since an upload is
+  one executable module at a time. A Project needing helpers uses a Data Source
+- a manifest in the repository declaring its own entrypoints
+- declared pip requirements, which are neither read nor installed
+- recording the input values a run was given
+- overriding the timeout, notification policy, and commit default per
+  installation
 
 ## Compatibility
 

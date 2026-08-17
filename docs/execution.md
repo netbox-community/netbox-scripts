@@ -174,6 +174,5 @@ piece of work.
 | Gap | Notes |
 |---|---|
 | Declared pip requirements | A script's declared external dependencies are not checked before it runs |
-| Event Rule action | A Custom Script cannot yet be the action of an Event Rule |
 | Recorded input values | The Job records which script and revision ran, and the result, but not the values that were submitted |
 | Configurable execution defaults | The timeout, notification policy and commit default are read from the class and cannot be overridden per installation |

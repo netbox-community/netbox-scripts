@@ -33,9 +33,12 @@ current boundaries.
 | [Configuration](configuration.md) | Supported settings |
 | [Uploading Scripts](uploading.md) | Adding source to a Project and putting it in service |
 | [Data Source Projects](data-sources.md) | Mirroring a Data Source directory, and what a synchronization does |
+| [Migration](migration.md) | Moving off NetBox's built-in Custom Scripts |
 | [Authoring](authoring.md) | Writing Custom Scripts against the plugin API |
 | [Runtime and Loading](runtime.md) | How revisions load, get discovered, and validate |
 | [Running Custom Scripts](execution.md) | Requesting a run, revision pinning, commit and dry run, reading a result |
+| [Event Rules](event-rules.md) | Running a Custom Script from a rule, and reacting to the plugin's own objects |
+| [Permissions](permissions.md) | The standard permissions and the four the plugin adds |
 | [Releases](releases.md) | Version history and upgrade notes |
 
 ## Compatibility

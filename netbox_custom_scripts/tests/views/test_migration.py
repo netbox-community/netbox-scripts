@@ -75,6 +75,62 @@ class MigrationTriggerTestCase(TestCase):
         # Staging has never run, so its row says so rather than linking anywhere.
         self.assertIn('Never run', body)
 
+    def with_findings(self, *findings):
+        """Record an inventory Job carrying the supplied findings."""
+        job = self.record(MigrationInventoryJob)
+        job.data = {'findings': list(findings)}
+        job.save()
+        return job
+
+    @staticmethod
+    def finding(level, code, path):
+        return {'level': level, 'code': code, 'pk': 1, 'path': path, 'message': f'{path} is {code}.'}
+
+    def test_a_blocking_finding_is_named_on_the_page(self):
+        self.grant('add')
+        self.with_findings(self.finding('blocking', 'report_style', 'audit/legacy_report.py'))
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertIn('Staging will refuse', body)
+        self.assertIn('audit/legacy_report.py', body)
+        self.assertIn('report_style', body)
+        self.assertIn('audit/legacy_report.py is report_style.', body)
+
+    def test_every_blocking_finding_is_listed(self):
+        self.grant('add')
+        self.with_findings(
+            self.finding('blocking', 'report_style', 'one.py'),
+            self.finding('blocking', 'not_importable', 'two-hyphen.py'),
+        )
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertIn('one.py', body)
+        self.assertIn('two-hyphen.py', body)
+
+    def test_a_warning_is_counted_rather_than_listed(self):
+        self.grant('add')
+        self.with_findings(
+            self.finding('warning', 'legacy_import', 'first.py'),
+            self.finding('warning', 'legacy_import', 'second.py'),
+        )
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertNotIn('Staging will refuse', body)
+        self.assertIn('2 modules import the legacy authoring API', body)
+        # Deliberate: listing the paths is the inventory's business, not this page's.
+        self.assertNotIn('first.py', body)
+
+    def test_a_clean_inventory_shows_no_refusal(self):
+        self.grant('add')
+        self.record(MigrationInventoryJob)
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertNotIn('Staging will refuse', body)
+
+    def test_a_job_carrying_no_report_renders(self):
+        # An inventory that failed before it recorded anything leaves data as None.
+        self.grant('add')
+        job = self.record(MigrationInventoryJob, status=JobStatusChoices.STATUS_ERRORED)
+        job.data = None
+        job.save()
+        self.assertHttpStatus(self.client.get(self.url('migration')), 200)
+
     def inventoried(self, *keys):
         """Record an inventory Job proposing the named Projects, creating none of them."""
         job = self.record(MigrationInventoryJob)

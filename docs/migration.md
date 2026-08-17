@@ -38,8 +38,16 @@ count beside it is how many Custom Scripts that revision publishes.
 
 **Run inventory** queues the report. It changes nothing, so run it as often as you like.
 
+Whatever the last inventory found that would refuse a migration is named on this page, one row per
+module, with the reason and the code. Staging refuses on any of them and creates nothing, so the page
+says so before you press the button rather than leaving you to read a failed Job. The
+legacy-import list is counted rather than listed, because it is one entry per module and it does not
+block anything. The inventory Job carries the full list.
+
 **Stage Projects** confirms first, because it creates Custom Script Projects. It refuses while
-another staging pass is queued, and it refuses if the inventory reports any blocking finding.
+another staging pass is queued, and it refuses if the inventory reports any blocking finding. What it
+reads is its own fresh report rather than the one on this page, so a blocking finding you have since
+resolved does not stop it, and one introduced since the last inventory still will.
 
 **Enter cutover** confirms first, and is the point of no return.
 

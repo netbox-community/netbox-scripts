@@ -18,7 +18,7 @@ from ..jobs import (
     MigrationReferencesJob,
     MigrationStagingJob,
 )
-from ..migration import cutover
+from ..migration import cutover, plan
 from ..models import CustomScriptProject, MigrationRun
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
@@ -44,6 +44,14 @@ def _proposed_projects(job):
         return {}
     entries = job.data.get('projects') or []
     return {entry['key']: entry for entry in entries if isinstance(entry, dict) and entry.get('key')}
+
+
+def _findings(job, level):
+    """Return the findings of one level that an inventory recorded."""
+    if not isinstance(getattr(job, 'data', None), dict):
+        return []
+    recorded = job.data.get('findings') or []
+    return [entry for entry in recorded if isinstance(entry, dict) and entry.get('level') == level]
 
 
 def _migration_rows(request, inventory_job, staging_job):
@@ -106,6 +114,10 @@ class MigrationView(BaseMigrationView):
                 'inventory_job': inventory_job,
                 'staging_job': staging_job,
                 'staging_queued': _queued(MigrationStagingJob),
+                # Staging refuses on any of these, which is otherwise invisible until its Job fails.
+                'blocking_findings': _findings(inventory_job, plan.BLOCKING),
+                # Counted rather than listed: one entry per module, and an installation holds hundreds.
+                'warning_count': len(_findings(inventory_job, plan.WARNING)),
                 'rows': _migration_rows(request, inventory_job, staging_job),
                 'run': run,
                 'cutover_job': _latest(MigrationCutoverJob),

@@ -7,6 +7,8 @@ Context:
   - inventory_job:  The most recent inventory Job, or None
   - staging_job:    The most recent staging Job, or None
   - staging_queued: Whether a staging pass is already under way
+  - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
+  - warning_count:  How many modules the last inventory reported a warning for
   - rows:           One {key, name, project} per Project either pass named, project None until staged
   - run:            The open MigrationRun, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
@@ -65,6 +67,39 @@ Context:
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=references_job %}</td>
             </tr>
           </table>
+          {% if blocking_findings %}
+            <div class="alert alert-danger mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "Staging will refuse" %}</h3>
+              <p>
+                {% trans "The last inventory found source a migration could not import. Staging creates nothing while any of these stands, so resolve each one in the built-in feature and run the inventory again." %}
+              </p>
+              <table class="table table-sm mb-0">
+                <tr>
+                  <th scope="col">{% trans "Module" %}</th>
+                  <th scope="col">{% trans "Why it blocks" %}</th>
+                </tr>
+                {% for finding in blocking_findings %}
+                  <tr>
+                    <td class="text-nowrap">
+                      <code>{{ finding.path }}</code>
+                      <div class="text-secondary small">{{ finding.code }}</div>
+                    </td>
+                    <td>{{ finding.message }}</td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+          {% endif %}
+          {% if warning_count %}
+            <p class="text-secondary mt-3">
+              {% blocktrans count total=warning_count %}
+                One module imports the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by it.
+              {% plural %}
+                {{ total }} modules import the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by them.
+              {% endblocktrans %}
+              {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
           {% if rows %}
             <h3 class="fs-4 mt-4">{% trans "Projects" %}</h3>
             <p class="text-secondary">

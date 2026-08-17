@@ -1,30 +1,36 @@
 # Migration
 
 An installation that already uses NetBox's built-in Custom Scripts can have that content read,
-reported on, and staged as Custom Script Projects without anything changing hands. This page
-covers the two passes that do it, how to read what they report, and what they deliberately leave
-alone.
+reported on, staged as Custom Script Projects, and finally handed over. This page covers the five
+passes that do it, how to read what they report, and what they deliberately leave alone.
 
-Nothing on this page activates a Project or alters what the built-in feature serves. For the whole
-of this release the built-in implementation stays authoritative, and the two run side by side.
+The first two change nothing an operator depends on, and you can stop after them. The third is
+irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 
-## What the two passes do
+## What the five passes do
 
-| Pass | What it does |
-|---|---|
-| Inventory | Reads every built-in script module, classifies its authoring dialect, works out which Projects a migration would create, and counts the Event Rules, permissions and Jobs a migration would touch. Writes nothing. |
-| Staging | Creates those Projects, declares their entrypoints, and stages their content as revisions. Activates nothing. |
+| Pass | What it does | Reversible |
+|---|---|---|
+| Inventory | Reads every built-in script module, classifies its authoring dialect, works out which Projects a migration would create, and counts the Event Rules, permissions and Jobs a migration would touch. Writes nothing. | Nothing to undo |
+| Staging | Creates those Projects, declares their entrypoints, and stages their content as revisions. Activates nothing. | Yes, delete what it created |
+| Cutover | Records every reference the repointing pass replays, then withdraws permissions on the built-in feature, disables its Event Rules, cancels its queued runs, and deregisters its source from synchronization. | **No** |
+| Activation | Puts every staged Project into service, so its Custom Scripts exist as rows. | After the cutover |
+| Repointing | Moves Event Rules, permissions and Job history onto those Custom Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
 
-Both run as background jobs and record what they found on their own Job row, so the result stays
-readable after the run. Run the inventory first and act on what it reports. Staging refuses to run
-at all while anything blocks.
+Each runs as a background job and records what it found on its own Job row, so the result stays
+readable after the run. Run them in the order above. Each refuses if the one before it has not
+completed.
+
+A migration is tracked as a single **migration run**, which holds the state, the journal the later
+passes replay from, and what each pass recorded. Only one run is open at a time, and its state only
+moves forward: `legacy`, `staging`, `cutover`, `migrated`.
 
 ## Starting a pass
 
 *Custom Scripts > Migration* carries both passes and names the most recent run of each, so you
 can see whether one is still queued.
 
-It also lists every Custom Script Project the two passes name, with the state each is in right
+It also lists every Custom Script Project the inventory and staging passes name, with the state each is in right
 now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
 so running one pass without the other is visible rather than implied. Each state is read as the
 page renders, so it is the verdict validation reached rather than what a pass recorded, and the
@@ -35,12 +41,17 @@ count beside it is how many Custom Scripts that revision publishes.
 **Stage Projects** confirms first, because it creates Custom Script Projects. It refuses while
 another staging pass is queued, and it refuses if the inventory reports any blocking finding.
 
-Either button returns you to this page, with the run it just queued named at the top. Follow that
+**Enter cutover** confirms first, and is the point of no return.
+
+**Activate Projects** and **Repoint references** appear once the cutover has been recorded. Neither
+confirms, because by then the decision has been made.
+
+Every button returns you to this page, with the run it just queued named at the top. Follow that
 link to the Job when you want the detail, because the log and the recorded result are both on the
 Job's own page.
 
-Starting either pass needs permission to add a Custom Script Project, and reading the result
-needs the *Core > Jobs* view permission, which is granted separately.
+Starting any pass needs permission to add a Custom Script Project, and reading the result needs
+the *Core > Jobs* view permission, which is granted separately.
 
 ## Reading the inventory
 
@@ -120,11 +131,79 @@ Putting a valid one in service is the separate, deliberate step described under
 If the report is `blocking`, staging logs every blocking finding and stops without creating
 anything. Fix the source, run the inventory again, and stage once it is clear.
 
+## Crossing the fence
+
+The cutover is the irreversible step, and it does two things in one pass: it records every
+reference the later passes replay, and then it closes what a plugin is able to close.
+
+**It captures first.** Every permission granting an action on the built-in feature, with who holds
+it. Every Event Rule naming the built-in feature, as an action or as a source. Every waiting
+built-in Script job, with the input it was going to run with. All three go on the migration run's
+journal, which is what makes the later passes replayable and what makes a half-finished migration
+resumable rather than stuck. Capture happens once, because a second capture would read the closed
+state back as though it were the original.
+
+**Then it closes four doors.**
+
+| What | How |
+|---|---|
+| Permissions | Every captured grant on the built-in feature is disabled. |
+| Event Rules | Every captured rule is disabled, so nothing fires during the handover. |
+| Queued runs | Every waiting job is failed closed and its task dropped, so nothing queued can still execute. The owner is notified, and the message says the plugin will recreate it. |
+| Synchronization | The built-in script source is deregistered, so no later synchronization rewrites it. |
+
+**What this is not.** It is the closest thing to a write fence a plugin can build, and it is not a
+complete one. It withdraws every grant NetBox's own permissions UI can make and nothing more. A
+superuser still passes, and so does anything `DEFAULT_PERMISSIONS` or a plain Django permission
+grant confers. Plan the cutover as a maintenance window rather than relying on this alone.
+
+**What it refuses.** A run that has not staged anything, a run that has already moved past the
+cutover, and any installation where a built-in Script job is still running. Wait for those to
+finish rather than cancelling them.
+
+Two warnings the pass can record rather than fail on. A queued job whose task is no longer in the
+queue cannot have its input read, so it is named and left for you to recreate by hand. A job whose
+input includes an uploaded file cannot have that value journalled, so it is recreated without it.
+
+## Activating the staged Projects
+
+**Activate Projects** puts every Project this migration staged into service. It comes after the
+fence and before repointing, because a Custom Script row exists only once a revision is active, and
+an Event Rule's action has to name one.
+
+Per Project it takes the newest valid revision. A Project already serving its newest revision is
+activated once more, which repairs its rows and writes nothing where nothing is wrong. A retired
+revision is never chosen, because preferring it over an older valid one would serve something the
+Project had already stood down from. A Project with no valid revision is reported and skipped, so
+one bad Project does not stop the rest.
+
+Safe to run again.
+
+## Repointing what the installation refers to
+
+**Repoint references** replays the journal onto the plugin's rows, in four steps.
+
+| Step | What moves |
+|---|---|
+| Event Rules | Each captured rule's action is pointed at the Custom Script that replaced its built-in Script, and the built-in object types it watched are replaced with the plugin's. A rule that moved completely is re-enabled. |
+| Permissions | Each captured grant is moved onto the plugin's object types. An action with no counterpart on the plugin is dropped and reported. |
+| Job history | The built-in Scripts' Jobs are moved onto the Custom Scripts that replaced them, so a run's history survives the migration. |
+| Schedules | Every schedule the cutover cancelled is enqueued again against the Custom Script. |
+
+Recreating a schedule follows one rule worth knowing. A schedule still in the future keeps its
+time. A recurrence that fell due during the handover keeps its interval and starts now, because a
+queue runs a past-due job the moment it is enqueued and a migration must not run an operator's
+script unasked. A one-shot that fell due is refused for the same reason, and reported so you can
+decide.
+
+Pointing an Event Rule's **action** at a Custom Script needs NetBox 4.7, where the plugin action
+exists. Below that line the rule's sources still move and its action is reported as unmoved.
+
 ## What is not part of this release
 
 | Area | Status |
 |---|---|
-| Activating a staged Project | Planned. Validation reaches the verdict, the revision waits, and an operator activates. |
-| Repointing Event Rules, permissions and Job history | Planned, with the cutover. The inventory counts them so the size is known. |
-| Retiring the built-in scripts | Planned, with the cutover. They keep running throughout. |
+| Deleting the built-in rows | Not done by any pass. The cutover closes them and leaves them in place, so nothing carrying history is destroyed. |
+| A complete write fence | Not possible for a plugin. See [Crossing the fence](#crossing-the-fence). |
 | Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |
+| Reversing a cutover | Not planned. Restore from a database backup. |

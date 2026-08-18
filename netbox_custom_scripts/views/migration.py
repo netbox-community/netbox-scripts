@@ -284,7 +284,7 @@ class MigrationReferencesView(DestructiveMigrationView):
 
 
 class MigrationCleanupView(DestructiveMigrationView):
-    """Queue the cleanup that deletes the built-in rows, confirming first because it deletes."""
+    """Queue the cleanup, confirming first."""
 
     template_name = 'netbox_custom_scripts/migration_cleanup.html'
 

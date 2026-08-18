@@ -16,7 +16,7 @@ __all__ = (
 
 STEP = 'cleanup'
 
-# A schedule is recreated through the built-in rows this pass deletes, so all four, not just history.
+# A schedule is recreated through the built-in rows this pass deletes, not just its Job history.
 _REQUIRED_STEPS = (
     legacy_references.EVENT_RULES_STEP,
     legacy_references.PERMISSIONS_STEP,

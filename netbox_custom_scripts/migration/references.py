@@ -153,7 +153,7 @@ def repoint_permissions(run):
         targets = [plugin_types[label].pk for label in entry['legacy_object_types'] if label in plugin_types]
         with transaction.atomic():
             if entry['other_object_types']:
-                _split_permission(run, permission, entry, targets, actions)
+                warnings.extend(_split_permission(run, permission, entry, targets, actions))
                 counts['split'] += 1
             else:
                 _swap_permission(permission, entry, targets, actions)
@@ -288,6 +288,13 @@ def recreate_schedules(run):
             )
             continue
         counts['recreated'] += 1
+        if entry['scheduled'] is None:
+            warnings.append(
+                _(
+                    'Schedule "{name}" was queued rather than scheduled, so it was recreated to run at once '
+                    'against {script}, with the commit setting it was queued with.'
+                ).format(name=entry['name'], script=script)
+            )
         if shifted:
             counts['shifted'] += 1
             warnings.append(
@@ -474,15 +481,15 @@ def _swap_permission(permission, entry, targets, actions):
 
 
 def _split_permission(run, permission, entry, targets, actions):
-    """Strip the built-in types from one permission and give the plugin types their own sibling."""
-    from users.models import ObjectPermission
+    """Strip the built-in types from one permission, give the plugin types a sibling, and warn."""
+    from users.models import Group, ObjectPermission
 
     # Keyed on the captured permission rather than on the sibling's name, because ObjectPermission
     # names are not unique: two rows sharing one would otherwise adopt each other's sibling and
     # silently drop a set of users and groups.
     split = run.journal.setdefault('split_permissions', {})
     if str(entry['pk']) in split:
-        return
+        return []
     legacy = [_legacy_type(label).pk for label in entry['legacy_object_types']]
     permission.object_types.remove(*legacy)
     # Its remaining types were never part of this migration, so the fence's withdrawal is undone.
@@ -497,10 +504,27 @@ def _split_permission(run, permission, entry, targets, actions):
         actions=actions,
     )
     sibling.object_types.set(targets)
-    sibling.users.set(entry['users'])
-    sibling.groups.set(entry['groups'])
+    # Resolved first: set() inserts a raw key unchecked, and a deferred FK fails the pass at commit.
+    users, lost_users = _live_keys(get_user_model(), entry['users'])
+    groups, lost_groups = _live_keys(Group, entry['groups'])
+    sibling.users.set(users)
+    sibling.groups.set(groups)
     split[str(entry['pk'])] = sibling.pk
     run.save(update_fields=('journal', 'last_updated'))
+    if not (lost_users or lost_groups):
+        return []
+    return [
+        _(
+            'Permission "{name}" was split, and {count} of the users and groups it was granted to no '
+            'longer exist, so the new "{sibling}" does not carry them.'
+        ).format(name=entry['name'], count=len(lost_users) + len(lost_groups), sibling=sibling.name)
+    ]
+
+
+def _live_keys(model, keys):
+    """Return the keys of the given model that still exist, and the ones that do not."""
+    live = set(model.objects.filter(pk__in=keys).values_list('pk', flat=True))
+    return sorted(live), sorted(set(keys) - live)
 
 
 def _legacy_type(label):

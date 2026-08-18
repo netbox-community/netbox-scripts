@@ -95,7 +95,7 @@ def activate_staged(run):
 
 def _merged_outcomes(run, results):
     """Return the recorded activation outcomes with this run's results merged in, by project key."""
-    # Merged, because verification scopes itself by this and a re-run can cover fewer Projects.
+    # Verification scopes itself by this record, and a re-run can cover fewer Projects.
     recorded = run.journal.get('steps', {}).get(ACTIVATE_STEP, {}).get('projects') or []
     merged = {entry['project_key']: entry for entry in recorded if entry.get('project_key')}
     merged.update({result['project_key']: result for result in results})
@@ -280,7 +280,7 @@ def _close(journal):
         'permissions': _disable_permissions(journal['permissions']),
         'event_rules': _disable_event_rules(journal['event_rules']),
         'schedules': _cancel_schedules(journal['schedules']),
-        'auto_sync': _drop_auto_sync(),
+        'auto_sync': _drop_auto_sync(journal),
     }
 
 
@@ -330,11 +330,14 @@ def _cancel_schedules(captured):
     return cancelled
 
 
-def _drop_auto_sync():
-    """Deregister built-in script source from synchronization, so no sync rewrites it again."""
+def _drop_auto_sync(journal):
+    """Deregister built-in script source from synchronization, recording what it deregistered."""
     # Scoped to script modules: a report is not this migration's, so its source keeps syncing.
     keys = legacy_source.legacy_script_module_keys()
-    deleted, _by_model = legacy_source.legacy_auto_sync_records(module_pks=keys).delete()
+    records = legacy_source.legacy_auto_sync_records(module_pks=keys)
+    # Journalled like the other three closures, so an operator restoring by hand has it to read.
+    journal['auto_sync'] = sorted(records.values_list('object_id', flat=True))
+    deleted, _by_model = records.delete()
     return deleted
 
 

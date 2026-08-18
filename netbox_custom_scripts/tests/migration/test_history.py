@@ -180,7 +180,8 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
             counts, warnings = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
-        self.assertEqual(warnings, [])
+        # Warned rather than silent: a queued run has no time to keep, so it is replayed at once.
+        self.assertTrue(any('run at once' in warning for warning in warnings))
         self.assertEqual(self.queue.count, 1)
         task = self.queue.jobs[0]
         self.assertEqual(task.kwargs['data'], {'site': self.site})
@@ -218,6 +219,19 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
     def plugin_script_pk(self):
         """A built-in Script key to collide with, which is what makes the bare lookup unsafe."""
         return self.script.pk
+
+    def test_a_queued_run_is_recreated_to_run_at_once_and_says_so(self):
+        # The one case where this pass executes an operator's script, so it has to be reported.
+        self.legacy_schedule()
+        self.cross_over()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+        job = self.new_jobs().get()
+        self.assertIsNone(job.scheduled)
+        self.assertIsNone(job.interval)
+        self.assertTrue(any('run at once' in warning for warning in warnings))
 
     def test_a_recurrence_keeps_its_interval_and_pins_nothing(self):
         # A recurrence resolves the active revision per occurrence, so a pin would freeze it.

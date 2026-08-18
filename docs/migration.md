@@ -83,8 +83,13 @@ Every button returns you to this page, with the run it just queued named at the 
 link to the Job when you want the detail, because the log and the recorded result are both on the
 Job's own page.
 
-Starting any pass needs permission to add a Custom Script Project, and reading the result needs
-the *Core > Jobs* view permission, which is granted separately.
+The inventory, staging and verification passes need permission to **add** a Custom Script Project.
+**Entering the cutover, activating, repointing and cleaning up need the Custom Script Project
+`migrate` action instead**, which is separate precisely because those four change rows this plugin
+does not own and cannot be undone. A user holding `add` alone still sees the page and can run the
+first two and the verification, and is not offered the other four. Reading any result needs the
+*Core > Jobs* view permission, which is granted separately. See
+[Permissions](permissions.md#the-migration-page).
 
 ## Reports are not covered
 
@@ -235,11 +240,19 @@ Safe to run again.
 | Job history | The built-in Scripts' Jobs are moved onto the Custom Scripts that replaced them, so a run's history survives the migration. |
 | Schedules | Every schedule the cutover cancelled is enqueued again against the Custom Script. |
 
-Recreating a schedule follows one rule worth knowing. A schedule still in the future keeps its
-time. A recurrence that fell due during the handover keeps its interval and starts now, because a
-queue runs a past-due job the moment it is enqueued and a migration must not run an operator's
-script unasked. A one-shot that fell due is refused for the same reason, and reported so you can
-decide.
+Recreating a schedule follows three rules worth knowing, because between them they decide when a
+migration runs your code.
+
+- A schedule still in the future keeps its time.
+- A recurrence that fell due during the handover keeps its interval and starts now. A queue runs a
+  past-due job the moment it is enqueued, and a migration must not run a script unasked.
+- A one-shot that fell due is refused for the same reason, and reported so you can decide.
+
+**A run that was merely queued rather than scheduled is recreated to run at once**, with the commit
+setting it was queued with, because that is what the cutover promised the owner when it cancelled it.
+That is the one case where this pass executes your script, so if you would rather it did not, let the
+queue drain before you enter the cutover. It refuses to start while a built-in Script job is actually
+running, but a job still waiting is captured and replayed.
 
 Pointing an Event Rule's **action** at a Custom Script needs NetBox 4.7, where the plugin action
 exists. Below that line the rule's sources still move and its action is reported as unmoved.

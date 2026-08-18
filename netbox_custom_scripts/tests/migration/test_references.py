@@ -310,6 +310,21 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual([item.name for item in sibling.groups.all()], ['operators'])
         self.assertEqual(counts, {'swapped': 0, 'split': 1, 'constrained': 0, 'unmappable': 0})
 
+    def test_a_group_deleted_during_the_window_is_reported_rather_than_fatal(self):
+        # The stale key inserts fine, then the deferred FK fails the pass at commit and every re-run.
+        group = Group.objects.create(name='operators')
+        permission = self.permission(actions=('view', 'run'), extra_type=self.site_type)
+        permission.groups.add(group)
+        self.cross_over()
+        group.delete()
+
+        counts, warnings = references.repoint_permissions(self.migration)
+
+        self.assertEqual(counts['split'], 1)
+        sibling = ObjectPermission.objects.get(name=f'built-in scripts{references._SIBLING_SUFFIX}')
+        self.assertEqual(list(sibling.groups.all()), [])
+        self.assertTrue(any('no longer exist' in warning for warning in warnings))
+
     def test_a_constrained_permission_is_reported_and_left_untouched(self):
         # Its filters name fields the plugin models do not have, so neither copying nor dropping
         # them is safe. It stays withdrawn and an operator is told about it by name.

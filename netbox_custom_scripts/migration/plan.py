@@ -67,7 +67,7 @@ def build_report(modules=None, read=None):
     modules = legacy_source.legacy_modules() if live else modules
     read = read or legacy_source.read_source
     proposed = group(modules)
-    # Grouped first: the path a module is staged at depends on which Project absorbed it.
+    # The path a module is staged at depends on which Project absorbed it.
     proposal_by_pk = {pk: proposal for proposal in proposed for pk in proposal.module_pks}
     counts = dict.fromkeys((dialects.NATIVE, dialects.LEGACY_IMPORT, dialects.REPORT_STYLE, dialects.UNPARSABLE), 0)
     entries = []

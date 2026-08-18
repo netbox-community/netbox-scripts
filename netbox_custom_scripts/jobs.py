@@ -813,8 +813,8 @@ class MigrationCleanupJob(JobRunner):
     """
     Delete the built-in Custom Scripts once every reference has moved onto the plugin's own rows.
 
-    Runs last, because deleting a Script takes its Job history with it. A module whose history has
-    not moved is left in place and named, so a re-run continues once the operator has cleared it.
+    Runs last. A module something still refers to is left in place and named, and a refusal that no
+    operator action would clear does not hold the run open.
     """
 
     class Meta:

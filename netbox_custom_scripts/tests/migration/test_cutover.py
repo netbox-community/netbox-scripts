@@ -291,6 +291,13 @@ class CutoverTestCase(TestCase):
         self.assertIn('migration', job.error)
         self.assertEqual(counts['schedules'], 1)
 
+    def test_the_deregistered_records_are_journalled(self):
+        # The only closure with no record of what it removed, so a manual restore had nothing to read.
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['auto_sync'], [self.module.pk])
+
     def test_a_report_keeps_its_synchronization(self):
         # A report is not this migration's, so dropping its record would silently stop it updating.
         data_file = DataFile.objects.create(

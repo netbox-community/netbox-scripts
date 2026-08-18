@@ -1,3 +1,4 @@
+import errno
 import fcntl
 import os
 import shutil
@@ -5,6 +6,7 @@ import stat
 import tempfile
 import threading
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -60,6 +62,21 @@ def discard_tree(root):
             for name in directories:
                 (base / name).chmod(0o755)
     shutil.rmtree(root, ignore_errors=True)
+
+
+@contextmanager
+def refusing_read_only_rename():
+    """Stand in for a host that checks write permission on the directory being renamed."""
+    original = Path.rename
+
+    def rename(self, target):
+        info = self.lstat()
+        if stat.S_ISDIR(info.st_mode) and not stat.S_IMODE(info.st_mode) & stat.S_IWUSR:
+            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(self))
+        return original(self, target)
+
+    with mock.patch.object(Path, 'rename', rename):
+        yield
 
 
 class GatedStorage(InMemoryStorage):
@@ -276,6 +293,13 @@ class MaterializeRevisionTestCase(TestCase):
         with self.assertRaises(OSError):
             (returned / 'planted.py').write_bytes(b'nope')
 
+    def test_publishing_survives_a_host_that_refuses_to_rename_a_read_only_directory(self):
+        with refusing_read_only_rename():
+            returned = self.materialize()
+        self.assertEqual(returned, self.target)
+        cache.verify_local_tree(returned, self.manifest)
+        self.assertEqual(stat.S_IMODE(returned.stat().st_mode), 0o555)
+
     def test_a_verified_tree_is_served_again_without_any_backend_traffic(self):
         self.materialize()
         # The second pass gets a backend holding nothing at all, so anything it serves can
@@ -283,6 +307,17 @@ class MaterializeRevisionTestCase(TestCase):
         watcher = OpenRecordingStorage()
         self.assertEqual(self.materialize(storage=watcher), self.target)
         self.assertEqual(watcher.opened, [])
+
+    def test_a_writable_published_tree_is_protected_again_before_it_is_served(self):
+        # What a build interrupted between its rename and its write-protect leaves behind.
+        self.materialize()
+        self.unlock_target()
+        watcher = OpenRecordingStorage()
+        returned = self.materialize(storage=watcher)
+        # No backend traffic, so this is the serve path repairing the modes rather than a rebuild.
+        self.assertEqual(watcher.opened, [])
+        self.assertEqual(stat.S_IMODE(returned.stat().st_mode), 0o555)
+        self.assertEqual(stat.S_IMODE((returned / 'pkg').stat().st_mode), 0o555)
 
     def test_a_damaged_tree_is_set_aside_and_rebuilt(self):
         self.materialize()
@@ -295,6 +330,22 @@ class MaterializeRevisionTestCase(TestCase):
         self.assertEqual(len(aside), 1)
         # The failed tree is evidence, set aside intact rather than destroyed.
         self.assertEqual((aside[0] / 'deploy.py').read_bytes(), b'tampered content here')
+
+    def test_setting_a_failed_tree_aside_survives_the_same_refusal(self):
+        self.materialize()
+        # The file's own mode, not its directory's, so the slot root stays write-protected and the
+        # aside rename has to move a 0o555 directory.
+        tampered = self.target / 'deploy.py'
+        tampered.chmod(0o644)
+        tampered.write_bytes(b'tampered content here')
+        with refusing_read_only_rename():
+            self.assertEqual(self.materialize(), self.target)
+        cache.verify_local_tree(self.target, self.manifest)
+        aside = [entry for entry in self.target.parent.iterdir() if entry.name.startswith(f'{self.digest}.corrupt.')]
+        self.assertEqual(len(aside), 1)
+        self.assertEqual((aside[0] / 'deploy.py').read_bytes(), b'tampered content here')
+        # The lent bit stays, since every directory under it is still read-only anyway.
+        self.assertEqual(stat.S_IMODE(aside[0].stat().st_mode), 0o755)
 
     def test_pre_existing_bytecode_is_purged_and_never_trusted(self):
         self.materialize()
@@ -330,6 +381,18 @@ class MaterializeRevisionTestCase(TestCase):
         self.assertEqual(self.materialize(), self.target)
         self.assertFalse((self.target / 'deploy.py').is_symlink())
         cache.verify_local_tree(self.target, self.manifest)
+
+    def test_a_non_directory_occupying_the_slot_is_moved_aside_without_a_chmod(self):
+        # The write bit is lent to a directory only. chmod follows a symlink, so lending it to one
+        # would change the mode of whatever it points at.
+        self.target.parent.mkdir(parents=True, exist_ok=True)
+        self.target.write_bytes(b'X = 1\n')
+        self.target.chmod(0o444)
+        self.assertEqual(self.materialize(), self.target)
+        cache.verify_local_tree(self.target, self.manifest)
+        aside = [entry for entry in self.target.parent.iterdir() if entry.name.startswith(f'{self.digest}.corrupt.')]
+        self.assertEqual(len(aside), 1)
+        self.assertEqual(stat.S_IMODE(aside[0].stat().st_mode), 0o444)
 
     def test_an_unexpected_file_in_the_slot_forces_a_rebuild(self):
         self.materialize()
@@ -369,6 +432,18 @@ class MaterializeRevisionTestCase(TestCase):
         self.assertEqual(sorted(ctx.exception.reasons), ['checksum_mismatch:deploy.py'])
         self.assertEqual(self.slot_residue(), [])
 
+    def test_a_tree_that_cannot_be_protected_is_not_served(self):
+        with (
+            mock.patch.object(cache, '_make_read_only', side_effect=LocalCacheError('chmod refused')),
+            self.assertRaises(LocalCacheError),
+        ):
+            self.materialize()
+        watcher = OpenRecordingStorage()
+        returned = self.materialize(storage=watcher)
+        # The published tree verifies, so the next call protects it where it stands.
+        self.assertEqual(watcher.opened, [])
+        self.assertEqual(stat.S_IMODE(returned.stat().st_mode), 0o555)
+
     def test_a_tampered_manifest_is_refused_before_anything_is_written(self):
         tampered = [*self.manifest, {'path': '../escape.py', 'size': 1, 'sha256': 'a' * 64}]
         with self.assertRaises(RevisionCorruptError):
@@ -382,6 +457,7 @@ class MaterializeRevisionTestCase(TestCase):
         with mock.patch.object(cache, '_existing_tree_verifies', return_value=False):
             self.assertEqual(self.materialize(), self.target)
         cache.verify_local_tree(self.target, self.manifest)
+        self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o555)
 
     def test_the_slot_lock_is_held_for_the_whole_critical_section(self):
         gated = GatedStorage()
@@ -419,9 +495,9 @@ class MaterializeRevisionTestCase(TestCase):
             fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
         cache.verify_local_tree(self.target, self.manifest)
 
-    def test_a_staging_tree_is_removed_even_once_write_protected(self):
-        # Unlinking needs write permission on the parent, which _make_read_only takes away,
-        # so a failure past that point has to clear the bit back to clean up after itself.
+    def test_a_staging_tree_is_removed_when_publishing_fails(self):
+        # Staging stays writable until the rename, so cleanup needs no permission recovery, and a
+        # cleanup failure must not replace the error being reported.
         with mock.patch.object(cache, '_publish', side_effect=OSError('publish refused')), self.assertRaises(OSError):
             self.materialize()
         self.assertEqual(self.slot_residue(), [])

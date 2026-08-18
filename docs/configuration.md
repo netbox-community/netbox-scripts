@@ -189,9 +189,11 @@ revision manifest, and the protocol is built so nothing unverified can execute:
   place, and a fresh tree is rebuilt from the backend through the same size-preflighted,
   bounded, checksummed reads the storage layer uses everywhere.
 - A rebuilt tree is staged as a sibling of its final location, verified as a whole,
-  write-protected, and published with one rename, so a reader only ever sees a complete,
-  just-verified, read-only tree. Concurrent builders of one revision serialize on a
-  per-slot file lock that the operating system releases if the process dies.
+  published with one rename, and write-protected before it is served, so a reader only
+  ever sees a complete, just-verified, read-only tree. A tree left unprotected by an
+  interrupted build is protected again the next time it is served. Concurrent builders
+  of one revision serialize on a per-slot file lock that the operating system releases
+  if the process dies.
 
 The root must offer enough space for the revisions in active use, and staging happens
 beside the final location, so the root must be one filesystem. There is no automatic

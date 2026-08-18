@@ -8,11 +8,12 @@ manifest, compiled files are purged before any verification because a planted on
 flagged to skip its own source check, and a tree that fails is set aside and rebuilt through
 the store's bounded verified reads. Losing the cache costs a rebuild, never data.
 
-A published tree is immutable. It is write-protected before it appears, appears with one
-rename, and is never repaired in place, so a reader that resolved the directory can trust
-what verification just proved about it. Concurrent builders of one revision serialize on a
-per-slot file lock that the operating system releases with the owning process, and eviction
-is deliberately absent, reclaiming stale slots belongs to a housekeeping reconciler.
+A published tree is immutable. It appears with one rename, is write-protected before
+materialization returns it, and its content is never repaired in place, so a reader that
+resolved the directory can trust what verification just proved about it. Concurrent builders
+of one revision serialize on a per-slot file lock that the operating system releases with the
+owning process, and eviction is deliberately absent, reclaiming stale slots belongs to a
+housekeeping reconciler.
 """
 
 import fcntl
@@ -158,8 +159,8 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
     cross-process lock: compiled files are purged, a tree already present is re-verified and
     returned without any backend traffic, a failed tree is set aside beside the slot, and a
     fresh tree is staged as a sibling through bounded verified reads, verified as a whole,
-    write-protected, and published with one rename. Only this process's own staging
-    verification failures are retried, a bounded number of times.
+    published with one rename, and write-protected before it is returned. Only this process's
+    own staging verification failures are retried, a bounded number of times.
 
     Raises RevisionCorruptError when the manifest or the authoritative content cannot be
     trusted, StorageError when the backend fails, and LocalCacheError when the local side
@@ -180,6 +181,9 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
     with _slot_lock(project_dir / f'.{digest}.lock'):
         for _attempt in range(_MAX_MATERIALIZE_ATTEMPTS):
             if _existing_tree_verifies(target, manifest):
+                # A build interrupted between its rename and its write-protect leaves a tree
+                # that verifies and can still take bytecode.
+                _make_read_only(target)
                 return target
             staging = project_dir / f'.{digest}.staging.{uuid.uuid4().hex}'
             try:
@@ -190,12 +194,14 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
                     last_failure = error
                     logger.warning('The staged tree for revision %s failed verification (%s), retrying', digest, error)
                     continue
-                _make_read_only(staging)
                 _publish(staging, target, manifest)
+                # A host may check write permission on the directory being renamed rather
+                # than only on its parent.
+                _make_read_only(target)
                 return target
             finally:
                 if _lstat_or_none(staging) is not None:
-                    shutil.rmtree(staging, onexc=_clear_write_bit)  # cloud-compat: ok, our own staging tree
+                    shutil.rmtree(staging, onexc=_log_staging_residue)  # cloud-compat: ok, our own staging tree
 
     reasons = ', '.join(last_failure.reasons) if last_failure else 'unknown'
     raise LocalCacheError(
@@ -253,17 +259,11 @@ def _guard_path_budget(project_dir, digest, manifest):
         )
 
 
-def _clear_write_bit(function, path, error):
-    """Retry one removal that failed because write protection had already been applied."""
-    # Unlinking needs write permission on the parent, which _make_read_only takes away, so a
-    # staging tree that fails after that point would otherwise leak under an unreclaimable name.
-    if not isinstance(error, PermissionError):
-        return
-    try:
-        Path(path).parent.chmod(0o700)  # cloud-compat: ok, our own staging tree
-        function(path)
-    except OSError as retry_error:
-        logger.warning('Unable to remove "%s" from the staging tree: %s', path, retry_error)
+def _log_staging_residue(_function, path, error):
+    """Report a staging entry that could not be removed."""
+    # This runs from a finally block, so raising would replace the failure actually being
+    # reported with a cleanup failure.
+    logger.warning('Unable to remove "%s" from the staging tree: %s', path, error)
 
 
 def _reraise(error):
@@ -312,9 +312,8 @@ def _set_aside_corrupt(target, error):
     Move a failed tree out of the slot without destroying it.
 
     The tree is evidence of what went wrong, so it is renamed beside the slot rather than
-    removed in place, and the housekeeping reconciler owns reclaiming it. The rename only
-    needs the parent directory to be writable, so it works on the write-protected trees
-    publishing leaves behind.
+    removed in place, and the housekeeping reconciler owns reclaiming it. Raises
+    LocalCacheError when it cannot be moved.
     """
     aside = target.with_name(f'{target.name}.corrupt.{uuid.uuid4().hex}')
     logger.warning(
@@ -323,7 +322,13 @@ def _set_aside_corrupt(target, error):
         ', '.join(error.reasons),
         aside.name,
     )
+    info = _lstat_or_none(target)
+    # A published tree lends its own write bit for the rename, under the same host rule
+    # materialize_revision notes. Directories only, chmod follows a symlink.
+    lend = info is not None and stat.S_ISDIR(info.st_mode) and not stat.S_IMODE(info.st_mode) & stat.S_IWUSR
     try:
+        if lend:
+            target.chmod(stat.S_IMODE(info.st_mode) | stat.S_IWUSR)  # cloud-compat: ok, the runtime cache tier
         target.rename(aside)  # cloud-compat: ok, the runtime cache tier
     except OSError as rename_error:
         raise LocalCacheError(f'Unable to set the failed tree "{target}" aside: {rename_error}') from rename_error
@@ -390,7 +395,7 @@ def _make_read_only(root):
                 (base / name).chmod(0o555)  # cloud-compat: ok, the runtime cache tier
         root.chmod(0o555)  # cloud-compat: ok, the runtime cache tier
     except OSError as error:
-        raise LocalCacheError(f'Unable to write-protect the staged tree "{root}": {error}') from error
+        raise LocalCacheError(f'Unable to write-protect the published tree "{root}": {error}') from error
 
 
 def _publish(staging, target, manifest):

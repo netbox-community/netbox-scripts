@@ -287,9 +287,9 @@ class CustomScriptProject(PrimaryModel):
         """
         Return this project's newest revision whatever its state, or None.
 
-        Unfiltered, unlike current_revision, because the newest attempt is what the source
-        state reports on and a rejected one carries no digest.
+        Unfiltered, unlike current_revision.
         """
+        # The newest attempt is what the source state reports on, and a rejected one has no digest.
         return self.revisions.using(self._read_alias()).order_by('-created').first()
 
     @property
@@ -308,13 +308,10 @@ class CustomScriptProject(PrimaryModel):
         The revision whose tree is this project's source right now, or None.
 
         The active revision when there is one, otherwise the newest revision that holds stored
-        content. A project with no active revision still has a source tree to enumerate and
-        build on, which is what makes a second upload possible before anything is activated.
-
-        Cached per instance, because the detail view reads a field of it per panel row. Every
-        caller either holds a freshly loaded project or deliberately wants the tree as it stood
-        before the revision it is about to stage.
+        content, so a project with no active revision still has a tree to enumerate and build on.
+        Cached per instance.
         """
+        # The detail view reads a field of it per panel row, and every caller reloads or wants it as is.
         return self.active_revision or (
             self.revisions.using(self._read_alias()).filter(digest__isnull=False).order_by('-created').first()
         )

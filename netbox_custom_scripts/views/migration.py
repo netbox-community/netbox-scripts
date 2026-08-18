@@ -62,8 +62,7 @@ def _migration_rows(request, inventory_job, staging_job):
     """
     Return one row per Project a migration proposes or has produced, with where it stands now.
 
-    Rows come from both passes, so a Project the inventory proposed but staging has not created
-    yet is listed as well, which is what a run of one pass without the other looks like.
+    Covers both passes, including a Project the inventory proposed that staging has not created yet.
     """
     # Neither pass records a verdict: the inventory writes nothing and staging records each
     # status before validation runs. So state is read live here rather than out of either Job.
@@ -90,14 +89,10 @@ def _queued(job_class):
 
 
 class BaseMigrationView(ContentTypePermissionRequiredMixin, View):
-    """
-    Shared gate for the migration surface, and for the passes that only read or stage.
-
-    A pass acts on the built-in feature rather than on a model of this plugin, so it takes the
-    permission for what it produces: Custom Script Projects.
-    """
+    """Shared gate for the migration surface, and for the passes that only read or stage."""
 
     def get_required_permission(self):
+        # A pass acts on the built-in feature, so the gate is what it produces: Projects.
         return get_permission_for_model(CustomScriptProject, 'add')
 
 
@@ -198,7 +193,7 @@ class MigrationInventoryView(BaseMigrationView):
     """Queue the inventory pass and return to the Migration page."""
 
     def post(self, request):
-        """Queue the report. It writes nothing, so it is not confirmed first."""
+        """Queue the report, whatever else is under way."""
         MigrationInventoryJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration inventory.'))
         # The page names the run just queued and links to it, so the Job detail is one click away
@@ -207,7 +202,7 @@ class MigrationInventoryView(BaseMigrationView):
 
 
 class MigrationStagingView(BaseMigrationView):
-    """Queue the staging pass, confirming first because it creates Projects."""
+    """Queue the staging pass, confirming first."""
 
     template_name = 'netbox_custom_scripts/migration_stage.html'
 
@@ -232,7 +227,7 @@ class MigrationStagingView(BaseMigrationView):
 
 
 class MigrationCutoverView(DestructiveMigrationView):
-    """Queue the cutover, confirming first because crossing the fence is a decision, not a step."""
+    """Queue the cutover, confirming first."""
 
     template_name = 'netbox_custom_scripts/migration_cutover.html'
 
@@ -310,7 +305,7 @@ class MigrationVerificationView(BaseMigrationView):
     """Queue the pass that reports whether a migration landed."""
 
     def post(self, request):
-        """Queue the report. It writes nothing, so it is neither confirmed nor refused."""
+        """Queue the report, whatever else is under way."""
         MigrationVerificationJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration verification.'))
         return redirect('plugins:netbox_custom_scripts:migration')

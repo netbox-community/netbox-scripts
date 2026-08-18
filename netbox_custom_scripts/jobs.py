@@ -43,15 +43,10 @@ class ProjectStorageCleanupJob(JobRunner):
     Remove one deleted revision's stored content.
 
     The database rows are gone by the time this runs, so the job carries everything deletion
-    needs: the storage key, the digest, and the manifest's file paths. enqueue_cleanup
-    persists that same payload on the Job row, which keeps a durable inventory even when the
-    queue loses the task. Deletion is by exact key and tolerates content that is already
-    gone, so a run that failed partway can be run again and finishes the remainder. A failure
-    lands as a failed Job whose log names what was left behind.
-
-    The reference recheck and the removal happen under the project lock, so this job is the
-    one place that decides whether stored content is still claimed. Deletion itself takes no
-    lock, which is why the decision has to be made here rather than trusted from the delete.
+    needs: the storage key, the digest, and the manifest's file paths. Deletion is by exact key
+    and tolerates content that is already gone, so a run that failed partway finishes the
+    remainder. A failure lands as a failed Job whose log names what was left behind. The
+    reference recheck and the removal both happen under the project lock.
     """
 
     class Meta:
@@ -62,16 +57,12 @@ class ProjectStorageCleanupJob(JobRunner):
         """
         Enqueue one revision's cleanup with its payload persisted on the Job row.
 
-        RQ kwargs live only in the queue, and the rows naming the content are gone once the
-        delete commits, so the Job row's data field keeps the durable copy of what has to be
-        removed. Job.enqueue() hands the task to the queue in a commit hook, so saving the
-        payload inside the same transaction puts it in place before the queue can run the
-        task, and a failed handoff still leaves a pending Job carrying its own inventory.
-        Called from the deletion signal, the atomic block nests inside the deleting
-        transaction, so the Job and its payload commit or roll back with the rows they clean
-        up after, which holds because the signal refuses any alias other than the default.
+        The Job row keeps the durable copy of what has to be removed, so a lost queue task still
+        leaves a pending Job carrying its own inventory. The atomic block nests inside any caller
+        transaction, so the Job and its payload commit or roll back together.
         """
         payload = {'storage_key': str(storage_key), 'digest': digest, 'paths': list(paths)}
+        # Not only in RQ kwargs: those live in the queue, and the naming rows go with the delete.
         with transaction.atomic():
             job = cls.enqueue(**payload)
             job.data = payload
@@ -123,9 +114,8 @@ class ProjectReconciliationJob(JobRunner):
     two quick synchronizations are not a correctness problem: the second stages identical content,
     resolves to the revision the first created, and enqueues no second validation.
 
-    Reconciliation is per project rather than per Data Source, because each project has its own
-    lock, its own revision chain and its own activation policy, so one project's failure leaves
-    its siblings to reconcile on their own.
+    Per project rather than per Data Source, so one project's failure leaves its siblings to
+    reconcile on their own.
     """
 
     class Meta:
@@ -136,12 +126,11 @@ class ProjectReconciliationJob(JobRunner):
         """
         Enqueue one project's reconciliation with its pk persisted on the Job row.
 
-        The pk travels in the payload rather than as an instance link, because Job.clean()
-        refuses an object type without the jobs feature and a project is a plain PrimaryModel.
-        The atomic block nests inside any caller transaction, so the Job and its payload commit
-        together and the queue handoff in Job.enqueue()'s commit hook can never run a task whose
-        payload is missing.
+        The pk travels in the payload rather than as an instance link. The atomic block nests
+        inside any caller transaction, so the Job and its payload commit together and the queue
+        can never run a task whose payload is missing.
         """
+        # In the payload: Job.clean() refuses an object type without the jobs feature.
         payload = {'project_id': project.pk}
         with transaction.atomic():
             job = cls.enqueue(**payload)
@@ -213,9 +202,7 @@ class ProjectEntrypointRefreshJob(JobRunner):
 
     A revision freezes the project's enabled declarations into its entrypoint snapshot at
     staging time, so changing the selection has no effect until something restages. A Data
-    Source-backed project gets that from a reconciliation, and this is the only route an
-    uploaded project has, because re-uploading identical content resolves to the revision
-    that already exists.
+    Source-backed project gets that from a reconciliation, and an uploaded one only from here.
 
     The content is read when this runs rather than when it was enqueued, so two saves in
     quick succession are not a correctness problem: the second resolves to the revision the
@@ -230,12 +217,11 @@ class ProjectEntrypointRefreshJob(JobRunner):
         """
         Enqueue one project's entrypoint refresh with its pk persisted on the Job row.
 
-        The pk travels in the payload rather than as an instance link, because Job.clean()
-        refuses an object type without the jobs feature and a project is a plain PrimaryModel.
-        The atomic block nests inside any caller transaction, so the Job and its payload commit
-        together and the queue handoff in Job.enqueue()'s commit hook can never run a task whose
-        payload is missing.
+        The pk travels in the payload rather than as an instance link. The atomic block nests
+        inside any caller transaction, so the Job and its payload commit together and the queue
+        can never run a task whose payload is missing.
         """
+        # In the payload: Job.clean() refuses an object type without the jobs feature.
         payload = {'project_id': project.pk}
         with transaction.atomic():
             job = cls.enqueue(**payload)
@@ -720,8 +706,8 @@ class MigrationActivationJob(JobRunner):
     """
     Put the staged Projects into service, so the plugin serves and its Custom Script rows exist.
 
-    Runs after the fence and before the references move, because a reference has to name a row that
-    exists. Safe to run again: a project already serving its newest revision has its rows repaired.
+    Runs after the fence and before the references move. Safe to run again: a project already
+    serving its newest revision has its rows repaired.
     """
 
     class Meta:
@@ -759,8 +745,8 @@ class MigrationReferencesJob(JobRunner):
     """
     Move every reference an installation holds onto the plugin's own rows.
 
-    Runs after activation, because an Event Rule's action object has to name a Custom Script that
-    exists. Each part records its own completion, so a re-run continues rather than repeats.
+    Runs after activation. Each part records its own completion, so a re-run continues rather
+    than repeats.
     """
 
     class Meta:

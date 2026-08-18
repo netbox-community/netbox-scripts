@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.translation import gettext_lazy as _
 
 from ..execution import ScriptNotExecutableError, load_script_class
 from ..runtime.exceptions import ScriptResolutionError
@@ -123,8 +124,10 @@ def repoint_permissions(run):
             # restrict() raise on every page that uses it and dropping them would widen access.
             counts['constrained'] += 1
             warnings.append(
-                f'Permission "{entry["name"]}" carries constraints on the built-in Custom Scripts, so it was '
-                f'left withdrawn and untranslated. Recreate it by hand against the plugin models.'
+                _(
+                    'Permission "{name}" carries constraints on the built-in Custom Scripts, so it was '
+                    'left withdrawn and untranslated. Recreate it by hand against the plugin models.'
+                ).format(name=entry['name'])
             )
             continue
         actions, unmappable = _map_actions(entry)
@@ -133,14 +136,18 @@ def repoint_permissions(run):
             # constrained one: left withdrawn, and named.
             counts['unmappable'] += 1
             warnings.append(
-                f'Permission "{entry["name"]}" granted only {", ".join(sorted(unmappable))} on the built-in '
-                f'Custom Scripts, none of which the plugin separates, so it was left withdrawn.'
+                _(
+                    'Permission "{name}" granted only {actions} on the built-in Custom Scripts, none of '
+                    'which the plugin separates, so it was left withdrawn.'
+                ).format(name=entry['name'], actions=', '.join(sorted(unmappable)))
             )
             continue
         if unmappable:
             warnings.append(
-                f'Permission "{entry["name"]}" granted {", ".join(sorted(unmappable))} on the built-in Custom '
-                f'Scripts, which the plugin does not separate, so that grant was not preserved.'
+                _(
+                    'Permission "{name}" granted {actions} on the built-in Custom Scripts, which the plugin '
+                    'does not separate, so that grant was not preserved.'
+                ).format(name=entry['name'], actions=', '.join(sorted(unmappable)))
             )
         targets = [plugin_types[label].pk for label in entry['legacy_object_types'] if label in plugin_types]
         with transaction.atomic():
@@ -188,14 +195,18 @@ def repoint_job_history(run):
     for legacy_pk in stranded:
         counts['unresolved'] += 1
         warnings.append(
-            f'Job history for built-in Custom Script {legacy_pk} was left where it is, because no Custom '
-            f'Script resolves to it. Deleting that Script would take its jobs with it.'
+            _(
+                'Job history for built-in Custom Script {key} was left where it is, because no Custom '
+                'Script resolves to it. Deleting that Script would take its jobs with it.'
+            ).format(key=legacy_pk)
         )
     counts['modules'] = Job.objects.filter(object_type=_legacy_type('extras.scriptmodule')).count()
     if counts['modules']:
         warnings.append(
-            f'{counts["modules"]} Job(s) name a built-in script module rather than a Script, and a Custom '
-            f'Script Project holds no jobs, so they were left where they are.'
+            _(
+                '{count} Job(s) name a built-in script module rather than a Script, and a Custom Script '
+                'Project holds no jobs, so they were left where they are.'
+            ).format(count=counts['modules'])
         )
     run.complete_step(HISTORY_STEP, counts, warnings)
     return counts, warnings
@@ -226,43 +237,56 @@ def recreate_schedules(run):
         if script is None:
             counts['skipped'] += 1
             warnings.append(
-                f'Schedule "{entry["name"]}" ran built-in Custom Script {entry["legacy_script_pk"]}, which no '
-                f'Custom Script resolves to, so it was not recreated.'
+                _(
+                    'Schedule "{name}" ran built-in Custom Script {key}, which no Custom Script resolves '
+                    'to, so it was not recreated.'
+                ).format(name=entry['name'], key=entry['legacy_script_pk'])
             )
             continue
         schedule_at, shifted = _replay_schedule(entry)
         if schedule_at is _UNSCHEDULABLE:
             counts['skipped'] += 1
             warnings.append(
-                f'Schedule "{entry["name"]}" was due at {entry["scheduled"]}, which has passed, so it was not '
-                f'recreated rather than run at once. Schedule it again by hand.'
+                _(
+                    'Schedule "{name}" was due at {due}, which has passed, so it was not recreated rather '
+                    'than run at once. Schedule it again by hand.'
+                ).format(name=entry['name'], due=entry['scheduled'])
             )
             continue
         user = _user(entry['user_pk'])
         if entry['user_pk'] and user is None:
             warnings.append(
-                f'Schedule "{entry["name"]}" belonged to a user who no longer exists, so it was recreated '
-                f'with no owner and its completion notifies nobody.'
+                _(
+                    'Schedule "{name}" belonged to a user who no longer exists, so it was recreated with '
+                    'no owner and its completion notifies nobody.'
+                ).format(name=entry['name'])
             )
         try:
             _recreate(run, entry, script, schedule_at, user, recreated)
         except _REPLAY_FAILURES as error:
             counts['skipped'] += 1
-            warnings.append(f'Schedule "{entry["name"]}" could not be recreated against {script}: {error}')
+            warnings.append(
+                _('Schedule "{name}" could not be recreated against {script}: {error}').format(
+                    name=entry['name'], script=script, error=error
+                )
+            )
             continue
         except ValidationError as invalid:
             counts['skipped'] += 1
             warnings.append(
-                f'Schedule "{entry["name"]}" no longer supplies valid input for {script}, so it was not '
-                f'recreated: {invalid.messages}'
+                _(
+                    'Schedule "{name}" no longer supplies valid input for {script}, so it was not recreated: {errors}'
+                ).format(name=entry['name'], script=script, errors=invalid.messages)
             )
             continue
         counts['recreated'] += 1
         if shifted:
             counts['shifted'] += 1
             warnings.append(
-                f'Schedule "{entry["name"]}" was due at {entry["scheduled"]}, which has passed, so its '
-                f'recurrence starts now and keeps its {entry["interval"]} minute interval.'
+                _(
+                    'Schedule "{name}" was due at {due}, which has passed, so its recurrence starts now '
+                    'and keeps its {interval} minute interval.'
+                ).format(name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
             )
     run.complete_step(SCHEDULES_STEP, counts, warnings)
     return counts, warnings
@@ -331,7 +355,7 @@ def _require_activated(run):
     cutover.require_staged(run)
     if not run.step_done(cutover.ACTIVATE_STEP):
         raise cutover.CutoverRefused(
-            'The staged Projects have not been activated yet, so there are no Custom Scripts to point at.'
+            _('The staged Projects have not been activated yet, so there are no Custom Scripts to point at.')
         )
     return run
 
@@ -369,24 +393,24 @@ def _repoint_action(rule, entry, resolved, plugin_types, serves_action):
     if not serves_action:
         # 4.6 has no plugin action registry, so writing the slug would leave a rule nothing can
         # dispatch. Delete this branch when the floor reaches 4.7.
-        refusal = (
-            f'Event rule "{entry["name"]}" runs a built-in Custom Script, and this NetBox version has no '
-            f'registry for plugin Event Rule actions, so it was left withdrawn. Upgrade, then repoint it.'
-        )
+        refusal = _(
+            'Event rule "{name}" runs a built-in Custom Script, and this NetBox version has no registry '
+            'for plugin Event Rule actions, so it was left withdrawn. Upgrade, then repoint it.'
+        ).format(name=entry['name'])
         return False, 'unserved', refusal
     script = resolved.get(entry['action_object_id'])
     if script is None:
-        refusal = (
-            f'Event rule "{entry["name"]}" runs built-in Custom Script {entry["action_object_id"]}, which no '
-            f'Custom Script resolves to, so it was left withdrawn.'
-        )
+        refusal = _(
+            'Event rule "{name}" runs built-in Custom Script {key}, which no Custom Script resolves to, '
+            'so it was left withdrawn.'
+        ).format(name=entry['name'], key=entry['action_object_id'])
         return False, None, refusal
     if script.is_retired:
         # The action refuses a retired script at save time, so this would raise rather than write.
-        refusal = (
-            f'Event rule "{entry["name"]}" resolves to {script}, which is retired and can never run again, '
-            f'so the rule was left withdrawn.'
-        )
+        refusal = _(
+            'Event rule "{name}" resolves to {script}, which is retired and can never run again, so the '
+            'rule was left withdrawn.'
+        ).format(name=entry['name'], script=script)
         return False, None, refusal
     rule.action_type = ACTION_SLUG
     rule.action_object_type = plugin_types['extras.script']
@@ -396,7 +420,9 @@ def _repoint_action(rule, entry, resolved, plugin_types, serves_action):
     except ValidationError as invalid:
         # A rule can be invalid for reasons that predate this migration, an event type its own
         # plugin stopped registering being the likely one. One rule must not end the pass.
-        refusal = f'Event rule "{entry["name"]}" cannot be saved, so it was left withdrawn: {invalid.messages}'
+        refusal = _('Event rule "{name}" cannot be saved, so it was left withdrawn: {errors}').format(
+            name=entry['name'], errors=invalid.messages
+        )
         return False, None, refusal
     rule.save(update_fields=('action_type', 'action_object_type', 'action_object_id'))
     return True, 'actions', None

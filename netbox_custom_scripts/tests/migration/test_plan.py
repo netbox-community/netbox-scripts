@@ -146,6 +146,31 @@ class FindingsTestCase(SimpleTestCase):
         codes = {finding['code']: finding['level'] for finding in report['findings']}
         self.assertEqual(codes['not_importable'], plan.BLOCKING)
 
+    def test_a_hyphenated_intermediate_folder_blocks(self):
+        # The basename is a fine identifier while the path it is staged at is not.
+        modules = [
+            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py'),
+            legacy(2, 'b.py', data_source_id=7, data_path='scripts/custom-scripts/b.py'),
+        ]
+
+        report = plan.build_report(modules=modules, read=lambda module: b'')
+
+        self.assertEqual(report['status'], plan.BLOCKING)
+        blocking = [f for f in report['findings'] if f['code'] == 'not_importable']
+        self.assertEqual(len(blocking), 1)
+        self.assertEqual(blocking[0]['pk'], 2)
+        self.assertIn('custom-scripts/b', blocking[0]['message'])
+
+    def test_a_nested_folder_that_stays_importable_does_not_block(self):
+        modules = [
+            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py'),
+            legacy(2, 'b.py', data_source_id=7, data_path='scripts/nested/b.py'),
+        ]
+
+        report = plan.build_report(modules=modules, read=lambda module: b'')
+
+        self.assertEqual([f['code'] for f in report['findings']], [])
+
     def test_report_style_blocks_and_legacy_import_warns(self):
         modules = [legacy(1, 'r.py'), legacy(2, 'l.py')]
         bodies = {1: b'class R:\n    def test_a(self):\n        pass\n', 2: b'from extras.scripts import Script\n'}

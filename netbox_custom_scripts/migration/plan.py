@@ -9,7 +9,7 @@ from django.utils.text import slugify
 
 from ..choices import ProjectSourceTypeChoices
 from ..compat import MIGRATION_HINTS
-from ..utils import source_path_to_dotted_name
+from ..utils import data_source_relative_path, source_path_to_dotted_name
 from ..validators import data_paths_overlap
 from . import dialects
 from . import source as legacy_source
@@ -66,11 +66,14 @@ def build_report(modules=None, read=None):
     live = modules is None
     modules = legacy_source.legacy_modules() if live else modules
     read = read or legacy_source.read_source
+    proposed = group(modules)
+    # Grouped first: the path a module is staged at depends on which Project absorbed it.
+    proposal_by_pk = {pk: proposal for proposal in proposed for pk in proposal.module_pks}
     counts = dict.fromkeys((dialects.NATIVE, dialects.LEGACY_IMPORT, dialects.REPORT_STYLE, dialects.UNPARSABLE), 0)
     entries = []
     findings = []
     for module in modules:
-        dialect, module_findings = _inspect(module, read)
+        dialect, module_findings = _inspect(module, read, proposal_by_pk[module.pk])
         counts[dialect] += 1
         entries.append(
             {
@@ -85,7 +88,7 @@ def build_report(modules=None, read=None):
     return {
         'status': _status(findings),
         'modules': entries,
-        'projects': [asdict(item) for item in group(modules)],
+        'projects': [asdict(item) for item in proposed],
         'dialects': counts,
         'references': legacy_source.reference_counts() if live else {},
         'findings': findings,
@@ -95,6 +98,14 @@ def build_report(modules=None, read=None):
 def _path(module):
     """Return the path to name a module by, preferring where it came from."""
     return module.data_path or module.file_path
+
+
+def _staged_path(module, proposal):
+    """Return the project-relative path a module's content is staged at, or None if it is outside."""
+    # file_path is a basename for a synced module, so it is not what gets imported.
+    if proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
+        return module.file_path
+    return data_source_relative_path(module.data_path, proposal.data_path)
 
 
 def _status(findings):
@@ -175,7 +186,7 @@ def _key(stem, identity):
     return f'{slug}-{digest[:_KEY_DIGEST_LENGTH]}'
 
 
-def _inspect(module, read):
+def _inspect(module, read, proposal):
     """Return one module's dialect and the findings it produces."""
     path = _path(module)
     try:
@@ -186,11 +197,16 @@ def _inspect(module, read):
         return dialects.UNPARSABLE, [_finding(BLOCKING, 'source_unreadable', module, message)]
 
     findings = []
-    try:
-        source_path_to_dotted_name(module.file_path)
-    except ValidationError as error:
-        message = f'{path} cannot be imported: {error.messages[0]}'
+    staged = _staged_path(module, proposal)
+    if staged is None:
+        message = f'{path} sits outside the {proposal.name} project directory, so it cannot be staged.'
         findings.append(_finding(BLOCKING, 'not_importable', module, message))
+    else:
+        try:
+            source_path_to_dotted_name(staged)
+        except ValidationError as error:
+            message = f'{path} cannot be imported as {staged}: {error.messages[0]}'
+            findings.append(_finding(BLOCKING, 'not_importable', module, message))
 
     dialect = dialects.classify(body)
     if dialect == dialects.REPORT_STYLE:

@@ -1,0 +1,25 @@
+{% extends "generic/confirmation_form.html" %}
+{% load i18n %}
+{% comment %}
+Cleanup confirmation.
+
+Context:
+  - return_url: Where Cancel goes, the migration page
+{% endcomment %}
+{% block title %}
+  {% trans "Retire the built-in Custom Scripts" %}
+{% endblock title %}
+{% block confirmation_title %}
+  {% trans "Retire the built-in Custom Scripts" %}
+{% endblock confirmation_title %}
+{% block message %}
+  <p>{% trans "Delete the built-in script modules this migration replaced?" %}</p>
+  <p class="text-danger">
+    {% trans "The stored source of every module is deleted with it. That is safe only because staging copied all of it into this plugin's own storage first, so check that each migrated Project serves a revision before continuing." %}
+  </p>
+  <p class="text-secondary">
+    {% trans "Only the modules this migration mapped are deleted, and the built-in Scripts under them go with the module. Reports and any module the migration did not map are left alone." %}
+    {% trans "A module whose Job history has not moved onto a Custom Script is left in place and named in the job log, so clearing that history and running this again is how the last of them are retired." %}
+    {% trans "The migration is recorded as complete once nothing was left behind." %}
+  </p>
+{% endblock message %}

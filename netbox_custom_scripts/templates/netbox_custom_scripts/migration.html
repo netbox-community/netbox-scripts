@@ -20,6 +20,9 @@ Context:
   - references_job: The most recent reference pass Job, or None
   - references_queued: Whether a reference pass is already under way
   - can_repoint:    Whether the staged Projects are activated, so a reference has a row to name
+  - cleanup_job:    The most recent cleanup Job, or None
+  - cleanup_queued: Whether a cleanup is already under way
+  - can_clean_up:   Whether the Job history has moved, which is what deletion waits for
 {% endcomment %}
 {% block title %}
   {% trans "Custom Script migration" %}
@@ -65,6 +68,10 @@ Context:
             <tr>
               <th scope="row">{% trans "Last reference pass" %}</th>
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=references_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last cleanup" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=cleanup_job %}</td>
             </tr>
           </table>
           {% if blocking_findings %}
@@ -182,6 +189,10 @@ Context:
                         class="btn btn-primary"
                         {% if references_queued %}disabled{% endif %}>{% trans "Repoint references" %}</button>
               </form>
+            {% endif %}
+            {% if can_clean_up %}
+              <a href="{% url 'plugins:netbox_custom_scripts:migration_cleanup' %}"
+                 class="btn btn-danger{% if cleanup_queued %} disabled{% endif %}">{% trans "Clean up" %}</a>
             {% endif %}
           {% endif %}
         </div>

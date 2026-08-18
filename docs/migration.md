@@ -1,13 +1,13 @@
 # Migration
 
 An installation that already uses NetBox's built-in Custom Scripts can have that content read,
-reported on, staged as Custom Script Projects, and finally handed over. This page covers the five
+reported on, staged as Custom Script Projects, and finally handed over. This page covers the six
 passes that do it, how to read what they report, and what they deliberately leave alone.
 
 The first two change nothing an operator depends on, and you can stop after them. The third is
 irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 
-## What the five passes do
+## What the six passes do
 
 | Pass | What it does | Reversible |
 |---|---|---|
@@ -16,6 +16,7 @@ irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 | Cutover | Records every reference the repointing pass replays, then withdraws permissions on the built-in feature, disables its Event Rules, cancels its queued runs, and deregisters its source from synchronization. | **No** |
 | Activation | Puts every staged Project into service, so its Custom Scripts exist as rows. | After the cutover |
 | Repointing | Moves Event Rules, permissions and Job history onto those Custom Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
+| Cleanup | Deletes the built-in script modules this migration mapped, the Scripts under them, and their stored source. Records the migration as complete. | **No** |
 
 Each runs as a background job and records what it found on its own Job row, so the result stays
 readable after the run. Run them in the order above. Each refuses if the one before it has not
@@ -207,11 +208,31 @@ decide.
 Pointing an Event Rule's **action** at a Custom Script needs NetBox 4.7, where the plugin action
 exists. Below that line the rule's sources still move and its action is reported as unmoved.
 
+## Retiring the built-in rows
+
+Cleanup is the last pass and the only one that deletes anything. It refuses until the repointing
+pass has moved the Job history, because deleting a built-in Script deletes its Job rows with it.
+
+It deletes only the modules this migration mapped, one at a time, and the stored source of each goes
+with it. That is safe only because staging copied every byte into this plugin's own storage first, so
+check that each migrated Project serves a revision before you run it. Reports, and any module the
+migration did not map, are left alone.
+
+**A module whose Job history has not moved is left in place and named in the job log.** Two cases
+reach that, and both are history a deletion would destroy rather than orphan:
+
+- A built-in Script under the module still holds Job rows, because no Custom Script resolved to it.
+- The module holds Job rows of its own. Older NetBox versions recorded a run against the module
+  rather than against the Script, and a Custom Script Project cannot hold jobs, so the repointing
+  pass leaves those where they are.
+
+Clear what each warning names, then run cleanup again. The migration reaches the `migrated` state
+only once nothing was left behind, so a partial pass stays resumable rather than closing the run.
+
 ## What is not part of this release
 
 | Area | Status |
 |---|---|
-| Deleting the built-in rows | Not done by any pass. The cutover closes them and leaves them in place, so nothing carrying history is destroyed. |
 | A complete write fence | Not possible for a plugin. See [Crossing the fence](#crossing-the-fence). |
 | Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |
 | Reversing a cutover | Not planned. Restore from a database backup. |

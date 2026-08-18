@@ -44,11 +44,12 @@ rows of the built-in feature.
 | **Enter cutover** | `migrate` | Withdraws every grant on the built-in feature, disables its Event Rules, cancels its queued jobs, deregisters its synchronization |
 | **Activate Projects** | `migrate` | Puts the staged Projects into service |
 | **Repoint references** | `migrate` | Rewrites Event Rules, Object Permissions, Job history and schedules |
+| **Clean up** | `migrate` | Deletes the built-in script modules this migration mapped, and their stored source |
 
 `migrate` authorizes irreversible changes to rows this plugin does not own, so
 grant it to the person running the migration and not as a matter of course. A
 user holding `add` alone still sees the page, the inventory and staging, and is
-not offered the three steps past the fence.
+not offered the four steps past the fence.
 
 ## Custom Script
 

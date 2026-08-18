@@ -8,6 +8,7 @@ from core.models import Job, ObjectType
 from netbox_custom_scripts.choices import MigrationStateChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import (
     MigrationActivationJob,
+    MigrationCleanupJob,
     MigrationCutoverJob,
     MigrationInventoryJob,
     MigrationReferencesJob,
@@ -36,6 +37,7 @@ class MigrationTriggerTestCase(TestCase):
         self.references = self.enterContext(
             mock.patch.object(MigrationReferencesJob, 'enqueue', side_effect=self.fake_job)
         )
+        self.cleanup = self.enterContext(mock.patch.object(MigrationCleanupJob, 'enqueue', side_effect=self.fake_job))
 
     @staticmethod
     def fake_job(**kwargs):
@@ -410,4 +412,56 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_page_names_the_latest_reference_pass(self):
         self.grant('add')
         job = self.record(MigrationReferencesJob)
+        self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
+
+    def test_the_cleanup_button_appears_only_once_the_history_has_moved(self):
+        # Deleting a Script takes its Job rows, so the button waits on the repoint rather than on
+        # merely reaching the cutover state.
+        self.grant('add', 'migrate')
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        self.assertNotIn('Clean up', self.client.get(self.url('migration')).content.decode())
+
+        run.record_step('repoint_job_history', counts={})
+
+        self.assertIn('Clean up', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_cleanup_confirmation_queues_nothing(self):
+        self.grant('add', 'migrate')
+        response = self.client.get(self.url('migration_cleanup'))
+        self.assertHttpStatus(response, 200)
+        self.assertIn('stored source', response.content.decode())
+        self.cleanup.assert_not_called()
+
+    def test_the_cleanup_route_queues_the_job_and_returns_to_the_page(self):
+        self.grant('add', 'migrate')
+        response = self.client.post(self.url('migration_cleanup'))
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(response.url, self.url('migration'))
+        self.cleanup.assert_called_once()
+
+    def test_the_cleanup_refuses_while_one_is_already_queued(self):
+        self.grant('add', 'migrate')
+        self.record(MigrationCleanupJob, status=JobStatusChoices.STATUS_RUNNING)
+        response = self.client.post(self.url('migration_cleanup'))
+        self.assertHttpStatus(response, 302)
+        self.cleanup.assert_not_called()
+
+    def test_the_cleanup_route_needs_the_migrate_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_cleanup')), 403)
+
+        self.grant('add')
+
+        self.assertHttpStatus(self.client.post(self.url('migration_cleanup')), 403)
+        self.cleanup.assert_not_called()
+
+    def test_a_staging_user_is_not_offered_the_cleanup(self):
+        self.grant('add')
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        run.record_step('repoint_job_history', counts={})
+
+        self.assertNotIn('Clean up', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_page_names_the_latest_cleanup(self):
+        self.grant('add')
+        job = self.record(MigrationCleanupJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())

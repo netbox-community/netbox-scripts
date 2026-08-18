@@ -13,17 +13,19 @@ from utilities.views import ContentTypePermissionRequiredMixin, register_model_v
 from ..choices import MigrationStateChoices
 from ..jobs import (
     MigrationActivationJob,
+    MigrationCleanupJob,
     MigrationCutoverJob,
     MigrationInventoryJob,
     MigrationReferencesJob,
     MigrationStagingJob,
 )
-from ..migration import cutover, plan
+from ..migration import cutover, plan, references
 from ..models import CustomScriptProject, MigrationRun
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
 __all__ = (
     'MigrationActivationView',
+    'MigrationCleanupView',
     'MigrationCutoverView',
     'MigrationInventoryView',
     'MigrationReferencesView',
@@ -135,10 +137,14 @@ class MigrationView(BaseMigrationView):
                 'activation_queued': _queued(MigrationActivationJob),
                 'references_job': _latest(MigrationReferencesJob),
                 'references_queued': _queued(MigrationReferencesJob),
+                'cleanup_job': _latest(MigrationCleanupJob),
+                'cleanup_queued': _queued(MigrationCleanupJob),
                 # Offered once the fence is recorded, which is the only precondition activation has.
                 'can_activate': bool(run and run.step_done(cutover.STEP)),
                 # The references name plugin rows, and activation is what creates them.
                 'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)),
+                # Deleting a Script takes its Job history, so the history has to have moved first.
+                'can_clean_up': bool(run and run.step_done(references.HISTORY_STEP)),
                 # The fence is offered only while a run is staged and has not crossed, so the page
                 # cannot invite a step the job would refuse.
                 'can_cut_over': bool(run and run.state == MigrationStateChoices.STAGING),
@@ -270,4 +276,27 @@ class MigrationReferencesView(DestructiveMigrationView):
             return redirect('plugins:netbox_custom_scripts:migration')
         MigrationReferencesJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration reference pass.'))
+        return redirect('plugins:netbox_custom_scripts:migration')
+
+
+class MigrationCleanupView(DestructiveMigrationView):
+    """Queue the cleanup that deletes the built-in rows, confirming first because it deletes."""
+
+    template_name = 'netbox_custom_scripts/migration_cleanup.html'
+
+    def get(self, request):
+        """Confirm, naming what is deleted and that the stored source goes with it."""
+        return render(
+            request,
+            self.template_name,
+            {'return_url': reverse('plugins:netbox_custom_scripts:migration')},
+        )
+
+    def post(self, request):
+        """Queue the pass unless one is already under way."""
+        if _queued(MigrationCleanupJob):
+            messages.warning(request, _('A Custom Script migration cleanup is already queued.'))
+            return redirect('plugins:netbox_custom_scripts:migration')
+        MigrationCleanupJob.enqueue(user=request.user)
+        messages.success(request, _('Queued the Custom Script migration cleanup.'))
         return redirect('plugins:netbox_custom_scripts:migration')

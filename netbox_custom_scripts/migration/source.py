@@ -14,8 +14,10 @@ __all__ = (
     'legacy_auto_sync_records',
     'legacy_event_rules',
     'legacy_modules',
+    'legacy_modules_by_pk',
     'legacy_object_types',
     'legacy_permissions',
+    'module_references',
     'read_source',
     'reference_counts',
     'running_script_jobs',
@@ -75,11 +77,17 @@ def read_source(module):
 
 def legacy_object_types():
     """Return the object types a reference to the built-in feature can name."""
-    from core.models import ObjectType
     from extras.models import Script, ScriptModule
 
+    return [_object_type(Script), _object_type(ScriptModule)]
+
+
+def _object_type(model):
+    """Return the object type a reference records for one built-in model."""
+    from core.models import ObjectType
+
     # Jobs and Event Rules record the proxy, so resolving the concrete model alone reports zero.
-    return [ObjectType.objects.get_for_model(model, for_concrete_model=False) for model in (Script, ScriptModule)]
+    return ObjectType.objects.get_for_model(model, for_concrete_model=False)
 
 
 def script_jobs():
@@ -135,6 +143,35 @@ def legacy_auto_sync_records(module_pks=None):
     concrete = ObjectType.objects.get_for_model(ScriptModule)
     keys = ScriptModule.objects.values_list('pk', flat=True) if module_pks is None else module_pks
     return AutoSyncRecord.objects.filter(object_type=concrete, object_id__in=list(keys))
+
+
+def module_references(module):
+    """
+    Return what still refers to one built-in module, by kind, and how many Scripts it holds.
+
+    Every kind reported here reaches the module or its Scripts through a GenericRelation, so
+    Django's collector deletes those rows along with it rather than orphaning them. What to do
+    about that is the caller's business.
+    """
+    from core.models import Job
+    from extras.models import EventRule, Script
+
+    script_pks = list(module.scripts.values_list('pk', flat=True))
+    script_type = _object_type(Script)
+    return {
+        'scripts': len(script_pks),
+        'module_jobs': module.jobs.exists(),
+        'script_jobs': Job.objects.filter(object_type=script_type, object_id__in=script_pks).exists(),
+        'event_rules': module.event_rules.exists()
+        or EventRule.objects.filter(action_object_type=script_type, action_object_id__in=script_pks).exists(),
+    }
+
+
+def legacy_modules_by_pk(keys):
+    """Return the live built-in module rows for the given keys, for a caller that has to write."""
+    from extras.models import ScriptModule
+
+    return ScriptModule.objects.filter(pk__in=list(keys)).order_by('file_root', 'file_path')
 
 
 def reference_counts():

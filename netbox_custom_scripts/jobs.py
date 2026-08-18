@@ -807,3 +807,50 @@ class MigrationReferencesJob(JobRunner):
             f'Recreated {schedules.get("recreated", 0)} schedule(s), {schedules.get("shifted", 0)} of them '
             f'starting now rather than when they were due, and skipped {schedules.get("skipped", 0)}.'
         )
+
+
+class MigrationCleanupJob(JobRunner):
+    """
+    Delete the built-in Custom Scripts once every reference has moved onto the plugin's own rows.
+
+    Runs last, because deleting a Script takes its Job history with it. A module whose history has
+    not moved is left in place and named, so a re-run continues once the operator has cleared it.
+    """
+
+    class Meta:
+        name = 'Custom Script migration cleanup'
+
+    def run(self, **kwargs):
+        """Refuse until the history has moved, then retire every module that carries none."""
+        from .migration import cleanup, cutover
+
+        # Enqueue-time safety does not carry, the job may run much later on another pod.
+        if reason := branching.unsafe_routing_reason():
+            self.logger.error(f'Refusing the Custom Script migration cleanup, because {reason}')
+            raise JobFailed()
+
+        run = MigrationRun.current()
+        try:
+            counts, warnings = cleanup.retire_legacy(run)
+        except cutover.CutoverRefused as refusal:
+            self.logger.error(str(refusal))
+            raise JobFailed() from refusal
+
+        self.job.data = counts
+        for warning in warnings:
+            self.logger.warning(warning)
+        self.logger.info(
+            f'Deleted {counts.get("modules", 0)} built-in script module(s) and the '
+            f'{counts.get("scripts", 0)} Script(s) under them, along with their stored source.'
+        )
+        if counts.get('skipped'):
+            self.logger.info(
+                f'{counts["skipped"]} module(s) were left in place because deleting them would have '
+                'destroyed Job history. Clear what each warning above names, then run this again.'
+            )
+            return
+        self.logger.info(
+            f'The migration is complete. {counts.get("event_rules", 0)} Event Rule(s), '
+            f'{counts.get("permissions", 0)} permission(s) and {counts.get("jobs", 0)} Job(s) still '
+            'name the built-in feature.'
+        )

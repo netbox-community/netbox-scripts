@@ -29,12 +29,26 @@ the plugin contract allows explicitly.
 | `extras.models.EventRule.action_object_type` | `migration/source.py` | How many Event Rules a migration would have to repoint |
 | `users.models.ObjectPermission.object_types` | `migration/source.py` | How many permissions name the built-in models |
 | `core.models.Job.object_type` | `migration/source.py` | How much Job history exists, including what is scheduled or recurring |
+| `extras.models.ScriptModule.jobs` and `.event_rules` | `migration/source.py` | Whether deleting one module would take Job history or an Event Rule with it. Both are `GenericRelation`s, so Django's collector deletes those rows rather than orphaning them |
+| `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Withdrawing every grant on the built-in feature, which is as close to a write fence as a plugin gets |
+| `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Taking a rule out of service for the handover, and putting it back once its action and sources name plugin rows |
+| `core.models.Job.terminate` | `migration/cutover.py` | Failing a queued run closed. Used rather than an `update()` so the owner is notified, and there is no cancelled status to set |
+| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | A queued run's input, which lives only on the RQ task because `Job.enqueue()` keeps it off the row, and then dropping that task so nothing can execute it |
+| `core.models.AutoSyncRecord` | `migration/cutover.py` | Deregistering the built-in source, so no later synchronization rewrites it. Filtered on the **concrete** `ManagedFile` type, the inverse of the proxy rule below |
+| `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repointing a rule onto the Custom Script that replaced its built-in one. `full_clean()` first, because a rule can be invalid for reasons that predate the migration |
+| `users.models.ObjectPermission` creation, `.actions`, `.object_types`, `.users`, `.groups` | `migration/references.py` | Moving a grant onto the plugin's models, and splitting one that also named something else |
+| `core.models.Job.object_type` / `.object_id` update | `migration/references.py` | Repointing run history, batched, and done before anything is deleted because a Script's jobs go with it |
+| `extras.models.ScriptModule.delete` | `migration/cleanup.py` | Retiring a module and its stored source. Called per instance, because `QuerySet.delete()` does not call the model's `delete()`, which is what removes the file |
 
-Four modules, on purpose. If NetBox adds a documented execution context, replacing
+Six modules, on purpose. If NetBox adds a documented execution context, replacing
 the execution rows is a change to `execution.py` alone. The three `api/views.py`
-rows are the REST run endpoint's, and none of them touch how a run executes. Every
-migration row is confined to `migration/source.py`, which is the only module in the
-plugin that reads the built-in implementation at all.
+rows are the REST run endpoint's, and none of them touch how a run executes.
+
+Every migration row that **reads** the built-in feature is confined to
+`migration/source.py`, which is the only module in the plugin that finds those rows
+at all. The three modules below it **write** to rows that `source.py` handed them,
+which is the split the tier is built on: finding a row needs to know how the
+built-in feature is shaped, and deciding what to do with it does not.
 
 Two of the migration rows are easy to get subtly wrong, so they are worth stating.
 The stored bytes are opened by `file_path` and never by `full_path`: `full_path`
@@ -75,8 +89,14 @@ provide serializable records for the built-in script modules and their script
 classes, each with its content checksum, its Data Source reference and the
 repository path it was synchronized from, a stream for one module's stored source,
 and the counts or records of the Event Rules, permissions, Jobs, schedules and
-recurrences that name either model. That service would replace every row above
+recurrences that name either model. That service would replace every read row above
 attributed to `migration/source.py`, which is why they are confined to one module.
+
+It would not replace the write rows, and it does not need to. Those are ordinary
+writes to core models an operator could make by hand through NetBox's own UI, and
+a migration only differs in doing them in the right order and recording what it
+did. What makes them awkward is not that they are unsupported but that they reach
+models being retired, so they carry the same field-name risk the read rows do.
 
 The reason to ask rather than to keep reading the models directly is not capability.
 A plugin can read all of it today, and this one does. It is that an installation's
@@ -84,9 +104,26 @@ migration should not depend on the field names of a feature being retired, and t
 a supported export is the difference between a migration NetBox can guarantee and
 one that happens to work.
 
-A write fence is a separate ask, and a harder one: something that holds the built-in
-feature still for the duration of a cutover, so source cannot change underneath a
-migration in progress. No plugin can implement that without monkey-patching. Nothing
-on the inventory and staging side depends on it, because both passes are re-runnable
-and content-addressed, so a source that moved underneath them simply produces another
-revision. The fence is the cutover's requirement, not theirs.
+A write fence is a separate ask, and the only one this plugin could not build. It is
+persistent, core-owned state that makes NetBox's own views, REST viewsets, Event Rule
+dispatch and `runscript` refuse, below the view layer so there is one place to enforce
+it rather than four. No plugin can do that without monkey-patching.
+
+**The cutover ships without it, and measuring what it could close is what made the ask
+small.** The cutover withdraws every grant NetBox's own permissions UI can make,
+disables every Event Rule that uses the feature, fails every queued run closed and
+drops its task, and deregisters the source from synchronization. Cleanup then deletes
+the Script and ScriptModule rows outright. Once those rows are gone there is nothing
+left to execute, so the hole is not "the old scripts still run" but "a privileged user
+can create new ones": a superuser, or anyone regranted `extras.add_scriptmodule`, can
+still upload and run a fresh built-in script. Three narrower gaps sit beside it, and
+all three are permission composition rather than the feature itself. A superuser
+short-circuits every check. A permission named in `DEFAULT_PERMISSIONS` is merged in
+from configuration rather than from a row. And a permission assigned as a plain Django
+`auth_permission` is still honoured, because `RemoteUserBackend` extends `ModelBackend`
+and sits ahead of NetBox's own backend.
+
+Nothing on the inventory and staging side depends on the fence, because both passes are
+re-runnable and content-addressed, so a source that moved underneath them simply
+produces another revision. The cutover depends on it only for the guarantee, not for
+correctness: it is what turns "plan a maintenance window" into "the feature is closed".

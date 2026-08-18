@@ -18,6 +18,7 @@ from ..jobs import (
     MigrationInventoryJob,
     MigrationReferencesJob,
     MigrationStagingJob,
+    MigrationVerificationJob,
 )
 from ..migration import cutover, plan, references
 from ..models import CustomScriptProject, MigrationRun
@@ -31,6 +32,7 @@ __all__ = (
     'MigrationReferencesView',
     'MigrationRunView',
     'MigrationStagingView',
+    'MigrationVerificationView',
     'MigrationView',
 )
 
@@ -139,6 +141,7 @@ class MigrationView(BaseMigrationView):
                 'references_queued': _queued(MigrationReferencesJob),
                 'cleanup_job': _latest(MigrationCleanupJob),
                 'cleanup_queued': _queued(MigrationCleanupJob),
+                'verification_job': _latest(MigrationVerificationJob),
                 # Offered once the fence is recorded, which is the only precondition activation has.
                 'can_activate': bool(run and run.step_done(cutover.STEP)),
                 # The references name plugin rows, and activation is what creates them.
@@ -299,4 +302,14 @@ class MigrationCleanupView(DestructiveMigrationView):
             return redirect('plugins:netbox_custom_scripts:migration')
         MigrationCleanupJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration cleanup.'))
+        return redirect('plugins:netbox_custom_scripts:migration')
+
+
+class MigrationVerificationView(BaseMigrationView):
+    """Queue the pass that reports whether a migration landed."""
+
+    def post(self, request):
+        """Queue the report. It writes nothing, so it is neither confirmed nor refused."""
+        MigrationVerificationJob.enqueue(user=request.user)
+        messages.success(request, _('Queued the Custom Script migration verification.'))
         return redirect('plugins:netbox_custom_scripts:migration')

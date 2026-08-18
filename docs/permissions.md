@@ -41,6 +41,7 @@ rows of the built-in feature.
 | The page itself, and one migration's detail | `add` | Nothing |
 | **Run inventory** | `add` | Nothing, it is a report |
 | **Stage Projects** | `add` | Creates Projects and their Revisions, every one inactive |
+| **Verify** | `add` | Nothing, it is a report |
 | **Enter cutover** | `migrate` | Withdraws every grant on the built-in feature, disables its Event Rules, cancels its queued jobs, deregisters its synchronization |
 | **Activate Projects** | `migrate` | Puts the staged Projects into service |
 | **Repoint references** | `migrate` | Rewrites Event Rules, Object Permissions, Job history and schedules |

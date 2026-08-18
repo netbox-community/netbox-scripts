@@ -854,3 +854,31 @@ class MigrationCleanupJob(JobRunner):
             f'{counts.get("permissions", 0)} permission(s) and {counts.get("jobs", 0)} Job(s) still '
             'name the built-in feature.'
         )
+
+
+class MigrationVerificationJob(JobRunner):
+    """
+    Report whether a migration landed, changing nothing.
+
+    Safe to run at any state and as often as wanted. The report is recorded on the Job row, so it
+    stays readable after the run.
+    """
+
+    class Meta:
+        name = 'Custom Script migration verification'
+
+    def run(self, **kwargs):
+        """Build the report, log a line per check, and record it on the Job."""
+        from .migration import plan, verification
+
+        report = verification.verify()
+        self.job.data = report
+        for check in report['checks']:
+            log = {plan.BLOCKING: self.logger.error, plan.WARNING: self.logger.warning}.get(
+                check['level'], self.logger.info
+            )
+            log(f'{check["name"]}: {check["message"]} (read from {check["source"]})')
+        self.logger.info(
+            f'{len(report["checks"])} check(s) ran and the migration reports {report["status"]}. '
+            'This pass changed nothing.'
+        )

@@ -13,6 +13,7 @@ from netbox_custom_scripts.jobs import (
     MigrationInventoryJob,
     MigrationReferencesJob,
     MigrationStagingJob,
+    MigrationVerificationJob,
 )
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from users.models import ObjectPermission
@@ -38,6 +39,9 @@ class MigrationTriggerTestCase(TestCase):
             mock.patch.object(MigrationReferencesJob, 'enqueue', side_effect=self.fake_job)
         )
         self.cleanup = self.enterContext(mock.patch.object(MigrationCleanupJob, 'enqueue', side_effect=self.fake_job))
+        self.verification = self.enterContext(
+            mock.patch.object(MigrationVerificationJob, 'enqueue', side_effect=self.fake_job)
+        )
 
     @staticmethod
     def fake_job(**kwargs):
@@ -464,4 +468,38 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_page_names_the_latest_cleanup(self):
         self.grant('add')
         job = self.record(MigrationCleanupJob)
+        self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
+
+    def test_the_verify_button_is_offered_at_every_state(self):
+        # It reads only, so unlike every other pass it waits on nothing.
+        self.grant('add')
+
+        self.assertIn('Verify', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_verify_route_queues_the_job_and_returns_to_the_page(self):
+        self.grant('add')
+        response = self.client.post(self.url('migration_verify'))
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(response.url, self.url('migration'))
+        self.verification.assert_called_once()
+
+    def test_the_verify_route_takes_the_staging_permission_not_the_migrate_one(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_verify')), 403)
+
+        self.grant('add')
+
+        self.assertHttpStatus(self.client.post(self.url('migration_verify')), 302)
+        self.verification.assert_called_once()
+
+    def test_the_verify_route_is_never_refused_for_being_queued(self):
+        # It writes nothing, so two at once race on nothing.
+        self.grant('add')
+        self.record(MigrationVerificationJob, status=JobStatusChoices.STATUS_RUNNING)
+
+        self.assertHttpStatus(self.client.post(self.url('migration_verify')), 302)
+        self.verification.assert_called_once()
+
+    def test_the_page_names_the_latest_verification(self):
+        self.grant('add')
+        job = self.record(MigrationVerificationJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())

@@ -23,6 +23,7 @@ Context:
   - cleanup_job:    The most recent cleanup Job, or None
   - cleanup_queued: Whether a cleanup is already under way
   - can_clean_up:   Whether the Job history has moved, which is what deletion waits for
+  - verification_job: The most recent verification Job, or None
 {% endcomment %}
 {% block title %}
   {% trans "Custom Script migration" %}
@@ -72,6 +73,10 @@ Context:
             <tr>
               <th scope="row">{% trans "Last cleanup" %}</th>
               <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=cleanup_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last verification" %}</th>
+              <td>{% include "netbox_custom_scripts/inc/migration_job.html" with job=verification_job %}</td>
             </tr>
           </table>
           {% if blocking_findings %}
@@ -162,6 +167,12 @@ Context:
                 class="d-inline">
             {% csrf_token %}
             <button type="submit" class="btn btn-outline-primary">{% trans "Run inventory" %}</button>
+          </form>
+          <form action="{% url 'plugins:netbox_custom_scripts:migration_verify' %}"
+                method="post"
+                class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-primary">{% trans "Verify" %}</button>
           </form>
           <a href="{% url 'plugins:netbox_custom_scripts:migration_stage' %}"
              class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>

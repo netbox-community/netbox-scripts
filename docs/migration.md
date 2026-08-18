@@ -1,13 +1,13 @@
 # Migration
 
 An installation that already uses NetBox's built-in Custom Scripts can have that content read,
-reported on, staged as Custom Script Projects, and finally handed over. This page covers the six
+reported on, staged as Custom Script Projects, and finally handed over. This page covers the seven
 passes that do it, how to read what they report, and what they deliberately leave alone.
 
 The first two change nothing an operator depends on, and you can stop after them. The third is
 irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 
-## What the six passes do
+## What the seven passes do
 
 | Pass | What it does | Reversible |
 |---|---|---|
@@ -17,10 +17,12 @@ irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 | Activation | Puts every staged Project into service, so its Custom Scripts exist as rows. | After the cutover |
 | Repointing | Moves Event Rules, permissions and Job history onto those Custom Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
 | Cleanup | Deletes the built-in script modules this migration mapped, the Scripts under them, and their stored source. Records the migration as complete. | **No** |
+| Verification | Reports whether the migration landed. Reads only, and is safe to run at any point and as often as you like. | Nothing to undo |
 
 Each runs as a background job and records what it found on its own Job row, so the result stays
 readable after the run. Run them in the order above. Each refuses if the one before it has not
-completed.
+completed. Verification is the exception: it waits for nothing and refuses nothing, so you can run it
+between any two passes to see where the migration stands.
 
 A migration is tracked as a single **migration run**, which holds the state, the journal the later
 passes replay from, and what each pass recorded. Only one run is open at a time, and its state only
@@ -228,6 +230,35 @@ reach that, and both are history a deletion would destroy rather than orphan:
 
 Clear what each warning names, then run cleanup again. The migration reaches the `migrated` state
 only once nothing was left behind, so a partial pass stays resumable rather than closing the run.
+
+## Checking whether it landed
+
+**Verify** runs five checks and changes nothing. Each one reports `ready`, `warning` or `blocking`,
+the report takes the worst of them as its status, and the whole thing is recorded on the Job so it
+stays readable.
+
+| Check | Passes when |
+|---|---|
+| Modules | Every Project this migration activated exists and serves a revision |
+| Scripts | Every built-in Script has a live Custom Script that is not retired |
+| Event Rules | No Event Rule names the built-in feature, and every rule that was enabled before the cutover is enabled again |
+| Permissions | No permission names the built-in feature |
+| Jobs | No Job names the built-in feature, and every captured schedule has a live counterpart |
+
+**A check reports `warning` until the pass it verifies has run**, so a report taken before the
+cutover says that nothing has happened rather than that something is wrong. Only a pass that has run
+and left something behind reports `blocking`.
+
+**Every check names what it read.** That matters after cleanup, because the built-in rows are gone by
+then and the Scripts check has to fall back to what the migrated Projects publish. A report that says
+`the built-in rows` was checked against them directly, and one that says `the migration journal` was
+checked against what the migration recorded. Without that, a green report after cleanup would be
+indistinguishable from a check that had nothing left to look at.
+
+Two `warning` results are ordinary rather than faults, and both are restated on every run because
+each is operator work that stays outstanding until somebody does it: a permission that carried
+constraints and was left withdrawn for you to recreate, and a Job that names a built-in script module
+rather than a Script, which no Custom Script Project can hold.
 
 ## What is not part of this release
 

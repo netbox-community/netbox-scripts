@@ -6,6 +6,7 @@ from .migration import (
     MigrationReferencesView,
     MigrationRunView,
     MigrationStagingView,
+    MigrationVerificationView,
     MigrationView,
 )
 from .module import (
@@ -71,5 +72,6 @@ __all__ = (
     'MigrationReferencesView',
     'MigrationRunView',
     'MigrationStagingView',
+    'MigrationVerificationView',
     'MigrationView',
 )

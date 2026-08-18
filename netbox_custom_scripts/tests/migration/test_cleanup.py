@@ -381,13 +381,29 @@ class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
     """What cleanup does once an Event Rule's action has actually moved, which needs the registry."""
 
     def test_a_repointed_action_does_not_hold_its_module_back(self):
-        run = self.repointed()
+        # The rule has to exist before the fence, because the reference pass replays only the
+        # journal the cutover froze.
         rule = self.action_rule()
-        references.repoint_event_rules(run)
-        run.refresh_from_db()
+        run = self.repointed()
 
         counts, _unused = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 0)
         self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+
+    def test_a_rule_that_appeared_after_the_fence_holds_its_module_back(self):
+        # Uncaptured, so no pass moved it, and on this host one still could: a fault an operator
+        # clears with a fresh run rather than permanent residue.
+        run = self.repointed()
+        rule = self.action_rule()
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 1)
+        self.assertEqual(counts['retained'], 0)
+        self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
+        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        self.assertTrue(any('did not' in warning and 'move' in warning for warning in warnings))
+        run.refresh_from_db()
+        self.assertNotEqual(run.state, MigrationStateChoices.MIGRATED)

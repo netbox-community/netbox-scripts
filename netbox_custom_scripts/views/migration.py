@@ -20,7 +20,7 @@ from ..jobs import (
     MigrationStagingJob,
     MigrationVerificationJob,
 )
-from ..migration import cutover, plan, references
+from ..migration import cleanup, cutover, plan
 from ..models import CustomScriptProject, MigrationRun
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
@@ -146,8 +146,9 @@ class MigrationView(BaseMigrationView):
                 'can_activate': bool(run and run.step_done(cutover.STEP)),
                 # The references name plugin rows, and activation is what creates them.
                 'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)),
-                # Deleting a Script takes its Job history, so the history has to have moved first.
-                'can_clean_up': bool(run and run.step_done(references.HISTORY_STEP)),
+                # Deleting a Script takes its Job history with it, and a schedule can only be
+                # recreated while the built-in rows are still here, so every reference step first.
+                'can_clean_up': bool(run and cleanup.ready(run)),
                 # The fence is offered only while a run is staged and has not crossed, so the page
                 # cannot invite a step the job would refuse.
                 'can_cut_over': bool(run and run.state == MigrationStateChoices.STAGING),

@@ -10,10 +10,26 @@ from . import source as legacy_source
 
 __all__ = (
     'STEP',
+    'ready',
     'retire_legacy',
 )
 
 STEP = 'cleanup'
+
+# Every reference step, not just the history one. recreate_schedules resolves a captured schedule
+# through the built-in rows this pass deletes, so a cleanup that runs first loses the schedule
+# permanently: the cutover already dropped its queue task.
+_REQUIRED_STEPS = (
+    legacy_references.EVENT_RULES_STEP,
+    legacy_references.PERMISSIONS_STEP,
+    legacy_references.HISTORY_STEP,
+    legacy_references.SCHEDULES_STEP,
+)
+
+
+def ready(run):
+    """Whether every step this pass depends on has completed, which is what the page offers it on."""
+    return all(run.step_done(name) for name in _REQUIRED_STEPS)
 
 
 def retire_legacy(run):
@@ -30,9 +46,14 @@ def retire_legacy(run):
     if run.step_done(STEP):
         return run.recorded_counts(STEP), []
     cutover.require_staged(run)
-    if not run.step_done(legacy_references.HISTORY_STEP):
+    if not ready(run):
+        outstanding = [name for name in _REQUIRED_STEPS if not run.step_done(name)]
         raise cutover.CutoverRefused(
-            _('The Job history has not been repointed yet, and deleting a Script would take its jobs with it.')
+            _(
+                'The reference pass has not finished: {steps} still outstanding. Deleting a Script would take '
+                'its Job history with it, and a schedule can only be recreated while the built-in rows are '
+                'still here.'
+            ).format(steps=', '.join(outstanding))
         )
 
     counts, warnings = _delete_modules(run)

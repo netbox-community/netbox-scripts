@@ -20,9 +20,16 @@ class CleanupMixin(ReferenceMigrationMixin):
     """A migration that has crossed the fence, activated, and moved its Job history."""
 
     def repointed(self):
-        """Take the migration to the state cleanup is the next step from."""
+        """Take the migration to the state cleanup is the next step from, every reference step done."""
+        return self.repoint_all()
+
+    def repoint_all(self):
+        """Run every reference pass in the order the job runs them."""
         self.cross_over()
+        references.repoint_event_rules(self.migration)
+        references.repoint_permissions(self.migration)
         references.repoint_job_history(self.migration)
+        references.recreate_schedules(self.migration)
         self.migration.refresh_from_db()
         return self.migration
 
@@ -69,6 +76,29 @@ class CleanupRefusalTestCase(CleanupMixin, TestCase):
             cleanup.retire_legacy(self.migration)
 
         self.assertIn('Job history', str(refused.exception))
+
+    def test_it_refuses_when_the_schedules_step_has_not_finished(self):
+        # The references job runs four steps in one body and a pod can be killed between them.
+        # Deleting first loses every captured schedule for good: the cutover dropped its queue task,
+        # and recreating one needs the built-in rows this pass removes.
+        self.cross_over()
+        references.repoint_event_rules(self.migration)
+        references.repoint_permissions(self.migration)
+        references.repoint_job_history(self.migration)
+        self.migration.refresh_from_db()
+
+        with self.assertRaises(cutover.CutoverRefused) as refused:
+            cleanup.retire_legacy(self.migration)
+
+        self.assertIn(references.SCHEDULES_STEP, str(refused.exception))
+
+    def test_it_is_not_ready_until_every_reference_step_is_done(self):
+        self.cross_over()
+        self.assertFalse(cleanup.ready(self.migration))
+
+        run = self.repoint_all()
+
+        self.assertTrue(cleanup.ready(run))
 
     def test_a_refusal_deletes_nothing(self):
         self.cross_over()

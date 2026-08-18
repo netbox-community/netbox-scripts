@@ -418,14 +418,17 @@ class MigrationTriggerTestCase(TestCase):
         job = self.record(MigrationReferencesJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
-    def test_the_cleanup_button_appears_only_once_the_history_has_moved(self):
-        # Deleting a Script takes its Job rows, so the button waits on the repoint rather than on
-        # merely reaching the cutover state.
+    def test_the_cleanup_button_waits_for_every_reference_step(self):
+        # One finished step is not enough: a schedule needs the built-in rows still there.
         self.grant('add', 'migrate')
         run = self.open_run(MigrationStateChoices.CUTOVER)
         self.assertNotIn('Clean up', self.client.get(self.url('migration')).content.decode())
 
-        run.record_step('repoint_job_history', counts={})
+        for step in ('repoint_event_rules', 'repoint_permissions', 'repoint_job_history'):
+            run.record_step(step, counts={})
+            self.assertNotIn('Clean up', self.client.get(self.url('migration')).content.decode())
+
+        run.record_step('recreate_schedules', counts={})
 
         self.assertIn('Clean up', self.client.get(self.url('migration')).content.decode())
 
@@ -461,7 +464,8 @@ class MigrationTriggerTestCase(TestCase):
     def test_a_staging_user_is_not_offered_the_cleanup(self):
         self.grant('add')
         run = self.open_run(MigrationStateChoices.CUTOVER)
-        run.record_step('repoint_job_history', counts={})
+        for step in ('repoint_event_rules', 'repoint_permissions', 'repoint_job_history', 'recreate_schedules'):
+            run.record_step(step, counts={})
 
         self.assertNotIn('Clean up', self.client.get(self.url('migration')).content.decode())
 

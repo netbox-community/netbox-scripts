@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from core.models import Job
 from extras.models import EventRule, Script, ScriptModule
-from netbox_custom_scripts.migration import cleanup, plan, references, verification
+from netbox_custom_scripts.migration import cleanup, plan, verification
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, MigrationRun
 from netbox_custom_scripts.tests.migration.test_cleanup import CleanupMixin
 from netbox_custom_scripts.tests.migration.test_references import HAS_EVENT_RULE_ACTIONS, REASON
@@ -13,15 +13,6 @@ from users.models import ObjectPermission
 
 class VerificationMixin(CleanupMixin):
     """A migration taken as far as each case needs, and a way to read one check out of the report."""
-
-    def repoint_all(self):
-        """Run every reference pass in the order the job runs them."""
-        run = self.repointed()
-        references.repoint_event_rules(run)
-        references.repoint_permissions(run)
-        references.recreate_schedules(run)
-        run.refresh_from_db()
-        return run
 
     @staticmethod
     def named(report, name):

@@ -28,10 +28,32 @@ A migration is tracked as a single **migration run**, which holds the state, the
 passes replay from, and what each pass recorded. Only one run is open at a time, and its state only
 moves forward: `legacy`, `staging`, `cutover`, `migrated`.
 
+## Before you start
+
+Everything in this section is operator work. No pass can do any of it, and the cutover is
+irreversible, so do all of it before you press **Enter cutover**.
+
+1. **Take a maintenance window.** The fence a plugin can build withdraws every grant NetBox's own
+   permissions UI can make, and no more. A superuser is unaffected. Treat the window as the real
+   fence and this pass as the tidying.
+2. **Pause the workers.** A run that starts while the cutover is capturing is a run the migration
+   cannot account for. The cutover refuses outright while a built-in Script job is executing, so
+   pausing first is what stops you having to wait mid-migration.
+3. **Back up the database and the source storage together, as one restore point.** The plugin's
+   Projects live in the database and their content lives in the storage backend, so a database
+   restored against a different storage state serves revisions whose bytes are gone. Note the NetBox
+   and plugin versions with the backup.
+4. **Synchronize each Data Source one last time, and let its reconciliation finish.** Staging freezes
+   whatever the Project holds at that moment, so a repository that moves afterwards leaves the
+   migrated Project a revision behind. The **Reconcile Source** action on each Data Source Project is
+   what drives that, and each Project's revision list is where you confirm it finished.
+5. **Run the inventory and clear every blocking finding.** Staging refuses on any of them and creates
+   nothing, so this is not optional. The Migration page lists them above the buttons.
+
 ## Starting a pass
 
-*Custom Scripts > Migration* carries both passes and names the most recent run of each, so you
-can see whether one is still queued.
+*Custom Scripts > Migration* carries every pass and names the most recent run of each, so you can see
+whether one is still queued and where the migration stands.
 
 It also lists every Custom Script Project the inventory and staging passes name, with the state each is in right
 now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
@@ -231,6 +253,52 @@ reach that, and both are history a deletion would destroy rather than orphan:
 Clear what each warning names, then run cleanup again. The migration reaches the `migrated` state
 only once nothing was left behind, so a partial pass stays resumable rather than closing the run.
 
+## After the last pass
+
+Two more pieces of operator work, in this order.
+
+1. **Restart every web and worker process.** A process that imported a built-in script module still
+   holds it in memory, and deleting the row does not unload it. Until every process has restarted,
+   what an installation can execute is not what its rows say.
+2. **Resume the queues.**
+
+Then run **Verify**, and read what it reports before you call the migration done.
+
+### Two guarantees, and what each one is worth
+
+**Disabling this plugin does not bring the built-in Custom Scripts back.** Every door the migration
+closed is a row in a NetBox table rather than a decision this plugin re-makes at runtime: a deleted
+script module, a disabled Object Permission, a deregistered synchronization record. Those rows read
+the same whether the plugin is installed, disabled or removed. The honest limit is that the same
+thing makes it reversible by hand. Anyone who can create an Object Permission can grant
+`extras.add_scriptmodule` again and upload a new built-in script, and nothing this plugin ships can
+refuse that. It is a fresh script rather than a returning one, because the old rows are gone.
+
+**A stale built-in job cannot execute.** The cutover fails every waiting job closed and drops its
+task from the queue, so there is nothing left for a worker to pick up. Recurring runs are recreated
+against the Custom Script that replaced the built-in one, which is why the reference pass comes
+before cleanup rather than after.
+
+## Recovery
+
+**Before the fence, recovery is abandonment.** Delete the staged Projects and their revisions. The
+built-in feature has not been touched, so there is nothing to undo and no state to reconcile.
+
+**After the fence there is no rollback.**
+
+That is a property of the design rather than a missing feature. The cutover deletes queue tasks,
+disables rows an operator may since have edited, and hands execution to Projects whose content is
+addressed by digest. Nothing reconstructs the state before it.
+
+The supported reversal is restoring the backup from step 3 of
+[Before you start](#before-you-start): the database, the source storage, and the matching NetBox and
+plugin versions, together. Restoring one without the others gives an installation that disagrees with
+itself.
+
+Forward is the cheaper direction in every case the migration leaves unfinished. A Project serving no
+revision is activated, a permission left withdrawn is recreated by hand, a module cleanup skipped is
+retired once its Job history is dealt with. **Verify** names each of those every time it runs.
+
 ## Checking whether it landed
 
 **Verify** runs five checks and changes nothing. Each one reports `ready`, `warning` or `blocking`,
@@ -266,4 +334,4 @@ rather than a Script, which no Custom Script Project can hold.
 |---|---|
 | A complete write fence | Not possible for a plugin. See [Crossing the fence](#crossing-the-fence). |
 | Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |
-| Reversing a cutover | Not planned. Restore from a database backup. |
+| Reversing a cutover | Not planned. See [Recovery](#recovery). |

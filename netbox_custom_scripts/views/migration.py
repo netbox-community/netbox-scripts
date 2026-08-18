@@ -87,7 +87,7 @@ def _queued(job_class):
 
 class BaseMigrationView(ContentTypePermissionRequiredMixin, View):
     """
-    Shared gate for the two migration passes.
+    Shared gate for the migration surface, and for the passes that only read or stage.
 
     A pass acts on the built-in feature rather than on a model of this plugin, so it takes the
     permission for what it produces: Custom Script Projects.
@@ -95,6 +95,15 @@ class BaseMigrationView(ContentTypePermissionRequiredMixin, View):
 
     def get_required_permission(self):
         return get_permission_for_model(CustomScriptProject, 'add')
+
+
+class DestructiveMigrationView(BaseMigrationView):
+    """Gate for the steps past the fence, which close and rewrite rows of the built-in feature."""
+
+    def get_required_permission(self):
+        # Withdrawing grants, disabling rules, terminating other users' jobs and deleting rows is
+        # not a form of creating a Project, which is all the staging permission authorizes.
+        return get_permission_for_model(CustomScriptProject, 'migrate')
 
 
 class MigrationView(BaseMigrationView):
@@ -212,7 +221,7 @@ class MigrationStagingView(BaseMigrationView):
         return redirect('plugins:netbox_custom_scripts:migration')
 
 
-class MigrationCutoverView(BaseMigrationView):
+class MigrationCutoverView(DestructiveMigrationView):
     """Queue the cutover, confirming first because crossing the fence is a decision, not a step."""
 
     template_name = 'netbox_custom_scripts/migration_cutover.html'
@@ -235,7 +244,7 @@ class MigrationCutoverView(BaseMigrationView):
         return redirect('plugins:netbox_custom_scripts:migration')
 
 
-class MigrationActivationView(BaseMigrationView):
+class MigrationActivationView(DestructiveMigrationView):
     """Queue activation of the staged Projects."""
 
     def post(self, request):
@@ -250,7 +259,7 @@ class MigrationActivationView(BaseMigrationView):
         return redirect('plugins:netbox_custom_scripts:migration')
 
 
-class MigrationReferencesView(BaseMigrationView):
+class MigrationReferencesView(DestructiveMigrationView):
     """Queue the reference pass that moves Event Rules and permissions onto the plugin."""
 
     def post(self, request):

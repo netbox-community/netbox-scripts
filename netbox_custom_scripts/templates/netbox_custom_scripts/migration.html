@@ -31,7 +31,7 @@ Context:
         <h2 class="card-header">{% trans "Migrate from the built-in feature" %}</h2>
         <div class="card-body">
           <p>
-            {% trans "The inventory reports what a migration would do and changes nothing. Staging creates the Custom Script Projects it proposes, every one inactive, and the built-in Custom Scripts keep running throughout." %}
+            {% trans "The inventory reports what a migration would do and changes nothing. Staging creates the Custom Script Projects it proposes, every one inactive, and leaves the built-in Custom Scripts serving. Every step from the cutover onwards changes what this installation runs, and there is no way back." %}
           </p>
           <table class="table">
             <tr>
@@ -158,29 +158,31 @@ Context:
           </form>
           <a href="{% url 'plugins:netbox_custom_scripts:migration_stage' %}"
              class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>
-          {% if can_cut_over %}
-            <a href="{% url 'plugins:netbox_custom_scripts:migration_cutover' %}"
-               class="btn btn-danger{% if cutover_queued %} disabled{% endif %}">{% trans "Enter cutover" %}</a>
-          {% endif %}
-          {% if can_activate %}
-            <form action="{% url 'plugins:netbox_custom_scripts:migration_activate' %}"
-                  method="post"
-                  class="d-inline">
-              {% csrf_token %}
-              <button type="submit"
-                      class="btn btn-primary"
-                      {% if activation_queued %}disabled{% endif %}>{% trans "Activate Projects" %}</button>
-            </form>
-          {% endif %}
-          {% if can_repoint %}
-            <form action="{% url 'plugins:netbox_custom_scripts:migration_repoint' %}"
-                  method="post"
-                  class="d-inline">
-              {% csrf_token %}
-              <button type="submit"
-                      class="btn btn-primary"
-                      {% if references_queued %}disabled{% endif %}>{% trans "Repoint references" %}</button>
-            </form>
+          {% if perms.netbox_custom_scripts.migrate_customscriptproject %}
+            {% if can_cut_over %}
+              <a href="{% url 'plugins:netbox_custom_scripts:migration_cutover' %}"
+                 class="btn btn-danger{% if cutover_queued %} disabled{% endif %}">{% trans "Enter cutover" %}</a>
+            {% endif %}
+            {% if can_activate %}
+              <form action="{% url 'plugins:netbox_custom_scripts:migration_activate' %}"
+                    method="post"
+                    class="d-inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-primary"
+                        {% if activation_queued %}disabled{% endif %}>{% trans "Activate Projects" %}</button>
+              </form>
+            {% endif %}
+            {% if can_repoint %}
+              <form action="{% url 'plugins:netbox_custom_scripts:migration_repoint' %}"
+                    method="post"
+                    class="d-inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-primary"
+                        {% if references_queued %}disabled{% endif %}>{% trans "Repoint references" %}</button>
+              </form>
+            {% endif %}
           {% endif %}
         </div>
       </div>

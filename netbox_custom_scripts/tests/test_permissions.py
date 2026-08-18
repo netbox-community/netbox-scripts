@@ -19,7 +19,7 @@ PERMISSION_STORAGES = {
 
 # Every codename the plugin declares. The legacy reference migration maps onto these.
 DECLARED = {
-    CustomScriptProject: ('view', 'add', 'change', 'delete', 'activate', 'reconcile'),
+    CustomScriptProject: ('view', 'add', 'change', 'delete', 'activate', 'migrate', 'reconcile'),
     CustomScript: ('view', 'change', 'run', 'schedule'),
 }
 

@@ -46,6 +46,7 @@ class Migration(migrations.Migration):
                 'ordering': ('name',),
                 'permissions': (
                     ('activate_customscriptproject', 'Can activate a revision of a Custom Script Project'),
+                    ('migrate_customscriptproject', 'Can migrate off the built-in Custom Scripts feature'),
                     ('reconcile_customscriptproject', "Can reconcile a Custom Script Project's source"),
                 ),
             },

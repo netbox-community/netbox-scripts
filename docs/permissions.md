@@ -19,6 +19,7 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 | `change` | Edit a Project's own fields, and upload a further script into one |
 | `delete` | Delete a Project, which cascades its Revisions and Custom Scripts |
 | `activate` | Put a Revision into service, and stand a Project down from one |
+| `migrate` | Move this installation off the built-in Custom Scripts feature |
 | `reconcile` | Rebuild a Project's source from its Data Source directory on demand |
 
 `activate` covers three surfaces: the **Activate** button on a Project, and the
@@ -26,6 +27,28 @@ per-row **Activate** and **Deactivate** buttons on its Revisions tab. All three
 change what the Project serves, so all three ask for the same action. A Revision
 has no permission of its own, because it has no surface anyone would grant one
 for.
+
+## The Migration page
+
+The Migration page has no model of its own, so its passes take Custom Script
+Project actions. Which one depends on what the pass changes, and the split is
+the same principle as `activate`: the passes below the fence only report or
+create Projects, while everything from the cutover onwards rewrites and deletes
+rows of the built-in feature.
+
+| Pass | Action | What it changes |
+|---|---|---|
+| The page itself, and one migration's detail | `add` | Nothing |
+| **Run inventory** | `add` | Nothing, it is a report |
+| **Stage Projects** | `add` | Creates Projects and their Revisions, every one inactive |
+| **Enter cutover** | `migrate` | Withdraws every grant on the built-in feature, disables its Event Rules, cancels its queued jobs, deregisters its synchronization |
+| **Activate Projects** | `migrate` | Puts the staged Projects into service |
+| **Repoint references** | `migrate` | Rewrites Event Rules, Object Permissions, Job history and schedules |
+
+`migrate` authorizes irreversible changes to rows this plugin does not own, so
+grant it to the person running the migration and not as a matter of course. A
+user holding `add` alone still sees the page, the inventory and staging, and is
+not offered the three steps past the fence.
 
 ## Custom Script
 

@@ -259,7 +259,7 @@ class MigrationTriggerTestCase(TestCase):
         return MigrationRun.objects.create(state=state)
 
     def test_the_cutover_button_appears_only_once_a_run_is_staged(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
 
         self.open_run(MigrationStateChoices.STAGING)
@@ -268,33 +268,39 @@ class MigrationTriggerTestCase(TestCase):
 
     def test_the_cutover_button_is_gone_once_the_fence_has_been_crossed(self):
         # The page must not offer a step the job would refuse.
-        self.grant('add')
+        self.grant('add', 'migrate')
         self.open_run(MigrationStateChoices.CUTOVER)
 
         self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
 
     def test_the_cutover_confirmation_queues_nothing(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         response = self.client.get(self.url('migration_cutover'))
         self.assertHttpStatus(response, 200)
         self.assertIn('no way back', response.content.decode())
         self.cutover.assert_not_called()
 
     def test_the_cutover_route_queues_the_job_and_returns_to_the_page(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         response = self.client.post(self.url('migration_cutover'))
         self.assertHttpStatus(response, 302)
         self.assertEqual(response.url, self.url('migration'))
         self.cutover.assert_called_once()
 
     def test_the_cutover_refuses_while_one_is_already_queued(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         self.record(MigrationCutoverJob, status=JobStatusChoices.STATUS_RUNNING)
         response = self.client.post(self.url('migration_cutover'))
         self.assertHttpStatus(response, 302)
         self.cutover.assert_not_called()
 
-    def test_the_cutover_route_needs_the_permission(self):
+    def test_the_cutover_route_needs_the_migrate_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_cutover')), 403)
+
+        # Staging creates inactive Projects. This closes rows of the built-in feature, so the
+        # permission that authorizes the one must not authorize the other.
+        self.grant('add')
+
         self.assertHttpStatus(self.client.post(self.url('migration_cutover')), 403)
         self.cutover.assert_not_called()
 
@@ -303,10 +309,34 @@ class MigrationTriggerTestCase(TestCase):
         job = self.record(MigrationCutoverJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
+    def test_a_staging_user_is_offered_none_of_the_steps_past_the_fence(self):
+        # Every condition the three buttons render under is satisfied here, so the permission is the
+        # only thing keeping them off the page.
+        self.grant('add')
+        run = self.open_run(MigrationStateChoices.STAGING)
+        run.record_step('cutover', counts={})
+        run.record_step('activate', projects=[])
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertNotIn('Enter cutover', body)
+        self.assertNotIn('Activate Projects', body)
+        self.assertNotIn('Repoint references', body)
+
+    def test_a_migrating_user_is_offered_every_step_the_state_allows(self):
+        self.grant('add', 'migrate')
+        run = self.open_run(MigrationStateChoices.STAGING)
+        run.record_step('cutover', counts={})
+        run.record_step('activate', projects=[])
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertIn('Enter cutover', body)
+        self.assertIn('Activate Projects', body)
+        self.assertIn('Repoint references', body)
+
     def test_the_activate_button_appears_only_once_the_fence_is_recorded(self):
         # Crossing the fence is what activation waits for, not merely reaching the cutover state:
         # a run whose cutover job failed partway has the state and not the step.
-        self.grant('add')
+        self.grant('add', 'migrate')
         run = self.open_run(MigrationStateChoices.CUTOVER)
         self.assertNotIn('Activate Projects', self.client.get(self.url('migration')).content.decode())
 
@@ -315,20 +345,26 @@ class MigrationTriggerTestCase(TestCase):
         self.assertIn('Activate Projects', self.client.get(self.url('migration')).content.decode())
 
     def test_the_activate_route_queues_the_job_and_returns_to_the_page(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         response = self.client.post(self.url('migration_activate'))
         self.assertHttpStatus(response, 302)
         self.assertEqual(response.url, self.url('migration'))
         self.activation.assert_called_once()
 
     def test_the_activate_route_refuses_while_one_is_already_queued(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         self.record(MigrationActivationJob, status=JobStatusChoices.STATUS_RUNNING)
         response = self.client.post(self.url('migration_activate'))
         self.assertHttpStatus(response, 302)
         self.activation.assert_not_called()
 
-    def test_the_activate_route_needs_the_permission(self):
+    def test_the_activate_route_needs_the_migrate_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_activate')), 403)
+
+        # Staging creates inactive Projects. This closes rows of the built-in feature, so the
+        # permission that authorizes the one must not authorize the other.
+        self.grant('add')
+
         self.assertHttpStatus(self.client.post(self.url('migration_activate')), 403)
         self.activation.assert_not_called()
 
@@ -339,7 +375,7 @@ class MigrationTriggerTestCase(TestCase):
 
     def test_the_repoint_button_appears_only_once_the_projects_are_activated(self):
         # The references name plugin rows, and activation is what creates them.
-        self.grant('add')
+        self.grant('add', 'migrate')
         run = self.open_run(MigrationStateChoices.CUTOVER)
         self.assertNotIn('Repoint references', self.client.get(self.url('migration')).content.decode())
 
@@ -348,20 +384,26 @@ class MigrationTriggerTestCase(TestCase):
         self.assertIn('Repoint references', self.client.get(self.url('migration')).content.decode())
 
     def test_the_repoint_route_queues_the_job_and_returns_to_the_page(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         response = self.client.post(self.url('migration_repoint'))
         self.assertHttpStatus(response, 302)
         self.assertEqual(response.url, self.url('migration'))
         self.references.assert_called_once()
 
     def test_the_repoint_route_refuses_while_one_is_already_queued(self):
-        self.grant('add')
+        self.grant('add', 'migrate')
         self.record(MigrationReferencesJob, status=JobStatusChoices.STATUS_RUNNING)
         response = self.client.post(self.url('migration_repoint'))
         self.assertHttpStatus(response, 302)
         self.references.assert_not_called()
 
-    def test_the_repoint_route_needs_the_permission(self):
+    def test_the_repoint_route_needs_the_migrate_permission(self):
+        self.assertHttpStatus(self.client.post(self.url('migration_repoint')), 403)
+
+        # Staging creates inactive Projects. This closes rows of the built-in feature, so the
+        # permission that authorizes the one must not authorize the other.
+        self.grant('add')
+
         self.assertHttpStatus(self.client.post(self.url('migration_repoint')), 403)
         self.references.assert_not_called()
 

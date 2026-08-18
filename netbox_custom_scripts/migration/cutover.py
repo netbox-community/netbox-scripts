@@ -90,8 +90,19 @@ def activate_staged(run):
     results = [
         _activate_project(project) for project in CustomScriptProject.objects.filter(key__in=keys).order_by('key')
     ]
-    run.record_step(ACTIVATE_STEP, projects=results)
+    run.record_step(ACTIVATE_STEP, projects=_merged_outcomes(run, results))
     return results
+
+
+def _merged_outcomes(run, results):
+    """Return the recorded activation outcomes with this run's results merged in, by project key."""
+    # Merged rather than replaced: this pass is re-runnable and reads the live built-in rows, so a
+    # later run can cover fewer Projects than the first. Cleanup and verification both scope
+    # themselves by this record, and a shrunk record silently shrinks what they act on.
+    recorded = run.journal.get('steps', {}).get(ACTIVATE_STEP, {}).get('projects') or []
+    merged = {entry['project_key']: entry for entry in recorded if entry.get('project_key')}
+    merged.update({result['project_key']: result for result in results})
+    return [merged[key] for key in sorted(merged)]
 
 
 def _activate_project(project):

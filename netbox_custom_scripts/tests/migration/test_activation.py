@@ -1,6 +1,7 @@
 from django.test import TestCase
 
 from core.choices import JobStatusChoices
+from extras.models import ScriptModule
 from netbox_custom_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import MigrationActivationJob, RevisionValidationJob
 from netbox_custom_scripts.migration import cutover
@@ -105,6 +106,24 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(dict(CustomScriptProject.objects.values_list('key', 'active_revision_id')), serving)
         # Synchronization skips a row that already matches, so the same rows survive untouched.
         self.assertEqual(set(CustomScript.objects.values_list('pk', flat=True)), script_pks)
+
+    def test_a_second_run_over_fewer_modules_keeps_the_whole_record(self):
+        # This pass is re-runnable and derives its keys from the live built-in rows, so a later run
+        # can cover fewer Projects than the first. Cleanup and verification both scope themselves by
+        # the recorded list, and record_step assigns, so replacing it silently shrinks what they act
+        # on to whatever the last run happened to see.
+        self.stage_and_validate()
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+        first = {entry['project_key'] for entry in self.migration.journal['steps'][cutover.ACTIVATE_STEP]['projects']}
+        self.assertEqual(len(first), 2)
+
+        ScriptModule.objects.filter(pk=self.uploaded.pk).delete()
+        cutover.activate_staged(self.migration)
+
+        self.migration.refresh_from_db()
+        second = {entry['project_key'] for entry in self.migration.journal['steps'][cutover.ACTIVATE_STEP]['projects']}
+        self.assertEqual(second, first)
 
     def test_the_job_reports_what_it_activated(self):
         self.stage_and_validate()

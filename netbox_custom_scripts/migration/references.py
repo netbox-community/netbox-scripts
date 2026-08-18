@@ -72,7 +72,7 @@ def repoint_event_rules(run):
     if run.step_done(EVENT_RULES_STEP):
         return run.recorded_counts(EVENT_RULES_STEP), []
 
-    resolved, _unresolved = mapping.resolve_scripts(mapping.build_map())
+    resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
     serves_action = _host_serves_action()
     counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unserved': 0}
@@ -177,7 +177,7 @@ def repoint_job_history(run):
     if run.step_done(HISTORY_STEP):
         return run.recorded_counts(HISTORY_STEP), []
 
-    resolved, _unresolved = mapping.resolve_scripts(mapping.build_map())
+    resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     legacy = _legacy_type('extras.script')
     target = _plugin_types()['extras.script']
     counts = {'moved': 0, 'unresolved': 0, 'modules': 0}
@@ -226,15 +226,14 @@ def recreate_schedules(run):
     if run.step_done(SCHEDULES_STEP):
         return run.recorded_counts(SCHEDULES_STEP), []
 
-    resolved, _unresolved = mapping.resolve_scripts(mapping.build_map())
+    resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     recreated = run.journal.setdefault('recreated_schedules', {})
     counts = {'recreated': 0, 'skipped': 0, 'shifted': 0}
     warnings = []
     for entry in run.journal.get('schedules', []):
         if str(entry['job_pk']) in recreated:
             continue
-        # By recorded type as well as key, because a queued job can name a built-in MODULE and the
-        # two models have independent key sequences, so a bare lookup can hit an unrelated Script.
+        # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
         if entry.get('legacy_object_type') != 'extras.script':
             counts['skipped'] += 1
             warnings.append(

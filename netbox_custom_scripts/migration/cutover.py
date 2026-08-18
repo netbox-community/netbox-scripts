@@ -42,11 +42,9 @@ def enter_cutover(run):
     """
     Record the cutover state, capture every reference the later steps replay, and close what closes.
 
-    Captures once and only once, because a second capture would read the closed state back as the
-    original. Closing is idempotent. Returns the counts recorded on the run, and returns them
-    unchanged without touching anything when the step has already completed, which is what makes a
-    resumed migration continue rather than undo the steps that followed. Raises CutoverRefused when
-    the run is not in a state that may cross, or while a built-in Script job is still running.
+    Captures once. Closing is idempotent. Returns the counts recorded on the run, and returns them
+    unchanged without touching anything when the step has already completed. Raises CutoverRefused
+    when the run is not in a state that may cross, or while a built-in Script job is still running.
     """
     if run is None:
         raise CutoverRefused(_('Nothing has been staged yet, so there is nothing to cut over to.'))
@@ -70,9 +68,12 @@ def enter_cutover(run):
 
 
 def require_staged(run):
-    """Return the run, raising CutoverRefused unless the fence has been recorded on it."""
+    """Return the run, raising CutoverRefused unless the fence and the map it froze are recorded."""
     if run is None or not run.step_done(STEP):
         raise CutoverRefused(_('The cutover has not been entered yet, so this step cannot run.'))
+    if mapping.recorded(run) is None:
+        # Every later pass replays this rather than deriving one, so a fence without it is unusable.
+        raise CutoverRefused(_('The cutover recorded no plugin map, so no later step can replay it.'))
     return run
 
 
@@ -80,13 +81,11 @@ def activate_staged(run):
     """
     Put every Project this migration staged into service, and return one outcome each.
 
-    Comes after the fence and before the reference migration, because a CustomScript row exists only
-    once a revision is active and an Event Rule's action object has to name one. Safe to run again:
-    a project already serving its newest revision is activated once more, which repairs its rows and
-    writes nothing where nothing is wrong. Raises CutoverRefused before the fence.
+    Safe to run again: a project already serving its newest revision has its rows repaired, and
+    nothing is written where nothing is wrong. Raises CutoverRefused before the fence.
     """
     require_staged(run)
-    keys = mapping.project_keys(mapping.build_map())
+    keys = mapping.project_keys(mapping.recorded(run))
     results = [
         _activate_project(project) for project in CustomScriptProject.objects.filter(key__in=keys).order_by('key')
     ]
@@ -96,9 +95,7 @@ def activate_staged(run):
 
 def _merged_outcomes(run, results):
     """Return the recorded activation outcomes with this run's results merged in, by project key."""
-    # Merged rather than replaced: this pass is re-runnable and reads the live built-in rows, so a
-    # later run can cover fewer Projects than the first. Cleanup and verification both scope
-    # themselves by this record, and a shrunk record silently shrinks what they act on.
+    # Merged, because verification scopes itself by this and a re-run can cover fewer Projects.
     recorded = run.journal.get('steps', {}).get(ACTIVATE_STEP, {}).get('projects') or []
     merged = {entry['project_key']: entry for entry in recorded if entry.get('project_key')}
     merged.update({result['project_key']: result for result in results})
@@ -138,6 +135,7 @@ def _outcome(project, revision_pk, outcome):
 
 def _capture(run):
     """Journal every reference the later steps replay, skipping whatever is already recorded."""
+    # Skipped rather than refreshed: a second capture would read the closed state back as the original.
     warnings = []
     journal = run.journal
     if 'permissions' not in journal:
@@ -146,6 +144,8 @@ def _capture(run):
         journal['event_rules'] = _capture_event_rules()
     if 'schedules' not in journal:
         journal['schedules'], warnings = _capture_schedules()
+    if 'mapping' not in journal:
+        journal['mapping'] = mapping.build_map()
     run.save(update_fields=('journal', 'last_updated'))
     return warnings
 

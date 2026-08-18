@@ -12,6 +12,7 @@ from . import source as legacy_source
 __all__ = (
     'build_map',
     'project_keys',
+    'recorded',
     'resolve_scripts',
 )
 
@@ -55,6 +56,11 @@ def build_map(modules=None):
             for script in module.scripts
         )
     return {'modules': mapped, 'scripts': scripts, 'unmapped': unmapped}
+
+
+def recorded(run):
+    """Return the map the cutover froze on the run, or None before the fence."""
+    return run.journal.get('mapping') if run else None
 
 
 def project_keys(mapping):

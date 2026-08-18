@@ -4,7 +4,7 @@ from core.choices import JobStatusChoices
 from extras.models import ScriptModule
 from netbox_custom_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import MigrationActivationJob, RevisionValidationJob
-from netbox_custom_scripts.migration import cutover
+from netbox_custom_scripts.migration import cutover, mapping
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from netbox_custom_scripts.tests.migration.test_staging import LegacySourceMixin
 
@@ -15,6 +15,8 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.migration = MigrationRun.objects.create(state=MigrationStateChoices.CUTOVER)
+        # The map as well as the step, because that is what a real fence records and replays.
+        self.migration.journal['mapping'] = mapping.build_map()
         self.migration.record_step(cutover.STEP, counts={})
 
     def stage_and_validate(self):
@@ -108,10 +110,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(set(CustomScript.objects.values_list('pk', flat=True)), script_pks)
 
     def test_a_second_run_over_fewer_modules_keeps_the_whole_record(self):
-        # This pass is re-runnable and derives its keys from the live built-in rows, so a later run
-        # can cover fewer Projects than the first. Cleanup and verification both scope themselves by
-        # the recorded list, and record_step assigns, so replacing it silently shrinks what they act
-        # on to whatever the last run happened to see.
+        # record_step assigns, so replacing the list would shrink what verification then checks.
         self.stage_and_validate()
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()

@@ -14,6 +14,7 @@ from netbox_custom_scripts.tests.migration.test_references import (
     REASON,
     ReferenceMigrationMixin,
 )
+from netbox_custom_scripts.tests.migration.test_staging import LEGACY_SCRIPT
 
 
 class CleanupMixin(ReferenceMigrationMixin):
@@ -78,9 +79,7 @@ class CleanupRefusalTestCase(CleanupMixin, TestCase):
         self.assertIn('Job history', str(refused.exception))
 
     def test_it_refuses_when_the_schedules_step_has_not_finished(self):
-        # The references job runs four steps in one body and a pod can be killed between them.
-        # Deleting first loses every captured schedule for good: the cutover dropped its queue task,
-        # and recreating one needs the built-in rows this pass removes.
+        # A schedule is recreated through the rows this pass deletes, so deleting first loses it.
         self.cross_over()
         references.repoint_event_rules(self.migration)
         references.repoint_permissions(self.migration)
@@ -156,8 +155,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         self.assertEqual(warnings, [])
 
     def test_a_module_this_migration_never_staged_is_left_alone(self):
-        # build_map() reads the built-in feature live, so the scope is the journal's record of what
-        # this migration activated. A module added afterwards is nobody's business here.
+        # The scope is the map the fence froze, so a module added afterwards is not in it.
         run = self.repointed()
         other = self.legacy_uploaded_module('unrelated.py', b'x = 1\n')
 
@@ -270,6 +268,26 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         counts, _unused = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['skipped'], 0)
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
+
+    def test_a_partial_pass_over_nested_folders_still_sees_what_it_skipped(self):
+        # Deleting the shallower module changes what the deeper one would group into.
+        deep = self.legacy_synced_module('automation/deep/b.py', LEGACY_SCRIPT)
+        run = self.repointed()
+        held = self.module_job(deep)
+
+        first, _unused = cleanup.retire_legacy(run)
+        self.assertEqual(first['skipped'], 1)
+        self.assertTrue(ScriptModule.objects.filter(pk=deep.pk).exists())
+        self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+
+        held.delete()
+        second, _unused = cleanup.retire_legacy(run)
+
+        self.assertEqual(second['unserved'], 0)
+        self.assertEqual(second['modules'], 1)
+        self.assertFalse(ScriptModule.objects.filter(pk=deep.pk).exists())
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 

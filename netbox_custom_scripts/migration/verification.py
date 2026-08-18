@@ -21,10 +21,9 @@ def verify(run=None):
     """
     Report whether a migration landed, changing nothing and refusing nothing.
 
-    Reads the latest migration rather than the open one, because the run that finished is exactly the
-    one worth verifying and a finished run is no longer open. Safe at any state, including before a
-    cutover and after the built-in rows are gone, and every check names what it read so a pass after
-    cleanup cannot be mistaken for a vacuous one.
+    Reads the latest migration rather than the open one, so a finished run still reports. Safe at any
+    state, including before a cutover and after the built-in rows are gone. Every check names which
+    side it read.
     """
     run = run or MigrationRun.objects.first()
     if run is None:
@@ -100,7 +99,8 @@ def _verify_scripts(run, live_modules):
     if not run.step_done(cutover.ACTIVATE_STEP):
         return _check(SCRIPTS, plan.WARNING, _('No Custom Script exists yet, because nothing has been activated.'))
     if live_modules:
-        plugin_map = mapping.build_map(modules=live_modules)
+        # The frozen map where there is one, so a partial cleanup cannot move the comparison.
+        plugin_map = mapping.recorded(run) or mapping.build_map(modules=live_modules)
         resolved, unresolved = mapping.resolve_scripts(plugin_map)
         if unresolved:
             return _check(

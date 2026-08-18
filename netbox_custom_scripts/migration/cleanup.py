@@ -16,9 +16,7 @@ __all__ = (
 
 STEP = 'cleanup'
 
-# Every reference step, not just the history one. recreate_schedules resolves a captured schedule
-# through the built-in rows this pass deletes, so a cleanup that runs first loses the schedule
-# permanently: the cutover already dropped its queue task.
+# A schedule is recreated through the built-in rows this pass deletes, so all four, not just history.
 _REQUIRED_STEPS = (
     legacy_references.EVENT_RULES_STEP,
     legacy_references.PERMISSIONS_STEP,
@@ -68,17 +66,13 @@ def retire_legacy(run):
 
 def _delete_modules(run):
     """Delete each of this migration's modules that nothing refers to, one row at a time."""
-    plugin_map = mapping.build_map()
-    migrated = _migrated_project_keys(run)
+    plugin_map = mapping.recorded(run)
+    mine = plugin_map['modules']
     serving = set(
-        CustomScriptProject.objects.filter(key__in=migrated, active_revision__isnull=False).values_list(
-            'key', flat=True
-        )
+        CustomScriptProject.objects.filter(
+            key__in=mapping.project_keys(plugin_map), active_revision__isnull=False
+        ).values_list('key', flat=True)
     )
-    # build_map() maps whatever the built-in feature holds right now, so a module added after this
-    # migration staged would otherwise be deleted by it. The activation step's journal is what says
-    # which Projects are this migration's, and a module outside them is nobody's business here.
-    mine = [entry for entry in plugin_map['modules'] if entry['project_key'] in migrated]
     keys = [entry['legacy_pk'] for entry in mine if entry['project_key'] in serving]
     counts = {'modules': 0, 'scripts': 0, 'skipped': 0, 'unserved': len(mine) - len(keys)}
     warnings = []
@@ -90,9 +84,7 @@ def _delete_modules(run):
                 '{keys}. Activate them, then run this again.'
             ).format(keys=', '.join(waiting))
         )
-    # Instance by instance, never through the queryset: QuerySet.delete() does not call the model's
-    # delete(), which is what removes the stored source file, and iterating is what keeps the
-    # per-module refusal below meaningful.
+    # Instance by instance: QuerySet.delete() skips the delete() that removes the stored file.
     for module in legacy_source.legacy_modules_by_pk(keys):
         references = legacy_source.module_references(module)
         if held := _refusal_for(module, references):
@@ -103,12 +95,6 @@ def _delete_modules(run):
         counts['modules'] += 1
         module.delete()
     return counts, warnings
-
-
-def _migrated_project_keys(run):
-    """Return the keys of the Projects this migration activated, as its journal recorded them."""
-    recorded = run.journal.get('steps', {}).get(cutover.ACTIVATE_STEP, {}).get('projects') or []
-    return {entry['project_key'] for entry in recorded if entry.get('project_key')}
 
 
 def _refusal_for(module, references):

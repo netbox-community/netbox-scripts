@@ -201,6 +201,24 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(job.object_id, self.plugin_script().pk)
         self.assertIsNotNone(job.data['revision_id'])
 
+    def test_a_schedule_naming_a_module_is_skipped_rather_than_resolved_by_key(self):
+        # Both built-in types are captured and their key sequences are independent.
+        module_type = ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False)
+        job = self.legacy_schedule(scheduled=self.future())
+        Job.objects.filter(pk=job.pk).update(object_type=module_type, object_id=self.plugin_script_pk())
+        self.cross_over()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('script module' in warning for warning in warnings))
+
+    def plugin_script_pk(self):
+        """A built-in Script key to collide with, which is what makes the bare lookup unsafe."""
+        return self.script.pk
+
     def test_a_recurrence_keeps_its_interval_and_pins_nothing(self):
         # A recurrence resolves the active revision per occurrence, so a pin would freeze it.
         self.legacy_schedule(scheduled=self.future(), interval=60)

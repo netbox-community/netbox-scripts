@@ -233,6 +233,17 @@ def recreate_schedules(run):
     for entry in run.journal.get('schedules', []):
         if str(entry['job_pk']) in recreated:
             continue
+        # By recorded type as well as key, because a queued job can name a built-in MODULE and the
+        # two models have independent key sequences, so a bare lookup can hit an unrelated Script.
+        if entry.get('legacy_object_type') != 'extras.script':
+            counts['skipped'] += 1
+            warnings.append(
+                _(
+                    'Schedule "{name}" ran a built-in script module rather than a Script, which no Custom '
+                    'Script corresponds to, so it was not recreated.'
+                ).format(name=entry['name'])
+            )
+            continue
         script = resolved.get(entry['legacy_script_pk'])
         if script is None:
             counts['skipped'] += 1

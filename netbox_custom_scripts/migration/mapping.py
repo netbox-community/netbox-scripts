@@ -24,7 +24,7 @@ def build_map(modules=None):
     Pass modules to map supplied data rather than the live installation, as build_report does.
     Grouping comes from plan.group(), so a project key here is the key staging creates, and the
     identity is derived rather than stored. A module whose path could never be imported is
-    reported under 'unmapped' rather than raising, because that is a finding an operator resolves.
+    reported under 'unmapped' rather than raising.
     """
     modules = legacy_source.legacy_modules() if modules is None else modules
     proposed = {pk: project_plan for project_plan in plan.group(modules) for pk in project_plan.module_pks}
@@ -53,7 +53,9 @@ def build_map(modules=None):
                 # class_name is the same string under a different column.
                 'class_name': script.name,
             }
+            # Only what still publishes: a soft-deleted class has no counterpart and never will.
             for script in module.scripts
+            if script.is_executable
         )
     return {'modules': mapped, 'scripts': scripts, 'unmapped': unmapped}
 
@@ -73,9 +75,8 @@ def resolve_scripts(mapping):
     Return the row each mapped Script resolves to, keyed by legacy key, and the entries that do not.
 
     One query per project rather than one per script. A retired row still resolves: this answers
-    which row an identity names, not whether it can run, and the callers differ on that. An entry
-    resolving to nothing is returned rather than raised, because a project that was never staged
-    and a class that stopped publishing both land there.
+    which row an identity names, not whether it can run. An entry resolving to nothing is returned
+    rather than raised.
     """
     grouped = {}
     for entry in mapping['scripts']:

@@ -1,8 +1,7 @@
 """The one place this plugin reads the built-in Custom Scripts feature.
 
 Content comes back as frozen dataclasses and counts. The reference readers return live core rows
-instead, because a migration has to write to them, and finding them is the part that needs to know
-how the built-in feature is shaped. What to do with them is the caller's business.
+instead. What to do with them is the caller's business.
 """
 
 from dataclasses import dataclass
@@ -33,6 +32,8 @@ class LegacyScript:
     # Rule's action object, a Job's object id, and a permission's constraint all hold it.
     pk: int
     name: str
+    # False once the class left the file and only its history keeps the row. It never publishes.
+    is_executable: bool = True
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,10 @@ def legacy_modules():
             python_name=module.python_name,
             data_source_id=module.data_source_id,
             data_path=module.data_path,
-            scripts=tuple(LegacyScript(pk=script.pk, name=script.name) for script in module.scripts.all()),
+            scripts=tuple(
+                LegacyScript(pk=script.pk, name=script.name, is_executable=script.is_executable)
+                for script in module.scripts.all()
+            ),
         )
         for module in ScriptModule.objects.prefetch_related('scripts').order_by('file_root', 'file_path')
     ]
@@ -157,11 +161,16 @@ def module_references(module):
     from extras.models import EventRule, Script
 
     script_pks = list(module.scripts.values_list('pk', flat=True))
+    # Split by executability: no plugin row can ever hold a departed class's history.
+    retired_pks = list(module.scripts.filter(is_executable=False).values_list('pk', flat=True))
+    live_pks = [pk for pk in script_pks if pk not in retired_pks]
     script_type = _object_type(Script)
+    held = Job.objects.filter(object_type=script_type)
     return {
         'scripts': len(script_pks),
         'module_jobs': module.jobs.exists(),
-        'script_jobs': Job.objects.filter(object_type=script_type, object_id__in=script_pks).exists(),
+        'retired_script_jobs': held.filter(object_id__in=retired_pks).exists(),
+        'live_script_jobs': held.filter(object_id__in=live_pks).exists(),
         'event_rules': module.event_rules.exists()
         or EventRule.objects.filter(action_object_type=script_type, action_object_id__in=script_pks).exists(),
     }

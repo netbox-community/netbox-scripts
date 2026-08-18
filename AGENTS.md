@@ -201,7 +201,7 @@ when domain content calls for them.
 │   │   ├── staging.py             , Creates the proposed Projects and delegates to ingestion. Every Project takes the MANUAL policy, since validation would otherwise activate under any other one. Validates rather than get_or_create's, so a path overlapping a hand-made project is refused instead of written.
 │   │   ├── cutover.py             , The irreversible step: capture every reference the later passes replay, plus the plugin map they all resolve through, then close what a plugin can. Captures once, because a second capture would read the closed state back as the original. Also activate_staged(), which comes after the fence because an Event Rule's action object has to name a CustomScript that exists.
 │   │   ├── references.py          , Repointing Event Rules, permissions, Job history and schedules onto plugin rows. ACTION_SLUG is declared here and never imported from event_rules.py, whose module-level `from netbox.event_rules import ...` would take the whole tier down on a 4.6 host. _host_serves_action() is a registry capability probe and a shim that comes out at the 4.7 floor.
-│   │   ├── cleanup.py             , The last step, and the only one that deletes. Scoped by the map the cutover froze, never by build_map(), whose keys shift as modules are deleted. Gated on all four reference steps, because a captured schedule is recreated through the rows this pass removes. Refuses per module when deleting it would destroy Job history or an Event Rule, because both reach it through a GenericRelation the collector follows.
+│   │   ├── cleanup.py             , The last step, and the only one that deletes. Scoped by the map the cutover froze, never by build_map(), whose keys shift as modules are deleted. Gated on all four reference steps, because a captured schedule is recreated through the rows this pass removes. Refuses per module when deleting it would destroy Job history or an Event Rule, because both reach it through a GenericRelation the collector follows, and sorts those refusals into RETAINED and BLOCKED. Only blocked holds the run open: a module holding history for a class that left the file, or named by a rule this host cannot repoint, is permanent, and treating it as outstanding would leave a migration that can never close and no replacement that can ever open.
 │   │   └── verification.py        , The five read-only checks, each naming which side it read. Reads the LATEST run rather than the open one, since current() excludes migrated and a finished run is the one worth verifying. A reference the journal captured and the repoint left behind is a warning, one absent from the journal appeared after the cutover and is the only genuine fault.
 │   ├── branching.py               , NetBox Branching integration: GLOBAL_MODELS main-schema routing for all five models, safety checks.
 │   ├── execution.py               , run_script(): the transaction, request-processor and event context one run happens inside. The only home of the five undocumented NetBox symbols execution needs, so the requested generic core context replaces one file. Also load_script_class(): a stored row to a live class through the revision its project serves, unloaded before it returns, so the class is good for introspection rather than a run. Model-aware, which is why it is here and not in the runtime tier.
@@ -365,11 +365,14 @@ and Job history is repointed before anything is deleted, because `JobsMixin.jobs
 `GenericRelation` and `Script.module` is `CASCADE`. **Every pass past the fence replays the map the cutover
 froze**, never `mapping.build_map()`, because the collapse rule derives a key from every
 script-holding folder on a source, so a module deleted since would change what its siblings group
-into. `require_staged()` refuses a fence that recorded no map, since no later step could replay it. And **three kinds of reference are left in place on purpose**, so they name the built-in
-feature forever: a permission carrying constraints, an Event Rule action on a host with no registry,
-and a Job naming a module rather than a Script. Cleanup refuses to delete anything holding one, and
-verification reports one as a warning restated on every run. A reference the journal never captured
-appeared after the cutover, and is the only kind that counts as a fault.
+into. `require_staged()` refuses a fence that recorded no map, since no later step could replay it. And **several references are left in place on purpose**, so they name the built-in
+feature forever: a permission carrying constraints, an Event Rule action on a host with no registry, a
+Job naming a module rather than a Script, and the history of a class that left its file, which NetBox
+keeps as a non-executable Script row. The mapping excludes that last one outright, since it publishes
+nothing and requiring a plugin row to resolve to it would block every later pass. Cleanup refuses to
+delete anything holding one of the others and marks the refusal permanent, so the run still closes. A
+reference the journal never captured appeared after the cutover, and is the only kind that counts as a
+fault.
 
 ### Serialization
 

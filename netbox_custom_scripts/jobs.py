@@ -843,10 +843,15 @@ class MigrationCleanupJob(JobRunner):
             f'Deleted {counts.get("modules", 0)} built-in script module(s) and the '
             f'{counts.get("scripts", 0)} Script(s) under them, along with their stored source.'
         )
-        if counts.get('skipped'):
+        if counts.get('retained'):
             self.logger.info(
-                f'{counts["skipped"]} module(s) were left in place because deleting them would have '
-                'destroyed Job history. Clear what each warning above names, then run this again.'
+                f'{counts["retained"]} module(s) stay in place for good, because they hold history or a '
+                'reference no Custom Script row can take over. Each one is named above.'
+            )
+        if counts.get('blocked') or counts.get('unserved'):
+            self.logger.info(
+                f'{counts.get("blocked", 0) + counts.get("unserved", 0)} module(s) were left for now and '
+                'the migration is still open. Clear what each warning above names, then run this again.'
             )
             return
         self.logger.info(

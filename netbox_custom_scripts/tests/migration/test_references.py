@@ -222,7 +222,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertFalse(rule.enabled)
 
     def test_the_probe_finds_the_action_this_plugin_registered(self):
-        self.assertTrue(references._host_serves_action())
+        self.assertTrue(references.host_serves_action())
 
 
 class UnservedActionTestCase(ReferenceMigrationMixin, TestCase):
@@ -233,7 +233,7 @@ class UnservedActionTestCase(ReferenceMigrationMixin, TestCase):
         rule.object_types.add(self.script_type.pk)
         self.cross_over()
 
-        with mock.patch.object(references, '_host_serves_action', return_value=False):
+        with mock.patch.object(references, 'host_serves_action', return_value=False):
             counts, warnings = references.repoint_event_rules(self.migration)
 
         rule.refresh_from_db()

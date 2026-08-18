@@ -234,24 +234,45 @@ exists. Below that line the rule's sources still move and its action is reported
 
 ## Retiring the built-in rows
 
-Cleanup is the last pass and the only one that deletes anything. It refuses until the repointing
-pass has moved the Job history, because deleting a built-in Script deletes its Job rows with it.
+Cleanup is the last pass and the only one that deletes anything. It refuses until every part of the
+repointing pass has finished, because deleting a built-in Script deletes its Job rows with it and a
+captured schedule can only be recreated while the built-in rows are still there.
 
 It deletes only the modules this migration mapped, one at a time, and the stored source of each goes
 with it. That is safe only because staging copied every byte into this plugin's own storage first, so
 check that each migrated Project serves a revision before you run it. Reports, and any module the
 migration did not map, are left alone.
 
-**A module whose Job history has not moved is left in place and named in the job log.** Two cases
-reach that, and both are history a deletion would destroy rather than orphan:
+**A module that something still refers to is left in place and named in the job log**, because every
+one of those references would be deleted along with it rather than orphaned. The log distinguishes
+two kinds, and the difference decides whether the migration can finish.
 
-- A built-in Script under the module still holds Job rows, because no Custom Script resolved to it.
+**Retained, which no action of yours clears.** These stay for good and do not hold the migration
+open:
+
 - The module holds Job rows of its own. Older NetBox versions recorded a run against the module
-  rather than against the Script, and a Custom Script Project cannot hold jobs, so the repointing
-  pass leaves those where they are.
+  rather than against the Script, and a Custom Script Project cannot hold jobs.
+- The module holds Job history for a class that has since left the file. NetBox keeps such a Script
+  row, not executable, purely for its history, and nothing in this plugin replaces it. This is
+  ordinary on a long-lived installation.
+- An Event Rule still names the module and this NetBox version has no registry to repoint the action
+  into. **Below the 4.7 line that is every rule that runs a built-in Script**, so expect it. Upgrade,
+  run the repointing pass again, then run cleanup again to retire what is left.
 
-Clear what each warning names, then run cleanup again. The migration reaches the `migrated` state
-only once nothing was left behind, so a partial pass stays resumable rather than closing the run.
+**Blocked, which you can clear.** These hold the migration open until you deal with them:
+
+- A live Script under the module still holds Job rows the repointing pass did not move. Run that
+  pass again, then retry cleanup.
+- An Event Rule still names the module on a version that *can* repoint it, which means the
+  repointing pass has not run or did not finish.
+- The module publishes a class no Custom Script resolves to. Deleting it would leave a script that
+  used to run unable to run at all, so fix the source and stage it again first.
+- The Project replacing the module is not serving a revision. Activate it, then retry.
+
+The migration reaches the `migrated` state once nothing **blocked** is left. A retained module does
+not keep it open, because nothing would ever clear it and a run that cannot close is a run no
+replacement can be started for. **Verify** names every retained module on each run, so the residue
+stays visible rather than forgotten.
 
 ## After the last pass
 

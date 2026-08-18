@@ -18,6 +18,7 @@ __all__ = (
     'HISTORY_STEP',
     'PERMISSIONS_STEP',
     'SCHEDULES_STEP',
+    'host_serves_action',
     'recreate_schedules',
     'repoint_event_rules',
     'repoint_job_history',
@@ -62,9 +63,8 @@ def repoint_event_rules(run):
     Point every captured Event Rule at the plugin, and re-enable the ones fully moved.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed, so a resumed migration continues rather than repeats. A rule that cannot be
-    moved is left disabled and named in a warning, because re-enabling one that points at nothing
-    would fail at dispatch. Raises CutoverRefused before the staged Projects are activated.
+    step has completed. A rule that cannot be moved is left disabled and named in a warning. Raises
+    CutoverRefused before the staged Projects are activated.
     """
     from extras.models import EventRule
 
@@ -74,7 +74,7 @@ def repoint_event_rules(run):
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
-    serves_action = _host_serves_action()
+    serves_action = host_serves_action()
     counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unserved': 0}
     warnings = []
     for entry in run.journal.get('event_rules', []):
@@ -88,7 +88,8 @@ def repoint_event_rules(run):
             if refusal:
                 warnings.append(refusal)
             _repoint_sources(rule, entry, plugin_types, counts)
-            # Only a rule with nothing left pointing at the built-in feature goes back into service.
+            # Only a rule with nothing left pointing at the built-in feature goes back into service:
+            # re-enabling one that still points at nothing would fail at dispatch.
             if moved and entry['enabled'] and not rule.enabled:
                 rule.enabled = True
                 rule.save(update_fields=('enabled',))
@@ -166,10 +167,8 @@ def repoint_job_history(run):
     Move the built-in Scripts' Job history onto the Custom Scripts that replaced them.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. Runs before anything is deleted, because a Script's jobs are a
-    GenericRelation and go with it. A job whose script does not resolve is left where it is and
-    reported, since an orphaned history row beats a wrong one. Raises CutoverRefused before
-    activation.
+    step has completed. A job whose script does not resolve is left where it is and reported. Raises
+    CutoverRefused before activation.
     """
     from core.models import Job
 
@@ -218,9 +217,8 @@ def recreate_schedules(run):
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. Each recreated job is recorded against the captured one inside the
-    transaction that creates it, because this is the one step that is not naturally idempotent.
-    Anything that cannot be replayed is reported and skipped. Raises CutoverRefused before
-    activation.
+    transaction that creates it. Anything that cannot be replayed is reported and skipped. Raises
+    CutoverRefused before activation.
     """
     _require_activated(run)
     if run.step_done(SCHEDULES_STEP):
@@ -370,7 +368,7 @@ def _require_activated(run):
     return run
 
 
-def _host_serves_action():
+def host_serves_action():
     """Return whether the host's Event Rule registry carries this plugin's action."""
     # A registry lookup rather than probing for the module, because what matters is whether OUR
     # action registered. Delete this and its callers when the floor reaches 4.7.

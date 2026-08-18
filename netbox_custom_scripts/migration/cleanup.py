@@ -35,9 +35,9 @@ def retire_legacy(run):
     Delete the built-in modules this migration replaced, skipping any whose deletion would lose data.
 
     Returns the counts and the warnings naming what was left behind, and returns the recorded counts
-    unchanged without touching anything once the step has completed. The state reaches migrated only
-    when nothing was left behind, so a partial pass stays resumable. Raises CutoverRefused unless the
-    reference pass has moved the Job history off the built-in rows.
+    unchanged without touching anything once the step has completed. A refusal is either retained,
+    which the state ignores, or blocked, which leaves the run open. Raises CutoverRefused unless
+    every reference step has completed.
     """
     if run is None:
         raise cutover.CutoverRefused(_('No migration is open, so there is nothing left to retire.'))
@@ -56,9 +56,10 @@ def retire_legacy(run):
 
     counts, warnings = _delete_modules(run)
     counts.update(legacy_source.reference_counts())
-    if counts['skipped'] or counts['unserved']:
+    if counts['blocked'] or counts['unserved']:
         # Left open on purpose: the operator clears what each warning names and runs this again.
         return counts, warnings
+    # Retained does not hold the run open, because nothing an operator does would ever clear it.
     run.advance(MigrationStateChoices.MIGRATED)
     run.complete_step(STEP, counts, warnings)
     return counts, warnings
@@ -74,7 +75,7 @@ def _delete_modules(run):
         ).values_list('key', flat=True)
     )
     keys = [entry['legacy_pk'] for entry in mine if entry['project_key'] in serving]
-    counts = {'modules': 0, 'scripts': 0, 'skipped': 0, 'unserved': len(mine) - len(keys)}
+    counts = {'modules': 0, 'scripts': 0, 'blocked': 0, 'retained': 0, 'unserved': len(mine) - len(keys)}
     warnings = []
     if counts['unserved']:
         waiting = sorted({entry['project_key'] for entry in mine if entry['project_key'] not in serving})
@@ -84,11 +85,15 @@ def _delete_modules(run):
                 '{keys}. Activate them, then run this again.'
             ).format(keys=', '.join(waiting))
         )
+    _resolved, unresolved = mapping.resolve_scripts(plugin_map)
+    stranded = {entry['legacy_module_pk'] for entry in unresolved}
+    serves_action = legacy_references.host_serves_action()
     # Instance by instance: QuerySet.delete() skips the delete() that removes the stored file.
     for module in legacy_source.legacy_modules_by_pk(keys):
         references = legacy_source.module_references(module)
-        if held := _refusal_for(module, references):
-            counts['skipped'] += 1
+        permanent, held = _refusal_for(module, references, module.pk in stranded, serves_action)
+        if held:
+            counts['retained' if permanent else 'blocked'] += 1
             warnings.append(held)
             continue
         counts['scripts'] += references['scripts']
@@ -97,23 +102,38 @@ def _delete_modules(run):
     return counts, warnings
 
 
-def _refusal_for(module, references):
-    """Return why one module cannot be deleted yet, or None when nothing refers to it any longer."""
-    # Each of these would be deleted with the module rather than orphaned, so a soft delete on the
-    # Script protects none of them: the module delete that follows takes it anyway.
+def _refusal_for(module, references, stranded, serves_action):
+    """Return whether a refusal is permanent and why one module cannot be deleted, or (False, None)."""
+    name = module.python_name
+    # Permanent means no operator action clears it, so the run closes with the module in place.
     if references['module_jobs']:
-        return _(
-            'Built-in script module {name} holds Job history of its own that no Custom Script Project can '
-            'hold, so it was left in place. Delete those Jobs to retire it.'
-        ).format(name=module.python_name)
-    if references['script_jobs']:
-        return _(
-            'Built-in script module {name} has a Script that still holds Job history, so it was left in '
-            'place rather than deleted with that history. Repoint or delete those Jobs to retire it.'
-        ).format(name=module.python_name)
+        return True, _(
+            'Built-in script module {name} holds Job history of its own, which no Custom Script Project '
+            'can hold, so it stays where it is.'
+        ).format(name=name)
+    if references['retired_script_jobs']:
+        return True, _(
+            'Built-in script module {name} holds Job history for a class that left the file, which no '
+            'Custom Script replaces, so it stays where it is.'
+        ).format(name=name)
+    if references['live_script_jobs']:
+        return False, _(
+            'Built-in script module {name} has a Script that still holds Job history the reference pass '
+            'did not move. Run that pass again, then retry this one.'
+        ).format(name=name)
     if references['event_rules']:
-        return _(
-            'Built-in script module {name} is still named by an Event Rule, which would be deleted with it, '
-            'so it was left in place. Repoint or delete that rule to retire it.'
-        ).format(name=module.python_name)
-    return None
+        if serves_action:
+            return False, _(
+                'Built-in script module {name} is still named by an Event Rule the reference pass did not '
+                'move. Run that pass again, then retry this one.'
+            ).format(name=name)
+        return True, _(
+            'Built-in script module {name} is still named by an Event Rule this NetBox version cannot '
+            'repoint, so it stays where it is. Upgrade, repoint the rule, then run this again.'
+        ).format(name=name)
+    if stranded:
+        return False, _(
+            'Built-in script module {name} publishes a class no Custom Script resolves to, so deleting it '
+            'would leave that script unable to run at all. Fix the source and stage it again.'
+        ).format(name=name)
+    return False, None

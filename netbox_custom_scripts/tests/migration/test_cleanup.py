@@ -47,6 +47,11 @@ class CleanupMixin(ReferenceMigrationMixin):
             queue_name='default',
         )
 
+    def blocked_module(self, module):
+        """Hold one module back with something an operator can clear: live, unresolved history."""
+        stranded = Script.objects.create(module=module, name='Removed')
+        return self.script_job(stranded)
+
     def script_job(self, script):
         """One Job naming a built-in Script, as a run before the migration left behind."""
         return Job.objects.create(
@@ -118,7 +123,8 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         counts, warnings = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['modules'], 2)
-        self.assertEqual(counts['skipped'], 0)
+        self.assertEqual(counts['blocked'], 0)
+        self.assertEqual(counts['retained'], 0)
         self.assertEqual(warnings, [])
         self.assertFalse(ScriptModule.objects.exists())
         self.assertFalse(Script.objects.exists())
@@ -211,21 +217,21 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
 class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
     """The per-module refusal, which is the safety net the whole ordering exists for."""
 
-    def test_a_module_whose_script_still_holds_a_job_is_skipped_and_its_sibling_deleted(self):
+    def test_a_module_whose_live_script_holds_history_blocks_and_its_sibling_is_deleted(self):
         run = self.repointed()
         stranded = Script.objects.create(module=self.synced, name='Removed')
         job = self.script_job(stranded)
 
         counts, warnings = cleanup.retire_legacy(run)
 
-        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['blocked'], 1)
         self.assertEqual(counts['modules'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
         self.assertFalse(ScriptModule.objects.filter(pk=self.uploaded.pk).exists())
         self.assertTrue(Job.objects.filter(pk=job.pk).exists())
         self.assertTrue(any('Job history' in warning for warning in warnings))
 
-    def test_a_module_holding_its_own_job_history_is_skipped(self):
+    def test_a_module_holding_its_own_job_history_is_retained_and_the_run_still_closes(self):
         # The reference pass leaves these where they are, because no plugin row can hold them, and
         # JobsMixin.delete() would delete them without the guard.
         run = self.repointed()
@@ -233,29 +239,63 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
 
         counts, warnings = cleanup.retire_legacy(run)
 
-        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['retained'], 1)
+        self.assertEqual(counts['blocked'], 0)
         self.assertTrue(Job.objects.filter(pk=job.pk).exists())
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
         self.assertTrue(any(self.synced.python_name in warning for warning in warnings))
+        # Nothing an operator does clears this, so holding the run open would strand it forever.
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
-    def test_a_module_an_event_rule_still_names_is_skipped(self):
-        # EventRule.action_object is a GenericRelation, so the rule would be deleted with the Script
-        # rather than orphaned. On a host with no action registry the reference pass leaves the rule
-        # pointing here on purpose and tells the operator to repoint it after upgrading, which
-        # deleting it would make impossible.
+    @unittest.skipIf(HAS_EVENT_RULE_ACTIONS, 'This NetBox version can repoint an Event Rule action.')
+    def test_a_module_an_unrepointable_rule_names_is_retained_and_the_run_still_closes(self):
+        # Below the 4.7 line the reference pass cannot move it, so nothing here clears it.
         run = self.repointed()
         rule = self.action_rule()
 
         counts, warnings = cleanup.retire_legacy(run)
 
-        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['retained'], 1)
+        self.assertEqual(counts['blocked'], 0)
         self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
-        self.assertTrue(any('Event Rule' in warning for warning in warnings))
+        self.assertTrue(any('cannot' in warning and 'repoint' in warning for warning in warnings))
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
-    def test_a_partial_pass_stays_resumable(self):
+    def test_a_soft_deleted_script_does_not_hold_the_run_open(self):
+        # The normal state of a long-lived installation, and nothing can take that history over.
+        retired = Script.objects.create(module=self.synced, name='OldDeploy')
+        Script.objects.filter(pk=retired.pk).update(is_executable=False)
+        job = self.script_job(retired)
         run = self.repointed()
-        job = self.module_job(self.synced)
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['retained'], 1)
+        self.assertEqual(counts['blocked'], 0)
+        self.assertTrue(Job.objects.filter(pk=job.pk).exists())
+        self.assertTrue(any('left the file' in warning for warning in warnings))
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
+
+    def test_a_module_publishing_an_unresolved_class_is_not_deleted(self):
+        # Deleting it would leave a script that used to run unable to run at all.
+        run = self.repointed()
+        self.plugin_script().delete()
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 1)
+        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        self.assertTrue(any('resolves to' in warning for warning in warnings))
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
+
+    def test_a_blocked_pass_stays_resumable(self):
+        run = self.repointed()
+        job = self.blocked_module(self.synced)
 
         cleanup.retire_legacy(run)
 
@@ -267,7 +307,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         job.delete()
         counts, _unused = cleanup.retire_legacy(run)
 
-        self.assertEqual(counts['skipped'], 0)
+        self.assertEqual(counts['blocked'], 0)
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
@@ -275,10 +315,10 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         # Deleting the shallower module changes what the deeper one would group into.
         deep = self.legacy_synced_module('automation/deep/b.py', LEGACY_SCRIPT)
         run = self.repointed()
-        held = self.module_job(deep)
+        held = self.blocked_module(deep)
 
         first, _unused = cleanup.retire_legacy(run)
-        self.assertEqual(first['skipped'], 1)
+        self.assertEqual(first['blocked'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=deep.pk).exists())
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
 
@@ -293,7 +333,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
 
     def test_the_stored_source_of_a_skipped_module_survives(self):
         run = self.repointed()
-        self.module_job(self.uploaded)
+        self.blocked_module(self.uploaded)
         path = self.uploaded.file_path
 
         cleanup.retire_legacy(run)
@@ -353,6 +393,6 @@ class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
 
         counts, _unused = cleanup.retire_legacy(run)
 
-        self.assertEqual(counts['skipped'], 0)
+        self.assertEqual(counts['blocked'], 0)
         self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())

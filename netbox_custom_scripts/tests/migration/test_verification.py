@@ -143,6 +143,17 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         self.assertEqual(check['level'], plan.BLOCKING)
         self.assertIn(script.class_name, str(check['message']))
 
+    def test_a_soft_deleted_script_does_not_block_the_scripts_check(self):
+        # It publishes nothing, so requiring a resolution would report blocking on every run.
+        retired = Script.objects.create(module=self.synced, name='OldDeploy')
+        Script.objects.filter(pk=retired.pk).update(is_executable=False)
+        run = self.repoint_all()
+
+        check = self.named(verification.verify(run), verification.SCRIPTS)
+
+        self.assertEqual(check['level'], plan.READY)
+        self.assertNotIn('OldDeploy', str(check['message']))
+
     def test_a_permission_regranted_on_the_built_in_feature_blocks_its_check(self):
         run = self.repoint_all()
         regranted = ObjectPermission.objects.create(name='regranted by hand', actions=['run'])

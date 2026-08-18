@@ -85,9 +85,24 @@ def build_report(modules=None, read=None):
             }
         )
         findings.extend(module_findings)
+    reports = legacy_source.legacy_report_count() if live else 0
+    if reports:
+        findings.append(
+            {
+                'level': WARNING,
+                'code': 'reports_excluded',
+                'pk': None,
+                'path': '',
+                'message': (
+                    f'{reports} built-in report module(s) are not part of this migration and are left '
+                    f'untouched. Reports use an authoring API this plugin does not serve.'
+                ),
+            }
+        )
     return {
         'status': _status(findings),
         'modules': entries,
+        'reports': reports,
         'projects': [asdict(item) for item in proposed],
         'dialects': counts,
         'references': legacy_source.reference_counts() if live else {},

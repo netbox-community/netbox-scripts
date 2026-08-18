@@ -16,6 +16,8 @@ __all__ = (
     'legacy_modules_by_pk',
     'legacy_object_types',
     'legacy_permissions',
+    'legacy_report_count',
+    'legacy_script_module_keys',
     'module_references',
     'read_source',
     'reference_counts',
@@ -50,9 +52,11 @@ class LegacyModule:
 
 
 def legacy_modules():
-    """Return every built-in script module, ordered by root and path."""
+    """Return every built-in SCRIPT module, ordered by path. Reports are not covered."""
+    from core.choices import ManagedFileRootPathChoices
     from extras.models import ScriptModule
 
+    # The manager admits reports, whose bytes are under REPORTS_ROOT, not the scripts backend.
     return [
         LegacyModule(
             pk=module.pk,
@@ -66,7 +70,9 @@ def legacy_modules():
                 for script in module.scripts.all()
             ),
         )
-        for module in ScriptModule.objects.prefetch_related('scripts').order_by('file_root', 'file_path')
+        for module in ScriptModule.objects.filter(file_root=ManagedFileRootPathChoices.SCRIPTS)
+        .prefetch_related('scripts')
+        .order_by('file_path')
     ]
 
 
@@ -174,6 +180,22 @@ def module_references(module):
         'event_rules': module.event_rules.exists()
         or EventRule.objects.filter(action_object_type=script_type, action_object_id__in=script_pks).exists(),
     }
+
+
+def legacy_report_count():
+    """Return how many built-in report modules this migration does not cover."""
+    from core.choices import ManagedFileRootPathChoices
+    from extras.models import ScriptModule
+
+    return ScriptModule.objects.filter(file_root=ManagedFileRootPathChoices.REPORTS).count()
+
+
+def legacy_script_module_keys():
+    """Return the keys of every built-in script module, which is the set a closure may touch."""
+    from core.choices import ManagedFileRootPathChoices
+    from extras.models import ScriptModule
+
+    return list(ScriptModule.objects.filter(file_root=ManagedFileRootPathChoices.SCRIPTS).values_list('pk', flat=True))
 
 
 def legacy_modules_by_pk(keys):

@@ -13,7 +13,7 @@ from core.models import DataFile, DataSource
 from extras.models import ScriptModule
 from netbox_custom_scripts.choices import ProjectSourceTypeChoices
 from netbox_custom_scripts.jobs import MigrationInventoryJob
-from netbox_custom_scripts.migration import dialects, plan
+from netbox_custom_scripts.migration import dialects, plan, source
 from netbox_custom_scripts.migration.source import LegacyModule
 from netbox_custom_scripts.models import CustomScriptProject
 
@@ -44,6 +44,49 @@ def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts'
         data_path=data_path,
         scripts=scripts,
     )
+
+
+class ReportExclusionTestCase(TestCase):
+    """Reports are not covered, and the inventory says so rather than failing on them."""
+
+    def setUp(self):
+        self.source = DataSource.objects.create(name='Repo', type='local', source_url='file:///tmp/repo')
+
+    def module(self, path, root):
+        content = b'x = 1\n'
+        data_file = DataFile.objects.create(
+            source=self.source,
+            path=path,
+            size=len(content),
+            hash=hashlib.sha256(content).hexdigest(),
+            data=content,
+            last_updated=timezone.now(),
+        )
+        module = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file)
+        module.full_clean()
+        module.save()
+        if root != ManagedFileRootPathChoices.SCRIPTS:
+            ScriptModule.objects.filter(pk=module.pk).update(file_root=root)
+        return module
+
+    def test_a_report_is_not_read_and_does_not_block(self):
+        # Its bytes are under REPORTS_ROOT, so including it produced an unreadable blocking finding.
+        self.module('deploy.py', ManagedFileRootPathChoices.SCRIPTS)
+        report = self.module('audit.py', ManagedFileRootPathChoices.REPORTS)
+
+        keys = [module.pk for module in source.legacy_modules()]
+
+        self.assertNotIn(report.pk, keys)
+
+    def test_the_inventory_counts_the_reports_it_leaves_alone(self):
+        self.module('audit.py', ManagedFileRootPathChoices.REPORTS)
+
+        report = plan.build_report()
+
+        self.assertEqual(report['reports'], 1)
+        codes = {finding['code']: finding['level'] for finding in report['findings']}
+        self.assertEqual(codes['reports_excluded'], plan.WARNING)
+        self.assertNotEqual(report['status'], plan.BLOCKING)
 
 
 class GroupTestCase(SimpleTestCase):

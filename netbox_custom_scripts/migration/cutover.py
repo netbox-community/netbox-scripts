@@ -332,7 +332,9 @@ def _cancel_schedules(captured):
 
 def _drop_auto_sync():
     """Deregister built-in script source from synchronization, so no sync rewrites it again."""
-    deleted, _by_model = legacy_source.legacy_auto_sync_records().delete()
+    # Scoped to script modules: a report is not this migration's, so its source keeps syncing.
+    keys = legacy_source.legacy_script_module_keys()
+    deleted, _by_model = legacy_source.legacy_auto_sync_records(module_pks=keys).delete()
     return deleted
 
 

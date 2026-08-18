@@ -104,13 +104,16 @@ class LegacyModulesTestCase(TestCase):
         entry = next(item for item in source.legacy_modules() if item.pk == module.pk)
         self.assertEqual(source.read_source(entry), LEGACY_SCRIPT)
 
-    def test_a_report_module_is_reported_by_its_file_root(self):
+    def test_a_report_module_is_not_returned_at_all(self):
+        # The manager admits reports, whose bytes are under REPORTS_ROOT, so one can never be read.
         storages['scripts'].save('audit.py', ContentFile(REPORT))
         module = ScriptModule.objects.create(file_path='audit.py')
         # save() forces the root to scripts, so a legacy report's root is set past it.
         ScriptModule.objects.filter(pk=module.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
-        entry = next(item for item in source.legacy_modules() if item.pk == module.pk)
-        self.assertEqual(entry.file_root, 'reports')
+
+        self.assertNotIn(module.pk, [item.pk for item in source.legacy_modules()])
+        self.assertEqual(source.legacy_report_count(), 1)
+        self.assertNotIn(module.pk, source.legacy_script_module_keys())
 
     def test_reference_counts_are_zero_on_a_clean_installation(self):
         counts = source.reference_counts()

@@ -18,7 +18,7 @@ Context:
     {% trans "The stored source of every module is deleted with it. That is safe only because staging copied all of it into this plugin's own storage first, so check that each migrated Project serves a revision before continuing." %}
   </p>
   <p class="text-secondary">
-    {% trans "Only the modules this migration mapped are deleted, and the built-in Scripts under them go with the module. Reports and any module the migration did not map are left alone." %}
+    {% trans "Only the modules this migration mapped are deleted, and the built-in Scripts under them go with the module. Any module the migration did not map is left alone, and Reports are not part of this migration at all." %}
     {% trans "A module whose Job history has not moved onto a Custom Script is left in place and named in the job log, so clearing that history and running this again is how the last of them are retired." %}
     {% trans "The migration is recorded as complete once nothing was left behind." %}
   </p>

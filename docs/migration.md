@@ -86,6 +86,18 @@ Job's own page.
 Starting any pass needs permission to add a Custom Script Project, and reading the result needs
 the *Core > Jobs* view permission, which is granted separately.
 
+## Reports are not covered
+
+NetBox merged Reports into script modules in 4.0, so an installation upgraded from 3.x can still carry
+module rows whose file root is `reports`. **No pass in this migration touches one.** They are excluded
+from the inventory, from staging, and from the cutover's closures, which means a report keeps running
+and keeps synchronizing exactly as it did.
+
+The inventory reports how many it found and left, as a warning rather than a blocker, so the exclusion
+is visible instead of silent. Reports use an authoring API this plugin does not serve at all, and its
+own discovery refuses a report-style class outright, so there is nothing for a migration to move them
+onto. Moving a Report means rewriting it as a Custom Script by hand.
+
 ## Reading the inventory
 
 The report lands on the Job's data. It carries six keys.
@@ -240,8 +252,8 @@ captured schedule can only be recreated while the built-in rows are still there.
 
 It deletes only the modules this migration mapped, one at a time, and the stored source of each goes
 with it. That is safe only because staging copied every byte into this plugin's own storage first, so
-check that each migrated Project serves a revision before you run it. Reports, and any module the
-migration did not map, are left alone.
+check that each migrated Project serves a revision before you run it. Any module the migration did not
+map is left alone.
 
 **A module that something still refers to is left in place and named in the job log**, because every
 one of those references would be deleted along with it rather than orphaned. The log distinguishes

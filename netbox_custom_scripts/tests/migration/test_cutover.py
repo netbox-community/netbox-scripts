@@ -291,6 +291,26 @@ class CutoverTestCase(TestCase):
         self.assertIn('migration', job.error)
         self.assertEqual(counts['schedules'], 1)
 
+    def test_a_report_keeps_its_synchronization(self):
+        # A report is not this migration's, so dropping its record would silently stop it updating.
+        data_file = DataFile.objects.create(
+            source=self.source,
+            path='audit.py',
+            size=len(LEGACY_SCRIPT),
+            hash=hashlib.sha256(LEGACY_SCRIPT).hexdigest(),
+            data=LEGACY_SCRIPT,
+            last_updated=timezone.now(),
+        )
+        report = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file, auto_sync_enabled=True)
+        report.full_clean()
+        report.save()
+        ScriptModule.objects.filter(pk=report.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
+        concrete = ObjectType.objects.get_for_model(ScriptModule)
+
+        cutover.enter_cutover(self.migration)
+
+        self.assertTrue(AutoSyncRecord.objects.filter(object_type=concrete, object_id=report.pk).exists())
+
     def test_the_source_directory_is_deregistered_from_synchronization(self):
         concrete = ObjectType.objects.get_for_model(ScriptModule)
         self.assertTrue(AutoSyncRecord.objects.filter(object_type=concrete, object_id=self.module.pk).exists())

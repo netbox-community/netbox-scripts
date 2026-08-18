@@ -76,3 +76,14 @@ class MigrationRunViewTestCase(TestCase):
         body = self.client.get(reverse('plugins:netbox_custom_scripts:migration')).content.decode()
 
         self.assertIn('Not started', body)
+
+    def test_the_recorded_warnings_are_rendered(self):
+        # The one place outstanding work is gathered, where only the per-pass Job log showed it.
+        self.grant('add')
+        self.migration.warnings = ['Permission "built-in scripts" was left withdrawn.']
+        self.migration.save(update_fields=('warnings',))
+
+        body = self.client.get(self.migration.get_absolute_url()).content.decode()
+
+        self.assertIn('built-in scripts', body)
+        self.assertIn('Outstanding after this migration', body)

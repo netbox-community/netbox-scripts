@@ -306,6 +306,22 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
         job.save()
         return job
 
+    def test_a_job_of_another_type_sharing_the_key_is_not_found(self):
+        # Repointed history is the first thing to put foreign Jobs onto plugin object ids.
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        foreign = Job.objects.create(
+            name='something else',
+            job_id=uuid.uuid4(),
+            object_type=ObjectType.objects.get_for_model(CustomScriptProject),
+            object_id=self.script.pk,
+            user=self.user,
+        )
+
+        response = self.client.get(self.url('result', job_pk=foreign.pk))
+
+        self.assertHttpStatus(response, 404)
+
     def test_the_result_page_renders_the_log_and_the_output(self):
         self.grant('view', 'run')
         self.grant('view', model=Job)

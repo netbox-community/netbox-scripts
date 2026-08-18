@@ -9,6 +9,7 @@ from dataclasses import dataclass
 __all__ = (
     'LegacyModule',
     'LegacyScript',
+    'cancellable_statuses',
     'enqueued_script_jobs',
     'legacy_auto_sync_records',
     'legacy_event_rules',
@@ -114,12 +115,17 @@ def running_script_jobs():
     return script_jobs().filter(status=JobStatusChoices.STATUS_RUNNING)
 
 
-def enqueued_script_jobs():
-    """Return every built-in Script job waiting to run, one-shot, scheduled or recurring."""
+def cancellable_statuses():
+    """Return the job statuses a cutover may cancel, which excludes one already running."""
     from core.choices import JobStatusChoices
 
-    # Running is deliberately excluded: a job mid-flight is refused rather than cancelled.
-    return script_jobs().filter(status__in=(JobStatusChoices.STATUS_PENDING, JobStatusChoices.STATUS_SCHEDULED))
+    # One home, so the capture and the cancellation cannot disagree. A running job is refused.
+    return (JobStatusChoices.STATUS_PENDING, JobStatusChoices.STATUS_SCHEDULED)
+
+
+def enqueued_script_jobs():
+    """Return every built-in Script job waiting to run, one-shot, scheduled or recurring."""
+    return script_jobs().filter(status__in=cancellable_statuses())
 
 
 def legacy_event_rules():

@@ -140,7 +140,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertNotIn(self.script_type.pk, types)
         # The unrelated type it also watched is untouched.
         self.assertIn(self.site_type.pk, types)
-        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1, 'unserved': 0})
+        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1, 'unmovable': 0})
 
     def test_a_rule_goes_back_into_service_in_the_state_it_was_captured_in(self):
         enabled = self.action_rule('enabled rule')
@@ -246,7 +246,7 @@ class UnservedActionTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(rule.action_type, 'script')
         self.assertEqual(rule.action_object_id, self.script.pk)
         self.assertFalse(rule.enabled)
-        self.assertEqual(counts, {'actions': 0, 'sources': 1, 'restored': 0, 'unserved': 1})
+        self.assertEqual(counts, {'actions': 0, 'sources': 1, 'restored': 0, 'unmovable': 1})
         self.assertTrue(any(rule.name in warning and 'Upgrade' in warning for warning in warnings))
 
 

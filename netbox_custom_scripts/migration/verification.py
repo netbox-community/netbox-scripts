@@ -9,7 +9,7 @@ from . import source as legacy_source
 
 __all__ = ('verify',)
 
-# Which check each level answers for, so a caller can act on one without parsing its message.
+# The name each check reports under, which is what reaches the Job log and the report data.
 MODULES = 'modules'
 SCRIPTS = 'scripts'
 EVENT_RULES = 'event_rules'
@@ -74,6 +74,14 @@ def _verify_modules(run, live_modules):
             plan.BLOCKING,
             _('{count} of {total} migrated Project(s) serve no revision: {keys}.').format(
                 count=len(missing), total=len(keys), keys=', '.join(missing)
+            ),
+        )
+    if unmapped := (mapping.recorded(run) or {}).get('unmapped') or []:
+        return _check(
+            MODULES,
+            plan.BLOCKING,
+            _('{count} built-in module(s) have no plugin identity and were never staged: {paths}.').format(
+                count=len(unmapped), paths=', '.join(sorted(entry['path'] for entry in unmapped))
             ),
         )
     remaining = len(live_modules)
@@ -164,9 +172,7 @@ def _verify_event_rules(run):
             plan.WARNING,
             _('The {count} captured Event Rule(s) have not been repointed yet.').format(count=len(captured)),
         )
-    # A rule the repoint could not move is deliberate and permanent until an operator acts, while one
-    # this migration never captured was created after the cutover. Only the second is a fault, and
-    # the journal is the only thing that tells them apart.
+    # Only a rule absent from the journal is a fault: one it captured was left on purpose.
     known = {entry['pk']: entry['name'] for entry in captured}
     stranded = list(legacy_source.legacy_event_rules())
     if appeared := sorted(str(rule) for rule in stranded if rule.pk not in known):
@@ -227,9 +233,7 @@ def _verify_permissions(run):
             plan.WARNING,
             _('The {count} captured permission(s) have not been repointed yet.').format(count=len(captured)),
         )
-    # Same split as the Event Rules check: a permission carrying constraints is left withdrawn and
-    # untranslated on purpose, so it still names the built-in feature and always will until somebody
-    # recreates it. One this migration never captured was granted after the cutover.
+    # Same split as the Event Rules check: a constrained one is left withdrawn on purpose.
     known = {entry['pk']: entry['name'] for entry in captured}
     stranded = list(legacy_source.legacy_permissions())
     if appeared := sorted(permission.name for permission in stranded if permission.pk not in known):
@@ -241,8 +245,7 @@ def _verify_permissions(run):
             ).format(count=len(appeared), names=', '.join(appeared)),
             source=_('the journal and the built-in rows'),
         )
-    # Restated on every run rather than once in a job log, because recreating one is operator work
-    # that stays outstanding until somebody does it.
+    # Restated every run: recreating one is operator work that stays outstanding.
     if left := sorted(known[permission.pk] for permission in stranded):
         return _check(
             PERMISSIONS,
@@ -267,15 +270,14 @@ def _verify_jobs(run):
         return _check(JOBS, plan.WARNING, _('The Job history has not been repointed yet.'))
     recreated = run.journal.get('recreated_schedules') or {}
     missing = [entry for entry in captured if str(entry['job_pk']) not in recreated]
-    counts = legacy_source.reference_counts()
-    if counts['jobs']:
+    if legacy_source.script_jobs().exists():
         return _check(
             JOBS,
             plan.WARNING,
             _(
                 '{count} Job(s) still name the built-in feature. Each one is history no Custom Script Project '
                 'can hold, so it stays where it is.'
-            ).format(count=counts['jobs']),
+            ).format(count=legacy_source.script_jobs().count()),
             source=_('the built-in rows'),
         )
     if missing:

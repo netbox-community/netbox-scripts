@@ -8,6 +8,7 @@ template carries the breadcrumbs and the completed-step table.
 
 Context:
   - steps: One {name, completed, ...} per completed step, oldest first
+  - warnings: Every warning the passes recorded on the run, in the order they were raised
 {% endcomment %}
 {% block breadcrumbs %}
   {# The default breadcrumb reverses this model's list route, which a run deliberately has none of. #}
@@ -17,6 +18,21 @@ Context:
 {% endblock breadcrumbs %}
 {% block content %}
   {{ block.super }}
+  {% if warnings %}
+    <div class="row mt-3">
+      <div class="col col-md-12">
+        <div class="alert alert-warning" role="alert">
+          <h3 class="alert-heading fs-5">{% trans "Outstanding after this migration" %}</h3>
+          <p>
+            {% trans "Each of these is something a pass could not do for you. They are recorded as they were raised, so an item may name work you have since done." %}
+          </p>
+          <ul class="mb-0">
+            {% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+    </div>
+  {% endif %}
   {% if steps %}
     <div class="row mt-3">
       <div class="col col-md-12">

@@ -291,6 +291,36 @@ class CutoverTestCase(TestCase):
         self.assertIn('migration', job.error)
         self.assertEqual(counts['schedules'], 1)
 
+    def test_a_job_that_started_during_the_capture_is_not_cancelled_underneath_itself(self):
+        # The capture excludes a running job on purpose. With a task, or it is skipped and proves nothing.
+        job = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        self.assertEqual(len(self.migration.journal['schedules']), 1)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
+
+        counts = cutover._close(self.migration.journal)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
+        self.assertEqual(counts['schedules'], 0)
+
+    def test_a_resumed_close_reports_what_is_closed_not_what_it_changed(self):
+        # Counting the delta made a resumed pass report zeroes for what the first attempt closed.
+        permission = self.legacy_permission()
+        rule = self.legacy_action_rule()
+        cutover._capture(self.migration)
+        first = cutover._close(self.migration.journal)
+
+        second = cutover._close(self.migration.journal)
+
+        self.assertEqual(first['permissions'], second['permissions'])
+        self.assertEqual(first['event_rules'], second['event_rules'])
+        self.assertGreaterEqual(second['permissions'], 1)
+        permission.refresh_from_db()
+        rule.refresh_from_db()
+        self.assertFalse(permission.enabled)
+        self.assertFalse(rule.enabled)
+
     def test_the_deregistered_records_are_journalled(self):
         # The only closure with no record of what it removed, so a manual restore had nothing to read.
         cutover.enter_cutover(self.migration)

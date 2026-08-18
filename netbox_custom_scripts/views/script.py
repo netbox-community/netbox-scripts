@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
 
 from core.choices import JobStatusChoices
-from core.models import Job
+from core.models import Job, ObjectType
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.object_actions import BulkEdit, BulkExport, EditObject
 from netbox.ui import layout
@@ -210,7 +210,12 @@ class CustomScriptResultView(generic.ObjectView):
     def get(self, request, pk, job_pk, **kwargs):
         """Render one run's log, or the body alone when the page is polling itself."""
         script = self.get_object(pk=pk)
-        job = get_object_or_404(Job.objects.restrict(request.user, 'view'), pk=job_pk, object_id=script.pk)
+        job = get_object_or_404(
+            Job.objects.restrict(request.user, 'view'),
+            pk=job_pk,
+            object_type=ObjectType.objects.get_for_model(CustomScript),
+            object_id=script.pk,
+        )
         threshold = request.GET.get('log_threshold')
         # Normalized here as well as in log_rows, so the dropdown can mark the level in force.
         if threshold not in LogLevelChoices.SYSTEM_LEVELS:

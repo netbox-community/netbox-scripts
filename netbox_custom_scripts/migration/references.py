@@ -75,7 +75,7 @@ def repoint_event_rules(run):
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
     serves_action = host_serves_action()
-    counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unserved': 0}
+    counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unmovable': 0}
     warnings = []
     for entry in run.journal.get('event_rules', []):
         rule = EventRule.objects.filter(pk=entry['pk']).first()
@@ -88,8 +88,7 @@ def repoint_event_rules(run):
             if refusal:
                 warnings.append(refusal)
             _repoint_sources(rule, entry, plugin_types, counts)
-            # Only a rule with nothing left pointing at the built-in feature goes back into service:
-            # re-enabling one that still points at nothing would fail at dispatch.
+            # Only a fully moved rule: re-enabling one pointing at nothing would fail at dispatch.
             if moved and entry['enabled'] and not rule.enabled:
                 rule.enabled = True
                 rule.save(update_fields=('enabled',))
@@ -412,7 +411,7 @@ def _repoint_action(rule, entry, resolved, plugin_types, serves_action):
             'Event rule "{name}" runs a built-in Custom Script, and this NetBox version has no registry '
             'for plugin Event Rule actions, so it was left withdrawn. Upgrade, then repoint it.'
         ).format(name=entry['name'])
-        return False, 'unserved', refusal
+        return False, 'unmovable', refusal
     script = resolved.get(entry['action_object_id'])
     if script is None:
         refusal = _(
@@ -531,5 +530,5 @@ def _legacy_type(label):
     """Return the content type one recorded label names."""
     from django.contrib.contenttypes.models import ContentType
 
-    app_label, model = label.split('.')
-    return ContentType.objects.get(app_label=app_label, model=model)
+    # get_by_natural_key: the manager caches per database alias, where our own cache would go stale.
+    return ContentType.objects.get_by_natural_key(*label.split('.'))

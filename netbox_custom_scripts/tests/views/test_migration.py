@@ -303,8 +303,6 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_cutover_route_needs_the_migrate_permission(self):
         self.assertHttpStatus(self.client.post(self.url('migration_cutover')), 403)
 
-        # Staging creates inactive Projects. This closes rows of the built-in feature, so the
-        # permission that authorizes the one must not authorize the other.
         self.grant('add')
 
         self.assertHttpStatus(self.client.post(self.url('migration_cutover')), 403)
@@ -316,8 +314,7 @@ class MigrationTriggerTestCase(TestCase):
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
     def test_a_staging_user_is_offered_none_of_the_steps_past_the_fence(self):
-        # Every condition the three buttons render under is satisfied here, so the permission is the
-        # only thing keeping them off the page.
+        # Every render condition is satisfied, so the permission is all that keeps them off.
         self.grant('add')
         run = self.open_run(MigrationStateChoices.STAGING)
         run.record_step('cutover', counts={})
@@ -367,8 +364,6 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_activate_route_needs_the_migrate_permission(self):
         self.assertHttpStatus(self.client.post(self.url('migration_activate')), 403)
 
-        # Staging creates inactive Projects. This closes rows of the built-in feature, so the
-        # permission that authorizes the one must not authorize the other.
         self.grant('add')
 
         self.assertHttpStatus(self.client.post(self.url('migration_activate')), 403)
@@ -406,8 +401,6 @@ class MigrationTriggerTestCase(TestCase):
     def test_the_repoint_route_needs_the_migrate_permission(self):
         self.assertHttpStatus(self.client.post(self.url('migration_repoint')), 403)
 
-        # Staging creates inactive Projects. This closes rows of the built-in feature, so the
-        # permission that authorizes the one must not authorize the other.
         self.grant('add')
 
         self.assertHttpStatus(self.client.post(self.url('migration_repoint')), 403)

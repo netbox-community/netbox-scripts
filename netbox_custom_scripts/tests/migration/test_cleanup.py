@@ -130,8 +130,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         self.assertFalse(Script.objects.exists())
 
     def test_the_stored_source_is_deleted_with_the_module(self):
-        # Proves the instance path ran: QuerySet.delete() does not call the model's delete(), which
-        # is the only thing that removes the file from storage.
+        # Proves the instance path ran: QuerySet.delete() skips the delete() that removes the file.
         run = self.repointed()
         path = self.uploaded.file_path
         self.assertTrue(storages['scripts'].exists(path))
@@ -232,8 +231,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertTrue(any('Job history' in warning for warning in warnings))
 
     def test_a_module_holding_its_own_job_history_is_retained_and_the_run_still_closes(self):
-        # The reference pass leaves these where they are, because no plugin row can hold them, and
-        # JobsMixin.delete() would delete them without the guard.
+        # No plugin row can hold these, and JobsMixin.delete() would take them without the guard.
         run = self.repointed()
         job = self.module_job(self.synced)
 
@@ -350,8 +348,7 @@ class LegacyFeatureStateTestCase(CleanupMixin, TestCase):
     """
 
     def test_every_closure_is_a_core_row_that_survives_the_plugin(self):
-        # A source rule rather than an action one, because moving an action needs the host registry
-        # while moving a source does not, and this guarantee has to hold on either.
+        # A source rule: moving one needs no host registry, and this has to hold on either line.
         permission = self.permission()
         rule = self.source_rule()
         run = self.repointed()
@@ -364,9 +361,7 @@ class LegacyFeatureStateTestCase(CleanupMixin, TestCase):
         # Nothing left to discover, and nothing left to run.
         self.assertFalse(ScriptModule.objects.exists())
         self.assertFalse(Script.objects.exists())
-        # Each of these is a row core reads on its own, whatever this plugin is doing. The grant is
-        # enabled again by then, on the plugin's own types: what closes the built-in feature is that
-        # no row still names it, not that a permission stayed switched off.
+        # Rows core reads on its own. What closes the feature is that none of them still names it.
         permission.refresh_from_db()
         self.assertNotIn(self.script_type.pk, permission.object_types.values_list('pk', flat=True))
         self.assertNotIn(self.script_type.pk, rule.object_types.values_list('pk', flat=True))

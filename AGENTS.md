@@ -123,7 +123,9 @@ when domain content calls for them.
 │   │   ├── views/test_run.py      , The run page, the run permission gate, the queued payload, the result page and its level threshold, plus one end-to-end submit-and-execute.
 │   │   ├── views/test_actions.py  , Static guard: every list, detail and row action is checked against the registered routes, because ActionsMixin and ActionsColumn filter by permission alone.
 │   │   ├── views/test_files.py    , The Files tab: manifest rows, the entrypoint marker, the missing-path annotation, the empty state, and the view gate.
-│   │   ├── views/test_migration.py , The Migration page and the two enqueue routes: the permission gate, both enqueues, the queued-pass refusal, and the page's state.
+│   │   ├── views/test_migration.py , The Migration page and its seven enqueue routes: both permission gates, every enqueue, the queued-pass refusals, and which button each state renders.
+│   │   ├── views/test_migration_run.py , One migration's detail page.
+│   │   ├── models/test_migration_run.py , MigrationRun: the state machine, the single-open-run rule, and the journal helpers.
 │   │   ├── tables/test_script.py  , CustomScriptTableTestCase(TableTestCases.StandardTableTestCase).
 │   │   ├── filtersets/test_script.py , CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), metadata in ignore_fields.
 │   │   ├── forms/test_script.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field.

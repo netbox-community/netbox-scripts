@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from core.models import Job
 from extras.models import EventRule, Script, ScriptModule
-from netbox_custom_scripts.migration import cleanup, plan, verification
+from netbox_custom_scripts.migration import cleanup, mapping, plan, verification
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, MigrationRun
 from netbox_custom_scripts.tests.migration.test_cleanup import CleanupMixin
 from netbox_custom_scripts.tests.migration.test_references import HAS_EVENT_RULE_ACTIONS, REASON
@@ -54,13 +54,11 @@ class VerificationAfterAFullRunTestCase(VerificationMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        # A source rule rather than an action one: moving a source needs no host registry, so the
-        # green case is reachable on either line.
+        # A source rule: moving one needs no host registry, so the green case is reachable.
         self.rule = self.source_rule()
 
     def test_only_the_modules_check_is_short_of_ready(self):
-        # Every reference has moved but the built-in modules are still there, so the report tracks
-        # that rather than calling a half-finished migration done.
+        # Every reference has moved and the modules are still there, so the report tracks that.
         run = self.repoint_all()
 
         report = verification.verify(run)
@@ -132,6 +130,19 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         self.assertEqual(check['level'], plan.BLOCKING)
         self.assertIn(project.key, str(check['message']))
 
+    def test_a_module_with_no_plugin_identity_blocks_the_modules_check(self):
+        # build_map records these under 'unmapped', which until now nothing read.
+        run = self.repoint_all()
+        recorded = mapping.recorded(run)
+        recorded['unmapped'] = [{'legacy_pk': 4242, 'path': 'weird-name.py', 'reason': 'not importable'}]
+        run.journal['mapping'] = recorded
+        run.save(update_fields=('journal',))
+
+        check = self.named(verification.verify(run), verification.MODULES)
+
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn('weird-name.py', str(check['message']))
+
     def test_a_retired_custom_script_blocks_the_scripts_check(self):
         run = self.repoint_all()
         script = self.plugin_script()
@@ -165,8 +176,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         self.assertIn('regranted by hand', str(check['message']))
 
     def test_a_permission_the_repoint_left_withdrawn_warns_rather_than_blocks(self):
-        # A constrained permission is left untranslated on purpose, so it still names the built-in
-        # feature and always will. Reported every run, because recreating it stays outstanding.
+        # Left untranslated on purpose, so it names the feature for good and is restated every run.
         self.permission(constraints={'name': 'Deploy'})
         run = self.repoint_all()
 
@@ -177,8 +187,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         self.assertIn('left withdrawn', str(check['message']))
 
     def test_an_event_rule_created_after_the_cutover_blocks_its_check(self):
-        # Not in the journal, so the migration never saw it and it is a genuine fault rather than
-        # something the repoint left behind.
+        # Not in the journal, so the migration never saw it and it is a genuine fault.
         run = self.repoint_all()
         self.source_rule(name='granted after the fact')
 
@@ -279,8 +288,7 @@ class VerificationWithoutAnActionRegistryTestCase(VerificationMixin, TestCase):
     """Below the 4.7 line an action cannot move, and the report has to say so without crying fault."""
 
     def test_a_rule_the_repoint_could_not_move_warns_rather_than_blocks(self):
-        # The reference pass leaves it pointing at the built-in Script on purpose and tells the
-        # operator to repoint it after upgrading, so a blocking report would be permanent and wrong.
+        # Left pointing there on purpose, so a blocking report would be permanent and wrong.
         rule = self.action_rule()
         run = self.repoint_all()
 

@@ -100,8 +100,7 @@ class DestructiveMigrationView(BaseMigrationView):
     """Gate for the steps past the fence, which close and rewrite rows of the built-in feature."""
 
     def get_required_permission(self):
-        # Withdrawing grants, disabling rules, terminating other users' jobs and deleting rows is
-        # not a form of creating a Project, which is all the staging permission authorizes.
+        # Closing rows of the built-in feature is not a form of creating a Project.
         return get_permission_for_model(CustomScriptProject, 'migrate')
 
 
@@ -141,8 +140,7 @@ class MigrationView(BaseMigrationView):
                 'can_activate': bool(run and run.step_done(cutover.STEP)),
                 # The references name plugin rows, and activation is what creates them.
                 'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)),
-                # Deleting a Script takes its Job history with it, and a schedule can only be
-                # recreated while the built-in rows are still here, so every reference step first.
+                # A schedule needs the built-in rows still there, so every reference step first.
                 'can_clean_up': bool(run and cleanup.ready(run)),
                 # The fence is offered only while a run is staged and has not crossed, so the page
                 # cannot invite a step the job would refuse.
@@ -179,13 +177,15 @@ class MigrationRunView(generic.ObjectView):
         return self.request.user.has_perm(self.get_required_permission())
 
     def get_extra_context(self, request, instance):
-        """Supply the completed steps, newest first, for the template's own table."""
+        """Supply the completed steps and every warning the passes recorded."""
         steps = instance.journal.get('steps', {})
         return {
             'steps': sorted(
                 ({'name': name, **detail} for name, detail in steps.items()),
                 key=lambda step: step.get('completed') or '',
-            )
+            ),
+            # The one place outstanding work is gathered: a Job log is per pass and scrolls away.
+            'warnings': instance.warnings,
         }
 
 

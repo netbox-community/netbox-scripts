@@ -285,22 +285,25 @@ def _close(journal):
 
 
 def _disable_permissions(captured):
-    """Withdraw every captured grant on the built-in feature."""
+    """Withdraw every captured grant on the built-in feature, and report how many are withdrawn."""
     from users.models import ObjectPermission
 
     keys = [entry['pk'] for entry in captured]
     # This is the closest a plugin has to the write and execution fence. It withdraws every grant
     # NetBox's own permissions UI can make and nothing more: a superuser still passes, and so does
     # anything DEFAULT_PERMISSIONS or a plain Django permission grants.
-    return ObjectPermission.objects.filter(pk__in=keys, enabled=True).update(enabled=False)
+    ObjectPermission.objects.filter(pk__in=keys, enabled=True).update(enabled=False)
+    # The state rather than the rows this attempt changed, so a resumed pass reports the same total.
+    return ObjectPermission.objects.filter(pk__in=keys, enabled=False).count()
 
 
 def _disable_event_rules(captured):
-    """Stop every captured rule from firing, which is the dispatch pause scoped to this migration."""
+    """Take every captured Event Rule out of service, and report how many are out of service."""
     from extras.models import EventRule
 
     keys = [entry['pk'] for entry in captured]
-    return EventRule.objects.filter(pk__in=keys, enabled=True).update(enabled=False)
+    EventRule.objects.filter(pk__in=keys, enabled=True).update(enabled=False)
+    return EventRule.objects.filter(pk__in=keys, enabled=False).count()
 
 
 def _cancel_schedules(captured):
@@ -314,7 +317,7 @@ def _cancel_schedules(captured):
 
     cancelled = 0
     for entry in captured:
-        job = Job.objects.filter(pk=entry['job_pk'], status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).first()
+        job = Job.objects.filter(pk=entry['job_pk'], status__in=legacy_source.cancellable_statuses()).first()
         if job is None:
             continue
         queue = django_rq.get_queue(job.queue_name)

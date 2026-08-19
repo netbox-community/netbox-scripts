@@ -45,5 +45,5 @@ current boundaries.
 
 | Runtime | Supported range |
 |---|---|
-| NetBox | 4.6.0 to 4.7.99 |
+| NetBox | 4.7.0 to 4.7.99 |
 | Python | 3.12+ |

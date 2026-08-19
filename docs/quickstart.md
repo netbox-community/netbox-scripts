@@ -4,7 +4,7 @@
 
 | Requirement | Version or note |
 |---|---|
-| NetBox | 4.6.0 to 4.7.99 |
+| NetBox | 4.7.0 to 4.7.99 |
 | Python | 3.12 or newer |
 | Extra services | None beyond a standard NetBox deployment, but its RQ worker has to be running. See [Background work](#background-work) |
 | Project storage | A `STORAGES` entry, required before a Project can hold source. See [Configuring project storage](#configuring-project-storage) |

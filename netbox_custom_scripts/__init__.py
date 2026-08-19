@@ -18,7 +18,7 @@ class AppConfig(PluginConfig):
     author = __author__
     author_email = __email__
     base_url = 'custom-scripts'
-    min_version = '4.6.0'
+    min_version = '4.7.0'
     max_version = '4.7.99'
 
     default_settings = {

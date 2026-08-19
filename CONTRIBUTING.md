@@ -170,7 +170,7 @@ handling and the `DEVELOPER = True` flag in `testing/configuration.py`.
   `pre-commit run --all-files` locally before pushing.
 - **Supported Python:** Keep changes compatible with the versions tested
   in CI (currently 3.12, 3.13, 3.14).
-- **Supported NetBox:** 4.6.0 to 4.7.99
+- **Supported NetBox:** 4.7.0 to 4.7.99
   (matches the `PluginConfig` declaration in
   `netbox_custom_scripts/__init__.py`).
 - **Django:** 6.0 (matches the supported NetBox runtime).

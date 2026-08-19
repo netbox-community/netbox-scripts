@@ -19,7 +19,7 @@ here, follow this document.
 `netbox-custom-scripts` is a NetBox plugin: Custom Scripts for NetBox It is owned by
 NetBox Labs and runs inside NetBox as a Django app (`netbox_custom_scripts`).
 The supported NetBox version range is in `COMPATIBILITY.md`
-(4.6.0 to 4.7.99 at scaffold time).
+(4.7.0 to 4.7.99 at scaffold time).
 
 Version pins live in two places:
 
@@ -522,10 +522,7 @@ periodically.
   UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_custom_scripts.tests
   ```
 
-  NetBox releases that predate the framework ignore the file: it arrived after
-  v4.6.0, so the floor leg asserts nothing.
-
-  **The baseline is a single file, but the CI matrix spans four NetBox refs, and a
+  **The baseline is a single file, but the CI matrix spans two NetBox refs, and a
   core change to query behaviour lands on them at different times.** The file
   therefore tracks the pinned stable ref, `netbox_test_max_ref`, and two rules
   follow from that:
@@ -558,9 +555,9 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
 - **`test.yml`**, PR / branch validation. Two jobs: a fast `lint` job
   running `pre-commit run --all-files`, followed by a `test` matrix
-  (Python versions x `[v4.6.0, v4.6.5, main, feature]`) that runs only if
-  `lint` passes. The `feature` leg is the NetBox 4.7 pre-release canary
-  and reports without blocking (`continue-on-error`). Postgres and Redis
+  (Python versions x `[v4.7.0-beta1, feature]`) that runs only if
+  `lint` passes. The `feature` leg is the moving 4.7 canary and reports
+  without blocking (`continue-on-error`). Postgres and Redis
   service containers. Triggers on pull requests and pushes to `main`.
 - **`release.yml`**, Build + `twine check` + publish to NetBox Labs'
   internal CodeArtifact via the shared reusable workflow in
@@ -755,10 +752,11 @@ Check this before designing anything that persists bytes.
   `('core', '0024_job_notifications')`,
   `('extras', '0138_customfieldchoiceset_choice_colors')`,
   `('users', '0016_default_ordering_indexes')`.
-  The same floor rule applies to inherited field definitions: NetBox's 4.7
-  `feature` line alters `OwnerMixin.owner` (adds `related_name='+'`), so a
-  migration generated against that line encodes state no released 4.6.x has.
-  Generate against (or reconcile to) the released floor.
+  The same floor rule applies to inherited field definitions. `OwnerMixin.owner`
+  carries `related_name='+'` on the 4.7 line, which `0001_initial.py` now encodes
+  on all three models. Reconcile to the declared floor rather than accepting a
+  standing `makemigrations --check` diff, because tolerated drift is how a real
+  schema change gets missed.
 - **Project identity invariants.** `key` and `source_type` are immutable
   after creation (enforced in `clean()`, mirrored by disabled form fields);
   `storage_key` never changes (enforced in `save()`); `data_path` is stored

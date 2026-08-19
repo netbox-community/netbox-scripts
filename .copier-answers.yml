@@ -14,9 +14,9 @@ django_version: '6.0'
 github_org: netboxlabs
 layout_style: subpackage
 netbox_max_version: 4.7.99
-netbox_min_version: 4.6.0
-netbox_test_max_ref: v4.6.5
-netbox_test_min_ref: v4.6.0
+netbox_min_version: 4.7.0
+netbox_test_max_ref: v4.7.0-beta1
+netbox_test_min_ref: v4.7.0-beta1
 package_name: netbox_custom_scripts
 plugin_name: NetBox Custom Scripts
 python_version: '3.12'

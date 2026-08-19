@@ -5,7 +5,7 @@ release of NetBox Custom Scripts.
 
 | Plugin Version | Minimum NetBox Version | Maximum NetBox Version | Minimum Python |
 |----------------|------------------------|------------------------|----------------|
-| 0.0.1 | 4.6.0 | 4.7.99 | 3.12 |
+| 0.0.1 | 4.7.0 | 4.7.99 | 3.12 |
 
 ## Notes
 

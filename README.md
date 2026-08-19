@@ -50,7 +50,7 @@ Not yet implemented, planned for follow-up releases:
 
 | Plugin Version | Minimum NetBox | Maximum NetBox | Minimum Python |
 |----------------|----------------|----------------|----------------|
-| 0.0.1 | 4.6.0 | 4.7.99 | 3.12 |
+| 0.0.1 | 4.7.0 | 4.7.99 | 3.12 |
 
 The full per-release matrix lives in [COMPATIBILITY.md](COMPATIBILITY.md).
 

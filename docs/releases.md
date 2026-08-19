@@ -3,6 +3,9 @@
 ## v0.0.1
 
 * Initial release
+* Requires NetBox 4.7.0 or later. The Event Rule action this plugin registers
+  needs the plugin action registry that arrived in 4.7, so the floor is the
+  version where every shipped feature works rather than the oldest that loads
 * `CustomScriptProject` model with full UI, REST API, GraphQL, and
   global-search surfaces
 * Custom Script authoring API: `Script` base classes, variable types, dynamic

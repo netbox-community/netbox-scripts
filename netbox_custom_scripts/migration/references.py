@@ -18,15 +18,14 @@ __all__ = (
     'HISTORY_STEP',
     'PERMISSIONS_STEP',
     'SCHEDULES_STEP',
-    'host_serves_action',
     'recreate_schedules',
     'repoint_event_rules',
     'repoint_job_history',
     'repoint_permissions',
 )
 
-# Declared here rather than imported from event_rules.py, which imports netbox.event_rules at module
-# level. That module is 4.7 only, so importing it would take this whole tier down on a 4.6 host.
+# Declared here rather than imported from event_rules.py, so this tier does not become a second
+# loader of a module PluginConfig is meant to resolve on its own.
 ACTION_SLUG = 'netbox_custom_scripts.run'
 
 EVENT_RULES_STEP = 'repoint_event_rules'
@@ -74,15 +73,14 @@ def repoint_event_rules(run):
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
-    serves_action = host_serves_action()
-    counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unmovable': 0}
+    counts = {'actions': 0, 'sources': 0, 'restored': 0}
     warnings = []
     for entry in run.journal.get('event_rules', []):
         rule = EventRule.objects.filter(pk=entry['pk']).first()
         if rule is None:
             continue
         with transaction.atomic():
-            moved, counted, refusal = _repoint_action(rule, entry, resolved, plugin_types, serves_action)
+            moved, counted, refusal = _repoint_action(rule, entry, resolved, plugin_types)
             if counted:
                 counts[counted] += 1
             if refusal:
@@ -374,17 +372,6 @@ def _require_activated(run):
     return run
 
 
-def host_serves_action():
-    """Return whether the host's Event Rule registry carries this plugin's action."""
-    # A registry lookup rather than probing for the module, because what matters is whether OUR
-    # action registered. Delete this and its callers when the floor reaches 4.7.
-    try:
-        from netbox.event_rules import get_event_rule_action
-    except ImportError:
-        return False
-    return get_event_rule_action(ACTION_SLUG) is not None
-
-
 def _plugin_types():
     """Return the plugin object type each built-in type's references move to, by its label."""
     from core.models import ObjectType
@@ -395,7 +382,7 @@ def _plugin_types():
     return {label: ObjectType.objects.get_for_model(models[name]) for label, name in _TYPE_MAP.items()}
 
 
-def _repoint_action(rule, entry, resolved, plugin_types, serves_action):
+def _repoint_action(rule, entry, resolved, plugin_types):
     """
     Point one rule's action at the plugin, writing nothing it cannot move.
 
@@ -404,14 +391,6 @@ def _repoint_action(rule, entry, resolved, plugin_types, serves_action):
     """
     if entry['action_object_id'] is None or rule.action_type == ACTION_SLUG:
         return True, None, None
-    if not serves_action:
-        # 4.6 has no plugin action registry, so writing the slug would leave a rule nothing can
-        # dispatch. Delete this branch when the floor reaches 4.7.
-        refusal = _(
-            'Event rule "{name}" runs a built-in Custom Script, and this NetBox version has no registry '
-            'for plugin Event Rule actions, so it was left withdrawn. Upgrade, then repoint it.'
-        ).format(name=entry['name'])
-        return False, 'unmovable', refusal
     script = resolved.get(entry['action_object_id'])
     if script is None:
         refusal = _(

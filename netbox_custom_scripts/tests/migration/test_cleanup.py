@@ -1,4 +1,3 @@
-import unittest
 import uuid
 
 from django.core.files.storage import storages
@@ -9,11 +8,7 @@ from extras.models import EventRule, Script, ScriptModule
 from netbox_custom_scripts.choices import MigrationStateChoices
 from netbox_custom_scripts.migration import cleanup, cutover, references
 from netbox_custom_scripts.models import CustomScriptProject, MigrationRun
-from netbox_custom_scripts.tests.migration.test_references import (
-    HAS_EVENT_RULE_ACTIONS,
-    REASON,
-    ReferenceMigrationMixin,
-)
+from netbox_custom_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from netbox_custom_scripts.tests.migration.test_staging import LEGACY_SCRIPT
 
 
@@ -246,22 +241,6 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
-    @unittest.skipIf(HAS_EVENT_RULE_ACTIONS, 'This NetBox version can repoint an Event Rule action.')
-    def test_a_module_an_unrepointable_rule_names_is_retained_and_the_run_still_closes(self):
-        # Below the 4.7 line the reference pass cannot move it, so nothing here clears it.
-        run = self.repointed()
-        rule = self.action_rule()
-
-        counts, warnings = cleanup.retire_legacy(run)
-
-        self.assertEqual(counts['retained'], 1)
-        self.assertEqual(counts['blocked'], 0)
-        self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
-        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
-        self.assertTrue(any('cannot' in warning and 'repoint' in warning for warning in warnings))
-        run.refresh_from_db()
-        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
-
     def test_a_soft_deleted_script_does_not_hold_the_run_open(self):
         # The normal state of a long-lived installation, and nothing can take that history over.
         retired = Script.objects.create(module=self.synced, name='OldDeploy')
@@ -376,7 +355,6 @@ class LegacyFeatureStateTestCase(CleanupMixin, TestCase):
             self.assertIsNotNone(project.active_revision)
 
 
-@unittest.skipUnless(HAS_EVENT_RULE_ACTIONS, REASON)
 class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
     """What cleanup does once an Event Rule's action has actually moved, which needs the registry."""
 

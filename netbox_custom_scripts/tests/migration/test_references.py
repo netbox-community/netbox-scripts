@@ -1,7 +1,3 @@
-import importlib.util
-import unittest
-from unittest import mock
-
 from django.test import TestCase
 
 from core.choices import JobStatusChoices
@@ -15,10 +11,6 @@ from netbox_custom_scripts.migration import cutover, references
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from netbox_custom_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import Group, ObjectPermission
-
-# The registry arrived in NetBox 4.7, so an action can only be repointed where the host carries one.
-HAS_EVENT_RULE_ACTIONS = importlib.util.find_spec('netbox.event_rules') is not None
-REASON = 'This NetBox version has no Event Rule action registry.'
 
 
 class ReferenceMigrationMixin(LegacySourceMixin):
@@ -83,7 +75,6 @@ class ReferenceMigrationMixin(LegacySourceMixin):
         return permission
 
 
-@unittest.skipUnless(HAS_EVENT_RULE_ACTIONS, REASON)
 class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
     """Moving an Event Rule's action and its event sources onto the plugin."""
 
@@ -140,7 +131,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertNotIn(self.script_type.pk, types)
         # The unrelated type it also watched is untouched.
         self.assertIn(self.site_type.pk, types)
-        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1, 'unmovable': 0})
+        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1})
 
     def test_a_rule_goes_back_into_service_in_the_state_it_was_captured_in(self):
         enabled = self.action_rule('enabled rule')
@@ -220,34 +211,6 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         rule.refresh_from_db()
         # An operator turning a rule off after the migration must stay turned off.
         self.assertFalse(rule.enabled)
-
-    def test_the_probe_finds_the_action_this_plugin_registered(self):
-        self.assertTrue(references.host_serves_action())
-
-
-class UnservedActionTestCase(ReferenceMigrationMixin, TestCase):
-    """What a host with no plugin Event Rule action registry gets, which is every 4.6 release."""
-
-    def test_the_source_half_moves_and_the_action_half_is_reported(self):
-        rule = self.action_rule()
-        rule.object_types.add(self.script_type.pk)
-        self.cross_over()
-
-        with mock.patch.object(references, 'host_serves_action', return_value=False):
-            counts, warnings = references.repoint_event_rules(self.migration)
-
-        rule.refresh_from_db()
-        types = set(rule.object_types.values_list('pk', flat=True))
-        # The half that needs no registry still moves.
-        self.assertIn(ObjectType.objects.get_for_model(CustomScript).pk, types)
-        self.assertNotIn(self.script_type.pk, types)
-        self.assertEqual(counts['sources'], 1)
-        # The half that does is left alone and named, and the rule stays withdrawn.
-        self.assertEqual(rule.action_type, 'script')
-        self.assertEqual(rule.action_object_id, self.script.pk)
-        self.assertFalse(rule.enabled)
-        self.assertEqual(counts, {'actions': 0, 'sources': 1, 'restored': 0, 'unmovable': 1})
-        self.assertTrue(any(rule.name in warning and 'Upgrade' in warning for warning in warnings))
 
 
 class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):

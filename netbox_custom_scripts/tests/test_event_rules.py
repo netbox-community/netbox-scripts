@@ -1,6 +1,3 @@
-import importlib.util
-import unittest
-
 import django_rq
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.test import TestCase
@@ -10,22 +7,14 @@ from core.models import Job, ObjectType
 from dcim.models import Device
 from extras.events import EventContext
 from extras.models import EventRule
+from netbox.event_rules import get_event_rule_action
+from netbox_custom_scripts.event_rules import RunCustomScriptAction
 from netbox_custom_scripts.models import CustomScript
 from netbox_custom_scripts.tests.test_execution import MAKES_A_TAG, ScriptJobTestMixin
 
-# The registry arrived in NetBox 4.7. Asking what the host provides mirrors compat._host_provides(),
-# and keeps a version literal out of the suite.
-HAS_EVENT_RULE_ACTIONS = importlib.util.find_spec('netbox.event_rules') is not None
-
-if HAS_EVENT_RULE_ACTIONS:
-    from netbox.event_rules import get_event_rule_action
-    from netbox_custom_scripts.event_rules import RunCustomScriptAction
-
 SLUG = 'netbox_custom_scripts.run'
-REASON = 'This NetBox version has no Event Rule action registry.'
 
 
-@unittest.skipUnless(HAS_EVENT_RULE_ACTIONS, REASON)
 class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
     """The registered action: registration, validation, dispatch, and its refusals."""
 
@@ -158,7 +147,6 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
             self.action.resolve_import_object(f'other:{self.custom_script.full_name}')
 
 
-@unittest.skipUnless(HAS_EVENT_RULE_ACTIONS, REASON)
 class ActionInputTestCase(ScriptJobTestMixin, TestCase):
     """That the rule's action_data reaches the script as its input, verbatim."""
 

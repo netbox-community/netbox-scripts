@@ -68,7 +68,3 @@ follow-up releases:
 | Declared pip requirements | Planned, a revision's external dependencies are neither read nor installed |
 | Recorded input values | Planned, a run records which script and revision ran and the result, but not the values submitted |
 | Configurable execution defaults | Planned, the timeout, notification policy and commit default come from the script class and cannot be overridden per installation |
-
-The Event Rule action needs NetBox 4.7, where the plugin action hook exists. On
-4.6 the plugin runs without it, and the plugin's objects still work as Event
-Rule sources.

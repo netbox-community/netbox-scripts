@@ -1,5 +1,3 @@
-import unittest
-
 from django.test import TestCase
 
 from core.models import Job
@@ -7,7 +5,6 @@ from extras.models import EventRule, Script, ScriptModule
 from netbox_custom_scripts.migration import cleanup, mapping, plan, verification
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, MigrationRun
 from netbox_custom_scripts.tests.migration.test_cleanup import CleanupMixin
-from netbox_custom_scripts.tests.migration.test_references import HAS_EVENT_RULE_ACTIONS, REASON
 from users.models import ObjectPermission
 
 
@@ -258,7 +255,6 @@ class VerificationAfterCleanupTestCase(VerificationMixin, TestCase):
         self.assertIn('publish no Custom Script', str(check['message']))
 
 
-@unittest.skipUnless(HAS_EVENT_RULE_ACTIONS, REASON)
 class VerificationOfRepointedRulesTestCase(VerificationMixin, TestCase):
     """The half of the Event Rules check that only means something where the action registry exists."""
 
@@ -280,20 +276,4 @@ class VerificationOfRepointedRulesTestCase(VerificationMixin, TestCase):
         check = self.named(verification.verify(run), verification.EVENT_RULES)
 
         self.assertEqual(check['level'], plan.WARNING)
-        self.assertIn(str(rule), str(check['message']))
-
-
-@unittest.skipIf(HAS_EVENT_RULE_ACTIONS, 'This NetBox version can repoint an Event Rule action.')
-class VerificationWithoutAnActionRegistryTestCase(VerificationMixin, TestCase):
-    """Below the 4.7 line an action cannot move, and the report has to say so without crying fault."""
-
-    def test_a_rule_the_repoint_could_not_move_warns_rather_than_blocks(self):
-        # Left pointing there on purpose, so a blocking report would be permanent and wrong.
-        rule = self.action_rule()
-        run = self.repoint_all()
-
-        check = self.named(verification.verify(run), verification.EVENT_RULES)
-
-        self.assertEqual(check['level'], plan.WARNING)
-        self.assertIn('could not be moved', str(check['message']))
         self.assertIn(str(rule), str(check['message']))

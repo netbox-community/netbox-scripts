@@ -1,10 +1,8 @@
-from utilities.testing import APIViewTestCases, ViewTestCases
-
-try:
-    from utilities.testing import ChangeLoggedFilterSetTestMixin
-except ImportError:
-    # NetBox 4.6 ships the pre-rename name. Drop this fallback at the 4.7 floor switch.
-    from utilities.testing import ChangeLoggedFilterSetTests as ChangeLoggedFilterSetTestMixin  # noqa: F401
+from utilities.testing import (  # noqa: F401
+    APIViewTestCases,
+    ChangeLoggedFilterSetTestMixin,
+    ViewTestCases,
+)
 
 
 class PluginViewTestCase:

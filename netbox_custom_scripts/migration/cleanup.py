@@ -87,11 +87,10 @@ def _delete_modules(run):
         )
     _resolved, unresolved = mapping.resolve_scripts(plugin_map)
     stranded = {entry['legacy_module_pk'] for entry in unresolved}
-    serves_action = legacy_references.host_serves_action()
     # Instance by instance: QuerySet.delete() skips the delete() that removes the stored file.
     for module in legacy_source.legacy_modules_by_pk(keys):
         references = legacy_source.module_references(module)
-        permanent, held = _refusal_for(module, references, module.pk in stranded, serves_action)
+        permanent, held = _refusal_for(module, references, module.pk in stranded)
         if held:
             counts['retained' if permanent else 'blocked'] += 1
             warnings.append(held)
@@ -102,7 +101,7 @@ def _delete_modules(run):
     return counts, warnings
 
 
-def _refusal_for(module, references, stranded, serves_action):
+def _refusal_for(module, references, stranded):
     """Return whether a refusal is permanent and why one module cannot be deleted, or (False, None)."""
     name = module.python_name
     # Permanent means no operator action clears it, so the run closes with the module in place.
@@ -122,14 +121,9 @@ def _refusal_for(module, references, stranded, serves_action):
             'did not move. Run that pass again, then retry this one.'
         ).format(name=name)
     if references['event_rules']:
-        if serves_action:
-            return False, _(
-                'Built-in script module {name} is still named by an Event Rule the reference pass did not '
-                'move. Run that pass again, then retry this one.'
-            ).format(name=name)
-        return True, _(
-            'Built-in script module {name} is still named by an Event Rule this NetBox version cannot '
-            'repoint, so it stays where it is. Upgrade, repoint the rule, then run this again.'
+        return False, _(
+            'Built-in script module {name} is still named by an Event Rule the reference pass did not '
+            'move. Run that pass again, then retry this one.'
         ).format(name=name)
     if stranded:
         return False, _(

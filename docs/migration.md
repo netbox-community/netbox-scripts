@@ -254,9 +254,6 @@ That is the one case where this pass executes your script, so if you would rathe
 queue drain before you enter the cutover. It refuses to start while a built-in Script job is actually
 running, but a job still waiting is captured and replayed.
 
-Pointing an Event Rule's **action** at a Custom Script needs NetBox 4.7, where the plugin action
-exists. Below that line the rule's sources still move and its action is reported as unmoved.
-
 ## Retiring the built-in rows
 
 Cleanup is the last pass and the only one that deletes anything. It refuses until every part of the
@@ -280,16 +277,13 @@ open:
 - The module holds Job history for a class that has since left the file. NetBox keeps such a Script
   row, not executable, purely for its history, and nothing in this plugin replaces it. This is
   ordinary on a long-lived installation.
-- An Event Rule still names the module and this NetBox version has no registry to repoint the action
-  into. **Below the 4.7 line that is every rule that runs a built-in Script**, so expect it. Upgrade,
-  run the repointing pass again, then run cleanup again to retire what is left.
 
 **Blocked, which you can clear.** These hold the migration open until you deal with them:
 
 - A live Script under the module still holds Job rows the repointing pass did not move. Run that
   pass again, then retry cleanup.
-- An Event Rule still names the module on a version that *can* repoint it, which means the
-  repointing pass has not run or did not finish.
+- An Event Rule still names the module, which means the repointing pass has not run or did not
+  finish.
 - The module publishes a class no Custom Script resolves to. Deleting it would leave a script that
   used to run unable to run at all, so fix the source and stage it again first.
 - The Project replacing the module is not serving a revision. Activate it, then retry.

@@ -208,7 +208,8 @@ class ContractVisitor(ast.NodeVisitor):
                     node,
                     f'class {node.name}',
                     'is a management command, which no operator can invoke on either platform. '
-                    'Move the work into a data migration or a job.',
+                    'Move the work into a data migration or a job, or waive it here if it only '
+                    'duplicates a route every platform already has.',
                 )
         self.generic_visit(node)
 

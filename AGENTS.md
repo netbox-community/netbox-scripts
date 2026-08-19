@@ -155,6 +155,7 @@ when domain content calls for them.
 │   │   ├── test_permissions.py    , The source-management separation: change alone cannot activate or reconcile, each own action can, and an object constraint narrows both projects and their revisions.
 │   │   ├── test_event_rules.py    , The `netbox_custom_scripts.run` action: registration, the refusals validate() makes and the ones it leaves to dispatch, the event payload, and import resolution by project key. Skipped entirely below the 4.7 line through an importlib.util.find_spec probe, which is the only guard the feature needs. One class reads the queued task, because enqueue_run keeps script input off the Job row so that is the only place action_data can be seen.
 │   │   ├── test_event_sources.py  , The plugin's models as Event Rule sources: all four qualify, a rule saves against one, the webhook body carries identity and no stored document, and a matching rule reaches the queue. The queue is isolated in testing/configuration.py rather than per class, so emptying here only separates one test from the next. Never clear with RQQueueTestMixin, which uses a server-wide flushall(). Dispatch needs captureOnCommitCallbacks, since django_rq defers an enqueue to on_commit and a TestCase never commits.
+│   │   ├── test_management.py     , The runcustomscript command: what it resolves, what it refuses, that a committed run is change logged against the named user, and that a failure raised before the script is reached still reports why.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
@@ -216,6 +217,7 @@ when domain content calls for them.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing, ingestion and migration staging.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
+│   ├── management/commands/runcustomscript.py , The shell route to one run, for a self-hosted operator. Additive only: it duplicates the REST run route, which is what Cloud and Enterprise use, so it carries a cloud-compat waiver rather than breaching the contract. Named runcustomscript because NetBox ships its own runscript until v5.0 and the earlier app in INSTALLED_APPS wins the name, so a plugin command called runscript would never be reachable. Runs immediately in the calling process and exits non-zero unless the Job completed, which the built-in command never did. Refuses a --user that matches nobody rather than falling back to the first superuser.
 │   ├── ingestion.py               , ingest_upload() / ingest_data_source() / current_source_tree() / uploaded_source_path() / declare_entrypoint(): the one home of source ingestion. Upload declares the file it carries, a synchronized directory declares nothing. declare_entrypoint() is public because migration staging shares it, so the rule that a declaration is reused rather than replaced has one home.
 │   ├── object_actions.py          , ActivateRevision + AddScript + ReconcileSource + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. Each takes the model's own action rather than change: activate, reconcile and run. RunScript renders inert rather than hidden when the script cannot run. AddScript and ReconcileSource each render only for the source type they belong to.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
@@ -684,8 +686,15 @@ would be missing for the worker pod that has to execute it.
   cache is supported, and it is the only layer that writes local executable
   files. Cache content is regenerated from the authoritative store and verified
   before import, never trusted because it exists.
-- **No management commands.** Neither platform can run one on demand. Use a data
-  migration or a `JobRunner` job.
+- **No capability that only a management command can reach.** Neither platform can
+  run one on demand, so anything a command is the sole route to does not exist for a
+  Cloud or Enterprise operator. Put the work in a data migration or a `JobRunner` job.
+  An *additive* command that duplicates a route already available to every platform is
+  allowed, carries a `cloud-compat: ok` marker saying so, and must never become the
+  only way to reach a capability. Its own arguments may still differ, so
+  `runcustomscript --user` attributes a run to another account where REST always runs as
+  the token's user. `management/commands/runcustomscript.py` is the one
+  such command and the pattern to follow.
 - **No in-process schedulers or background threads.** A pod is killed without
   warning, so long-running work belongs in a job. Remote storage I/O stays out
   of the committing process for the same reason, which is why deletion cleanup

@@ -70,6 +70,60 @@ never start. A script whose author set `scheduling_enabled = False` refuses
 permission is refused them with a 403. Neither is ignored, because there is no
 form here to leave the fields out of.
 
+## Replacing `runscript`
+
+NetBox removes the `runscript` management command along with the rest of the
+built-in implementation. There are two successors, and which one you want
+depends on where the caller runs.
+
+### From a shell
+
+`manage.py runcustomscript` runs one script in the calling process and waits for
+it, which is what a cron entry or a CI step wants:
+
+```bash
+python netbox/manage.py runcustomscript deploy.MakeTag \
+    --commit --data '{"site": 3}' --loglevel warning
+```
+
+It is named `runcustomscript` rather than `runscript` because NetBox still ships
+`runscript` of its own, and the built-in one wins the name while both exist. The
+argument set is otherwise the built-in command's:
+
+| `runscript` | Here |
+|---|---|
+| `script`, as `module.ClassName` | The same, as `project:module.ClassName`. The project may be left off when the name matches only one Custom Script, and an ambiguous name is refused with the candidates listed |
+| `--commit` | The same |
+| `--data '<json>'` | The same. Values are validated by the script's own form, so a bad one is named rather than reaching the script |
+| `--user <name>` | The same, but a name that matches no user is refused. The built-in command silently ran as the first superuser instead. Left off, the first superuser is used |
+| `--loglevel <level>` | Applied to the log the run writes. The levels are this plugin's own, so `debug`, `info`, `success`, `warning` and `failure`, where the command it replaces took `error` and `critical` |
+
+It also takes `--notifications`, which the built-in command had no flag for.
+
+**It exits non-zero unless the Job reaches a completed status**, which the
+built-in command never did, so a CI step fails on a script that raised instead
+of passing silently. A script that only calls `log_failure()` and returns
+normally still completes, so use `AbortScript` when a run should count as
+failed. When a run fails before the script itself is reached, the reason comes
+from the Job's own log and is printed to standard error.
+
+Two things behave differently from a queued run. A script's declared
+`job_timeout` is not enforced, because there is no worker to enforce it, so a
+runaway script runs until you stop it. And the run happens inside the enqueueing
+transaction, so the Job row appears only once the run has ended.
+
+This command is a convenience for a self-hosted installation. NetBox Cloud and
+NetBox Enterprise cannot invoke a management command, which is why it is an
+addition to the REST route below rather than the only way in.
+
+### From anything else
+
+The REST route above is the general answer, and the only one available on Cloud
+and Enterprise. It hands the run to a worker and answers 201 with the Job, so
+the outcome is read by polling `/api/core/jobs/<id>/` until its status reaches a
+terminal value. Reach for it whenever the caller is not a shell on the NetBox
+host itself.
+
 ## Scheduling a run
 
 Four execution parameters sit below the script's own fields.

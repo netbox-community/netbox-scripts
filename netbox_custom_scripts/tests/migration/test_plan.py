@@ -214,6 +214,23 @@ class FindingsTestCase(SimpleTestCase):
 
         self.assertEqual([f['code'] for f in report['findings']], [])
 
+    def test_a_module_at_the_data_source_root_blocks(self):
+        # Grouping still collapses to the root, and the model refuses to stage it, so the
+        # inventory has to say so rather than let staging raise.
+        modules = [
+            legacy(1, 'top.py', data_source_id=7, data_path='top.py'),
+            legacy(2, 'deploy.py', data_source_id=7, data_path='automation/deploy.py'),
+        ]
+
+        report = plan.build_report(modules=modules, read=lambda module: b'')
+
+        self.assertEqual(report['status'], plan.BLOCKING)
+        blocking = [f for f in report['findings'] if f['code'] == 'data_source_root']
+        self.assertEqual(len(blocking), 1)
+        self.assertIsNone(blocking[0]['pk'])
+        self.assertIn('2 module(s)', blocking[0]['message'])
+        self.assertIn(report['projects'][0]['key'], blocking[0]['message'])
+
     def test_report_style_blocks_and_legacy_import_warns(self):
         modules = [legacy(1, 'r.py'), legacy(2, 'l.py')]
         bodies = {1: b'class R:\n    def test_a(self):\n        pass\n', 2: b'from extras.scripts import Script\n'}

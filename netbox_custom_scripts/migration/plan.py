@@ -85,6 +85,7 @@ def build_report(modules=None, read=None):
             }
         )
         findings.extend(module_findings)
+    findings.extend(_root_findings(proposed))
     reports = legacy_source.legacy_report_count() if live else 0
     if reports:
         findings.append(
@@ -121,6 +122,29 @@ def _staged_path(module, proposal):
     if proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
         return module.file_path
     return data_source_relative_path(module.data_path, proposal.data_path)
+
+
+def _root_findings(proposed):
+    """Return a blocking finding for each proposal that resolves to a data source root."""
+    # The model refuses an empty data path, so staging one would raise rather than report.
+    findings = []
+    for proposal in proposed:
+        if proposal.source_type != ProjectSourceTypeChoices.DATA_SOURCE or proposal.data_path:
+            continue
+        findings.append(
+            {
+                'level': BLOCKING,
+                'code': 'data_source_root',
+                'pk': None,
+                'path': '',
+                'message': (
+                    f'{len(proposal.module_pks)} module(s) collapse to the root of a data source, so '
+                    f'project "{proposal.key}" would take the whole source as its tree. Move those '
+                    f'scripts under a directory on the source, then run the inventory again.'
+                ),
+            }
+        )
+    return findings
 
 
 def _status(findings):

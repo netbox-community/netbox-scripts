@@ -122,9 +122,12 @@ class CustomScriptProject(PrimaryModel):
                         data_source__isnull=True,
                         data_path='',
                     )
-                    | Q(
-                        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
-                        data_source__isnull=False,
+                    | (
+                        Q(
+                            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+                            data_source__isnull=False,
+                        )
+                        & ~Q(data_path='')
                     )
                 ),
             ),
@@ -151,6 +154,11 @@ class CustomScriptProject(PrimaryModel):
         if self.source_type == ProjectSourceTypeChoices.DATA_SOURCE:
             if not self.data_source:
                 errors['data_source'] = _('A data source is required for data source-backed projects.')
+            if not self.data_path and 'data_path' not in errors:
+                errors['data_path'] = _(
+                    'A data path is required for data source-backed projects. Name the directory that '
+                    'holds the scripts rather than the data source root.'
+                )
         else:
             if self.data_source:
                 errors['data_source'] = _('A data source applies only to data source-backed projects.')

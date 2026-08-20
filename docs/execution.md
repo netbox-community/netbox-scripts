@@ -107,10 +107,11 @@ normally still completes, so use `AbortScript` when a run should count as
 failed. When a run fails before the script itself is reached, the reason comes
 from the Job's own log and is printed to standard error.
 
-Two things behave differently from a queued run. A script's declared
+One thing behaves differently from a queued run. A script's declared
 `job_timeout` is not enforced, because there is no worker to enforce it, so a
-runaway script runs until you stop it. And the run happens inside the enqueueing
-transaction, so the Job row appears only once the run has ended.
+runaway script runs until you stop it. The Job row itself is committed before the
+script starts, exactly as a queued run's is, so it is visible for the whole run
+and an interrupted run leaves the row in the state it reached.
 
 This command is a convenience for a self-hosted installation. NetBox Cloud and
 NetBox Enterprise cannot invoke a management command, which is why it is an

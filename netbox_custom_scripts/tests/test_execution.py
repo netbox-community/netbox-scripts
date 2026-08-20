@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import django_rq
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -486,6 +487,81 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
 
         self.assertIsNone(job.data['event'])
+
+    def test_an_immediate_run_never_reaches_the_queue(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        queue = django_rq.get_queue('default')
+        queue.empty()
+        self.addCleanup(queue.empty)
+
+        # Core queues every non-immediate job from a transaction.on_commit hook, so an
+        # implementation reaching that branch would hand the finished run to a worker as well.
+        with self.captureOnCommitCallbacks(execute=True):
+            job = self.run_job()
+
+        self.assertEqual(queue.count, 0)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(Tag.objects.filter(slug='from-revision').count(), 1)
+
+    def test_an_immediate_run_starts_from_a_pinned_row(self):
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+        seen = {}
+
+        # The pin has to be on the row before the handler starts. Snapshot it there rather
+        # than reading call_args later, which holds a reference the pin write mutates.
+        def capture(job, *args, **kwargs):
+            row = Job.objects.get(pk=job.pk)
+            seen['data'] = row.data or {}
+            seen['status'] = row.status
+
+        with patch.object(CustomScriptJob, 'handle', side_effect=capture):
+            self.run_job()
+
+        self.assertEqual(seen['data'].get('revision_id'), revision.pk)
+        self.assertEqual(seen['data'].get('revision_digest'), revision.digest)
+        self.assertEqual(seen['status'], JobStatusChoices.STATUS_PENDING)
+
+    def test_an_immediate_row_matches_a_queued_row(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        # The immediate branch builds its own row, so parity with the queued construction is
+        # pinned rather than trusted.
+        queued = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        with patch.object(CustomScriptJob, 'handle'):
+            immediate = self.run_job()
+
+        own = {'id', 'job_id', 'created'}
+        for field in (f.name for f in Job._meta.concrete_fields if f.name not in own):
+            self.assertEqual(getattr(immediate, field), getattr(queued, field), field)
+
+    def test_an_interrupted_immediate_run_leaves_a_terminated_row(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        # handle() terminates the row for every Exception, so only a torn-down process reaches
+        # this path. It starts the row first, which is the state a stopped run is caught in.
+        def interrupt(job, *args, **kwargs):
+            job.start()
+            raise KeyboardInterrupt
+
+        with patch.object(CustomScriptJob, 'handle', side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
+            self.run_job()
+
+        (job,) = Job.objects.filter(object_id=self.script().pk)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, 'The run was interrupted.')
+        self.assertIsNotNone(job.completed)
+        self.assertEqual(job.data['revision_id'], self.project.active_revision.pk)
+
+    def test_an_immediate_recurrence_is_refused(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        for deferral in ({'interval': 60}, {'schedule_at': local_now() + timedelta(hours=1)}):
+            with self.subTest(**deferral), self.assertRaises(ValueError):
+                CustomScriptJob.enqueue_run(
+                    self.script(), data={}, commit=True, user=self.user, immediate=True, **deferral
+                )
+
+        self.assertFalse(Job.objects.filter(object_id=self.script().pk).exists())
 
 
 class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):

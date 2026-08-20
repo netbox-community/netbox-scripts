@@ -1,10 +1,15 @@
 """Background jobs for the Custom Scripts plugin."""
 
+import uuid
+
 from django.db import transaction
 from rq.timeouts import JobTimeoutException
 
+from core.choices import JobStatusChoices
 from core.exceptions import JobFailed
+from core.models import Job, ObjectType
 from netbox.jobs import JobRunner
+from utilities.rqworker import get_queue_for_model
 
 from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
@@ -381,6 +386,7 @@ class CustomScriptJob(JobRunner):
         interval=None,
         notifications=None,
         event=None,
+        immediate=False,
         **kwargs,
     ):
         """
@@ -390,10 +396,15 @@ class CustomScriptJob(JobRunner):
         is saved on the Job row inside the enqueueing transaction, so the queue can never run a
         task whose record of what it runs is missing. A recurring run is pinned to nothing and
         resolves the active revision at each occurrence. The script's own recorded metadata
-        supplies the job timeout, and the notification policy unless one is given here. Raises
-        ScriptNotExecutableError when the script cannot run, which covers a disabled or retired
-        script, a disabled project, and a project serving no revision.
+        supplies the job timeout, and the notification policy unless one is given here. An
+        immediate run commits its Job row before executing, so the row is visible for the whole
+        run and an interrupted run leaves it behind. Raises ScriptNotExecutableError when the
+        script cannot run, which covers a disabled or retired script, a disabled project, and a
+        project serving no revision, and ValueError for an immediate run that also asks to be
+        deferred or repeated.
         """
+        if immediate and (schedule_at or interval):
+            raise ValueError('An immediate run cannot also be deferred or repeated.')
         branching.require_safe_routing()
         if not script.is_executable:
             raise ScriptNotExecutableError(
@@ -418,6 +429,8 @@ class CustomScriptJob(JobRunner):
         if script.job_timeout:
             kwargs.setdefault('job_timeout', script.job_timeout)
         kwargs.setdefault('notifications', notifications or script.notifications_default)
+        if immediate:
+            return cls._run_now(script, payload, data=data, request=request, user=user, **kwargs)
         with transaction.atomic():
             job = cls.enqueue(
                 instance=script,
@@ -429,10 +442,45 @@ class CustomScriptJob(JobRunner):
                 **payload,
                 **kwargs,
             )
-            # An immediate run has already finished and recorded its result by the time enqueue()
-            # returns, so the pin goes underneath whatever is there rather than over it.
-            job.data = {**payload, **(job.data or {})}
+            # A second statement because core's own row construction carries no data.
+            job.data = payload
             job.save(update_fields=('data',))
+        return job
+
+    @classmethod
+    def _run_now(cls, script, payload, *, data, request, user, **kwargs):
+        """
+        Save a pinned Job row, then run the script in this process.
+
+        Assumes the caller holds no open transaction, which is what makes the row visible for
+        the duration of the run. Re-raises anything that tears the process down, after
+        recording it on the row.
+        """
+        # Core's enqueue() runs the handler before returning, so its row and this pin could only
+        # be written in two steps with the script executing between them. The row is built here
+        # instead, so one INSERT carries the pin. job_id mirrors core's own immediate call.
+        object_type = ObjectType.objects.get_for_model(script, for_concrete_model=False)
+        job = Job(
+            object_type=object_type,
+            object_id=script.pk,
+            name=kwargs.pop('name', None) or cls.name,
+            status=JobStatusChoices.STATUS_PENDING,
+            user=user,
+            job_id=uuid.uuid4(),
+            queue_name=kwargs.pop('queue_name', None) or get_queue_for_model(object_type.model),
+            notifications=kwargs.pop('notifications'),
+            data=dict(payload),
+        )
+        job.full_clean()
+        job.save()
+        try:
+            cls.handle(job_id=str(job.job_id), job=job, data=data, request=request, **payload, **kwargs)
+        except BaseException:
+            # handle() terminates the row itself for every Exception, so reaching here means the
+            # process is going down and the row would otherwise read running for good.
+            if job.status not in JobStatusChoices.TERMINAL_STATE_CHOICES:
+                job.terminate(status=JobStatusChoices.STATUS_ERRORED, error='The run was interrupted.')
+            raise
         return job
 
     def run(

@@ -72,7 +72,7 @@ class CustomScriptModuleDiscoveryPanel(ObjectAttributesPanel):
 
     discovery_status = attrs.ChoiceAttr('discovery_status', label=_('Status'))
     last_discovered_revision = attrs.RelatedObjectAttr('last_discovered_revision', label=_('Last discovered revision'))
-    discovery_error = attrs.TextAttr('discovery_error', label=_('Error'))
+    discovery_error = attrs.TextAttr('discovery_error', label=_('Detail'))
 
 
 class MigrationRunPanel(ObjectAttributesPanel):

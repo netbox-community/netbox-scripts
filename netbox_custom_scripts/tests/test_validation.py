@@ -458,6 +458,98 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(json.loads(json.dumps(result.discovered_scripts)), result.discovered_scripts)
 
 
+class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
+    """A revision whose enabled entrypoints import cleanly and publish no script."""
+
+    def test_a_revision_publishing_nothing_is_invalid_and_says_why(self):
+        module_row = self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'VALUE = 1\n'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        (record,) = result.validation_errors
+        self.assertEqual(record['source_path'], 'deploy.py')
+        self.assertEqual(record['code'], 'no_scripts_published')
+        self.assertEqual(record['message'], 'The module imports cleanly and defines no Custom Script.')
+        self.assertIsNone(record['exception_type'])
+        self.assertIsNone(record['traceback'])
+        self.assertEqual(result.discovered_scripts, [])
+        module_row.refresh_from_db()
+        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(module_row.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+
+    def test_an_entrypoint_publishing_nothing_beside_a_working_one_stays_valid(self):
+        working = self.declare('deploy.py')
+        empty = self.declare('notes.py')
+        revision = self.stage({'deploy.py': script_source('Deploy'), 'notes.py': b'VALUE = 1\n'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.VALID)
+        self.assertEqual(result.validation_errors, [])
+        self.assertEqual([record['class_name'] for record in result.discovered_scripts], ['Deploy'])
+        working.refresh_from_db()
+        empty.refresh_from_db()
+        self.assertEqual(working.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(working.discovery_error, '')
+        self.assertEqual(empty.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+
+    def test_an_empty_module_beside_a_failing_one_keeps_its_own_message(self):
+        # The only case where a failure message and a zero-publication note are both in play,
+        # so each Module row has to receive its own.
+        empty = self.declare('notes.py')
+        broken = self.declare('broken.py')
+        revision = self.stage({'notes.py': b'VALUE = 1\n', 'broken.py': b'def broken(:\n'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual({record['code'] for record in result.validation_errors}, {'entrypoint_import_failed'})
+        empty.refresh_from_db()
+        broken.refresh_from_db()
+        self.assertEqual(empty.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+        self.assertEqual(broken.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+        self.assertEqual(broken.discovery_error, 'invalid syntax (broken.py, line 1)')
+
+    def test_a_host_based_class_is_named_in_the_verdict(self):
+        module_row = self.declare('deploy.py')
+        # The documented bypass: importlib reaches the host module rather than the compat
+        # stand-in, so the class subclasses NetBox Community's base and publishes nothing.
+        source = (
+            b'import importlib\n\n'
+            b"host = importlib.import_module('extras.scripts')\n\n\n"
+            b'class NewIP(host.Script):\n'
+            b'    pass\n'
+        )
+        revision = self.stage({'deploy.py': source})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        (record,) = result.validation_errors
+        self.assertEqual(record['code'], 'no_scripts_published')
+        self.assertIn('"NewIP" subclasses extras.scripts.Script', record['message'])
+        self.assertIn('netbox_custom_scripts.scripts', record['message'])
+        module_row.refresh_from_db()
+        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+
+    def test_a_snapshot_with_no_enabled_entrypoint_is_still_valid(self):
+        # The boundary the ruling drew: a revision with nothing enabled publishes nothing by
+        # definition, which is every fresh Data Source project. The declaration exists here and
+        # is merely disabled, which is the case the snapshot suite's empty-snapshot test does
+        # not cover, and both short-circuit before the new rule is reached.
+        self.declare('deploy.py', enabled=False)
+        revision = self.stage({'deploy.py': b'VALUE = 1\n'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.VALID)
+        self.assertEqual(result.validation_errors, [])
+
+
 class ClassificationTestCase(TestCase):
     PREFIX = revision_module_name(uuid.UUID('9f1c6d24-0b2a-4d3e-8f57-2c9a4b6e1d80'), 'a' * 64)
 

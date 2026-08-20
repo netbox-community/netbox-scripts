@@ -17,6 +17,8 @@ from types import ModuleType
 from ..runtime.naming import PRIVATE_ROOT
 
 __all__ = (
+    'LEGACY_MODULES',
+    'MIGRATION_HINTS',
     'compat_import',
     'install',
     'wrap_loader',

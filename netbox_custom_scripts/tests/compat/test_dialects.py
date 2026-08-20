@@ -10,7 +10,12 @@ from django.utils import timezone
 
 from core.models import DataFile, DataSource, Job
 from netbox_custom_scripts import compat
-from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_custom_scripts.choices import (
+    ActivationPolicyChoices,
+    ModuleDiscoveryStatusChoices,
+    ProjectSourceTypeChoices,
+    RevisionStatusChoices,
+)
 from netbox_custom_scripts.ingestion import ingest_data_source
 from netbox_custom_scripts.jobs import RevisionValidationJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
@@ -124,8 +129,9 @@ class DialectTestCase(TestCase):
 
     def test_a_dynamic_import_is_the_documented_limit(self):
         # importlib.import_module never consults __import__, so this reaches whatever the host
-        # provides and the class is core's, which discovery does not publish. Asserted so the
-        # limit is on record rather than a surprise.
+        # provides and the class is the host's, which discovery does not publish. The revision
+        # is refused rather than served empty, and the message names the base it inherited.
+        # This is the one case exercising that detection against the real host class.
         source = (
             'import importlib\n\n'
             'Script = importlib.import_module("extras.scripts").Script\n\n\n'
@@ -134,8 +140,14 @@ class DialectTestCase(TestCase):
             '        pass\n'
         )
         revision = self.stage_and_validate({'dynamic.py': source}, key='dynamic')
-        self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(revision.status, RevisionStatusChoices.INVALID)
         self.assertEqual(revision.discovered_scripts, [])
+        (failure,) = revision.validation_errors
+        self.assertEqual(failure['source_path'], 'dynamic.py')
+        self.assertEqual(failure['code'], 'no_scripts_published')
+        self.assertIn('"Dynamic" subclasses extras.scripts.Script', failure['message'])
+        (module_row,) = CustomScriptModule.objects.filter(project=revision.project)
+        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
 
     def test_a_legacy_import_becomes_an_invalid_revision_once_the_host_drops_the_module(self):
         with mock.patch.object(compat, '_host_provides', return_value=False):

@@ -3,7 +3,7 @@ import importlib.util
 
 from django.test import TestCase
 
-from netbox_custom_scripts.runtime.discovery import DiscoveredScript, discover_scripts
+from netbox_custom_scripts.runtime.discovery import DiscoveredScript, discover_scripts, zero_publication_reason
 from netbox_custom_scripts.runtime.exceptions import DiscoveryError
 from netbox_custom_scripts.runtime.naming import revision_module_name
 from netbox_custom_scripts.scripts import BaseScript, Script
@@ -231,3 +231,52 @@ class DiscoveryIntegrationTestCase(LoaderTestCase):
         for private in (digest_a, digest_b, '_netbox_custom_scripts_runtime'):
             self.assertNotIn(private, logger_a)
             self.assertNotIn(private, logger_b)
+
+
+class ZeroPublicationReasonTestCase(TestCase):
+    """Why an entrypoint that imported cleanly still published nothing."""
+
+    def test_a_host_based_class_is_named_with_its_migration_hint(self):
+        # The base is crafted rather than imported, so the rule is exercised without this test
+        # depending on a host module that is scheduled to go away.
+        host_script = type('Script', (), {'__module__': 'extras.scripts'})
+        module = make_module(f'{PREFIX}.deploy', 'class NewIP(Script):\n    pass\n', Script=host_script)
+
+        self.assertEqual(
+            zero_publication_reason(module),
+            '"NewIP" subclasses extras.scripts.Script, which belongs to NetBox Community rather '
+            'than to this plugin. Import the authoring API from "netbox_custom_scripts.scripts" instead.',
+        )
+
+    def test_a_host_report_base_is_named_too(self):
+        host_report = type('Report', (), {'__module__': 'extras.reports'})
+        module = make_module(f'{PREFIX}.audit', 'class Stale(Report):\n    pass\n', Report=host_report)
+
+        self.assertIn('extras.reports.Report', zero_publication_reason(module))
+        self.assertIn('Reports are not supported.', zero_publication_reason(module))
+
+    def test_a_module_defining_nothing_gets_the_generic_reason(self):
+        module = make_module(f'{PREFIX}.deploy', 'VALUE = 1\n')
+
+        self.assertEqual(
+            zero_publication_reason(module),
+            'The module imports cleanly and defines no Custom Script.',
+        )
+
+    def test_a_helper_defining_plain_classes_gets_the_generic_reason(self):
+        module = make_module(f'{PREFIX}.helpers', 'class Formatter:\n    pass\n')
+
+        self.assertEqual(
+            zero_publication_reason(module),
+            'The module imports cleanly and defines no Custom Script.',
+        )
+
+    def test_a_class_from_an_installed_package_is_not_blamed(self):
+        # InstalledScript is imported rather than defined here, so it says nothing about why
+        # this module published nothing.
+        module = make_module(f'{PREFIX}.deploy', 'BORROWED = InstalledScript\n', InstalledScript=InstalledScript)
+
+        self.assertEqual(
+            zero_publication_reason(module),
+            'The module imports cleanly and defines no Custom Script.',
+        )

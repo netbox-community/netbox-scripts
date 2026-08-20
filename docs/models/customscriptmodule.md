@@ -19,8 +19,8 @@ what an existing revision was validated against.
 | `project` | FK | yes | Owning Custom Script Project |
 | `source_path` | string | yes | POSIX-style relative path of the entrypoint Python file, stored in canonical form |
 | `enabled` | boolean | yes | Whether staging includes this declaration in new revision snapshots, default true |
-| `discovery_status` | choice | system | `pending`, `discovered`, or `failed`, describing the most recent validation of the current declaration |
-| `discovery_error` | text | system | Why discovery failed, empty otherwise |
+| `discovery_status` | choice | system | `pending`, `discovered`, `no_scripts`, or `failed`, describing the most recent validation of the current declaration |
+| `discovery_error` | text | system | Why discovery failed, or why an entrypoint published nothing, empty otherwise |
 | `last_discovered_revision` | FK | system | The revision whose validation last wrote these discovery fields |
 
 The three discovery fields are system-managed. Project validation writes them,

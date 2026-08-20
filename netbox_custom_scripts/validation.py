@@ -32,7 +32,7 @@ from .choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from .constants import VALIDATION_LEASE_SECONDS
 from .models import CustomScriptModule, CustomScriptProjectRevision
 from .runtime.cache import local_revision_dir
-from .runtime.discovery import discover_scripts
+from .runtime.discovery import discover_scripts, zero_publication_reason
 from .runtime.exceptions import DiscoveryError, EntrypointImportError, InvalidModulePathError, ScriptMetadataError
 from .runtime.introspection import describe_script
 from .runtime.loader import import_entrypoint, revision_import_session, unload_revision
@@ -64,9 +64,10 @@ def validate_revision(revision, *, job, passthrough=()):
     time, and can take over an expired lease regardless of what the previous owner's Job
     row says. The verdict input is the validated entrypoint snapshot exclusively, never
     live Module rows, and an empty snapshot is vacuously VALID. Content problems across
-    all entries collect into one INVALID verdict with sanitized validation_errors, and
-    Module rows named by the snapshot receive their discovery outcomes only after the
-    verdict commits under the ownership fence. A VALID verdict carries the described
+    all entries collect into one INVALID verdict with sanitized validation_errors, as does
+    a snapshot whose entrypoints all import cleanly and publish nothing between them, under
+    the code no_scripts_published. Module rows named by the snapshot receive their discovery
+    outcomes only after the verdict commits under the ownership fence. A VALID verdict carries the described
     publication set, an INVALID one carries an empty set. passthrough lists exception types that
     must escape unwrapped, they roll the claim back and re-raise, as does every
     environment failure. Raises ValidationStateError when the revision is not claimable.
@@ -106,6 +107,7 @@ def validate_revision(revision, *, job, passthrough=()):
     sanitize = build_error_sanitizer(storage_key, digest)
     failures = []
     outcomes = {}
+    notes = {}
     identities = {}
     records = []
     try:
@@ -137,6 +139,10 @@ def validate_revision(revision, *, job, passthrough=()):
                             raise
                         outcomes[source_path] = _content_failure(failures, sanitize, source_path, error)
                         continue
+                    if not found:
+                        notes[source_path] = sanitize(zero_publication_reason(module))
+                        outcomes[source_path] = ModuleDiscoveryStatusChoices.NO_SCRIPTS
+                        continue
                     outcomes[source_path] = _collect_publications(failures, identities, records, sanitize, entry, found)
             finally:
                 unload_revision(storage_key, digest)
@@ -144,10 +150,24 @@ def validate_revision(revision, *, job, passthrough=()):
         _revert_to_materialized(revision, job)
         raise
 
+    # A revision serving enabled entrypoints and publishing nothing at all cannot run, so it
+    # is refused rather than activated. One entrypoint publishing nothing beside a working one
+    # is reported on its own row and leaves the verdict alone.
+    if not failures and not records:
+        failures.extend(
+            {
+                'source_path': entry['source_path'],
+                'code': 'no_scripts_published',
+                'message': notes.get(entry['source_path'], ''),
+                'exception_type': None,
+                'traceback': None,
+            }
+            for entry in entries
+        )
     status = RevisionStatusChoices.INVALID if failures else RevisionStatusChoices.VALID
     published = [] if failures else records
     if _finalize(revision, job, status, failures, published):
-        _persist_module_results(revision, entries, outcomes, failures)
+        _persist_module_results(revision, entries, outcomes, failures, notes)
     revision.refresh_from_db()
     return revision
 
@@ -322,7 +342,7 @@ def _revert_to_materialized(revision, job):
     ).update(status=RevisionStatusChoices.MATERIALIZED, validation_job=None, validation_started=None)
 
 
-def _persist_module_results(revision, entries, outcomes, failures):
+def _persist_module_results(revision, entries, outcomes, failures, notes):
     """
     Record discovery outcomes on the Module rows the snapshot named.
 
@@ -340,7 +360,12 @@ def _persist_module_results(revision, entries, outcomes, failures):
         outcome = outcomes.get(source_path)
         if outcome is None:
             continue
-        failed = outcome == ModuleDiscoveryStatusChoices.FAILED
+        if outcome == ModuleDiscoveryStatusChoices.FAILED:
+            message = messages.get(source_path, '')
+        elif outcome == ModuleDiscoveryStatusChoices.NO_SCRIPTS:
+            message = notes.get(source_path, '')
+        else:
+            message = ''
         CustomScriptModule.objects.filter(
             Q(last_discovered_revision__isnull=True)
             | Q(last_discovered_revision=revision)
@@ -350,6 +375,6 @@ def _persist_module_results(revision, entries, outcomes, failures):
             source_path=source_path,
         ).update(
             discovery_status=outcome,
-            discovery_error=messages.get(source_path, '') if failed else '',
+            discovery_error=message,
             last_discovered_revision=revision,
         )

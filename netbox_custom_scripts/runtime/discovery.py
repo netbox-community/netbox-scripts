@@ -15,12 +15,14 @@ user-facing identity and two projects always log apart.
 
 from typing import NamedTuple
 
+from ..compat import MIGRATION_HINTS
 from ..scripts.base import BaseScript, Script
 from .exceptions import DiscoveryError
 
 __all__ = (
     'DiscoveredScript',
     'discover_scripts',
+    'zero_publication_reason',
 )
 
 LOGGER_PREFIX = 'netbox.plugins.netbox_custom_scripts.scripts'
@@ -53,6 +55,27 @@ def discover_scripts(module, *, project_key, revision_prefix):
     results = [_publish(cls, project_key, revision_prefix) for cls in published]
     _require_distinct_identities(results)
     return results
+
+
+def zero_publication_reason(module):
+    """
+    Return why one imported entrypoint published nothing.
+
+    Names the class and its base when a class defined here inherits from a legacy authoring
+    module the compatibility tier maps, and otherwise states that the module defines no script.
+    """
+    # Bases are compared by their recorded module name and nothing is imported, so this reads
+    # the same on a host that has already dropped the legacy modules.
+    for _bound_name, candidate in sorted(vars(module).items()):
+        if not isinstance(candidate, type) or candidate.__module__ != module.__name__:
+            continue
+        for base in candidate.__mro__[1:]:
+            if base.__module__ in MIGRATION_HINTS:
+                return (
+                    f'"{candidate.__name__}" subclasses {base.__module__}.{base.__name__}, which belongs to '
+                    f'NetBox Community rather than to this plugin. {MIGRATION_HINTS[base.__module__]}'
+                )
+    return 'The module imports cleanly and defines no Custom Script.'
 
 
 def _order_entries(module, revision_prefix):

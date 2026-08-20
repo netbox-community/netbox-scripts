@@ -260,7 +260,10 @@ importlib.import_module('extras.scripts')        # reaches NetBox, not this plug
 ```
 
 A script using that form publishes nothing, since the class it derives from is
-NetBox's rather than this plugin's. Import it with a statement instead.
+NetBox's rather than this plugin's, so the revision is refused as `invalid` with
+a message naming the class and the base it inherited. Once a NetBox release stops
+shipping the module, the same line fails at import instead and the revision rolls
+back for a retry with no verdict. Import it with a statement either way.
 
 Imports of anything else under `extras` are untouched and reach NetBox, so
 `from extras.models import Tag` is the real model.

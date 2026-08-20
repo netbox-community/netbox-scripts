@@ -40,11 +40,13 @@ class ModuleDiscoveryStatusChoices(ChoiceSet):
 
     PENDING = 'pending'
     DISCOVERED = 'discovered'
+    NO_SCRIPTS = 'no_scripts'
     FAILED = 'failed'
 
     CHOICES = (
         (PENDING, _('Pending'), 'gray'),
         (DISCOVERED, _('Discovered'), 'green'),
+        (NO_SCRIPTS, _('No scripts'), 'yellow'),
         (FAILED, _('Failed'), 'red'),
     )
 

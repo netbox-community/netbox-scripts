@@ -138,6 +138,14 @@ discovery on it. The verdict rules:
   `helpers.py` reports as an authoring mistake rather than retrying forever.
 - An empty entrypoint set is valid. A project whose revision declares no
   modules validates and can be activated, it simply offers no scripts.
+- A revision whose entrypoints all import cleanly and publish nothing is
+  `invalid`. Each such entrypoint is reported under the code
+  `no_scripts_published`, and its Module row reads `no_scripts` with the reason,
+  which names the base class when the entrypoint subclassed one of NetBox's own.
+  One entrypoint publishing nothing beside a working one leaves the verdict
+  alone and is reported on its own row. A project whose only enabled entrypoint
+  publishes nothing does stop activating, so declare a helper file as an
+  entrypoint only alongside one that publishes.
 - Stored validation errors are sanitized. Runtime namespaces, storage
   identities, and cache paths never appear in them or in job logs, module
   references read project-relative.

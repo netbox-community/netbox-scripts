@@ -6,6 +6,7 @@ from netbox.forms import PrimaryModelBulkEditForm
 from utilities.forms import add_blank_choice
 from utilities.forms.fields import DynamicModelChoiceField
 from utilities.forms.rendering import FieldSet
+from utilities.forms.widgets import BulkEditNullBooleanSelect
 
 from ...choices import ActivationPolicyChoices
 from ...models import CustomScriptProject
@@ -18,6 +19,7 @@ class CustomScriptProjectBulkEditForm(PrimaryModelBulkEditForm):
 
     enabled = forms.NullBooleanField(
         required=False,
+        widget=BulkEditNullBooleanSelect(),
         label=_('Enabled'),
     )
     activation_policy = forms.ChoiceField(

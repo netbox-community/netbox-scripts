@@ -84,6 +84,22 @@ where the body failed.
 Nothing in that list is specific to Custom Scripts. It is what any plugin running
 user-supplied code inside NetBox's transaction and event machinery needs.
 
+Two narrower asks sit inside it, and both exist because a NetBox utility is almost
+what the plugin needs. `utilities.request.apply_request_processors()` is the loop
+`execution.py` writes out by hand, and the hand-written copy differs in two ways
+the utility cannot express: it skips one named processor for a dry run, and it
+treats a failure of `event_tracking` as fatal rather than as a warning, because a
+committed run that silently emits nothing is worse than one that fails. Either a
+parameter for both, or a documented way to compose the loop, would let the copy go.
+
+`Job.enqueue()` accepts no `data`, so a caller cannot put anything on the row it
+creates. With `immediate=True` it also runs the handler before returning, which
+means there is no moment between the row existing and the script running in which
+to write to it. A plugin that has to record what a run is pinned to therefore builds
+the row itself. A `data` argument, or a documented hook that runs after the row is
+saved and before the handler, would remove the one place this plugin duplicates a
+core model's construction.
+
 The migration rows have a request of their own: a legacy export service. It should
 provide serializable records for the built-in script modules and their script
 classes, each with its content checksum, its Data Source reference and the

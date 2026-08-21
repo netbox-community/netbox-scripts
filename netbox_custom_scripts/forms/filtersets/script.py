@@ -2,6 +2,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from netbox.forms import PrimaryModelFilterSetForm
+from utilities.forms.constants import BOOLEAN_WITH_BLANK_CHOICES
 from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterField
 from utilities.forms.rendering import FieldSet
 
@@ -29,10 +30,12 @@ class CustomScriptFilterForm(PrimaryModelFilterSetForm):
     )
     enabled = forms.NullBooleanField(
         required=False,
+        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
         label=_('Enabled'),
     )
     is_retired = forms.NullBooleanField(
         required=False,
+        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
         label=_('Retired'),
     )
     tag = TagFilterField(

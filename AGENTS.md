@@ -60,7 +60,7 @@ when domain content calls for them.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
 │   │   ├── urls.py                , router.register for 'modules' + 'projects' + 'scripts'.
-│   │   ├── views.py               , RunScriptPermissions + CustomScriptModuleViewSet + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + read-only CustomScriptProjectRevisionViewSet + update-only CustomScriptViewSet (http_method_names drops POST and DELETE) with its POST `run` action. Each viewset select_relates the revision its serializer nests. The run action carries its own permission class and http_method_names, because both defaults key off the HTTP method and would resolve POST to add, which no caller of a derived model holds. initial() narrows it by the run action for the same reason.
+│   │   ├── views.py               , RunScriptPermissions + CustomScriptModuleViewSet + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action + read-only CustomScriptProjectRevisionViewSet (NetBoxReadOnlyModelViewSet, so no write route is registered) + update-only CustomScriptViewSet (http_method_names drops POST and DELETE, since composing the mixins instead would drop NetBoxModelViewSet.update() and with it the changelog snapshot and the If-Match check) with its POST `run` action. Each viewset select_relates the revision its serializer nests. The run action carries its own permission class and http_method_names, because both defaults key off the HTTP method and would resolve POST to add, which no caller of a derived model holds. initial() narrows it by the run action for the same reason.
 │   │   └── serializers/
 │   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, CustomScriptProjectRevisionSerializer, CustomScriptProjectSerializer, CustomScriptRunInputSerializer, CustomScriptSerializer.
 │   │       ├── revision.py    , CustomScriptProjectRevisionSerializer: read-only, and also the serializer event serialization resolves by model name. Omits the manifest, the entrypoint snapshot and the validation lease fields.
@@ -80,12 +80,12 @@ when domain content calls for them.
 │   │   ├── model_forms/module.py    , CustomScriptModuleEditForm (project + source_path frozen, so disabled on edit).
 │   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
 │   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
-│   │   ├── model_forms/script.py    , CustomScriptEditForm: writable set is enabled/comments/owner/tags/custom fields, save() scopes update_fields so a stale form cannot revert a derived column.
+│   │   ├── model_forms/script.py    , CustomScriptEditForm: writable set is enabled, the three execution overrides, comments, owner, tags and custom fields. A plain NetBox model form, because every derived column is editable=False and therefore already out of it.
 │   │   ├── bulk_edit/script.py      , CustomScriptBulkEditForm: enabled only, description removed declaratively since BulkEditView setattr ignores editable=False.
 │   │   ├── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
 │   │   ├── filtersets/module.py     , CustomScriptModuleFilterForm.
 │   │   └── filtersets/script.py     , CustomScriptFilterForm.
-│   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and re-pin deps to the v4.6.0 heads (see Conventions).
+│   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and keep the pinned deps (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision, MigrationRun.
 │   │   ├── project.py             , CustomScriptProject(PrimaryModel), whose Meta.permissions carries activate / migrate / reconcile beside the four standard actions, with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
@@ -755,12 +755,16 @@ Check this before designing anything that persists bytes.
   and `get_or_create`, `ContentType` rows may not exist yet at migration
   time.
 - **Migration dependencies must exist at `PluginConfig.min_version`.**
-  `makemigrations` pins whatever the local (newer) NetBox checkout has, which
-  breaks the migration graph on the declared minimum. After every
-  `makemigrations` run, re-pin the deps to the v4.6.0 heads:
+  `makemigrations` pins whatever the local NetBox checkout has, which can name a
+  migration the declared minimum does not ship. After every `makemigrations` run,
+  re-pin the deps to these, which is what `0001_initial.py` carries:
   `('core', '0024_job_notifications')`,
   `('extras', '0138_customfieldchoiceset_choice_colors')`,
   `('users', '0016_default_ordering_indexes')`.
+  **These are the v4.6.0 heads and they stay, even though the floor is now 4.7.0.**
+  Migration graphs are append-only, so a 4.7 install has them applied and they still
+  resolve, while a 4.7 head could still be renumbered before the release is final.
+  Do not "correct" them to the current line.
   The same floor rule applies to inherited field definitions. `OwnerMixin.owner`
   carries `related_name='+'` on the 4.7 line, which `0001_initial.py` now encodes
   on all three models. Reconcile to the declared floor rather than accepting a

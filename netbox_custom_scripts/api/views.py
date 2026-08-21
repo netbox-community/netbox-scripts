@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from core.api.serializers import JobSerializer
 from netbox.api.authentication import TokenPermissions
-from netbox.api.viewsets import NetBoxModelViewSet
+from netbox.api.viewsets import NetBoxModelViewSet, NetBoxReadOnlyModelViewSet
 from utilities.exceptions import RQWorkerNotRunningException
 from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
@@ -95,19 +95,18 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
         }
 
 
-class CustomScriptProjectRevisionViewSet(NetBoxModelViewSet):
+class CustomScriptProjectRevisionViewSet(NetBoxReadOnlyModelViewSet):
     """
     Read-only REST API viewset for Custom Script Project Revisions.
 
     Revisions are produced by ingestion and moved through their lifecycle by the storage and
-    validation services, so every write method is refused at the router. Activation stays an
-    action on the project rather than a writable status field.
+    validation services, so no write route is registered at all. Activation stays an action on
+    the project rather than a writable status field.
     """
 
     queryset = CustomScriptProjectRevision.objects.select_related('project')
     serializer_class = CustomScriptProjectRevisionSerializer
     filterset_class = CustomScriptProjectRevisionFilterSet
-    http_method_names = ('get', 'head', 'options', 'trace')
 
 
 class CustomScriptViewSet(NetBoxModelViewSet):
@@ -122,9 +121,11 @@ class CustomScriptViewSet(NetBoxModelViewSet):
     queryset = CustomScript.objects.select_related('project', 'last_seen_revision')
     serializer_class = CustomScriptSerializer
     filterset_class = CustomScriptFilterSet
-    # Refuses creation and deletion at the router. PATCH and PUT on the list route stay
-    # available, so an operator can enable or disable many scripts in one call.
-    http_method_names = ('get', 'put', 'patch', 'head', 'options', 'trace')
+    # Refuses creation and deletion by method. Composing the mixins instead, the way a
+    # read-only viewset does, would drop NetBoxModelViewSet.update(), and with it the
+    # changelog's pre-change snapshot and the If-Match check. PATCH and PUT on the list route
+    # stay available, so an operator can enable or disable many scripts in one call.
+    http_method_names = ('get', 'put', 'patch', 'head', 'options')
 
     def initial(self, request, *args, **kwargs):
         """Narrow the run action by the run permission rather than by its HTTP method."""

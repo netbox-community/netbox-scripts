@@ -456,9 +456,11 @@ class CustomScriptJob(JobRunner):
         the duration of the run. Re-raises anything that tears the process down, after
         recording it on the row.
         """
-        # Core's enqueue() runs the handler before returning, so its row and this pin could only
-        # be written in two steps with the script executing between them. The row is built here
-        # instead, so one INSERT carries the pin. job_id mirrors core's own immediate call.
+        # Core's enqueue() runs the handler before returning and accepts no data, so its row and
+        # this pin could only be written in two steps with the script executing between them. The
+        # row is built here instead, so one INSERT carries the pin, and job_id mirrors core's own
+        # immediate call. This is the plugin's one copy of a core model's construction, so it is
+        # recorded as an upstream ask in docs/development/netbox-internals.md.
         object_type = ObjectType.objects.get_for_model(script, for_concrete_model=False)
         job = Job(
             object_type=object_type,

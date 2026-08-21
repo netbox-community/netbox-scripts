@@ -222,11 +222,8 @@ class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
         weight=500,
     )
 
-    def has_permission(self):
-        """Require the project's change permission, which restrict() needs, plus the Module's."""
-        return super().has_permission() and self.request.user.has_perm(
-            'netbox_custom_scripts.change_customscriptmodule'
-        )
+    # The project's change permission is what restrict() needs, and the selection writes Modules.
+    additional_permissions = ('netbox_custom_scripts.change_customscriptmodule',)
 
 
 @register_model_view(CustomScriptProject, 'files', path='files')
@@ -279,9 +276,8 @@ class CustomScriptProjectUploadView(generic.ObjectEditView):
     queryset = CustomScriptProject.objects.select_related('data_source')
     form = CustomScriptProjectUploadForm
 
-    def has_permission(self):
-        """Require the Module add permission too, since the upload declares its own entrypoint."""
-        return super().has_permission() and self.request.user.has_perm('netbox_custom_scripts.add_customscriptmodule')
+    # The upload declares its own entrypoint, so it creates a Module.
+    additional_permissions = ('netbox_custom_scripts.add_customscriptmodule',)
 
 
 @register_model_view(CustomScriptProject, 'add_script', path='upload')
@@ -297,9 +293,8 @@ class CustomScriptProjectAddScriptView(generic.ObjectEditView):
     queryset = CustomScriptProject.objects.select_related('data_source')
     form = CustomScriptProjectAddScriptForm
 
-    def has_permission(self):
-        """Require the Module add permission too, since the upload declares its own entrypoint."""
-        return super().has_permission() and self.request.user.has_perm('netbox_custom_scripts.add_customscriptmodule')
+    # The upload declares its own entrypoint, so it creates a Module.
+    additional_permissions = ('netbox_custom_scripts.add_customscriptmodule',)
 
 
 @register_model_view(CustomScriptProject, 'delete')

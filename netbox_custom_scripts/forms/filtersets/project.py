@@ -3,6 +3,7 @@ from django.utils.translation import gettext_lazy as _
 
 from core.models import DataSource
 from netbox.forms import PrimaryModelFilterSetForm
+from utilities.forms.constants import BOOLEAN_WITH_BLANK_CHOICES
 from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterField
 from utilities.forms.rendering import FieldSet
 
@@ -36,6 +37,7 @@ class CustomScriptProjectFilterForm(PrimaryModelFilterSetForm):
     )
     enabled = forms.NullBooleanField(
         required=False,
+        widget=forms.Select(choices=BOOLEAN_WITH_BLANK_CHOICES),
         label=_('Enabled'),
     )
     data_source_id = DynamicModelMultipleChoiceField(

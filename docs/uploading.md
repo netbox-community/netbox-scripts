@@ -53,6 +53,11 @@ The consequence worth knowing: two files you think of as different, `automation/
 `audit/deploy.py`, are the same path once uploaded to one Project. The second is a replacement
 of the first, and the form asks before doing it.
 
+The REST route flattens too, and it does so by the plugin's own rule rather than by relying on
+what a parser happens to hand over. A path in a REST upload is client-local structure, so no
+destination is taken from the request at all. Supplying a whole tree, with the paths preserved,
+is a separate contract rather than a gap here.
+
 ## Adding more scripts to a Project
 
 **Add Script** on the Project's page uploads another file. A revision is a whole tree, so the
@@ -67,6 +72,34 @@ previous one keeps its content and stays in the Project's history.
 A name that collides with an existing file only by letter case, `Deploy.py` against
 `deploy.py`, is refused rather than replaced. Two such paths cannot both be materialized on a
 case-insensitive filesystem, so the collision is rejected at the point it is introduced.
+
+### Over REST
+
+The same operation without the browser, for a pipeline that generates or vendors scripts:
+
+```
+POST /api/plugins/custom-scripts/projects/42/upload/
+Authorization: Token $NETBOX_TOKEN
+Content-Type: multipart/form-data
+```
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Token $NETBOX_TOKEN" \
+  -F file=@deploy.py \
+  https://netbox.example.com/api/plugins/custom-scripts/projects/42/upload/
+```
+
+It accepts one Python file and returns the revision it staged, so the caller can poll that
+revision until it reaches a verdict. Add `-F confirm_replace=true` to replace a path the
+Project already holds, which is the same confirmation the form asks for. Uploading identical
+bytes resolves to the revision that already holds them, verdict included, rather than creating
+a second one.
+
+Authorization is the same pair the **Add Script** page needs: the change permission on the
+Project, because the Project exists and its source is being changed, and the add permission on
+Custom Script Modules, because the upload declares its own entrypoint. The Project's add
+permission is not what authorizes this.
 
 ## Putting a revision in service
 

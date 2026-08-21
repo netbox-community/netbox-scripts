@@ -34,6 +34,7 @@ from .storage.paths import normalize_source_path
 from .utils import data_source_relative_path
 
 __all__ = (
+    'check_upload_conflicts',
     'current_source_tree',
     'declare_entrypoint',
     'ingest_data_source',
@@ -68,6 +69,29 @@ def uploaded_source_path(filename):
             )
         )
     return path
+
+
+def check_upload_conflicts(project, path, *, confirm_replace):
+    """
+    Refuse an upload that would replace content unasked or collide with a sibling declaration.
+
+    Raises ValidationError when the project already holds the canonical path and confirmation
+    was not given, and when the path collides with an existing declaration by letter case or by
+    module name. Only the manifest is read, so this costs no content reads.
+    """
+    # Compared against the canonical path, never the name the client sent, so two files a caller
+    # thinks of as different cannot silently replace one another.
+    revision = project.current_revision
+    existing = {entry['path'] for entry in revision.manifest} if revision else set()
+    if path in existing and not confirm_replace:
+        raise ValidationError(
+            _('This Project already holds "{path}". Confirm replacement to overwrite its content.').format(path=path)
+        )
+    if not CustomScriptModule.objects.filter(project=project, source_path=path).exists():
+        candidate = CustomScriptModule(project=project, source_path=path, enabled=True)
+        # A case variant or a name colliding with a sibling module, for example "Deploy.py"
+        # against an existing "deploy.py".
+        candidate.full_clean()
 
 
 def current_source_tree(project):

@@ -10,9 +10,9 @@ from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import HTMXSelect
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ...ingestion import current_source_tree, ingest_upload, uploaded_source_path
+from ...ingestion import check_upload_conflicts, current_source_tree, ingest_upload, uploaded_source_path
 from ...jobs import ProjectEntrypointRefreshJob
-from ...models import CustomScriptModule, CustomScriptProject
+from ...models import CustomScriptProject
 
 __all__ = (
     'CustomScriptProjectAddScriptForm',
@@ -193,37 +193,14 @@ class CustomScriptProjectAddScriptForm(PrimaryModelForm):
         if upload is None:
             return self.cleaned_data
         path = uploaded_source_path(upload.name)
-
-        # Compared against the canonical path, never the name the browser sent. Django reduces
-        # an uploaded name to its basename, so "automation/deploy.py" and "audit/deploy.py" both
-        # arrive as "deploy.py". Comparing raw names would skip this prompt and silently replace
-        # a file the user believed was a different one. Only the manifest is read here, so
-        # validation costs no content reads.
-        revision = self.instance.current_revision
-        existing = {entry['path'] for entry in revision.manifest} if revision else set()
-        if path in existing and not self.cleaned_data.get('confirm_replace'):
-            self.add_error(
-                'upload_file',
-                _('This Project already holds "{path}". Tick "{label}" to replace its content.').format(
-                    path=path, label=self.fields['confirm_replace'].label
-                ),
-            )
-            return self.cleaned_data
-
-        self._reject_colliding_declaration(path)
-        return self.cleaned_data
-
-    def _reject_colliding_declaration(self, path):
-        """Surface a sibling collision on the upload field rather than letting save() raise."""
-        if CustomScriptModule.objects.filter(project=self.instance, source_path=path).exists():
-            return
-        candidate = CustomScriptModule(project=self.instance, source_path=path, enabled=True)
+        # The rule lives in ingestion so this form and the REST upload action cannot disagree
+        # about what replacing a file costs. Surfaced on the field rather than raised, because
+        # the editing view does not catch a ValidationError out of clean().
         try:
-            candidate.full_clean()
+            check_upload_conflicts(self.instance, path, confirm_replace=self.cleaned_data.get('confirm_replace'))
         except ValidationError as error:
-            # A case variant or a name that collides with a sibling module, for example
-            # "Deploy.py" against an existing "deploy.py".
             self.add_error('upload_file', error.messages)
+        return self.cleaned_data
 
     def save(self, *args, **kwargs):
         """Stage the existing tree plus the new file as one new revision."""

@@ -73,7 +73,7 @@ when domain content calls for them.
 │   │   ├── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
 │   │   ├── revision.py            , CustomScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet): project by id + key, status, both digests.
 │   │   ├── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
-│   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, metadata unfiltered.
+│   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, explicit MultipleChoiceFilter for the notification override, the other two overrides generated, metadata unfiltered.
 │   ├── forms/
 │   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
 │   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm + CustomScriptProjectEntrypointsForm (reconciles the selection onto enabled, then enqueues ProjectEntrypointRefreshJob when it moved).
@@ -90,7 +90,7 @@ when domain content calls for them.
 │   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision, MigrationRun.
 │   │   ├── project.py             , CustomScriptProject(PrimaryModel), whose Meta.permissions carries activate / migrate / reconcile beside the four standard actions, with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints + CustomScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
 │   │   ├── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
-│   │   ├── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name, description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync).
+│   │   ├── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name, description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync). Three nullable execution-override columns sit beside enabled, empty meaning inherit, and the accessors resolve override then class then built-in default. scheduling_enabled takes no override, it is the author's safety claim.
 │   │   └── migration.py           , MigrationRun(ChangeLoggedModel): one attempt at moving off the built-in feature. Migration infrastructure rather than a domain model, so no REST, GraphQL or list view. State moves forward one step only, at most one run is open, and the journal is what every cutover step replays from. complete_step() and recorded_counts() are the one home of the resume guard every caller needs.
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectFileTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable, CustomScriptTable.

@@ -140,6 +140,38 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.script.refresh_from_db()
         self.assertFalse(self.script.enabled)
 
+    def test_the_execution_overrides_are_patchable(self):
+        self.add_permissions(
+            'netbox_custom_scripts.view_customscript',
+            'netbox_custom_scripts.change_customscript',
+        )
+        response = self.client.patch(
+            self._get_detail_url(self.script),
+            {'commit_default_override': False, 'job_timeout_override': 45, 'notifications_default_override': 'never'},
+            format='json',
+            **self.header,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.script.refresh_from_db()
+        self.assertIs(self.script.commit_default_override, False)
+        self.assertEqual(self.script.job_timeout_override, 45)
+        self.assertEqual(self.script.notifications_default_override, 'never')
+
+    def test_an_override_is_clearable_over_rest(self):
+        self.add_permissions(
+            'netbox_custom_scripts.view_customscript',
+            'netbox_custom_scripts.change_customscript',
+        )
+        CustomScript.objects.filter(pk=self.script.pk).update(job_timeout_override=45)
+        response = self.client.patch(
+            self._get_detail_url(self.script), {'job_timeout_override': None}, format='json', **self.header
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.script.refresh_from_db()
+        self.assertIsNone(self.script.job_timeout_override)
+
     def test_a_derived_field_supplied_to_a_patch_is_ignored(self):
         # A read-only field is silently dropped by DRF. Asserting it stops a future serializer
         # edit from quietly opening a write path to a synchronization-owned column.

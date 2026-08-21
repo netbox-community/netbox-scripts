@@ -25,7 +25,8 @@ class CustomScript(JobsMixin, PrimaryModel):
 
     Rows are derived from an activated revision rather than authored. Synchronization owns
     the display name, description, metadata, retirement, and last seen revision, while
-    enabled belongs to the administrator and no synchronization touches it. A script the
+    enabled and the three execution overrides belong to the administrator and no
+    synchronization touches them. A script the
     active revision stops publishing is retired rather than deleted, which preserves the
     primary key and with it the Job history the row has accumulated.
     """
@@ -61,6 +62,25 @@ class CustomScript(JobsMixin, PrimaryModel):
     enabled = models.BooleanField(
         verbose_name=_('enabled'),
         default=True,
+    )
+    commit_default_override = models.BooleanField(
+        verbose_name=_('commit default override'),
+        blank=True,
+        null=True,
+        help_text=_('Overrides the class commit default. Leave unset to follow the class.'),
+    )
+    job_timeout_override = models.PositiveIntegerField(
+        verbose_name=_('job timeout override'),
+        blank=True,
+        null=True,
+        help_text=_('Overrides the class run timeout, in seconds. Leave unset to follow the class.'),
+    )
+    notifications_default_override = models.CharField(
+        verbose_name=_('notifications default override'),
+        max_length=30,
+        choices=JobNotificationChoices,
+        blank=True,
+        help_text=_('Overrides the class notification policy. Leave unset to follow the class.'),
     )
     is_retired = models.BooleanField(
         verbose_name=_('retired'),
@@ -111,13 +131,15 @@ class CustomScript(JobsMixin, PrimaryModel):
         """Dotted name of the class within its project."""
         return f'{self.module_path}.{self.class_name}'
 
-    # The four execution defaults are read out of metadata rather than off separate columns,
-    # because validation writes them as one JSON record. These accessors are what everything
-    # else reads, so no caller repeats a dictionary key or a fallback.
+    # Validation writes the four class defaults as one JSON record, which every activation
+    # replaces, so an operator's override lives in a column of its own. These accessors are the
+    # one place the precedence is resolved: the override, then the class, then the built-in.
 
     @property
     def commit_default(self):
-        """Whether the run form's commit toggle starts on."""
+        """Whether the run form's commit toggle starts on, an override winning over the class."""
+        if self.commit_default_override is not None:
+            return self.commit_default_override
         return bool(self.metadata.get('commit_default', True))
 
     @property
@@ -128,6 +150,10 @@ class CustomScript(JobsMixin, PrimaryModel):
     @property
     def job_timeout(self):
         """The run timeout in seconds, or None to use the system default."""
+        # Empty is spent on inherit, so overriding a declared timeout back to the system default
+        # is not expressible. An operator sets the number they want instead.
+        if self.job_timeout_override is not None:
+            return self.job_timeout_override
         return self.metadata.get('job_timeout')
 
     @property
@@ -140,7 +166,11 @@ class CustomScript(JobsMixin, PrimaryModel):
     @property
     def notifications_default(self):
         """Who is notified when a run of this Custom Script finishes."""
-        return self.metadata.get('notifications_default') or JobNotificationChoices.NOTIFICATION_ALWAYS
+        return (
+            self.notifications_default_override
+            or self.metadata.get('notifications_default')
+            or JobNotificationChoices.NOTIFICATION_ALWAYS
+        )
 
     def get_notifications_default_display(self):
         """Label for the notification policy, following the accessor ChoiceAttr looks for."""

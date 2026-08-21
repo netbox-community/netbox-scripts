@@ -41,37 +41,57 @@ class CustomScriptEditFormTestCase(TestCase):
             with self.subTest(field=name):
                 self.assertNotIn(name, form.fields)
 
-    def test_a_stale_save_does_not_revert_a_derived_field(self):
-        # The form binds to the row as it was, then a concurrent synchronization renames it.
-        # Saving must not write the stale display_name back.
-        form = CustomScriptEditForm(data={'enabled': False}, instance=self.script)
+    def test_the_execution_overrides_are_writable_and_clearable(self):
+        form = CustomScriptEditForm(
+            data={
+                'enabled': True,
+                'commit_default_override': False,
+                'job_timeout_override': 45,
+                'notifications_default_override': 'never',
+            },
+            instance=self.script,
+        )
         self.assertTrue(form.is_valid(), form.errors)
-
-        CustomScript.objects.filter(pk=self.script.pk).update(display_name='Renamed By Sync')
         form.save()
 
         self.script.refresh_from_db()
-        self.assertEqual(self.script.display_name, 'Renamed By Sync')
-        self.assertFalse(self.script.enabled)
+        self.assertIs(self.script.commit_default_override, False)
+        self.assertEqual(self.script.job_timeout_override, 45)
+        self.assertEqual(self.script.notifications_default_override, 'never')
 
-    def test_an_uncommitted_save_writes_nothing(self):
-        form = CustomScriptEditForm(data={'enabled': False}, instance=self.script)
-        self.assertTrue(form.is_valid(), form.errors)
-        form.save(commit=False)
+        # Clearing has to reach the row as well, or an override could be set and never removed.
+        cleared = CustomScriptEditForm(data={'enabled': True}, instance=self.script)
+        self.assertTrue(cleared.is_valid(), cleared.errors)
+        cleared.save()
 
         self.script.refresh_from_db()
-        self.assertTrue(self.script.enabled)
+        self.assertIsNone(self.script.commit_default_override)
+        self.assertIsNone(self.script.job_timeout_override)
+        self.assertEqual(self.script.notifications_default_override, '')
 
 
 class CustomScriptBulkEditFormTestCase(TestCase):
     """The bulk form offers the administrator's field and nothing synchronization owns."""
 
-    def test_enabled_is_the_only_offered_attribute(self):
+    def test_the_administrator_fields_are_offered_and_nothing_derived_is(self):
         form = CustomScriptBulkEditForm()
-        self.assertIn('enabled', form.fields)
+        for name in (
+            'enabled',
+            'commit_default_override',
+            'job_timeout_override',
+            'notifications_default_override',
+        ):
+            self.assertIn(name, form.fields)
         for name in ('module_path', 'class_name', 'display_name', 'description', 'is_retired', 'metadata'):
             with self.subTest(field=name):
                 self.assertNotIn(name, form.fields)
+
+    def test_every_override_is_nullable_so_bulk_edit_can_clear_one(self):
+        # nullable_fields is the only route back to inherit in bulk, since an empty bulk field
+        # otherwise means "leave alone".
+        for name in ('commit_default_override', 'job_timeout_override', 'notifications_default_override'):
+            with self.subTest(field=name):
+                self.assertIn(name, CustomScriptBulkEditForm.nullable_fields)
 
     def test_description_is_not_nullable(self):
         # description is editable=False and synchronization owns it, so a bulk null would

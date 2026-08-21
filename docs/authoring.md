@@ -76,6 +76,11 @@ defaults:
 | `notifications_default` | Always | Initial value of the "Notifications" field on the run form. |
 | `job_timeout` | None | Seconds a run may take before the worker stops it. Default is the system setting. |
 
+An operator can override the last three per installation, so treat them as your
+recommended values rather than as guarantees. `scheduling_enabled` takes no
+override, because it is your statement that the script is safe to run unattended.
+See [Overriding a script's execution defaults](execution.md#overriding-a-scripts-execution-defaults).
+
 ## Logging
 
 Scripts log through five level-specific methods, each accepting an optional

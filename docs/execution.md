@@ -131,18 +131,50 @@ Four execution parameters sit below the script's own fields.
 
 | Field | What it does |
 |---|---|
-| **Commit changes** | Whether the run's database changes are kept. Default is the class's `commit_default`. |
+| **Commit changes** | Whether the run's database changes are kept. Default is the script's effective `commit_default`. |
 | **Schedule at** | Run once, at a time in the future. Leave empty to run now. |
 | **Recurs every** | Run repeatedly, in minutes. The picker offers the usual intervals and any whole number is accepted. |
-| **Notifications** | When to notify you about the Job. Default is the class's `notifications_default`. |
+| **Notifications** | When to notify you about the Job. Default is the script's effective `notifications_default`. |
 
 A time in the past is refused. Setting a recurrence with no start time begins it
 now. Notifications stay available either way, since they describe the run rather
 than the schedule.
 
+"Effective" above means an override may be in play. See [Overriding a script's
+execution defaults](#overriding-a-scripts-execution-defaults).
+
 Both scheduling fields are absent unless two things hold: the author left
 `scheduling_enabled` on, and you hold the `schedule` permission. Either one
 missing withholds the fields rather than refusing them once submitted.
+
+## Overriding a script's execution defaults
+
+A script author declares execution defaults in the class `Meta`, and on a shared
+installation the author and the operator are rarely the same person. A timeout
+tuned on a developer laptop is the wrong number in production, and who gets told
+about a run is local policy. Three of the four defaults therefore carry an
+operator override, editable on the Custom Script itself, singly or in bulk, and
+over REST.
+
+| Setting | Overridable | Resolved as |
+|---|---|---|
+| Commit by default | Yes | The override, else the class `commit_default`, else on |
+| Run timeout | Yes | The override, else the class `job_timeout`, else the system setting |
+| Notifications | Yes | The override, else the class `notifications_default`, else Always |
+| Scheduling allowed | No | The class `scheduling_enabled` alone |
+
+Scheduling is not overridable on purpose. `scheduling_enabled` is the author's
+statement that the script is safe to run unattended, and an operator override
+would be an override of a safety claim rather than of a preference.
+
+An override survives activation. Every other field on a Custom Script is rewritten
+from the class each time a revision is activated, which is exactly why an override
+is stored separately from the values validation records.
+
+Leaving an override empty means "follow the class", so it is also how you undo one.
+One consequence is worth knowing: because empty already means inherit, there is no
+way to override a class-declared timeout back to *the system default*. Set the
+number you want instead.
 
 ## Revision pinning
 
@@ -230,4 +262,3 @@ piece of work.
 |---|---|
 | Declared pip requirements | A script's declared external dependencies are not checked before it runs |
 | Recorded input values | The Job records which script and revision ran, and the result, but not the values that were submitted |
-| Configurable execution defaults | The timeout, notification policy and commit default are read from the class and cannot be overridden per installation |

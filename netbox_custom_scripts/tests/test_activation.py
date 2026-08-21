@@ -128,6 +128,24 @@ class SynchronizeScriptsTestCase(TestCase):
         self.sync([record()])
         self.assertFalse(CustomScript.objects.get().enabled)
 
+    def test_synchronization_never_touches_the_execution_overrides(self):
+        # The operator's fields, like enabled. Each survives a refresh, a retirement and a return,
+        # which is the whole reason they are columns rather than metadata keys.
+        self.sync([record()])
+        CustomScript.objects.update(
+            commit_default_override=False,
+            job_timeout_override=45,
+            notifications_default_override='never',
+        )
+        for records in ([record(display_name='Renamed')], [], [record()]):
+            self.sync(records)
+            row = CustomScript.objects.get()
+            self.assertIs(row.commit_default_override, False)
+            self.assertEqual(row.job_timeout_override, 45)
+            self.assertEqual(row.notifications_default_override, 'never')
+            # The class values still arrive, so an override is layered over a live record.
+            self.assertEqual(row.metadata['notifications_default'], 'always')
+
     def test_a_moved_class_becomes_a_new_identity_and_retires_the_old_one(self):
         self.sync([record()])
         self.sync([record(module_path='helpers')])

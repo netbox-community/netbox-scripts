@@ -37,6 +37,8 @@ class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
                 display_name='Deploy Devices',
                 description='Rolls out configuration',
                 last_seen_revision=cls.revision,
+                job_timeout_override=45,
+                notifications_default_override='never',
             ),
             CustomScript(
                 project=cls.projects[0],
@@ -45,6 +47,7 @@ class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
                 display_name='Audit Inventory',
                 description='Reads inventory',
                 enabled=False,
+                commit_default_override=False,
             ),
             CustomScript(
                 project=cls.projects[1],
@@ -72,6 +75,15 @@ class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
 
     def test_enabled(self):
         self.assertEqual(self.filterset({'enabled': False}, self.queryset).qs.count(), 1)
+
+    def test_commit_default_override(self):
+        self.assertEqual(self.filterset({'commit_default_override': False}, self.queryset).qs.count(), 1)
+
+    def test_job_timeout_override(self):
+        self.assertEqual(self.filterset({'job_timeout_override': [45]}, self.queryset).qs.count(), 1)
+
+    def test_notifications_default_override(self):
+        self.assertEqual(self.filterset({'notifications_default_override': ['never']}, self.queryset).qs.count(), 1)
 
     def test_is_retired(self):
         self.assertEqual(self.filterset({'is_retired': True}, self.queryset).qs.count(), 1)

@@ -189,6 +189,58 @@ class CustomScriptTestCase(TestCase):
         self.assertEqual(instance.job_timeout, 600)
         self.assertEqual(instance.notifications_default, 'on_failure')
 
+    def test_an_override_wins_over_what_validation_recorded(self):
+        instance = self._script(
+            metadata={
+                'commit_default': False,
+                'scheduling_enabled': False,
+                'job_timeout': 600,
+                'notifications_default': 'on_failure',
+            },
+            commit_default_override=True,
+            job_timeout_override=30,
+            notifications_default_override='never',
+        )
+        self.assertTrue(instance.commit_default)
+        self.assertEqual(instance.job_timeout, 30)
+        self.assertEqual(instance.notifications_default, 'never')
+        # The author's safety claim takes no override, so it still reads what the class declared.
+        self.assertFalse(instance.scheduling_enabled)
+
+    def test_an_override_applies_with_no_recorded_value_to_override(self):
+        instance = self._script(
+            commit_default_override=False,
+            job_timeout_override=45,
+            notifications_default_override='on_failure',
+        )
+        self.assertFalse(instance.commit_default)
+        self.assertEqual(instance.job_timeout, 45)
+        self.assertEqual(instance.notifications_default, 'on_failure')
+
+    def test_a_false_commit_override_is_applied_rather_than_read_as_unset(self):
+        # False is a value here and empty is the absence of one, which is why the column is
+        # nullable and the accessor tests against None.
+        instance = self._script(metadata={'commit_default': True}, commit_default_override=False)
+        self.assertFalse(instance.commit_default)
+
+    def test_an_unset_override_inherits_rather_than_forcing_the_system_default(self):
+        # The documented boundary of the nullable column: empty means inherit, so an operator
+        # cannot override a declared timeout back to the system default and sets a number instead.
+        instance = self._script(metadata={'job_timeout': 600})
+        self.assertIsNone(instance.job_timeout_override)
+        self.assertEqual(instance.job_timeout, 600)
+
+    def test_the_overrides_are_editable_like_enabled(self):
+        fields = {field.name: field for field in CustomScript._meta.get_fields()}
+        for name in ('commit_default_override', 'job_timeout_override', 'notifications_default_override'):
+            self.assertTrue(fields[name].editable, name)
+
+    def test_the_timeout_phrase_follows_the_override(self):
+        self.assertEqual(
+            self._script(metadata={'job_timeout': 600}, job_timeout_override=1).job_timeout_display,
+            '1 second',
+        )
+
     def test_the_timeout_reads_as_a_phrase_rather_than_a_bare_number(self):
         # No timeout is a real setting, not missing data, so it must not render as a placeholder.
         self.assertEqual(self._script().job_timeout_display, 'System default')

@@ -61,6 +61,17 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         activate_revision(revision)
         return CustomScript.objects.get(project=project)
 
+    def test_an_omitted_commit_falls_back_to_the_scripts_effective_default(self):
+        # The fallback has to read the row, so an operator's override applies to a caller that
+        # does not state an intent. The class declares commit_default True by omission.
+        self.grant('view', 'run')
+        CustomScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
+
+        response = self.post_run({'data': {'label': 'made-over-rest'}})
+
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertIs(Job.objects.get(pk=response.data['id']).data['commit'], False)
+
     def test_a_run_is_enqueued_and_the_job_is_returned(self):
         self.grant('view', 'run')
 

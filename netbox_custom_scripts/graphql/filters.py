@@ -79,7 +79,8 @@ class CustomScriptModuleFilter(PrimaryModelFilter):
     last_discovered_revision_id: ID | None = strawberry_django.filter_field()
 
 
-# No enum lookups: this model has no choice field.
+# The three execution overrides are readable on the type but deliberately not filterable here,
+# which would need a JobNotificationChoices enum core does not export.
 @strawberry_django.filter_type(CustomScript, lookups=True)
 class CustomScriptFilter(PrimaryModelFilter):
     """GraphQL filter for the Custom Script model."""

@@ -1,6 +1,7 @@
 from pathlib import PurePosixPath
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext as _
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -31,6 +32,7 @@ from ..ingestion import (
 from ..jobs import CustomScriptJob, ProjectEntrypointRefreshJob
 from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from ..runtime.exceptions import ScriptResolutionError
+from ..storage import config
 from ..storage.exceptions import StorageError
 from .serializers import (
     CustomScriptModuleSerializer,
@@ -78,13 +80,7 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
             # of the pair for a project that already exists.
             self.queryset = type(self).queryset.restrict(request.user, 'change')
 
-    @action(
-        detail=True,
-        methods=['post'],
-        url_path='upload',
-        permission_classes=[UploadSourcePermissions],
-        http_method_names=('post', 'options'),
-    )
+    @action(detail=True, methods=['post'], url_path='upload', permission_classes=[UploadSourcePermissions])
     def upload(self, request, pk=None):
         """Stage one uploaded Python file as a new revision of this project's source."""
         project = self.get_object()
@@ -101,6 +97,13 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
         filename = PurePosixPath(upload.name).name
         try:
             path = uploaded_source_path(filename)
+            # Bounded before the read, so an oversized body is refused rather than pulled into
+            # the web process for the manifest builder to reject afterwards.
+            limit = config.get_storage_limits().max_file_size
+            if upload.size > limit:
+                raise ValidationError(
+                    _('The file is larger than the {limit} byte limit for one source file.').format(limit=limit)
+                )
             check_upload_conflicts(project, path, confirm_replace=input_serializer.validated_data['confirm_replace'])
             staged = ingest_upload(
                 project, filename=filename, content=upload.read(), base_files=current_source_tree(project)
@@ -232,7 +235,11 @@ class CustomScriptViewSet(NetBoxModelViewSet):
 
         # The declared variables are the only authority on what is valid, so the class's own form
         # validates them.
-        form = instance.as_form(parameters['data'])
+        form = instance.as_form(
+            parameters['data'],
+            commit_default=script.commit_default,
+            notifications_default=script.notifications_default,
+        )
         if not form.is_valid():
             raise APIValidationError(form.errors)
         values = dict(form.cleaned_data)
@@ -244,7 +251,7 @@ class CustomScriptViewSet(NetBoxModelViewSet):
             script,
             data=values,
             # An absent optional field is left out of validated_data, so the class default stands.
-            commit=parameters.get('commit', instance.commit_default),
+            commit=parameters.get('commit', script.commit_default),
             schedule_at=parameters.get('schedule_at'),
             interval=parameters.get('interval'),
             notifications=parameters.get('notifications'),

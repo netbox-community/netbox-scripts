@@ -556,6 +556,40 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
         self.assertIn(self.url('run'), response.content.decode())
 
 
+class OverriddenDefaultsTestCase(RunViewTestMixin, TestCase):
+    """An operator's override has to reach the run form, not stop at the row."""
+
+    def setUp(self):
+        super().setUp()
+        self.grant('view', 'run')
+
+    def rendered_form(self):
+        response = self.client.get(self.url())
+        self.assertEqual(response.status_code, 200)
+        return response.context['form']
+
+    def test_the_commit_toggle_follows_the_override_rather_than_the_class(self):
+        # The class declares commit_default True by omission, so False can only come from
+        # the operator's column.
+        CustomScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
+
+        self.assertIs(self.rendered_form().fields['_commit'].initial, False)
+
+    def test_the_notification_field_follows_the_override_rather_than_the_class(self):
+        CustomScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
+
+        self.assertEqual(self.rendered_form().fields['_notifications'].initial, 'never')
+
+    def test_a_run_submitted_from_the_rendered_page_carries_the_override(self):
+        # The rendered initial is the whole contract for the toggle: an unchecked box submits
+        # False whatever the default was, so what matters is what the operator is shown.
+        CustomScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
+        form = self.rendered_form()
+
+        self.assertIs(form.fields['_commit'].initial, False)
+        self.assertNotIn('checked', str(form['_commit']))
+
+
 class ExecutionDefaultsPanelTestCase(RunViewTestMixin, TestCase):
     """The detail page used to print the metadata dict verbatim."""
 

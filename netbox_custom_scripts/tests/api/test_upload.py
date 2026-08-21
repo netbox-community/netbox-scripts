@@ -107,6 +107,15 @@ class UploadAPITestCase(APITestCase):
         response = self.upload(name='Deploy.py')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_a_file_over_the_size_limit_is_refused_before_it_is_read(self):
+        self.allow_uploads()
+        limit = 64
+        with override_settings(PLUGINS_CONFIG={'netbox_custom_scripts': {'max_file_size': limit}}):
+            response = self.upload(content=b'# ' + b'x' * limit + b'\n')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(project=self.project).exists())
+
     def test_a_file_that_is_not_python_is_refused(self):
         self.allow_uploads()
         response = self.upload(name='notes.md', content=b'# notes\n')

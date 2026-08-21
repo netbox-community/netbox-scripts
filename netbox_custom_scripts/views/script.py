@@ -117,11 +117,21 @@ class CustomScriptRunView(generic.ObjectView):
         """Require the run action rather than view, which is what this page actually does."""
         return get_permission_for_model(CustomScript, 'run')
 
+    @staticmethod
+    def _build_form(script, instance, *args, **kwargs):
+        """Build the class's own form under the operator's execution defaults."""
+        return instance.as_form(
+            *args,
+            commit_default=script.commit_default,
+            notifications_default=script.notifications_default,
+            **kwargs,
+        )
+
     def get(self, request, **kwargs):
         """Render the run form, or the reason there is not one."""
         script = self.get_object(**kwargs)
         instance, reason = self._load(script)
-        form = instance.as_form(initial=request.GET.dict()) if instance else None
+        form = self._build_form(script, instance, initial=request.GET.dict()) if instance else None
         return self._render(request, script, form, instance, reason)
 
     def post(self, request, **kwargs):
@@ -131,7 +141,7 @@ class CustomScriptRunView(generic.ObjectView):
         if instance is None:
             return self._render(request, script, None, None, reason)
 
-        form = instance.as_form(request.POST, request.FILES)
+        form = self._build_form(script, instance, request.POST, request.FILES)
         if not form.is_valid():
             return self._render(request, script, form, instance, None)
 

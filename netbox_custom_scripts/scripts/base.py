@@ -182,13 +182,14 @@ class BaseScript:
 
         return fieldsets
 
-    def as_form(self, data=None, files=None, initial=None):
+    def as_form(self, data=None, files=None, initial=None, commit_default=None, notifications_default=None):
         """
         Construct the run form for this script.
 
         The form is a ``ScriptForm`` subclass carrying one field per variable, the commit
         toggle, the notification policy, and the two scheduling fields when
-        ``scheduling_offered`` holds.
+        ``scheduling_offered`` holds. commit_default and notifications_default override the
+        values declared on the class, which is how an operator's own defaults reach the form.
         """
         fields = {name: var.as_field() for name, var in self._get_vars().items()}
         form_class = type('ScriptForm', (ScriptForm,), fields)
@@ -198,9 +199,9 @@ class BaseScript:
             files,
             initial=initial,
             scheduling_enabled=self.scheduling_offered,
-            notifications_default=self.notifications_default,
+            notifications_default=notifications_default or self.notifications_default,
         )
-        form.fields['_commit'].initial = self.commit_default
+        form.fields['_commit'].initial = self.commit_default if commit_default is None else commit_default
 
         return form
 

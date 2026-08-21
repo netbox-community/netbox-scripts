@@ -1,3 +1,4 @@
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
@@ -73,6 +74,9 @@ class CustomScript(JobsMixin, PrimaryModel):
         verbose_name=_('job timeout override'),
         blank=True,
         null=True,
+        # A zero-second timeout is not a setting. rq cancels the alarm outright for it, so it
+        # would read as "no timeout" while the row says otherwise.
+        validators=[MinValueValidator(1)],
         help_text=_('Overrides the class run timeout, in seconds. Leave unset to follow the class.'),
     )
     notifications_default_override = models.CharField(

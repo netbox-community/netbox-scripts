@@ -123,7 +123,7 @@ class Migration(migrations.Migration):
                 ('description', models.TextField(blank=True, editable=False)),
                 ('enabled', models.BooleanField(default=True)),
                 ('commit_default_override', models.BooleanField(blank=True, null=True)),
-                ('job_timeout_override', models.PositiveIntegerField(blank=True, null=True)),
+                ('job_timeout_override', models.PositiveIntegerField(blank=True, null=True, validators=[django.core.validators.MinValueValidator(1)])),
                 ('notifications_default_override', models.CharField(blank=True, max_length=30)),
                 ('is_retired', models.BooleanField(default=False, editable=False)),
                 ('metadata', models.JSONField(blank=True, default=dict, editable=False)),

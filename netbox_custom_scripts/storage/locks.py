@@ -13,6 +13,9 @@ is exactly what activation goes out of its way to avoid, and a lease would add a
 reclaim timer beside the validation lease already in the revision row. A session lock is
 released when the connection drops, so a pod killed without warning frees its own claim.
 
+This module owns its primitive rather than importing NetBox's advisory_lock. At the 4.7 floor
+that is a removal candidate, not a settled divergence.
+
 Two consequences a caller has to know. The lock is not transactional, so a rollback does not
 release it and every acquisition needs its release in a finally. It is also counted by
 PostgreSQL, so a nested acquisition of the same key succeeds and needs its own release, which

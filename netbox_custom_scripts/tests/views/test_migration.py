@@ -1,10 +1,17 @@
+import shutil
+import tempfile
 import uuid
 from unittest import mock
 
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import storages
+from django.test import override_settings
 from django.urls import reverse
 
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
+from extras.models import ScriptModule
 from netbox_custom_scripts.choices import MigrationStateChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import (
     MigrationActivationJob,
@@ -15,6 +22,7 @@ from netbox_custom_scripts.jobs import (
     MigrationStagingJob,
     MigrationVerificationJob,
 )
+from netbox_custom_scripts.migration import cutover
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
@@ -271,6 +279,60 @@ class MigrationTriggerTestCase(TestCase):
         self.open_run(MigrationStateChoices.STAGING)
 
         self.assertIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_cutover_button_names_what_it_would_refuse(self):
+        # Withholding the button without saying why is the silence this page exists to remove.
+        self.grant('add', 'migrate')
+        self.open_run(MigrationStateChoices.STAGING)
+        blocked = [{'project_key': 'automation', 'reason': 'holds no revision'}]
+
+        with mock.patch.object(cutover, 'unservable_projects', return_value=blocked) as guard:
+            body = self.client.get(self.url('migration')).content.decode()
+
+        guard.assert_called_once()
+        self.assertNotIn('Enter cutover', body)
+        self.assertIn('automation', body)
+        self.assertIn('holds no revision', body)
+
+    def test_the_page_renders_a_reason_the_guard_itself_produced(self):
+        # The whole path rather than a stand-in: a real built-in module, the real guard, the
+        # real template.
+        self.grant('add', 'migrate')
+        self.open_run(MigrationStateChoices.STAGING)
+        self.legacy_module()
+
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertNotIn('Enter cutover', body)
+        self.assertIn('has not been staged', body)
+
+    def legacy_module(self):
+        """Create one built-in script module, which is what gives the map a Project key to name."""
+        scripts_root = tempfile.mkdtemp(prefix='legacy-scripts-')
+        self.addCleanup(shutil.rmtree, scripts_root, ignore_errors=True)
+        self.enterContext(
+            override_settings(
+                STORAGES={
+                    **settings.STORAGES,
+                    'scripts': {
+                        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+                        'OPTIONS': {'location': scripts_root, 'allow_overwrite': True},
+                    },
+                }
+            )
+        )
+        storages['scripts'].save('audit.py', ContentFile(b'VALUE = 1\n'))
+        return ScriptModule.objects.create(file_path='audit.py')
+
+    def test_the_page_does_not_ask_what_a_crossed_fence_would_refuse(self):
+        # The check reads the built-in rows, so it runs only where the button could render.
+        self.grant('add', 'migrate')
+        self.open_run(MigrationStateChoices.CUTOVER)
+
+        with mock.patch.object(cutover, 'unservable_projects') as guard:
+            self.client.get(self.url('migration'))
+
+        guard.assert_not_called()
 
     def test_the_cutover_button_is_gone_once_the_fence_has_been_crossed(self):
         # The page must not offer a step the job would refuse.

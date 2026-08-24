@@ -13,7 +13,8 @@ Context:
   - run:            The open MigrationRun, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
   - cutover_queued: Whether a cutover is already under way
-  - can_cut_over:   Whether the run is staged and has not crossed the fence
+  - can_cut_over:   Whether the run is staged, has not crossed the fence, and can be served after it
+  - unservable_projects: The staged Projects that could serve nothing past the fence, each {project_key, reason}
   - activation_job: The most recent activation Job, or None
   - activation_queued: Whether an activation is already under way
   - can_activate:   Whether the fence has been crossed, which is activation's only precondition
@@ -97,6 +98,28 @@ Context:
                       <div class="text-secondary small">{{ finding.code }}</div>
                     </td>
                     <td>{{ finding.message }}</td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+          {% endif %}
+          {% if unservable_projects and perms.netbox_custom_scripts.migrate_customscriptproject %}
+            <div class="alert alert-danger mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "The cutover will refuse" %}</h3>
+              <p>
+                {% trans "These Custom Script Projects could serve nothing once the built-in feature is closed, and there is no way back across that fence. Wait for a verdict on the ones still being validated, and fix the source of the rest and stage it again." %}
+              </p>
+              <table class="table table-sm mb-0">
+                <tr>
+                  <th scope="col">{% trans "Project" %}</th>
+                  <th scope="col">{% trans "Why it blocks" %}</th>
+                </tr>
+                {% for entry in unservable_projects %}
+                  <tr>
+                    <td class="text-nowrap">
+                      <code>{{ entry.project_key }}</code>
+                    </td>
+                    <td>{{ entry.reason }}</td>
                   </tr>
                 {% endfor %}
               </table>

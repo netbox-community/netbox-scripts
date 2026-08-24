@@ -15,6 +15,8 @@ DEFAULT_MAX_FILE_COUNT = 1000
 ACTIVATABLE_REVISION_STATUSES = ('valid', 'retired')
 # The source tree of a revision in one of these states is in the store.
 STORED_REVISION_STATUSES = ('materialized', 'valid', 'active', 'retired')
+# No verdict has been reached yet, so a revision here may still become servable on its own.
+PENDING_VERDICT_REVISION_STATUSES = ('staging', 'materialized', 'validating')
 # A staging attempt may re-drive these. "validating" and "invalid" are deliberately absent,
 # because both belong to project validation: storage must never re-drive a revision whose
 # lifecycle it does not own, nor resurrect one that validation rejected.

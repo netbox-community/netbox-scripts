@@ -13,9 +13,13 @@ from core.events import OBJECT_UPDATED
 from core.models import AutoSyncRecord, DataFile, DataSource, Job, ObjectType
 from dcim.models import Site
 from extras.models import EventRule, Script, ScriptModule, Webhook
-from netbox_custom_scripts.choices import MigrationStateChoices
-from netbox_custom_scripts.migration import cutover
-from netbox_custom_scripts.models import MigrationRun
+from netbox_custom_scripts import activation
+from netbox_custom_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_custom_scripts.migration import cutover, mapping, plan, staging
+from netbox_custom_scripts.migration import source as legacy_source
+from netbox_custom_scripts.models import CustomScriptProjectRevision, MigrationRun
+from netbox_custom_scripts.tests.migration.test_staging import LEGACY_SCRIPT as SYNCED_SCRIPT
+from netbox_custom_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import ObjectPermission
 
 LEGACY_SCRIPT = b"""from extras.scripts import Script
@@ -71,6 +75,13 @@ class CutoverTestCase(TestCase):
         # so this adopts that row rather than competing with it for the unique name.
         self.script, _created = Script.objects.get_or_create(module=self.module, name='Deploy')
         self.script_type = ObjectType.objects.get_for_model(Script, for_concrete_model=False)
+        # The fence refuses unless what was staged can be served. The verdict is forced rather
+        # than validated, because this suite covers what the crossing captures and closes.
+        modules = legacy_source.legacy_modules()
+        staged = staging.stage(plan.group(modules), modules)
+        CustomScriptProjectRevision.objects.filter(pk__in=[item['revision_pk'] for item in staged]).update(
+            status=RevisionStatusChoices.VALID
+        )
 
     def legacy_permission(self, *, actions=('view', 'run'), constraints=None, extra_type=None):
         permission = ObjectPermission.objects.create(
@@ -429,3 +440,127 @@ class CutoverTestCase(TestCase):
         self.migration.refresh_from_db()
 
         self.assertEqual(cutover.require_staged(self.migration), self.migration)
+
+
+class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
+    """The fence refuses unless every Project this migration mapped can serve something past it."""
+
+    def setUp(self):
+        super().setUp()
+        self.migration = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
+
+    def refuse_project(self, status):
+        """Put one staged Project's revisions into a status activation would not accept."""
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        CustomScriptProjectRevision.objects.filter(project=project).update(status=status)
+        return project
+
+    def crash_after_closing(self, state):
+        """Leave the run as a crash between the closures and the step record would leave it."""
+        self.migration.journal['steps'].pop(cutover.STEP)
+        MigrationRun.objects.filter(pk=self.migration.pk).update(state=state, journal=self.migration.journal)
+        self.migration.refresh_from_db()
+
+    def test_a_project_whose_revision_was_refused_stops_the_fence(self):
+        self.stage_and_validate()
+        project = self.refuse_project(RevisionStatusChoices.INVALID)
+
+        with self.assertRaises(cutover.CutoverRefused) as caught:
+            cutover.enter_cutover(self.migration)
+
+        self.assertIn(project.key, str(caught.exception))
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.STAGING)
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+
+    def test_a_retired_revision_does_not_count_as_servable(self):
+        # ACTIVATABLE_REVISION_STATUSES admits retired and activation refuses it, so the guard
+        # cannot be written against that tuple without passing a project it would then refuse.
+        self.stage_and_validate()
+        project = self.refuse_project(RevisionStatusChoices.RETIRED)
+
+        with self.assertRaises(cutover.CutoverRefused) as caught:
+            cutover.enter_cutover(self.migration)
+
+        self.assertIn(project.key, str(caught.exception))
+
+    def test_a_revision_still_awaiting_a_verdict_says_so(self):
+        # The common case: the page is opened before the worker validates what staging created.
+        self.stage_all()
+
+        blocked = cutover.unservable_projects(self.migration)
+
+        self.assertEqual(len(blocked), 2)
+        for entry in blocked:
+            self.assertIn('awaiting a verdict', entry['reason'])
+            self.assertNotIn('no valid revision', entry['reason'])
+
+    def test_a_project_already_serving_its_newest_revision_is_servable(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        activation.activate_revision(project.revisions.get())
+
+        # Its only revision is active rather than valid, so a status test alone would refuse it.
+        self.assertEqual(project.revisions.get().status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(cutover.unservable_projects(self.migration), [])
+
+    def test_a_project_serving_an_older_revision_is_servable(self):
+        # It keeps serving that revision across the fence, which is what the guard asks.
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        activation.activate_revision(project.revisions.get())
+        CustomScriptProjectRevision.objects.create(
+            project=project, digest='b' * 64, status=RevisionStatusChoices.INVALID
+        )
+
+        project.refresh_from_db()
+        self.assertNotEqual(project.active_revision_id, project.revisions.order_by('-created').first().pk)
+        self.assertEqual(cutover.unservable_projects(self.migration), [])
+
+    def test_a_module_staging_never_covered_stops_the_fence(self):
+        self.stage_and_validate()
+        # Added after staging, so the map names a project key no Project row answers to.
+        self.legacy_synced_module('reporting/audit.py', SYNCED_SCRIPT)
+        added = next(key for key in mapping.project_keys(mapping.build_map()) if key.startswith('reporting'))
+
+        with self.assertRaises(cutover.CutoverRefused) as caught:
+            cutover.enter_cutover(self.migration)
+
+        self.assertIn(added, str(caught.exception))
+        self.assertIn('has not been staged', str(caught.exception))
+
+    def test_the_fence_crosses_once_every_project_can_be_served(self):
+        self.stage_and_validate()
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.CUTOVER)
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
+    def test_a_resumed_crossing_is_not_refused_by_the_guard(self):
+        # complete_step() is the last statement, so a crash before it leaves the closures done and
+        # the map frozen. Re-checking servability there would refuse a fence already half crossed.
+        self.stage_and_validate()
+        cutover.enter_cutover(self.migration)
+        self.crash_after_closing(MigrationStateChoices.CUTOVER)
+        self.refuse_project(RevisionStatusChoices.INVALID)
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
+    def test_a_crossing_that_closed_without_advancing_is_not_refused(self):
+        # advance() runs after the closures, so this state is reachable too, and the frozen map is
+        # what tells the two apart rather than the state.
+        self.stage_and_validate()
+        cutover.enter_cutover(self.migration)
+        self.crash_after_closing(MigrationStateChoices.STAGING)
+        self.refuse_project(RevisionStatusChoices.INVALID)
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.CUTOVER)
+        self.assertTrue(self.migration.step_done(cutover.STEP))

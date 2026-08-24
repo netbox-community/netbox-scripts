@@ -114,6 +114,9 @@ class MigrationView(BaseMigrationView):
         inventory_job = _latest(MigrationInventoryJob)
         staging_job = _latest(MigrationStagingJob)
         run = MigrationRun.current()
+        staged = bool(run and run.state == MigrationStateChoices.STAGING)
+        # Read only where the button would otherwise render, because this reaches the built-in rows.
+        unservable = cutover.unservable_projects(run) if staged else []
         return render(
             request,
             self.template_name,
@@ -142,9 +145,9 @@ class MigrationView(BaseMigrationView):
                 'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)),
                 # A schedule needs the built-in rows still there, so every reference step first.
                 'can_clean_up': bool(run and cleanup.ready(run)),
-                # The fence is offered only while a run is staged and has not crossed, so the page
-                # cannot invite a step the job would refuse.
-                'can_cut_over': bool(run and run.state == MigrationStateChoices.STAGING),
+                # Crossing with nothing to serve is not recoverable, so the page withholds it.
+                'can_cut_over': staged and not unservable,
+                'unservable_projects': unservable,
             },
         )
 

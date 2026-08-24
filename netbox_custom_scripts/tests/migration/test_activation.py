@@ -3,7 +3,7 @@ from django.test import TestCase
 from core.choices import JobStatusChoices
 from extras.models import ScriptModule
 from netbox_custom_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
-from netbox_custom_scripts.jobs import MigrationActivationJob, RevisionValidationJob
+from netbox_custom_scripts.jobs import MigrationActivationJob
 from netbox_custom_scripts.migration import cutover, mapping
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from netbox_custom_scripts.tests.migration.test_staging import LegacySourceMixin
@@ -20,10 +20,8 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.migration.record_step(cutover.STEP, counts={})
 
     def stage_and_validate(self):
-        """Stage every legacy module and drive each revision to a verdict, activating none."""
-        for result in self.stage_all():
-            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
-            RevisionValidationJob.enqueue_validation(revision, immediate=True)
+        """Stage and validate, then pin that this suite starts from nothing activated."""
+        super().stage_and_validate()
         self.assertFalse(CustomScriptProject.objects.filter(active_revision__isnull=False).exists())
 
     def test_it_refuses_before_the_fence_has_been_recorded(self):

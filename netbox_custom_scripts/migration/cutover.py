@@ -8,7 +8,8 @@ from django.utils.translation import gettext_lazy as _
 
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
-from ..models import CustomScriptProject
+from ..constants import PENDING_VERDICT_REVISION_STATUSES
+from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from . import mapping
 from . import source as legacy_source
@@ -20,6 +21,7 @@ __all__ = (
     'activate_staged',
     'enter_cutover',
     'require_staged',
+    'unservable_projects',
 )
 
 STEP = 'cutover'
@@ -44,7 +46,8 @@ def enter_cutover(run):
 
     Captures once. Closing is idempotent. Returns the counts recorded on the run, and returns them
     unchanged without touching anything when the step has already completed. Raises CutoverRefused
-    when the run is not in a state that may cross, or while a built-in Script job is still running.
+    when the run is not in a state that may cross, while a built-in Script job is still running, or
+    when a Project this migration mapped could serve nothing on the far side.
     """
     if run is None:
         raise CutoverRefused(_('Nothing has been staged yet, so there is nothing to cut over to.'))
@@ -58,6 +61,17 @@ def enter_cutover(run):
                 count=len(running), keys=', '.join(str(key) for key in running)
             )
         )
+    if blocked := unservable_projects(run):
+        raise CutoverRefused(
+            _(
+                '{count} Custom Script Project(s) could serve nothing after the cutover: {detail}. '
+                'Wait for a verdict or fix the source and stage again, because nothing comes back '
+                'across this fence.'
+            ).format(
+                count=len(blocked),
+                detail=', '.join(f'{entry["project_key"]} {entry["reason"]}' for entry in blocked),
+            )
+        )
 
     warnings = _capture(run)
     counts = _close(run.journal)
@@ -65,6 +79,51 @@ def enter_cutover(run):
         run.advance(MigrationStateChoices.CUTOVER)
     run.complete_step(STEP, counts, warnings)
     return counts
+
+
+def unservable_projects(run):
+    """
+    Return one entry per mapped Project that could not be put into service, empty when every one can.
+
+    Each entry is {'project_key', 'reason'}. Reads only, and covers the modules the map names rather
+    than the ones it could not map. Checks revision state rather than stored content, and returns
+    empty once the fence has captured.
+    """
+    # The capture commits the map before anything closes, so a run holding one is already past
+    # the point where refusing could do anything but strand it.
+    if mapping.recorded(run) is not None:
+        return []
+    keys = mapping.project_keys(mapping.build_map())
+    projects = {project.key: project for project in CustomScriptProject.objects.filter(key__in=keys)}
+    by_project = {}
+    columns = CustomScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created')
+    for revision in columns.filter(project__key__in=keys).order_by('-created', '-pk'):
+        by_project.setdefault(revision.project_id, []).append(revision)
+    blocked = []
+    for key in keys:
+        project = projects.get(key)
+        if project is None:
+            blocked.append({'project_key': key, 'reason': _('has not been staged')})
+            continue
+        revisions = by_project.get(project.pk, [])
+        if not revisions:
+            blocked.append({'project_key': key, 'reason': _('holds no revision')})
+            continue
+        # Serving anything is enough: an older revision keeps serving across the fence, whatever
+        # activation would later do with the pointer.
+        if project.active_revision_id is not None:
+            continue
+        if not any(revision.status == RevisionStatusChoices.VALID for revision in revisions):
+            blocked.append({'project_key': key, 'reason': _reason_for(revisions[0])})
+    return blocked
+
+
+def _reason_for(newest):
+    """Say why a project cannot serve, separating a verdict still coming from one already reached."""
+    status = dict(RevisionStatusChoices)[newest.status]
+    if newest.status in PENDING_VERDICT_REVISION_STATUSES:
+        return _('is still awaiting a verdict on its newest revision, which is {status}').format(status=status)
+    return _('has no valid revision to activate and its newest is {status}').format(status=status)
 
 
 def require_staged(run):

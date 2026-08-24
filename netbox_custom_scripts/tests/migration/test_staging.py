@@ -109,6 +109,12 @@ class LegacySourceMixin:
         modules = source.legacy_modules()
         return staging.stage(plan.group(modules), modules)
 
+    def stage_and_validate(self):
+        """Stage every legacy module and drive each revision to a verdict, activating none."""
+        for result in self.stage_all():
+            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            RevisionValidationJob.enqueue_validation(revision, immediate=True)
+
     def project_for(self, source_type):
         return CustomScriptProject.objects.get(source_type=source_type)
 

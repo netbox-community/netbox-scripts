@@ -699,6 +699,7 @@ class CustomScriptProjectRevisionTestCase(TestCase):
             constants.ACTIVATABLE_REVISION_STATUSES,
             constants.STORED_REVISION_STATUSES,
             constants.RETRYABLE_REVISION_STATUSES,
+            constants.PENDING_VERDICT_REVISION_STATUSES,
         )
         for group in groups:
             with self.subTest(group=group):
@@ -713,6 +714,8 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         self.assertEqual(activatable & retryable, set())
         # Anything servable must already be on disk.
         self.assertLessEqual(activatable, stored)
+        # A verdict is either still coming or already reached, never both.
+        self.assertEqual(activatable & set(constants.PENDING_VERDICT_REVISION_STATUSES), set())
         # A rejected revision is terminal for the storage layer, which is what stops a
         # re-stage from clearing a validation verdict.
         self.assertNotIn(RevisionStatusChoices.INVALID, stored | retryable)

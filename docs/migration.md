@@ -211,6 +211,20 @@ grant confers. Plan the cutover as a maintenance window rather than relying on t
 cutover, and any installation where a built-in Script job is still running. Wait for those to
 finish rather than cancelling them.
 
+It also refuses while any Project this migration mapped could serve nothing on the far side, naming
+each one and why. That covers a Project staging never created, one holding no revision, one whose
+newest revision is still waiting on a verdict, and one whose newest revision was refused with no
+earlier valid one behind it. A Project already serving a revision passes, including one serving an
+older revision than its newest, because it keeps serving it across the fence.
+
+The Migration page says the same thing and withholds the button, because a fence crossed with
+nothing to serve leaves the built-in feature closed and the plugin publishing nothing, which only a
+database and storage restore undoes. Wait for the verdicts that are still coming, and for the rest,
+fix the source and stage it again. Each Project's revision list is where the verdict is recorded.
+
+The check reads revision states and not stored content, so it does not catch a revision whose bytes
+were removed from the storage backend after it validated. Activation reports that one and skips it.
+
 Two warnings the pass can record rather than fail on. A queued job whose task is no longer in the
 queue cannot have its input read, so it is named and left for you to recreate by hand. A job whose
 input includes an uploaded file cannot have that value journalled, so it is recreated without it.

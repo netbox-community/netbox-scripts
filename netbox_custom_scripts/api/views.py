@@ -150,6 +150,8 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
                     'path': path,
                     'selected': path in declared and declared[path].enabled,
                     'available': path in available,
+                    # Tab state, not a serializer representation, so this stays a bare value
+                    # where the Module serializer renders the value and label pair.
                     'discovery_status': declared[path].discovery_status if path in declared else None,
                 }
                 for path in project.declarable_entrypoints()

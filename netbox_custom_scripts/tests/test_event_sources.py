@@ -56,7 +56,9 @@ class EventBodyTestCase(TestCase):
 
         self.assertEqual(body['id'], self.project.pk)
         self.assertEqual(body['key'], 'serialized')
-        self.assertEqual(body['source_type'], self.project.source_type)
+        # A webhook body goes through the same serializer, so a choice field carries the pair
+        # here too, matching every NetBox event body.
+        self.assertEqual(body['source_type'], {'value': self.project.source_type, 'label': 'Upload'})
 
     def test_the_body_omits_a_revision_stored_document(self):
         revision = CustomScriptProjectRevision.objects.create(

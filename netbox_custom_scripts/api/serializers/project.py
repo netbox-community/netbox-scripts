@@ -1,6 +1,8 @@
 from core.api.serializers import DataSourceSerializer
+from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
+from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ...models import CustomScriptProject
 from ...validators import normalize_data_path
 
@@ -14,6 +16,11 @@ class CustomScriptProjectSerializer(PrimaryModelSerializer):
         allow_null=True,
         default=None,
     )
+
+    # required=False on both, because each column carries a model default that an explicit
+    # declaration would otherwise discard.
+    source_type = ChoiceField(choices=ProjectSourceTypeChoices, required=False)
+    activation_policy = ChoiceField(choices=ActivationPolicyChoices, required=False)
 
     def validate_data_path(self, value):
         """Return the data path in canonical form so the persisted value is never raw."""

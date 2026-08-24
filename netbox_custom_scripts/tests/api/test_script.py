@@ -158,6 +158,18 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertEqual(self.script.job_timeout_override, 45)
         self.assertEqual(self.script.notifications_default_override, 'never')
 
+    def test_a_nested_revision_carries_the_choice_pair_too(self):
+        # status is in the revision's brief_fields, so the nested payload changed shape with the
+        # serializer. Pinned here because a nested representation is the easiest one to miss.
+        self.add_permissions('netbox_custom_scripts.view_customscript')
+        response = self.client.get(self._get_detail_url(self.script), **self.header)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data['last_seen_revision']['status']['value'],
+            self.script.last_seen_revision.status,
+        )
+
     def test_a_null_clears_the_notification_override_like_the_other_two(self):
         # Without a ChoiceField the CharField refuses null, so a client clearing all three
         # overrides would need two different sentinels.

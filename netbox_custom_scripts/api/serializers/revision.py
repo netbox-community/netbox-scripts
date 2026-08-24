@@ -1,5 +1,7 @@
+from netbox.api.fields import ChoiceField
 from netbox.api.serializers import ValidatedModelSerializer
 
+from ...choices import RevisionStatusChoices
 from ...models import CustomScriptProjectRevision
 from .project import CustomScriptProjectSerializer
 
@@ -14,6 +16,7 @@ class CustomScriptProjectRevisionSerializer(ValidatedModelSerializer):
     """
 
     project = CustomScriptProjectSerializer(nested=True)
+    status = ChoiceField(choices=RevisionStatusChoices, read_only=True)
 
     class Meta:
         model = CustomScriptProjectRevision

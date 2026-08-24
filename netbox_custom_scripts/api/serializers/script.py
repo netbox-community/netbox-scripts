@@ -1,3 +1,5 @@
+from core.choices import JobNotificationChoices
+from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
 from ...models import CustomScript
@@ -10,6 +12,10 @@ class CustomScriptSerializer(PrimaryModelSerializer):
 
     project = CustomScriptProjectSerializer(nested=True)
     last_seen_revision = CustomScriptProjectRevisionSerializer(nested=True, read_only=True)
+
+    # allow_blank, because the column spends '' on inherit. ChoiceField then also coerces a
+    # submitted null to '', so all three overrides clear the same way.
+    notifications_default_override = ChoiceField(choices=JobNotificationChoices, allow_blank=True, required=False)
 
     class Meta:
         model = CustomScript

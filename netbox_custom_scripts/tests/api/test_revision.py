@@ -83,8 +83,9 @@ class CustomScriptProjectRevisionAPIViewTestCase(PluginAPIViewTestCase, APITestC
         response = self.client.get(self._detail_url(), **self.header)
         self.assertHttpStatus(response, status.HTTP_200_OK)
         self.assertEqual(response.data['digest'], self.revision.digest)
-        # A plain string, matching how every other serializer here renders a choice field.
-        self.assertEqual(response.data['status'], RevisionStatusChoices.VALID)
+        # The value and label pair every NetBox choice field renders.
+        self.assertEqual(response.data['status']['value'], RevisionStatusChoices.VALID)
+        self.assertEqual(response.data['status']['label'], 'Valid')
 
     def test_the_detail_url_reverses(self):
         """The reason url and display_url came back."""

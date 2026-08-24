@@ -751,6 +751,22 @@ Check this before designing anything that persists bytes.
   live in `template_content.py`.
 - **Permissions namespaced** under `netbox_custom_scripts.<perm>`. Used by
   `navigation.py` menu items and view base classes.
+- **`Meta.permissions` declares the BARE action**, `('run', ...)` and not
+  `('run_customscript', ...)`, matching `core.DataSource`'s `('sync', ...)` and
+  `dcim.Device`'s `('render_config', ...)`. NetBox registers each codename verbatim as a
+  tickable action in the permission picker, and the backend composes
+  `f'{app_label}.{action}_{model_name}'` from whatever an administrator ticked, so a codename
+  carrying the model name grants `run_customscript_customscript`, which nothing checks. Call
+  sites are unaffected either way: they ask for the composed
+  `netbox_custom_scripts.run_customscript`, which `get_permission_for_model()` builds from the
+  action, never from the codename. One consequence to know rather than discover: the bare
+  codename also produces a bare Django permission row, and `RemoteUserBackend` sits ahead of
+  `ObjectPermissionBackend` in `AUTHENTICATION_BACKENDS` and does read `auth_permission`, so a
+  plain Django grant of one of these five no longer reaches the view that checks the composed
+  string. Core is the same, `core.DataSource` declares `('sync', ...)` while its sync view asks
+  for `core.sync_datasource`, and `docs/permissions.md` already documents Object Permissions as
+  the route. `tests/test_permissions.py` pins both the row and the registry the picker reads,
+  because only the second would have caught the codename being wrong.
 - **Migrations.** Prefer a single squashed `0001_initial.py` until the
   schema settles. Data migrations use `RunPython` with `apps.get_model(...)`
   and `get_or_create`, `ContentType` rows may not exist yet at migration

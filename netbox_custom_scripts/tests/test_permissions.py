@@ -4,11 +4,13 @@ from django.test import override_settings
 from django.urls import reverse
 
 from core.models import DataSource, ObjectType
+from netbox.registry import registry
 from netbox_custom_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import ProjectReconciliationJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.storage import service
 from users.models import ObjectPermission
+from utilities.permissions import get_permission_for_model
 from utilities.testing import TestCase, create_test_user
 
 PERMISSION_STORAGES = {
@@ -17,10 +19,16 @@ PERMISSION_STORAGES = {
     'netbox_custom_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
 }
 
-# Every codename the plugin declares. The legacy reference migration maps onto these.
+# Every action the plugin declares. The legacy reference migration maps onto these.
 DECLARED = {
     CustomScriptProject: ('view', 'add', 'change', 'delete', 'activate', 'migrate', 'reconcile'),
     CustomScript: ('view', 'change', 'run', 'schedule'),
+}
+
+# The actions declared in Meta.permissions, which is to say every one Django does not supply.
+CUSTOM = {
+    CustomScriptProject: ('activate', 'migrate', 'reconcile'),
+    CustomScript: ('run', 'schedule'),
 }
 
 RECORD = {
@@ -154,13 +162,38 @@ class SourceManagementPermissionTestCase(TestCase):
         self.revision.refresh_from_db()
         self.assertEqual(self.revision.status, RevisionStatusChoices.VALID)
 
-    def test_every_declared_codename_is_registered(self):
-        # An unregistered codename is invisible in the permission picker, however correctly the
-        # views ask for it. Pins the declaration, not the migration, which --check covers.
+    def test_every_declared_action_has_its_permission_row(self):
+        # Django composes f'{action}_{model}' for its own four and stores a Meta.permissions
+        # codename verbatim, so a custom action's row carries the bare name. Pins the
+        # declaration, not the migration, which --check covers. This is not what the permission
+        # picker reads, so it is paired with the registry test below.
         for model, actions in DECLARED.items():
             registered = {
                 permission.codename for permission in ObjectType.objects.get_for_model(model).permission_set.all()
             }
+            custom = set(CUSTOM[model])
+            for action in actions:
+                expected = action if action in custom else f'{action}_{model._meta.model_name}'
+                with self.subTest(model=model._meta.model_name, action=action):
+                    self.assertIn(expected, registered)
+                    if action in custom:
+                        # create_permissions() never deletes, so a database that applied the old
+                        # options keeps the compound row. This is what surfaces one.
+                        self.assertNotIn(f'{action}_{model._meta.model_name}', registered)
+
+    def test_the_picker_offers_the_action_the_views_ask_for(self):
+        # The picker reads the action registry, stores the ticked name verbatim, and the backend
+        # composes f'{app}.{action}_{model}' from it. A registered name carrying the model name
+        # therefore grants run_customscript_customscript, which nothing checks, and the working
+        # permission becomes reachable only through the form's free-text box.
+        for model, actions in CUSTOM.items():
+            label = f'{model._meta.app_label}.{model._meta.model_name}'
+            offered = {action.name for action in registry['model_actions'][label]}
             for action in actions:
                 with self.subTest(model=model._meta.model_name, action=action):
-                    self.assertIn(f'{action}_{model._meta.model_name}', registered)
+                    self.assertIn(action, offered)
+                    self.assertNotIn(f'{action}_{model._meta.model_name}', offered)
+                    self.assertEqual(
+                        get_permission_for_model(model, action),
+                        f'netbox_custom_scripts.{action}_{model._meta.model_name}',
+                    )

@@ -107,11 +107,12 @@ class CustomScriptProject(PrimaryModel):
         ordering = ('name',)
         verbose_name = _('custom script project')
         verbose_name_plural = _('custom script projects')
-        # Choosing what code a project runs is not a form of changing the row.
+        # Choosing what code a project runs is not a form of changing the row. Bare actions,
+        # because the permission picker offers the codename verbatim, see CustomScript.Meta.
         permissions = (
-            ('activate_customscriptproject', 'Can activate a revision of a Custom Script Project'),
-            ('migrate_customscriptproject', 'Can migrate off the built-in Custom Scripts feature'),
-            ('reconcile_customscriptproject', "Can reconcile a Custom Script Project's source"),
+            ('activate', 'Can activate a revision of a Custom Script Project'),
+            ('migrate', 'Can migrate off the built-in Custom Scripts feature'),
+            ('reconcile', "Can reconcile a Custom Script Project's source"),
         )
         constraints = [
             models.CheckConstraint(
@@ -204,7 +205,9 @@ class CustomScriptProject(PrimaryModel):
         # clean() gives key and source_type friendly per-field errors on the form and
         # REST paths. This guard is the backstop for ORM writes that skip validation.
         # storage_key is on no form or serializer (editable=False), so it is guarded
-        # here only.
+        # here only. Deliberately a re-read rather than a value captured in __init__, which is
+        # the NetBox idiom: from_db() sets _state.db only after __init__ returns, so a capture
+        # there resolves through the router's default rather than the alias the row came from.
         if not self._state.adding:
             # The persisted row is read from the alias this save writes to. Reading it from
             # anywhere else compares the new value against a different database.

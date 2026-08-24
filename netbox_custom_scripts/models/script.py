@@ -114,11 +114,12 @@ class CustomScript(JobsMixin, PrimaryModel):
         ordering = ('project', 'module_path', 'class_name')
         verbose_name = _('custom script')
         verbose_name_plural = _('custom scripts')
-        # Their own actions, not forms of changing the row. The codename carries the model name
-        # so get_permission_for_model() composes the same string restrict() resolves.
+        # Their own actions, not forms of changing the row. The codename is the bare action,
+        # because the permission picker offers it verbatim and the backend composes
+        # f'{app}.{action}_{model}' from what an administrator ticked.
         permissions = (
-            ('run_customscript', 'Can run a Custom Script'),
-            ('schedule_customscript', 'Can schedule a Custom Script'),
+            ('run', 'Can run a Custom Script'),
+            ('schedule', 'Can schedule a Custom Script'),
         )
         constraints = [
             models.UniqueConstraint(

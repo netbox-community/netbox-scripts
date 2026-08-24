@@ -158,6 +158,32 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertEqual(self.script.job_timeout_override, 45)
         self.assertEqual(self.script.notifications_default_override, 'never')
 
+    def test_a_null_clears_the_notification_override_like_the_other_two(self):
+        # Without a ChoiceField the CharField refuses null, so a client clearing all three
+        # overrides would need two different sentinels.
+        self.add_permissions(
+            'netbox_custom_scripts.view_customscript',
+            'netbox_custom_scripts.change_customscript',
+        )
+        CustomScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
+        response = self.client.patch(
+            self._get_detail_url(self.script),
+            {'notifications_default_override': None},
+            format='json',
+            **self.header,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.script.refresh_from_db()
+        self.assertEqual(self.script.notifications_default_override, '')
+
+    def test_an_unset_choice_override_reads_as_null(self):
+        self.add_permissions('netbox_custom_scripts.view_customscript')
+        response = self.client.get(self._get_detail_url(self.script), **self.header)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['notifications_default_override'])
+
     def test_an_override_is_clearable_over_rest(self):
         self.add_permissions(
             'netbox_custom_scripts.view_customscript',

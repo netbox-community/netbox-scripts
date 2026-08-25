@@ -256,3 +256,59 @@ class StageTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.assertFalse(CustomScriptProject.objects.exists())
         self.assertIn('cutover', ' '.join(entry['message'] for entry in job.log_entries))
+
+
+class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
+    """A built-in module that published no Script migrates as a file rather than an entrypoint."""
+
+    def test_a_synced_helper_in_its_own_folder_is_not_declared(self):
+        # A sibling folder never collapses into a script-holding one, so this is its own Project.
+        helper = self.legacy_synced_module('shared/util.py', HELPER)
+        self.assertEqual(list(helper.scripts.all()), [])
+
+        self.stage_all()
+
+        project = CustomScriptProject.objects.get(data_path='shared')
+        self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
+
+    def test_the_helper_only_revision_reaches_a_valid_verdict(self):
+        # An empty entrypoint set is vacuously valid, which is what lets the Project be activated.
+        self.legacy_synced_module('shared/util.py', HELPER)
+
+        self.stage_and_validate()
+
+        revision = CustomScriptProject.objects.get(data_path='shared').revisions.get()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+        self.assertEqual([entry['path'] for entry in revision.manifest], ['util.py'])
+
+    def test_an_uploaded_helper_is_not_declared_either(self):
+        # An uploaded module is always its own Project, so this needs no folder condition.
+        self.legacy_uploaded_module('shared_util.py', HELPER)
+
+        self.stage_and_validate()
+
+        # By name rather than key, because the key carries a digest of the identity tuple.
+        project = CustomScriptProject.objects.get(name='shared_util')
+        self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
+        self.assertEqual(project.revisions.get().status, RevisionStatusChoices.VALID)
+
+    def test_a_module_whose_class_left_the_file_is_not_declared(self):
+        # What NetBox leaves behind when a class holding Job history is removed from its file: a
+        # soft-deleted row on a module whose source no longer defines it.
+        helper = self.legacy_synced_module('shared/util.py', HELPER)
+        Script.objects.create(module=helper, name='Gone', is_executable=False)
+
+        self.stage_all()
+
+        project = CustomScriptProject.objects.get(data_path='shared')
+        self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
+
+    def test_only_the_publishing_member_of_a_shared_folder_is_declared(self):
+        # Both are members of one Project, and only one of them ever published anything.
+        self.legacy_synced_module('automation/util.py', HELPER)
+
+        self.stage_all()
+
+        project = CustomScriptProject.objects.get(data_path='automation')
+        declared = sorted(CustomScriptModule.objects.filter(project=project).values_list('source_path', flat=True))
+        self.assertEqual(declared, ['deploy.py'])

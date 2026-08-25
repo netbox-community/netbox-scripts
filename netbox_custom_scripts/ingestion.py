@@ -6,9 +6,10 @@ declares the entrypoints the source implies, stages the tree, and enqueues valid
 Data Source reconciliation are its two callers, which is why an entry point here takes a project
 that already exists rather than creating one.
 
-The two differ in what the source implies. An uploaded file is always an entrypoint, so it is
-declared. A synchronized directory declares nothing, because a Python file that appears in a
-repository is a candidate somebody selects rather than something to publish on arrival.
+The two differ in what the source implies. An uploaded file is an entrypoint unless its caller
+says otherwise, which only migration does, for a built-in module that published no Script. A
+synchronized directory declares nothing, because a Python file that appears in a repository is a
+candidate somebody selects rather than something to publish on arrival.
 
 Ordering here is load bearing. A revision freezes the project's enabled declarations into its
 entrypoint snapshot at staging time, so a declaration created afterwards would not be part of
@@ -109,9 +110,9 @@ def current_source_tree(project):
     return store.read_revision_tree(config.get_storage(), project.storage_key, revision.digest, revision.manifest)
 
 
-def ingest_upload(project, *, filename, content, base_files=None):
+def ingest_upload(project, *, filename, content, base_files=None, declare=True):
     """
-    Declare an uploaded file as an entrypoint, stage it, and enqueue its validation.
+    Stage an uploaded file as a revision, declaring it as an entrypoint, and enqueue validation.
 
     The uploaded name becomes the project-relative source path, canonicalized and confirmed to
     be Python source. base_files carries the project's existing tree, so a later upload stages
@@ -119,6 +120,9 @@ def ingest_upload(project, *, filename, content, base_files=None):
 
     Validation is enqueued only for a revision that is still claimable, so re-uploading content
     that already reached a verdict resolves to that revision and leaves it alone.
+
+    Pass declare=False to stage the file without declaring it, so the project gains the content
+    and no entrypoint.
 
     Raises ValidationError for a name the path policy or the source rule refuses, and whatever
     staging raises for a storage failure or a project deleted underneath the write.
@@ -134,8 +138,9 @@ def ingest_upload(project, *, filename, content, base_files=None):
     files[path] = bytes(content)
 
     using = router.db_for_write(type(project), instance=project)
-    with transaction.atomic(using=using):
-        declare_entrypoint(project, path, using)
+    if declare:
+        with transaction.atomic(using=using):
+            declare_entrypoint(project, path, using)
 
     staged = service.stage_revision(project, files)
     # Content addressing means identical bytes resolve to the existing revision, carrying whatever

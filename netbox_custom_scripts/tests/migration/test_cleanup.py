@@ -308,6 +308,19 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
+    def test_a_helper_only_module_does_not_hold_the_migration_open(self):
+        # Its Project declares nothing, so the revision is vacuously valid and can be activated,
+        # which is what lets this module be deleted like any other.
+        helper = self.legacy_synced_module('shared/util.py', b'def describe():\n    return 1\n')
+        run = self.repointed()
+
+        counts, _warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['unserved'], 0)
+        self.assertFalse(ScriptModule.objects.filter(pk=helper.pk).exists())
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
+
     def test_the_stored_source_of_a_skipped_module_survives(self):
         run = self.repointed()
         self.blocked_module(self.uploaded)

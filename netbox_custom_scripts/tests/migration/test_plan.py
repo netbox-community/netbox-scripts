@@ -14,7 +14,7 @@ from extras.models import ScriptModule
 from netbox_custom_scripts.choices import ProjectSourceTypeChoices
 from netbox_custom_scripts.jobs import MigrationInventoryJob
 from netbox_custom_scripts.migration import dialects, plan, source
-from netbox_custom_scripts.migration.source import LegacyModule
+from netbox_custom_scripts.migration.source import LegacyModule, LegacyScript
 from netbox_custom_scripts.models import CustomScriptProject
 
 LEGACY_SCRIPT = b"""from extras.scripts import Script
@@ -42,7 +42,10 @@ def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts'
         python_name=file_path.removesuffix('.py'),
         data_source_id=data_source_id,
         data_path=data_path,
-        scripts=scripts,
+        scripts=tuple(
+            LegacyScript(pk=script_pk, name=name, is_executable=(rest[0] if rest else True))
+            for script_pk, name, *rest in scripts
+        ),
     )
 
 
@@ -206,8 +209,8 @@ class FindingsTestCase(SimpleTestCase):
 
     def test_a_nested_folder_that_stays_importable_does_not_block(self):
         modules = [
-            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py'),
-            legacy(2, 'b.py', data_source_id=7, data_path='scripts/nested/b.py'),
+            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py', scripts=[(11, 'A')]),
+            legacy(2, 'b.py', data_source_id=7, data_path='scripts/nested/b.py', scripts=[(12, 'B')]),
         ]
 
         report = plan.build_report(modules=modules, read=lambda module: b'')
@@ -248,7 +251,7 @@ class FindingsTestCase(SimpleTestCase):
 
     def test_a_native_module_produces_no_finding(self):
         body = b'from netbox_custom_scripts.scripts import Script\n'
-        report = plan.build_report(modules=[legacy(1, 'a.py')], read=lambda module: body)
+        report = plan.build_report(modules=[legacy(1, 'a.py', scripts=[(11, 'A')])], read=lambda module: body)
         self.assertEqual(report['findings'], [])
         self.assertEqual(report['dialects']['native'], 1)
 
@@ -275,8 +278,40 @@ class FindingsTestCase(SimpleTestCase):
         }
         for expected, body in bodies.items():
             with self.subTest(status=expected):
-                report = plan.build_report(modules=[legacy(1, 'a.py')], read=lambda module, body=body: body)
+                modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+                report = plan.build_report(modules=modules, read=lambda module, body=body: body)
                 self.assertEqual(report['status'], expected)
+
+    def test_a_module_publishing_nothing_is_reported_as_a_helper(self):
+        # It migrates as a file rather than an entrypoint, which has to be visible before staging.
+        modules = [legacy(1, 'deploy.py', scripts=[(11, 'Deploy')]), legacy(2, 'util.py')]
+
+        report = plan.build_report(modules=modules, read=lambda module: b'def describe():\n    return 1\n')
+
+        finding = next(item for item in report['findings'] if item['code'] == 'publishes_nothing')
+        self.assertEqual(finding['level'], plan.WARNING)
+        self.assertEqual(finding['pk'], 2)
+        self.assertIn('helper file', finding['message'])
+        self.assertEqual(report['status'], plan.WARNING)
+
+    def test_a_module_whose_class_left_the_file_is_reported_too(self):
+        # A soft-deleted row publishes nothing and never will, so it counts for nothing here.
+        modules = [legacy(1, 'gone.py', scripts=[(11, 'Gone', False)])]
+
+        report = plan.build_report(modules=modules, read=lambda module: b'x = 1\n')
+
+        self.assertTrue(any(item['code'] == 'publishes_nothing' for item in report['findings']))
+
+    def test_source_this_plugin_would_publish_from_is_not_called_a_helper(self):
+        # No built-in row, because the feature only recorded a subclass of its own base, but the
+        # class is there and the plugin publishes it.
+        body = (
+            b'from netbox_custom_scripts.scripts import Script\n\n\n'
+            b'class P(Script):\n    def run(self, data, commit):\n        pass\n'
+        )
+        report = plan.build_report(modules=[legacy(1, 'p.py')], read=lambda module: body)
+
+        self.assertFalse(any(item['code'] == 'publishes_nothing' for item in report['findings']))
 
     def test_a_report_over_supplied_modules_reads_no_database(self):
         report = plan.build_report(modules=[legacy(1, 'a.py')], read=lambda module: b'')

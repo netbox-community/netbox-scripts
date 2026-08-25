@@ -199,10 +199,10 @@ when domain content calls for them.
 │   ├── migration/
 │   │   ├── __init__.py            , Tier docstring only, like storage/ and runtime/. No re-exports.
 │   │   ├── source.py              , The ONLY module that reads the built-in Custom Scripts feature, so a supported export service is a change to one file. Read-only, returns frozen dataclasses and plain counts. Filters to the SCRIPTS root: the proxy manager admits reports as well, and a report's bytes live under REPORTS_ROOT while every read here goes through the scripts backend, so one could never be read. Reports are outside this migration entirely and legacy_report_count() is what makes that visible. Opens `file_path` rather than `full_path`, and resolves both content types with for_concrete_model=False because a Job and an Event Rule record the proxy.
-│   │   ├── dialects.py            , ast-based classification of stored source into native / legacy_import / report_style / unparsable. Imports nothing: an inventory must not execute an operator's code to classify it. Report shape outranks a legacy import, because the two cost an author different work.
+│   │   ├── dialects.py            , ast-based classification of stored source into native / legacy_import / report_style / unparsable, plus defines_a_script(), the shape test staging and the inventory share. Imports nothing: an inventory must not execute an operator's code to classify it. Report shape outranks a legacy import, because the two cost an author different work.
 │   │   ├── plan.py                , The grouping rule and the inventory report, pure functions over seam output. One Project per folder that holds scripts, and _collapse() merges a folder into the shallowest script-holding folder containing it, because the model refuses two overlapping data paths on one source and the higher Project's tree already holds the deeper file.
 │   │   ├── mapping.py             , Which plugin Custom Script one built-in Script becomes, derived rather than stored. module_path is the DOTTED name off cls.__module__, so the identity composes the collapse rule with source_path_to_dotted_name().
-│   │   ├── staging.py             , Creates the proposed Projects and delegates to ingestion. Every Project takes the MANUAL policy, since validation would otherwise activate under any other one. Validates rather than get_or_create's, so a path overlapping a hand-made project is refused instead of written.
+│   │   ├── staging.py             , Creates the proposed Projects and delegates to ingestion. Every Project takes the MANUAL policy, since validation would otherwise activate under any other one. Validates rather than get_or_create's, so a path overlapping a hand-made project is refused instead of written. Declares only a member that would publish, by its built-in Script rows or by its source shape, because a revision whose entrypoints all publish nothing is refused and the Project could then never be activated.
 │   │   ├── cutover.py             , The irreversible step: capture every reference the later passes replay, plus the plugin map they all resolve through, then close what a plugin can. Captures once, because a second capture would read the closed state back as the original. Also unservable_projects(), the precondition the fence refuses on, whose predicate mirrors _activate_project rather than a status tuple, because that tuple admits retired and activation refuses it. Also activate_staged(), which comes after the fence because an Event Rule's action object has to name a CustomScript that exists.
 │   │   ├── references.py          , Repointing Event Rules, permissions, Job history and schedules onto plugin rows. ACTION_SLUG is declared here and never imported from event_rules.py, so this tier does not become a second loader of a module PluginConfig is meant to resolve on its own.
 │   │   ├── cleanup.py             , The last step, and the only one that deletes. Scoped by the map the cutover froze, never by build_map(), whose keys shift as modules are deleted. Gated on all four reference steps, because a captured schedule is recreated through the rows this pass removes. Refuses per module when deleting it would destroy Job history or an Event Rule, because both reach it through a GenericRelation the collector follows, and sorts those refusals into RETAINED and BLOCKED. Only blocked holds the run open: a module holding history of its own, or history for a class that left the file, is permanent, and treating it as outstanding would leave a migration that can never close and no replacement that can ever open.
@@ -219,7 +219,7 @@ when domain content calls for them.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing, ingestion and migration staging.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
 │   ├── management/commands/runcustomscript.py , The shell route to one run, for a self-hosted operator. Additive only: it duplicates the REST run route, which is what Cloud and Enterprise use, so it carries a cloud-compat waiver rather than breaching the contract. Named runcustomscript because NetBox ships its own runscript until v5.0 and the earlier app in INSTALLED_APPS wins the name, so a plugin command called runscript would never be reachable. Runs immediately in the calling process and exits non-zero unless the Job completed, which the built-in command never did. Refuses a --user that matches nobody rather than falling back to the first superuser.
-│   ├── ingestion.py               , ingest_upload() / ingest_data_source() / current_source_tree() / uploaded_source_path() / declare_entrypoint() / check_upload_conflicts(): the one home of source ingestion. check_upload_conflicts() holds the replacement and case-collision rules, so the Add Script form and the REST upload action cannot drift. Upload declares the file it carries, a synchronized directory declares nothing. declare_entrypoint() is public because migration staging shares it, so the rule that a declaration is reused rather than replaced has one home.
+│   ├── ingestion.py               , ingest_upload() / ingest_data_source() / current_source_tree() / uploaded_source_path() / declare_entrypoint() / check_upload_conflicts(): the one home of source ingestion. check_upload_conflicts() holds the replacement and case-collision rules, so the Add Script form and the REST upload action cannot drift. Upload declares the file it carries unless its caller passes declare=False, which only migration does for a module that would publish nothing, and a synchronized directory declares nothing. declare_entrypoint() is public because migration staging shares it, so the rule that a declaration is reused rather than replaced has one home.
 │   ├── object_actions.py          , ActivateRevision + AddScript + ReconcileSource + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. Each takes the model's own action rather than change: activate, reconcile and run. RunScript renders inert rather than hidden when the script cannot run. AddScript and ReconcileSource each render only for the source type they belong to.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_custom_scripts/
@@ -283,7 +283,10 @@ content no revision row names and therefore nothing to record its cleanup.
 
 It has two callers, and they differ only in what the source implies. Upload
 (a create form for a new project, an Add Script view for an existing one)
-declares the file it carries, because every uploaded file is an entrypoint.
+declares the file it carries, because every file a person uploads is an
+entrypoint. Migration is the one caller that says otherwise, passing
+`declare=False` for a built-in module that would publish nothing, since a
+revision whose entrypoints all publish nothing is refused.
 `ingest_data_source()` declares nothing, because a Python file that appears in a
 repository is a candidate somebody selects rather than something to publish on
 arrival, and staging freezing only the enabled declarations is what carries a
@@ -354,6 +357,14 @@ are ancestor and descendant, so a folder inside another script-holding folder jo
 That is not a compromise: `ingest_data_source()` stages everything under `data_path`, so
 the higher Project already holds the deeper file, and a migrated Project therefore holds
 the helper modules beside a script, which the built-in feature could never synchronize.
+
+**Staging declares only what would publish.** A built-in module the feature recorded no Script for,
+and whose source defines no class that could publish one, is staged as a helper file with no
+declaration. Both signals are needed: the rows alone would drop source already written against this
+plugin's API, which the built-in feature never recognised, and the source shape alone would declare
+a class that left the file. Declaring a module that publishes nothing would make it the only
+entrypoint of its Project, which validation refuses, leaving a Project that can never be activated
+and a migration that can never close.
 
 **Staging activates nothing**, and every Project it creates takes the manual policy for that reason
 alone: `RevisionValidationJob` activates a valid revision under any other one. The passes past the

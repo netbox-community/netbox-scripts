@@ -247,6 +247,16 @@ def _inspect(module, read, proposal):
             message = f'{path} cannot be imported as {staged}: {error.messages[0]}'
             findings.append(_finding(BLOCKING, 'not_importable', module, message))
 
+    if not any(script.is_executable for script in module.scripts) and not dialects.defines_a_script(body):
+        # A helper and a module that stopped importing look identical from the built-in rows, so
+        # the operator is told rather than either one being guessed at.
+        message = (
+            f'{path} publishes no Script and defines no class that could, so it migrates as a helper '
+            f'file rather than an entrypoint. If it should publish one, check that its built-in '
+            f'module still imports.'
+        )
+        findings.append(_finding(WARNING, 'publishes_nothing', module, message))
+
     dialect = dialects.classify(body)
     if dialect == dialects.REPORT_STYLE:
         message = f'{path} is report-style. {MIGRATION_HINTS["extras.reports"]}'

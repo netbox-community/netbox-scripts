@@ -178,6 +178,17 @@ not whether they are good. A revision that fails records what it found, which it
 Putting a valid one in service is the separate, deliberate step described under
 [Putting a revision in service](data-sources.md#putting-a-revision-in-service).
 
+A built-in module that publishes nothing migrates as a **helper file** rather than an entrypoint.
+Its content is staged like any other file, but nothing declares it, so the Project it belongs to
+never claims it publishes a Custom Script. A module counts as publishing when the built-in feature
+recorded a Script for it, or when its source defines a class that could publish one, so source
+already written against this plugin's API is declared even though the built-in feature never
+recognised it.
+
+The inventory names every module this applies to, because a genuine helper and a module that has
+stopped importing look the same from the built-in rows. If one of them should be publishing a
+Custom Script, fix it in the built-in feature and run the inventory again.
+
 If the report is `blocking`, staging logs every blocking finding and stops without creating
 anything. Fix the source, run the inventory again, and stage once it is clear.
 

@@ -10,6 +10,7 @@ __all__ = (
     'REPORT_STYLE',
     'UNPARSABLE',
     'classify',
+    'defines_a_script',
 )
 
 NATIVE = 'native'
@@ -37,6 +38,23 @@ def classify(source):
     return NATIVE
 
 
+def defines_a_script(source):
+    """Return whether the source defines a class that could publish, refusing nothing."""
+    # Shape rather than base name, because a class can subclass a base this file never names.
+    # Unparsable counts as yes, so the file is declared and a verdict names it rather than it
+    # being migrated as a helper in silence.
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return True
+    return any(isinstance(node, ast.ClassDef) and 'run' in _method_names(node) for node in ast.walk(tree))
+
+
+def _method_names(node):
+    """Return the names of the methods one class declares."""
+    return {child.name for child in node.body if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
 def _imported_names(tree):
     """Return every module name the source imports, including the dotted form of a member import."""
     names = set()
@@ -55,7 +73,7 @@ def _has_report_shape(tree):
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        methods = {child.name for child in node.body if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        methods = _method_names(node)
         if 'run' not in methods and any(name.startswith('test_') for name in methods):
             return True
     return False

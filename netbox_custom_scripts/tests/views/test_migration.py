@@ -22,7 +22,7 @@ from netbox_custom_scripts.jobs import (
     MigrationStagingJob,
     MigrationVerificationJob,
 )
-from netbox_custom_scripts.migration import cutover
+from netbox_custom_scripts.migration import cutover, mapping
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
@@ -323,6 +323,58 @@ class MigrationTriggerTestCase(TestCase):
         )
         storages['scripts'].save('audit.py', ContentFile(b'VALUE = 1\n'))
         return ScriptModule.objects.create(file_path='audit.py')
+
+    def staged_fence(self):
+        """Return a run holding a real frozen map with activation recorded, as a fence leaves it."""
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        self.legacy_module()
+        run.journal['mapping'] = mapping.build_map()
+        run.record_step(cutover.STEP, counts={})
+        run.record_step(cutover.ACTIVATE_STEP, projects=[])
+        return run
+
+    def test_the_references_button_names_what_it_would_refuse(self):
+        # Withholding it without saying why reproduces the silence this page exists to remove.
+        self.grant('add', 'migrate')
+        self.staged_fence()
+
+        with mock.patch.object(cutover, 'projects_not_serving', return_value=['automation']) as guard:
+            body = self.client.get(self.url('migration')).content.decode()
+
+        guard.assert_called_once()
+        self.assertNotIn('Repoint references', body)
+        self.assertIn('automation', body)
+
+    def test_the_references_button_is_withheld_by_the_guard_itself(self):
+        # The whole path: a real map, the real predicate, the real template.
+        self.grant('add', 'migrate')
+        run = self.staged_fence()
+        expected = mapping.project_keys(run.journal['mapping'])
+
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertNotIn('Repoint references', body)
+        for key in expected:
+            self.assertIn(key, body)
+
+    def test_the_references_button_returns_once_every_project_serves(self):
+        self.grant('add', 'migrate')
+        self.staged_fence()
+
+        with mock.patch.object(cutover, 'projects_not_serving', return_value=[]):
+            body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertIn('Repoint references', body)
+
+    def test_the_page_does_not_ask_before_the_fence_has_captured(self):
+        # The predicate reads the frozen map, so asking without one would raise rather than refuse.
+        self.grant('add', 'migrate')
+        self.open_run(MigrationStateChoices.CUTOVER)
+
+        with mock.patch.object(cutover, 'projects_not_serving') as guard:
+            self.client.get(self.url('migration'))
+
+        guard.assert_not_called()
 
     def test_the_page_does_not_ask_what_a_crossed_fence_would_refuse(self):
         # The check reads the built-in rows, so it runs only where the button could render.

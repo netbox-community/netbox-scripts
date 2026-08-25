@@ -20,6 +20,7 @@ __all__ = (
     'CutoverRefused',
     'activate_staged',
     'enter_cutover',
+    'projects_not_serving',
     'require_staged',
     'unservable_projects',
 )
@@ -116,6 +117,16 @@ def unservable_projects(run):
         if not any(revision.status == RevisionStatusChoices.VALID for revision in revisions):
             blocked.append({'project_key': key, 'reason': _reason_for(revisions[0])})
     return blocked
+
+
+def projects_not_serving(run):
+    """Return the mapped Project keys serving no revision, empty once every one of them is."""
+    # The frozen map, so a module deleted since the fence cannot change which Projects this covers.
+    keys = mapping.project_keys(mapping.recorded(run))
+    serving = set(
+        CustomScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).values_list('key', flat=True)
+    )
+    return [key for key in keys if key not in serving]
 
 
 def _reason_for(newest):

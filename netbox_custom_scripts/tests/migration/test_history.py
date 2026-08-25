@@ -10,7 +10,7 @@ from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from dcim.models import Site
 from extras.models import Script, ScriptModule
-from netbox_custom_scripts.migration import references
+from netbox_custom_scripts.migration import cutover, references
 from netbox_custom_scripts.models import CustomScript
 from netbox_custom_scripts.tests.migration.test_references import ReferenceMigrationMixin
 
@@ -127,6 +127,27 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(job.object_type_id, self.script_type.pk)
         self.assertEqual(counts['unresolved'], 1)
         self.assertTrue(any(str(self.script.pk) in warning for warning in warnings))
+        # Left open, or repairing the Project would meet a pass that returns and does nothing.
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.HISTORY_STEP))
+
+    def test_a_repaired_script_gets_its_history_moved_on_the_next_pass(self):
+        job = self.legacy_job()
+        self.cross_over()
+        self.plugin_script().delete()
+        references.repoint_job_history(self.migration)
+        self.migration.refresh_from_db()
+
+        # Activation is re-runnable, and its promotion callback recreates the derived rows.
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+        counts, _warnings = references.repoint_job_history(self.migration)
+
+        self.assertEqual(counts['unresolved'], 0)
+        job.refresh_from_db()
+        self.assertEqual(job.object_id, self.plugin_script().pk)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.HISTORY_STEP))
 
     def test_a_job_naming_a_built_in_module_is_reported_rather_than_repointed(self):
         # A Custom Script Project holds no jobs, and this key could collide with a Script's, which
@@ -253,9 +274,12 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         counts, warnings = references.recreate_schedules(self.migration)
 
-        self.assertEqual(counts, {'recreated': 0, 'skipped': 1, 'shifted': 0})
+        self.assertEqual(counts, {'recreated': 0, 'skipped': 1, 'shifted': 0, 'outstanding': 0})
         self.assertFalse(self.new_jobs().exists())
         self.assertTrue(any('has passed' in warning for warning in warnings))
+        # Nothing a re-run would clear, so this must not hold the step open forever.
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
     def test_a_recurrence_whose_time_has_passed_starts_now_and_keeps_its_interval(self):
         self.legacy_schedule(scheduled=self.past(), interval=30)
@@ -266,7 +290,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         job = self.new_jobs().get()
         self.assertIsNone(job.scheduled)
         self.assertEqual(job.interval, 30)
-        self.assertEqual(counts, {'recreated': 1, 'skipped': 0, 'shifted': 1})
+        self.assertEqual(counts, {'recreated': 1, 'skipped': 0, 'shifted': 1, 'outstanding': 0})
         self.assertTrue(any('30 minute interval' in warning for warning in warnings))
 
     def test_input_that_no_longer_validates_is_reported_and_skipped(self):
@@ -278,8 +302,12 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         counts, warnings = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 0)
         self.assertFalse(self.new_jobs().exists())
         self.assertTrue(any('site' in warning for warning in warnings))
+        # The operator removed what it named, so re-running would report the same thing forever.
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
     def test_a_retired_script_is_reported_rather_than_scheduled(self):
         self.legacy_schedule()
@@ -300,7 +328,27 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         counts, warnings = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 1)
         self.assertTrue(any(str(self.script.pk) in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_repaired_script_gets_its_schedule_recreated_on_the_next_pass(self):
+        self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        self.plugin_script().delete()
+        references.recreate_schedules(self.migration)
+        self.migration.refresh_from_db()
+
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(counts['outstanding'], 0)
+        self.assertEqual(self.new_jobs().get().object_id, self.plugin_script().pk)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
     def test_a_schedule_belonging_to_a_deleted_user_is_recreated_with_no_owner(self):
         from django.contrib.auth import get_user_model

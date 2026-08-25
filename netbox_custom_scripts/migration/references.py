@@ -62,8 +62,9 @@ def repoint_event_rules(run):
     Point every captured Event Rule at the plugin, and re-enable the ones fully moved.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. A rule that cannot be moved is left disabled and named in a warning. Raises
-    CutoverRefused before the staged Projects are activated.
+    step has completed. A rule that cannot be moved is left disabled, named in a warning, and leaves
+    the step incomplete so a later run covers it. Raises CutoverRefused until every migrated Project
+    is serving a revision.
     """
     from extras.models import EventRule
 
@@ -73,7 +74,7 @@ def repoint_event_rules(run):
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
-    counts = {'actions': 0, 'sources': 0, 'restored': 0}
+    counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unresolved': 0}
     warnings = []
     for entry in run.journal.get('event_rules', []):
         rule = EventRule.objects.filter(pk=entry['pk']).first()
@@ -84,6 +85,7 @@ def repoint_event_rules(run):
             if counted:
                 counts[counted] += 1
             if refusal:
+                counts['unresolved'] += 1
                 warnings.append(refusal)
             _repoint_sources(rule, entry, plugin_types, counts)
             # Only a fully moved rule: re-enabling one pointing at nothing would fail at dispatch.
@@ -91,6 +93,9 @@ def repoint_event_rules(run):
                 rule.enabled = True
                 rule.save(update_fields=('enabled',))
                 counts['restored'] += 1
+    if counts['unresolved']:
+        # Left open on purpose: the operator repairs what each warning names and runs this again.
+        return counts, warnings
     run.complete_step(EVENT_RULES_STEP, counts, warnings)
     return counts, warnings
 
@@ -102,7 +107,8 @@ def repoint_permissions(run):
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. A permission naming only the built-in feature is swapped in place, one that
     also names unrelated types keeps those and gains a sibling for the plugin, and one carrying
-    constraints is reported and left alone. Raises CutoverRefused before activation.
+    constraints is reported and left alone. Raises CutoverRefused until every migrated Project is
+    serving a revision.
     """
     from users.models import ObjectPermission
 
@@ -155,6 +161,8 @@ def repoint_permissions(run):
             else:
                 _swap_permission(permission, entry, targets, actions)
                 counts['swapped'] += 1
+    # Recorded whatever it left behind, unlike the other three: a constrained or unmappable
+    # permission is withdrawn for a person to recreate, and no re-run of this pass changes that.
     run.complete_step(PERMISSIONS_STEP, counts, warnings)
     return counts, warnings
 
@@ -164,10 +172,13 @@ def repoint_job_history(run):
     Move the built-in Scripts' Job history onto the Custom Scripts that replaced them.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. A job whose script does not resolve is left where it is and reported. Raises
-    CutoverRefused before activation.
+    step has completed. A job whose script does not resolve is left where it is, reported, and leaves
+    the step incomplete so a later run covers it. A job naming a module, or a class that left its
+    file, has no counterpart at all and does not. Raises CutoverRefused until every migrated
+    Project is serving a revision.
     """
     from core.models import Job
+    from extras.models import Script
 
     _require_activated(run)
     if run.step_done(HISTORY_STEP):
@@ -176,7 +187,7 @@ def repoint_job_history(run):
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     legacy = _legacy_type('extras.script')
     target = _plugin_types()['extras.script']
-    counts = {'moved': 0, 'unresolved': 0, 'modules': 0}
+    counts = {'moved': 0, 'unresolved': 0, 'modules': 0, 'outstanding': 0}
     warnings = []
     for legacy_pk, script in resolved.items():
         # One statement per script rather than one per job. update() fires no signals and skips
@@ -188,8 +199,20 @@ def repoint_job_history(run):
     # above moved everything that did. Scoped by object type rather than by key, since a job on a
     # built-in module can hold a key equal to a Script's and would otherwise be repointed at it.
     stranded = Job.objects.filter(object_type=legacy).values_list('object_id', flat=True).distinct()
+    # A class that left its file publishes nothing and never will, so no plugin row can ever take
+    # its history. Counting it as outstanding would hold the step open for good.
+    departed = set(Script.objects.filter(pk__in=list(stranded), is_executable=False).values_list('pk', flat=True))
     for legacy_pk in stranded:
         counts['unresolved'] += 1
+        if legacy_pk in departed:
+            warnings.append(
+                _(
+                    'Job history for built-in Custom Script {key} was left where it is, because that class '
+                    'left its file and no Custom Script replaces it.'
+                ).format(key=legacy_pk)
+            )
+            continue
+        counts['outstanding'] += 1
         warnings.append(
             _(
                 'Job history for built-in Custom Script {key} was left where it is, because no Custom '
@@ -204,6 +227,10 @@ def repoint_job_history(run):
                 'Project holds no jobs, so they were left where they are.'
             ).format(count=counts['modules'])
         )
+    if counts['outstanding']:
+        # A module Job and a departed class's history are excluded, because no plugin row will
+        # ever hold either one and the step could then never complete.
+        return counts, warnings
     run.complete_step(HISTORY_STEP, counts, warnings)
     return counts, warnings
 
@@ -214,8 +241,9 @@ def recreate_schedules(run):
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. Each recreated job is recorded against the captured one inside the
-    transaction that creates it. Anything that cannot be replayed is reported and skipped. Raises
-    CutoverRefused before activation.
+    transaction that creates it. Anything that cannot be replayed is reported and skipped, and the
+    part of that a later run could still recover counts as outstanding, which leaves the step
+    incomplete. Raises CutoverRefused until every migrated Project is serving a revision.
     """
     _require_activated(run)
     if run.step_done(SCHEDULES_STEP):
@@ -223,7 +251,7 @@ def recreate_schedules(run):
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     recreated = run.journal.setdefault('recreated_schedules', {})
-    counts = {'recreated': 0, 'skipped': 0, 'shifted': 0}
+    counts = {'recreated': 0, 'skipped': 0, 'shifted': 0, 'outstanding': 0}
     warnings = []
     for entry in run.journal.get('schedules', []):
         if str(entry['job_pk']) in recreated:
@@ -241,6 +269,7 @@ def recreate_schedules(run):
         script = resolved.get(entry['legacy_script_pk'])
         if script is None:
             counts['skipped'] += 1
+            counts['outstanding'] += 1
             warnings.append(
                 _(
                     'Schedule "{name}" ran built-in Custom Script {key}, which no Custom Script resolves '
@@ -270,6 +299,7 @@ def recreate_schedules(run):
             _recreate(run, entry, script, schedule_at, user, recreated)
         except _REPLAY_FAILURES as error:
             counts['skipped'] += 1
+            counts['outstanding'] += 1
             warnings.append(
                 _('Schedule "{name}" could not be recreated against {script}: {error}').format(
                     name=entry['name'], script=script, error=error
@@ -300,6 +330,10 @@ def recreate_schedules(run):
                     'and keeps its {interval} minute interval.'
                 ).format(name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
             )
+    if counts['outstanding']:
+        # A schedule the operator cannot get back, a past-due one-shot or input naming a deleted
+        # object, is skipped rather than outstanding, or the step could never complete.
+        return counts, warnings
     run.complete_step(SCHEDULES_STEP, counts, warnings)
     return counts, warnings
 
@@ -363,11 +397,22 @@ def _user(user_pk):
 
 
 def _require_activated(run):
-    """Return the run, raising CutoverRefused unless activation has recorded its step on it."""
+    """Return the run, raising CutoverRefused unless every migrated Project is serving a revision."""
     cutover.require_staged(run)
     if not run.step_done(cutover.ACTIVATE_STEP):
         raise cutover.CutoverRefused(
             _('The staged Projects have not been activated yet, so there are no Custom Scripts to point at.')
+        )
+    # All four passes take this, including permissions, which maps object types and needs no
+    # Custom Script row. They share one gate because they run inside one job that stops at the
+    # first refusal anyway, and every pass is re-runnable, so the cost is one more run.
+    if outstanding := cutover.projects_not_serving(run):
+        raise cutover.CutoverRefused(
+            _(
+                '{count} migrated Custom Script Project(s) are serving nothing: {keys}. Put each one into '
+                'service and run the activation again, because a reference can only name a Custom Script '
+                'that exists.'
+            ).format(count=len(outstanding), keys=', '.join(outstanding))
         )
     return run
 

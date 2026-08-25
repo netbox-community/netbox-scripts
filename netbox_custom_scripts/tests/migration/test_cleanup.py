@@ -254,6 +254,8 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertEqual(counts['blocked'], 0)
         self.assertTrue(Job.objects.filter(pk=job.pk).exists())
         self.assertTrue(any('left the file' in warning for warning in warnings))
+        # The reference pass has to have closed too, or this could never have been reached.
+        self.assertTrue(run.step_done(references.HISTORY_STEP))
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
@@ -307,6 +309,19 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertFalse(ScriptModule.objects.filter(pk=deep.pk).exists())
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
+
+    def test_a_stranded_script_holding_history_is_named_by_what_the_operator_can_fix(self):
+        # Both refusals apply to this module. The one naming an action has to win, or the advice
+        # sends the operator to a pass that has nothing left to do.
+        run = self.repointed()
+        self.script_job(self.script)
+        self.plugin_script().delete()
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 1)
+        self.assertTrue(any('stage it again' in str(warning) for warning in warnings))
+        self.assertFalse(any('Run that pass again' in str(warning) for warning in warnings))
 
     def test_a_helper_only_module_does_not_hold_the_migration_open(self):
         # Its Project declares nothing, so the revision is vacuously valid and can be activated,

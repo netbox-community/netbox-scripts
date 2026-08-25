@@ -20,7 +20,7 @@ from ..jobs import (
     MigrationStagingJob,
     MigrationVerificationJob,
 )
-from ..migration import cleanup, cutover, plan
+from ..migration import cleanup, cutover, mapping, plan
 from ..models import CustomScriptProject, MigrationRun
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
@@ -117,6 +117,9 @@ class MigrationView(BaseMigrationView):
         staged = bool(run and run.state == MigrationStateChoices.STAGING)
         # Read only where the button would otherwise render, because this reaches the built-in rows.
         unservable = cutover.unservable_projects(run) if staged else []
+        # Gated on the frozen map rather than on the step, because that is what the predicate
+        # reads and a run without one would raise here instead of refusing further along.
+        not_serving = cutover.projects_not_serving(run) if mapping.recorded(run) else []
         return render(
             request,
             self.template_name,
@@ -141,13 +144,14 @@ class MigrationView(BaseMigrationView):
                 'verification_job': _latest(MigrationVerificationJob),
                 # Offered once the fence is recorded, which is the only precondition activation has.
                 'can_activate': bool(run and run.step_done(cutover.STEP)),
-                # The references name plugin rows, and activation is what creates them.
-                'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)),
+                # The references name plugin rows, and only a Project in service has any.
+                'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)) and not not_serving,
                 # A schedule needs the built-in rows still there, so every reference step first.
                 'can_clean_up': bool(run and cleanup.ready(run)),
                 # Crossing with nothing to serve is not recoverable, so the page withholds it.
                 'can_cut_over': staged and not unservable,
                 'unservable_projects': unservable,
+                'projects_not_serving': not_serving,
             },
         )
 

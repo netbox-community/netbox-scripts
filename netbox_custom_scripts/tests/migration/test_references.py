@@ -5,7 +5,7 @@ from core.events import OBJECT_UPDATED
 from core.models import ObjectType
 from dcim.models import Site
 from extras.models import EventRule, Script, ScriptModule, Webhook
-from netbox_custom_scripts.choices import MigrationStateChoices
+from netbox_custom_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_custom_scripts.jobs import MigrationReferencesJob, RevisionValidationJob
 from netbox_custom_scripts.migration import cutover, references
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
@@ -131,7 +131,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertNotIn(self.script_type.pk, types)
         # The unrelated type it also watched is untouched.
         self.assertIn(self.site_type.pk, types)
-        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1})
+        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1, 'unresolved': 0})
 
     def test_a_rule_goes_back_into_service_in_the_state_it_was_captured_in(self):
         enabled = self.action_rule('enabled rule')
@@ -437,3 +437,85 @@ class MigrationReferencesJobTestCase(ReferenceMigrationMixin, TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.assertIn('cutover has not been entered', ' '.join(e['message'] for e in job.log_entries))
+
+
+class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
+    """The reference passes refuse while a migrated Project is serving nothing."""
+
+    def cross_without_activating(self):
+        """Cross the fence, then leave one Project unable to serve so activation skips it."""
+        for result in self.stage_all():
+            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            RevisionValidationJob.enqueue_validation(revision, immediate=True)
+        # Invalidated after the fence, because the cutover itself refuses a Project that cannot
+        # serve, which is the state this leaves behind rather than the one it starts from.
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        self.broken = CustomScriptProject.objects.get(source_type=ProjectSourceTypeChoices.UPLOAD)
+        CustomScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.INVALID)
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+
+    def test_every_reference_pass_refuses_and_names_the_project(self):
+        self.cross_without_activating()
+
+        for pass_function in (
+            references.repoint_event_rules,
+            references.repoint_permissions,
+            references.repoint_job_history,
+            references.recreate_schedules,
+        ):
+            with self.subTest(pass_function=pass_function.__name__):
+                with self.assertRaises(cutover.CutoverRefused) as refusal:
+                    pass_function(self.migration)
+                self.assertIn(self.broken.key, str(refusal.exception))
+
+    def test_it_proceeds_once_the_project_is_repaired(self):
+        self.cross_without_activating()
+        CustomScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.VALID)
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+
+        counts, _warnings = references.repoint_event_rules(self.migration)
+
+        self.assertIn('actions', counts)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.EVENT_RULES_STEP))
+
+
+class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
+    """A pass that left work unresolved must run again rather than return its old counts."""
+
+    def test_an_unmoved_event_rule_leaves_the_step_open_and_moves_on_a_re_run(self):
+        rule = self.action_rule()
+        self.cross_over()
+        # The map was frozen at the fence, so its entry survives and no longer resolves.
+        self.plugin_script().delete()
+
+        counts, _warnings = references.repoint_event_rules(self.migration)
+
+        self.assertEqual(counts['unresolved'], 1)
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.EVENT_RULES_STEP))
+
+        # Activation is re-runnable, and its promotion callback recreates the derived rows.
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+        references.repoint_event_rules(self.migration)
+
+        rule.refresh_from_db()
+        self.assertEqual(rule.action_type, references.ACTION_SLUG)
+        self.assertEqual(rule.action_object_id, self.plugin_script().pk)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.EVENT_RULES_STEP))
+
+    def test_the_permission_pass_still_latches(self):
+        # Nothing it leaves behind is improved by a re-run, so the asymmetry is deliberate.
+        self.permission(constraints={'name': 'x'})
+        self.cross_over()
+
+        counts, _warnings = references.repoint_permissions(self.migration)
+
+        self.assertEqual(counts['constrained'], 1)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.PERMISSIONS_STEP))

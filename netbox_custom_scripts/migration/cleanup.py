@@ -3,7 +3,6 @@
 from django.utils.translation import gettext_lazy as _
 
 from ..choices import MigrationStateChoices
-from ..models import CustomScriptProject
 from . import cutover, mapping
 from . import references as legacy_references
 from . import source as legacy_source
@@ -69,21 +68,16 @@ def _delete_modules(run):
     """Delete each of this migration's modules that nothing refers to, one row at a time."""
     plugin_map = mapping.recorded(run)
     mine = plugin_map['modules']
-    serving = set(
-        CustomScriptProject.objects.filter(
-            key__in=mapping.project_keys(plugin_map), active_revision__isnull=False
-        ).values_list('key', flat=True)
-    )
-    keys = [entry['legacy_pk'] for entry in mine if entry['project_key'] in serving]
+    waiting = set(cutover.projects_not_serving(run))
+    keys = [entry['legacy_pk'] for entry in mine if entry['project_key'] not in waiting]
     counts = {'modules': 0, 'scripts': 0, 'blocked': 0, 'retained': 0, 'unserved': len(mine) - len(keys)}
     warnings = []
     if counts['unserved']:
-        waiting = sorted({entry['project_key'] for entry in mine if entry['project_key'] not in serving})
         warnings.append(
             _(
                 'Built-in modules were left in place because these Projects are not serving a revision: '
                 '{keys}. Activate them, then run this again.'
-            ).format(keys=', '.join(waiting))
+            ).format(keys=', '.join(sorted(waiting)))
         )
     _resolved, unresolved = mapping.resolve_scripts(plugin_map)
     stranded = {entry['legacy_module_pk'] for entry in unresolved}
@@ -115,19 +109,22 @@ def _refusal_for(module, references, stranded):
             'Built-in script module {name} holds Job history for a class that left the file, which no '
             'Custom Script replaces, so it stays where it is.'
         ).format(name=name)
-    if references['live_script_jobs']:
-        return False, _(
-            'Built-in script module {name} has a Script that still holds Job history the reference pass '
-            'did not move. Run that pass again, then retry this one.'
-        ).format(name=name)
-    if references['event_rules']:
-        return False, _(
-            'Built-in script module {name} is still named by an Event Rule the reference pass did not '
-            'move. Run that pass again, then retry this one.'
-        ).format(name=name)
+    # Ahead of the two history refusals it can accompany, because it is the one naming an action.
     if stranded:
         return False, _(
             'Built-in script module {name} publishes a class no Custom Script resolves to, so deleting it '
             'would leave that script unable to run at all. Fix the source and stage it again.'
+        ).format(name=name)
+    if references['live_script_jobs']:
+        return False, _(
+            'Built-in script module {name} has a Script that still holds Job history the reference pass '
+            'did not move. Run that pass again. If this module still blocks, that history arrived after '
+            'the pass and has to be moved by hand.'
+        ).format(name=name)
+    if references['event_rules']:
+        return False, _(
+            'Built-in script module {name} is still named by an Event Rule the reference pass did not '
+            'move. Run that pass again. If this module still blocks, that rule was made after the pass '
+            'and has to be repointed by hand.'
         ).format(name=name)
     return False, None

@@ -258,6 +258,11 @@ Safe to run again.
 
 **Repoint references** replays the journal onto the plugin's rows, in four steps.
 
+The pass refuses while any migrated Project is serving no revision, because an Event Rule and a
+repointed job both have to name a Custom Script that exists, and only a Project in service
+publishes one. The Migration page withholds the button and names each Project. Put them into
+service, run **Activate Projects** again, and the pass proceeds.
+
 | Step | What moves |
 |---|---|
 | Event Rules | Each captured rule's action is pointed at the Custom Script that replaced its built-in Script, and the built-in object types it watched are replaced with the plugin's. A rule that moved completely is re-enabled. |
@@ -278,6 +283,14 @@ setting it was queued with, because that is what the cutover promised the owner 
 That is the one case where this pass executes your script, so if you would rather it did not, let the
 queue drain before you enter the cutover. It refuses to start while a built-in Script job is actually
 running, but a job still waiting is captured and replayed.
+
+Each of the four steps records its completion only once it has left nothing a later run could still
+do. So a reference it could not move, because the Custom Script it names does not resolve yet, is
+picked up the next time you run the pass rather than skipped for good. What it reports as permanent
+is not retried: a permission carrying constraints, a schedule whose time has passed or whose input
+names an object you deleted, a job belonging to a class that left its file, and a job naming a
+built-in module rather than a Script. Those are listed on the migration's own page so you can deal
+with them by hand.
 
 ## Retiring the built-in rows
 

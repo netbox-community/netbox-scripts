@@ -796,7 +796,7 @@ class MigrationReferencesJob(JobRunner):
     Move every reference an installation holds onto the plugin's own rows.
 
     Runs after activation. Each part records its own completion, so a re-run continues rather
-    than repeats.
+    than repeats, and a part that left work a later run could still do records none.
     """
 
     class Meta:
@@ -827,7 +827,8 @@ class MigrationReferencesJob(JobRunner):
             self.logger.warning(warning)
         self.logger.info(
             f'Repointed {rules.get("actions", 0)} Event Rule action(s) and {rules.get("sources", 0)} '
-            f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service.'
+            f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service, and left '
+            f'{rules.get("unresolved", 0)} withdrawn for a later run.'
         )
         left = permissions.get('constrained', 0) + permissions.get('unmappable', 0)
         self.logger.info(
@@ -836,12 +837,13 @@ class MigrationReferencesJob(JobRunner):
         )
         self.logger.info(
             f'Moved {history.get("moved", 0)} Job(s) of history onto the Custom Scripts, leaving '
-            f'{history.get("unresolved", 0)} unresolved script(s) and {history.get("modules", 0)} '
-            f'module Job(s) where they are.'
+            f'{history.get("unresolved", 0)} unresolved script(s), {history.get("outstanding", 0)} of them '
+            f'for a later run, and {history.get("modules", 0)} module Job(s) where they are.'
         )
         self.logger.info(
             f'Recreated {schedules.get("recreated", 0)} schedule(s), {schedules.get("shifted", 0)} of them '
-            f'starting now rather than when they were due, and skipped {schedules.get("skipped", 0)}.'
+            f'starting now rather than when they were due, and skipped {schedules.get("skipped", 0)}, '
+            f'{schedules.get("outstanding", 0)} of which a later run could still recover.'
         )
 
 

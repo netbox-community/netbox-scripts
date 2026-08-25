@@ -258,10 +258,13 @@ Safe to run again.
 
 **Repoint references** replays the journal onto the plugin's rows, in four steps.
 
-The pass refuses while any migrated Project is serving no revision, because an Event Rule and a
-repointed job both have to name a Custom Script that exists, and only a Project in service
-publishes one. The Migration page withholds the button and names each Project. Put them into
-service, run **Activate Projects** again, and the pass proceeds.
+Three of the four steps refuse while any migrated Project is serving no revision, because an Event
+Rule and a repointed job both have to name a Custom Script that exists, and only a Project in
+service publishes one. The Migration page withholds the button and names each Project. Put them
+into service, run **Activate Projects** again, and the pass proceeds. Permissions is the exception
+and runs regardless: it moves object types rather than scripts, and the cutover withdrew every
+grant on the built-in feature, so holding it back would leave everyone but a superuser locked out
+until an unrelated Project was fixed.
 
 | Step | What moves |
 |---|---|
@@ -286,11 +289,16 @@ running, but a job still waiting is captured and replayed.
 
 Each of the four steps records its completion only once it has left nothing a later run could still
 do. So a reference it could not move, because the Custom Script it names does not resolve yet, is
-picked up the next time you run the pass rather than skipped for good. What it reports as permanent
-is not retried: a permission carrying constraints, a schedule whose time has passed or whose input
-names an object you deleted, a job belonging to a class that left its file, and a job naming a
-built-in module rather than a Script. Those are listed on the migration's own page so you can deal
-with them by hand.
+picked up the next time you run the pass rather than skipped for good.
+
+What it reports as **permanent** is not retried, and the test is whether the cutover's frozen map
+can ever resolve it. A class removed or renamed before the migration keeps a built-in Script row
+only so its history survives, and that row is deliberately absent from the map, so its Job history,
+an Event Rule naming it and a schedule naming it are all left where they are for good. So are a job
+naming a built-in module rather than a Script, a permission carrying constraints, and a schedule
+whose time has passed or whose input names an object you deleted. Every one of those is listed on
+the migration's own page so you can deal with it by hand, and none of them holds the migration
+open.
 
 ## Retiring the built-in rows
 

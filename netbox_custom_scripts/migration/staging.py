@@ -76,13 +76,12 @@ def _existing(project_plan):
 
 def _publishes(module):
     """Whether anything would publish from this module, by its built-in rows or by its source."""
-    # The rows first, because that costs no read and answers the overwhelming majority.
+    # The rows are checked twice on purpose. Here it only decides whether the read is worth making,
+    # and dialects.publishes is the rule itself, so the two cannot drift apart.
     if any(script.is_executable for script in module.scripts):
         return True
-    # The built-in feature only ever recorded a class subclassing its own base, so source already
-    # written against this plugin's API holds no row while still publishing once migrated.
     try:
-        return dialects.defines_a_script(legacy_source.read_source(module))
+        return dialects.publishes(module.scripts, legacy_source.read_source(module))
     except (OSError, SuspiciousOperation):
         # Unreadable is the inventory's business and it blocks staging there, so the safe answer
         # here is to declare and let a verdict name the file.
@@ -95,13 +94,12 @@ def _declare(project, members):
     # first. An uploaded project needs none of this, ingest_upload declares the file it carries.
     if project.source_type == ProjectSourceTypeChoices.UPLOAD:
         return
+    # Decided before the transaction opens, because _publishes can read stored bytes and a remote
+    # backend would hold a write transaction open across every one of those round trips.
+    publishing = [member for member in members if _publishes(member)]
     using = router.db_for_write(CustomScriptProject, instance=project)
     with transaction.atomic(using=using):
-        for member in members:
-            if not _publishes(member):
-                # A declaration claims the file publishes, and a revision whose entrypoints all
-                # publish nothing is refused, which would leave the Project unactivatable.
-                continue
+        for member in publishing:
             path = data_source_relative_path(member.data_path, project.data_path)
             ingestion.declare_entrypoint(project, path, using)
 

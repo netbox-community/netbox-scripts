@@ -247,7 +247,7 @@ def _inspect(module, read, proposal):
             message = f'{path} cannot be imported as {staged}: {error.messages[0]}'
             findings.append(_finding(BLOCKING, 'not_importable', module, message))
 
-    if not any(script.is_executable for script in module.scripts) and not dialects.defines_a_script(body):
+    if not dialects.publishes(module.scripts, body):
         # A helper and a module that stopped importing look identical from the built-in rows, so
         # the operator is told rather than either one being guessed at.
         message = (

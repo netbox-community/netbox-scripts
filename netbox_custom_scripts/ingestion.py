@@ -112,7 +112,7 @@ def current_source_tree(project):
 
 def ingest_upload(project, *, filename, content, base_files=None, declare=True):
     """
-    Stage an uploaded file as a revision, declaring it as an entrypoint, and enqueue validation.
+    Stage an uploaded file as a revision, declare it unless told not to, and enqueue validation.
 
     The uploaded name becomes the project-relative source path, canonicalized and confirmed to
     be Python source. base_files carries the project's existing tree, so a later upload stages

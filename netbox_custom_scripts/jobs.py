@@ -827,8 +827,9 @@ class MigrationReferencesJob(JobRunner):
             self.logger.warning(warning)
         self.logger.info(
             f'Repointed {rules.get("actions", 0)} Event Rule action(s) and {rules.get("sources", 0)} '
-            f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service, and left '
-            f'{rules.get("unresolved", 0)} withdrawn for a later run.'
+            f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service, leaving '
+            f'{rules.get("unresolved", 0)} withdrawn for a later run and {rules.get("withdrawn", 0)} '
+            f'withdrawn for good.'
         )
         left = permissions.get('constrained', 0) + permissions.get('unmappable', 0)
         self.logger.info(

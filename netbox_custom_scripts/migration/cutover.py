@@ -121,7 +121,7 @@ def unservable_projects(run):
 
 def projects_not_serving(run):
     """Return the mapped Project keys serving no revision, empty once every one of them is."""
-    # The frozen map, so a module deleted since the fence cannot change which Projects this covers.
+    # A module deleted since the fence must not change which Projects this covers.
     keys = mapping.project_keys(mapping.recorded(run))
     serving = set(
         CustomScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).values_list('key', flat=True)

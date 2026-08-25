@@ -350,6 +350,22 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.refresh_from_db()
         self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
+    def test_a_schedule_naming_a_departed_class_does_not_hold_the_step_open(self):
+        # The frozen map excludes a soft-deleted class, so this entry can never resolve and
+        # holding the step open for it would leave a migration that can never close.
+        departed = Script.objects.create(module=self.synced, name='Gone')
+        self.legacy_schedule(script=departed, scheduled=self.future())
+        Script.objects.filter(pk=departed.pk).update(is_executable=False)
+        self.cross_over()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 0)
+        self.assertTrue(any('left its file' in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
     def test_a_schedule_belonging_to_a_deleted_user_is_recreated_with_no_owner(self):
         from django.contrib.auth import get_user_model
 

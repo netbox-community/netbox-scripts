@@ -243,6 +243,18 @@ class VerificationAfterCleanupTestCase(VerificationMixin, TestCase):
         self.assertEqual(check['level'], plan.READY)
         self.assertIn('2', str(check['message']))
 
+    def test_a_migrated_helper_project_is_not_reported_as_barren(self):
+        # It was never expected to publish: the map records no script for it, and staging
+        # deliberately declared none. Reporting it would make a landed migration read BLOCKING.
+        self.legacy_synced_module('shared/util.py', b'def describe():\n    return 1\n')
+        run = self.repoint_all()
+        cleanup.retire_legacy(run)
+        run.refresh_from_db()
+
+        check = self.named(verification.verify(run), verification.SCRIPTS)
+
+        self.assertNotEqual(check['level'], plan.BLOCKING)
+
     def test_a_project_publishing_nothing_blocks_once_the_built_in_rows_are_gone(self):
         run = self.repoint_all()
         cleanup.retire_legacy(run)

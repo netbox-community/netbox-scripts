@@ -68,24 +68,24 @@ def repoint_event_rules(run):
     """
     from extras.models import EventRule
 
-    _require_activated(run)
+    _require_serving(run)
     if run.step_done(EVENT_RULES_STEP):
         return run.recorded_counts(EVENT_RULES_STEP), []
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
-    counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unresolved': 0}
+    mapped = _mapped_script_keys(run)
+    counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unresolved': 0, 'withdrawn': 0}
     warnings = []
     for entry in run.journal.get('event_rules', []):
         rule = EventRule.objects.filter(pk=entry['pk']).first()
         if rule is None:
             continue
         with transaction.atomic():
-            moved, counted, refusal = _repoint_action(rule, entry, resolved, plugin_types)
+            moved, counted, refusal = _repoint_action(rule, entry, resolved, plugin_types, mapped)
             if counted:
                 counts[counted] += 1
             if refusal:
-                counts['unresolved'] += 1
                 warnings.append(refusal)
             _repoint_sources(rule, entry, plugin_types, counts)
             # Only a fully moved rule: re-enabling one pointing at nothing would fail at dispatch.
@@ -107,8 +107,7 @@ def repoint_permissions(run):
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. A permission naming only the built-in feature is swapped in place, one that
     also names unrelated types keeps those and gains a sibling for the plugin, and one carrying
-    constraints is reported and left alone. Raises CutoverRefused until every migrated Project is
-    serving a revision.
+    constraints is reported and left alone. Raises CutoverRefused before activation.
     """
     from users.models import ObjectPermission
 
@@ -178,9 +177,8 @@ def repoint_job_history(run):
     Project is serving a revision.
     """
     from core.models import Job
-    from extras.models import Script
 
-    _require_activated(run)
+    _require_serving(run)
     if run.step_done(HISTORY_STEP):
         return run.recorded_counts(HISTORY_STEP), []
 
@@ -199,12 +197,10 @@ def repoint_job_history(run):
     # above moved everything that did. Scoped by object type rather than by key, since a job on a
     # built-in module can hold a key equal to a Script's and would otherwise be repointed at it.
     stranded = Job.objects.filter(object_type=legacy).values_list('object_id', flat=True).distinct()
-    # A class that left its file publishes nothing and never will, so no plugin row can ever take
-    # its history. Counting it as outstanding would hold the step open for good.
-    departed = set(Script.objects.filter(pk__in=list(stranded), is_executable=False).values_list('pk', flat=True))
+    mapped = _mapped_script_keys(run)
     for legacy_pk in stranded:
         counts['unresolved'] += 1
-        if legacy_pk in departed:
+        if legacy_pk not in mapped:
             warnings.append(
                 _(
                     'Job history for built-in Custom Script {key} was left where it is, because that class '
@@ -245,11 +241,12 @@ def recreate_schedules(run):
     part of that a later run could still recover counts as outstanding, which leaves the step
     incomplete. Raises CutoverRefused until every migrated Project is serving a revision.
     """
-    _require_activated(run)
+    _require_serving(run)
     if run.step_done(SCHEDULES_STEP):
         return run.recorded_counts(SCHEDULES_STEP), []
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
+    mapped = _mapped_script_keys(run)
     recreated = run.journal.setdefault('recreated_schedules', {})
     counts = {'recreated': 0, 'skipped': 0, 'shifted': 0, 'outstanding': 0}
     warnings = []
@@ -269,11 +266,20 @@ def recreate_schedules(run):
         script = resolved.get(entry['legacy_script_pk'])
         if script is None:
             counts['skipped'] += 1
-            counts['outstanding'] += 1
+            if entry['legacy_script_pk'] in mapped:
+                counts['outstanding'] += 1
+                warnings.append(
+                    _(
+                        'Schedule "{name}" ran built-in Custom Script {key}, which no Custom Script '
+                        'resolves to, so it was not recreated.'
+                    ).format(name=entry['name'], key=entry['legacy_script_pk'])
+                )
+                continue
             warnings.append(
                 _(
-                    'Schedule "{name}" ran built-in Custom Script {key}, which no Custom Script resolves '
-                    'to, so it was not recreated.'
+                    'Schedule "{name}" ran built-in Custom Script {key}, whose class left its file, so no '
+                    'Custom Script will ever replace it and it was not recreated. Schedule it again by '
+                    'hand against whatever replaces it.'
                 ).format(name=entry['name'], key=entry['legacy_script_pk'])
             )
             continue
@@ -396,16 +402,30 @@ def _user(user_pk):
     return get_user_model().objects.filter(pk=user_pk).first() if user_pk else None
 
 
+def _mapped_script_keys(run):
+    """Return the built-in Script keys the frozen map covers, which is all any pass can resolve."""
+    # Everything else is a class that left its file. build_map excludes it and the map is frozen,
+    # so no repair and no re-run ever brings it back, and holding a step open for one would leave
+    # a migration that can never close.
+    return {entry['legacy_pk'] for entry in mapping.recorded(run)['scripts']}
+
+
 def _require_activated(run):
-    """Return the run, raising CutoverRefused unless every migrated Project is serving a revision."""
+    """Return the run, raising CutoverRefused unless activation has recorded its step on it."""
     cutover.require_staged(run)
     if not run.step_done(cutover.ACTIVATE_STEP):
         raise cutover.CutoverRefused(
             _('The staged Projects have not been activated yet, so there are no Custom Scripts to point at.')
         )
-    # All four passes take this, including permissions, which maps object types and needs no
-    # Custom Script row. They share one gate because they run inside one job that stops at the
-    # first refusal anyway, and every pass is re-runnable, so the cost is one more run.
+    return run
+
+
+def _require_serving(run):
+    """Return the run, raising CutoverRefused unless every migrated Project is serving a revision."""
+    _require_activated(run)
+    # Not taken by the permission pass, which maps object types and names no Custom Script. The
+    # fence withdrew every grant on the built-in feature, so blocking that pass over an unrelated
+    # Project would keep every non-superuser locked out of both sides until it was repaired.
     if outstanding := cutover.projects_not_serving(run):
         raise cutover.CutoverRefused(
             _(
@@ -427,7 +447,7 @@ def _plugin_types():
     return {label: ObjectType.objects.get_for_model(models[name]) for label, name in _TYPE_MAP.items()}
 
 
-def _repoint_action(rule, entry, resolved, plugin_types):
+def _repoint_action(rule, entry, resolved, plugin_types, mapped):
     """
     Point one rule's action at the plugin, writing nothing it cannot move.
 
@@ -438,18 +458,25 @@ def _repoint_action(rule, entry, resolved, plugin_types):
         return True, None, None
     script = resolved.get(entry['action_object_id'])
     if script is None:
+        if entry['action_object_id'] not in mapped:
+            refusal = _(
+                'Event rule "{name}" runs built-in Custom Script {key}, whose class left its file, so no '
+                'Custom Script will ever replace it and the rule was left withdrawn. Delete it, or point '
+                'it at a script yourself.'
+            ).format(name=entry['name'], key=entry['action_object_id'])
+            return False, 'withdrawn', refusal
         refusal = _(
             'Event rule "{name}" runs built-in Custom Script {key}, which no Custom Script resolves to, '
             'so it was left withdrawn.'
         ).format(name=entry['name'], key=entry['action_object_id'])
-        return False, None, refusal
+        return False, 'unresolved', refusal
     if script.is_retired:
         # The action refuses a retired script at save time, so this would raise rather than write.
         refusal = _(
             'Event rule "{name}" resolves to {script}, which is retired and can never run again, so the '
             'rule was left withdrawn.'
         ).format(name=entry['name'], script=script)
-        return False, None, refusal
+        return False, 'unresolved', refusal
     rule.action_type = ACTION_SLUG
     rule.action_object_type = plugin_types['extras.script']
     rule.action_object_id = script.pk
@@ -458,10 +485,11 @@ def _repoint_action(rule, entry, resolved, plugin_types):
     except ValidationError as invalid:
         # A rule can be invalid for reasons that predate this migration, an event type its own
         # plugin stopped registering being the likely one. One rule must not end the pass.
-        refusal = _('Event rule "{name}" cannot be saved, so it was left withdrawn: {errors}').format(
-            name=entry['name'], errors=invalid.messages
-        )
-        return False, None, refusal
+        refusal = _(
+            'Event rule "{name}" cannot be saved, so it was left withdrawn: {errors}. Correct or delete '
+            'the rule, then run this pass again.'
+        ).format(name=entry['name'], errors=invalid.messages)
+        return False, 'unresolved', refusal
     rule.save(update_fields=('action_type', 'action_object_type', 'action_object_id'))
     return True, 'actions', None
 

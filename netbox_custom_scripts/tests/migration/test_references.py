@@ -131,7 +131,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertNotIn(self.script_type.pk, types)
         # The unrelated type it also watched is untouched.
         self.assertIn(self.site_type.pk, types)
-        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1, 'unresolved': 0})
+        self.assertEqual(counts, {'actions': 1, 'sources': 1, 'restored': 1, 'unresolved': 0, 'withdrawn': 0})
 
     def test_a_rule_goes_back_into_service_in_the_state_it_was_captured_in(self):
         enabled = self.action_rule('enabled rule')
@@ -456,12 +456,11 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
 
-    def test_every_reference_pass_refuses_and_names_the_project(self):
+    def test_the_passes_that_name_a_script_refuse_and_name_the_project(self):
         self.cross_without_activating()
 
         for pass_function in (
             references.repoint_event_rules,
-            references.repoint_permissions,
             references.repoint_job_history,
             references.recreate_schedules,
         ):
@@ -469,6 +468,18 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
                 with self.assertRaises(cutover.CutoverRefused) as refusal:
                     pass_function(self.migration)
                 self.assertIn(self.broken.key, str(refusal.exception))
+
+    def test_the_permission_pass_proceeds_anyway(self):
+        # The one pass that must survive a Project it cannot serve, for the reason
+        # _require_serving gives.
+        self.permission()
+        self.cross_without_activating()
+
+        counts, _warnings = references.repoint_permissions(self.migration)
+
+        self.assertEqual(counts['swapped'], 1)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.PERMISSIONS_STEP))
 
     def test_it_proceeds_once_the_project_is_repaired(self):
         self.cross_without_activating()
@@ -506,6 +517,23 @@ class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
         rule.refresh_from_db()
         self.assertEqual(rule.action_type, references.ACTION_SLUG)
         self.assertEqual(rule.action_object_id, self.plugin_script().pk)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.EVENT_RULES_STEP))
+
+    def test_a_rule_naming_a_departed_class_does_not_hold_the_step_open(self):
+        # NetBox soft-deletes a class that left its file but still holds history, and build_map
+        # excludes it, so no re-run and no repair can ever resolve it.
+        departed = Script.objects.create(module=self.synced, name='Gone')
+        rule = self.action_rule(name='on gone')
+        EventRule.objects.filter(pk=rule.pk).update(action_object_id=departed.pk)
+        Script.objects.filter(pk=departed.pk).update(is_executable=False)
+        self.cross_over()
+
+        counts, warnings = references.repoint_event_rules(self.migration)
+
+        self.assertEqual(counts['withdrawn'], 1)
+        self.assertEqual(counts['unresolved'], 0)
+        self.assertTrue(any('left its file' in str(warning) for warning in warnings))
         self.migration.refresh_from_db()
         self.assertTrue(self.migration.step_done(references.EVENT_RULES_STEP))
 

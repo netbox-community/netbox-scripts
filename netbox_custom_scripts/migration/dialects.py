@@ -11,6 +11,7 @@ __all__ = (
     'UNPARSABLE',
     'classify',
     'defines_a_script',
+    'publishes',
 )
 
 NATIVE = 'native'
@@ -36,6 +37,14 @@ def classify(source):
     if imported & _LEGACY_NAMES:
         return LEGACY_IMPORT
     return NATIVE
+
+
+def publishes(scripts, source):
+    """Whether anything would publish from a module, given its built-in Script rows and its source."""
+    # Two signals, because neither alone is complete: the rows miss a class published through
+    # inheritance or script_order, and the source shape misses one the built-in feature recorded
+    # but this plugin's dialect does not name.
+    return any(script.is_executable for script in scripts) or defines_a_script(source)
 
 
 def defines_a_script(source):

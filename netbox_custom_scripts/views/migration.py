@@ -50,12 +50,16 @@ def _proposed_projects(job):
     return {entry['key']: entry for entry in entries if isinstance(entry, dict) and entry.get('key')}
 
 
-def _findings(job, level):
-    """Return the findings of one level that an inventory recorded."""
+def _findings(job, level, code=None):
+    """Return the findings of one level that an inventory recorded, narrowed to one code if given."""
     if not isinstance(getattr(job, 'data', None), dict):
         return []
     recorded = job.data.get('findings') or []
-    return [entry for entry in recorded if isinstance(entry, dict) and entry.get('level') == level]
+    return [
+        entry
+        for entry in recorded
+        if isinstance(entry, dict) and entry.get('level') == level and code in (None, entry.get('code'))
+    ]
 
 
 def _migration_rows(request, inventory_job, staging_job):
@@ -117,6 +121,7 @@ class MigrationView(BaseMigrationView):
         staged = bool(run and run.state == MigrationStateChoices.STAGING)
         # Read only where the button would otherwise render, because this reaches the built-in rows.
         unservable = cutover.unservable_projects(run) if staged else []
+        activated = bool(run and run.step_done(cutover.ACTIVATE_STEP))
         # Gated on the frozen map rather than on the step, because that is what the predicate
         # reads and a run without one would raise here instead of refusing further along.
         not_serving = cutover.projects_not_serving(run) if mapping.recorded(run) else []
@@ -130,7 +135,10 @@ class MigrationView(BaseMigrationView):
                 # Staging refuses on any of these, which is otherwise invisible until its Job fails.
                 'blocking_findings': _findings(inventory_job, plan.BLOCKING),
                 # Counted rather than listed: one entry per module, and an installation holds hundreds.
-                'warning_count': len(_findings(inventory_job, plan.WARNING)),
+                # By code, because the sentence it renders names the legacy authoring API and other
+                # warnings have nothing to do with v5.0.
+                'warning_count': len(_findings(inventory_job, plan.WARNING, code='legacy_import')),
+                'helper_count': len(_findings(inventory_job, plan.WARNING, code='publishes_nothing')),
                 'rows': _migration_rows(request, inventory_job, staging_job),
                 'run': run,
                 'cutover_job': _latest(MigrationCutoverJob),
@@ -151,7 +159,9 @@ class MigrationView(BaseMigrationView):
                 # Crossing with nothing to serve is not recoverable, so the page withholds it.
                 'can_cut_over': staged and not unservable,
                 'unservable_projects': unservable,
-                'projects_not_serving': not_serving,
+                # Only once activation has run, or this would name every Project the moment the
+                # fence captured and tell the operator to redo a step they have not taken yet.
+                'projects_not_serving': not_serving if activated else [],
             },
         )
 

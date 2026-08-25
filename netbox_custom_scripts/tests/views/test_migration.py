@@ -366,6 +366,20 @@ class MigrationTriggerTestCase(TestCase):
 
         self.assertIn('Repoint references', body)
 
+    def test_the_alert_is_silent_until_activation_has_run(self):
+        # Nothing serves yet and the page already offers Activate Projects, so naming them
+        # here would tell the operator to redo a step they have not taken.
+        self.grant('add', 'migrate')
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        self.legacy_module()
+        run.journal['mapping'] = mapping.build_map()
+        run.record_step(cutover.STEP, counts={})
+
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertNotIn('The reference pass will refuse', body)
+        self.assertIn('Activate Projects', body)
+
     def test_the_page_does_not_ask_before_the_fence_has_captured(self):
         # The predicate reads the frozen map, so asking without one would raise rather than refuse.
         self.grant('add', 'migrate')

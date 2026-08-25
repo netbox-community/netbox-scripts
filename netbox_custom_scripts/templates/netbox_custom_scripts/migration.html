@@ -21,6 +21,7 @@ Context:
   - references_job: The most recent reference pass Job, or None
   - references_queued: Whether a reference pass is already under way
   - can_repoint:    Whether every migrated Project serves, so a reference has a row to name
+  - projects_not_serving: The migrated Projects the reference pass would refuse over, after activation
   - cleanup_job:    The most recent cleanup Job, or None
   - cleanup_queued: Whether a cleanup is already under way
   - can_clean_up:   Whether the Job history has moved, which is what deletion waits for
@@ -151,6 +152,16 @@ Context:
                 One module imports the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by it.
               {% plural %}
                 {{ total }} modules import the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by them.
+              {% endblocktrans %}
+              {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
+          {% if helper_count %}
+            <p class="text-secondary mt-3">
+              {% blocktrans count total=helper_count %}
+                One module publishes no Custom Script, so it migrates as a helper file rather than an entrypoint.
+              {% plural %}
+                {{ total }} modules publish no Custom Script, so they migrate as helper files rather than entrypoints.
               {% endblocktrans %}
               {% trans "The inventory names each one." %}
             </p>

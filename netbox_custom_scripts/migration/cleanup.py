@@ -118,13 +118,13 @@ def _refusal_for(module, references, stranded):
     if references['live_script_jobs']:
         return False, _(
             'Built-in script module {name} has a Script that still holds Job history the reference pass '
-            'did not move. Run that pass again. If this module still blocks, that history arrived after '
-            'the pass and has to be moved by hand.'
+            'did not move. Run that pass again. If this module still blocks, that history was created '
+            'after the pass ran and only deleting those jobs would release it.'
         ).format(name=name)
     if references['event_rules']:
         return False, _(
             'Built-in script module {name} is still named by an Event Rule the reference pass did not '
             'move. Run that pass again. If this module still blocks, that rule was made after the pass '
-            'and has to be repointed by hand.'
+            'ran and has to be repointed or deleted by hand.'
         ).format(name=name)
     return False, None

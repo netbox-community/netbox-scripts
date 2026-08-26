@@ -286,6 +286,36 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
 
+    def test_a_module_whose_only_replacement_is_retired_is_not_deleted(self):
+        # An older revision was activated, or a sync dropped the class, so the plugin row is retired.
+        run = self.repointed()
+        script = self.plugin_script()
+        script.is_retired = True
+        script.save(update_fields=('is_retired',))
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 1)
+        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        self.assertTrue(any('retired' in warning for warning in warnings))
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
+
+    def test_a_retired_replacement_clears_once_the_project_republishes(self):
+        # synchronize_scripts writes is_retired False on every republish, so this is recoverable.
+        run = self.repointed()
+        script = self.plugin_script()
+        script.is_retired = True
+        script.save(update_fields=('is_retired',))
+        cleanup.retire_legacy(run)
+
+        script.is_retired = False
+        script.save(update_fields=('is_retired',))
+        counts, _unused = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 0)
+        self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+
     def test_a_blocked_pass_stays_resumable(self):
         run = self.repointed()
         job = self.blocked_module(self.synced)

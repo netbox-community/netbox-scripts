@@ -79,12 +79,18 @@ def _delete_modules(run):
                 '{keys}. Activate them, then run this again.'
             ).format(keys=', '.join(sorted(waiting)))
         )
-    _resolved, unresolved = mapping.resolve_scripts(plugin_map)
-    stranded = {entry['legacy_module_pk'] for entry in unresolved}
+    resolved, unresolved = mapping.resolve_scripts(plugin_map)
+    stranded = {entry['legacy_module_pk']: 'unresolved' for entry in unresolved}
+    for entry in plugin_map['scripts']:
+        # A retired row names the identity but the plugin refuses to run it, so deleting the
+        # built-in module would take the last runnable copy of that script with it.
+        row = resolved.get(entry['legacy_pk'])
+        if row is not None and row.is_retired:
+            stranded.setdefault(entry['legacy_module_pk'], 'retired')
     # Instance by instance: QuerySet.delete() skips the delete() that removes the stored file.
     for module in legacy_source.legacy_modules_by_pk(keys):
         references = legacy_source.module_references(module)
-        permanent, held = _refusal_for(module, references, module.pk in stranded)
+        permanent, held = _refusal_for(module, references, stranded.get(module.pk))
         if held:
             counts['retained' if permanent else 'blocked'] += 1
             warnings.append(held)
@@ -96,7 +102,11 @@ def _delete_modules(run):
 
 
 def _refusal_for(module, references, stranded):
-    """Return whether a refusal is permanent and why one module cannot be deleted, or (False, None)."""
+    """
+    Return whether a refusal is permanent and why one module cannot be deleted, or (False, None).
+
+    stranded is 'unresolved', 'retired' or None, naming what the module's classes resolve to.
+    """
     name = module.python_name
     # Permanent means no operator action clears it, so the run closes with the module in place.
     if references['module_jobs']:
@@ -109,11 +119,17 @@ def _refusal_for(module, references, stranded):
             'Built-in script module {name} holds Job history for a class that left the file, which no '
             'Custom Script replaces, so it stays where it is.'
         ).format(name=name)
-    # Ahead of the two history refusals it can accompany, because it is the one naming an action.
-    if stranded:
+    # Ahead of the two history refusals these can accompany, since they are the ones naming an action.
+    if stranded == 'unresolved':
         return False, _(
             'Built-in script module {name} publishes a class no Custom Script resolves to, so deleting it '
             'would leave that script unable to run at all. Fix the source and stage it again.'
+        ).format(name=name)
+    if stranded == 'retired':
+        return False, _(
+            'Built-in script module {name} publishes a class whose Custom Script is retired, so deleting it '
+            'would leave that script unable to run at all. Activate a revision that publishes it, then run '
+            'this again.'
         ).format(name=name)
     if references['live_script_jobs']:
         return False, _(

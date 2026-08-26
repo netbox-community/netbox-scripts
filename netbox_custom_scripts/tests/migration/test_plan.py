@@ -11,7 +11,7 @@ from django.utils import timezone
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.models import DataFile, DataSource
 from extras.models import ScriptModule
-from netbox_custom_scripts.choices import ProjectSourceTypeChoices
+from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from netbox_custom_scripts.jobs import MigrationInventoryJob
 from netbox_custom_scripts.migration import dialects, plan, source
 from netbox_custom_scripts.migration.source import LegacyModule, LegacyScript
@@ -382,3 +382,69 @@ class MigrationInventoryJobTestCase(TestCase):
             {ProjectSourceTypeChoices.DATA_SOURCE, ProjectSourceTypeChoices.UPLOAD},
         )
         self.assertFalse(CustomScriptProject.objects.exists())
+
+
+class ExistingProjectTestCase(TestCase):
+    """The inventory reads the Custom Script Projects an operator already made, which staging reuses."""
+
+    def setUp(self):
+        self.source = DataSource.objects.create(name='Repo', type='local', source_url='file:///tmp/repo')
+
+    def legacy_module(self, path):
+        """Create one built-in script module fed by a file on the source."""
+        data_file = DataFile.objects.create(
+            source=self.source,
+            path=path,
+            size=len(NATIVE_SCRIPT),
+            hash=hashlib.sha256(NATIVE_SCRIPT).hexdigest(),
+            data=NATIVE_SCRIPT,
+            last_updated=timezone.now(),
+        )
+        module = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file)
+        module.full_clean()
+        module.save()
+        return module
+
+    def project(self, data_path, policy):
+        """Create a Custom Script Project an operator would have made by hand."""
+        return CustomScriptProject.objects.create(
+            name=f'existing {data_path}',
+            key=f'existing-{data_path.replace("/", "-")}',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.source,
+            data_path=data_path,
+            activation_policy=policy,
+        )
+
+    @staticmethod
+    def codes(report):
+        return {finding['code'] for finding in report['findings']}
+
+    def test_a_reused_project_on_an_automatic_policy_blocks(self):
+        # Staging would declare on it and validation would then put it into service.
+        self.legacy_module('scripts/deploy.py')
+        self.project('scripts', ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
+        report = plan.build_report()
+
+        self.assertIn('project_not_manual', self.codes(report))
+        self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_a_project_overlapping_the_proposed_path_blocks(self):
+        # The model refuses two overlapping data paths on one source, so staging would raise.
+        self.legacy_module('scripts/deploy/run.py')
+        self.project('scripts', ActivationPolicyChoices.MANUAL)
+
+        report = plan.build_report()
+
+        self.assertIn('project_conflict', self.codes(report))
+        self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_a_reused_project_on_the_manual_policy_is_the_supported_case(self):
+        self.legacy_module('scripts/deploy.py')
+        self.project('scripts', ActivationPolicyChoices.MANUAL)
+
+        report = plan.build_report()
+
+        self.assertNotIn('project_not_manual', self.codes(report))
+        self.assertNotIn('project_conflict', self.codes(report))

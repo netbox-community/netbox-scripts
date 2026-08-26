@@ -1,7 +1,8 @@
 """Create the Projects a migration plan proposes and stage their content."""
 
-from django.core.exceptions import SuspiciousOperation
+from django.core.exceptions import SuspiciousOperation, ValidationError
 from django.db import router, transaction
+from django.utils.translation import gettext_lazy as _
 
 from .. import ingestion
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
@@ -20,15 +21,21 @@ def stage(proposed, modules):
     Idempotent by identity: a Data Source Project resolves on the pair its unique constraint
     already covers, an uploaded one on its deterministic key, and identical content resolves to
     the revision that already holds it. Only a member that would publish a Script is declared,
-    the rest are staged as helper files. Returns one result mapping per Project.
+    the rest are staged as helper files. Returns one result mapping per Project, carrying
+    'refused' and its message in place of a revision where the model would not accept one.
     """
     by_pk = {module.pk: module for module in modules}
     results = []
     for project_plan in proposed:
-        project, created = _project_for(project_plan)
-        members = [by_pk[pk] for pk in project_plan.module_pks]
-        _declare(project, members)
-        staged = _stage_content(project, members)
+        try:
+            project, created = _project_for(project_plan)
+            members = [by_pk[pk] for pk in project_plan.module_pks]
+            _declare(project, members)
+            staged = _stage_content(project, members)
+        except ValidationError as error:
+            # One Project the model refuses must not cost an operator the rest of the pass.
+            results.append({'key': project_plan.key, 'created': False, 'refused': error.messages[0]})
+            continue
         results.append(
             {
                 'key': project.key,
@@ -45,6 +52,14 @@ def _project_for(project_plan):
     """Return the Project one plan entry resolves to, and whether this call created it."""
     existing = _existing(project_plan)
     if existing is not None:
+        if existing.activation_policy != ActivationPolicyChoices.MANUAL:
+            # The inventory blocks this, so reaching it means the Project appeared since.
+            raise ValidationError(
+                _(
+                    'Custom Script Project "{name}" is on the {policy} activation policy, so staging onto '
+                    'it would put the built-in modules into service. Set it to Manual, then run this again.'
+                ).format(name=existing.name, policy=dict(ActivationPolicyChoices)[existing.activation_policy])
+            )
         return existing, False
     project = CustomScriptProject(
         name=project_plan.name,

@@ -1,6 +1,7 @@
 import hashlib
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import storages
@@ -117,6 +118,61 @@ class LegacySourceMixin:
 
     def project_for(self, source_type):
         return CustomScriptProject.objects.get(source_type=source_type)
+
+
+class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
+    """A Project an operator already made is reused only where reusing it changes nothing."""
+
+    def existing(self, data_path, policy):
+        """Create a Custom Script Project on the same Data Source as the built-in content."""
+        return CustomScriptProject.objects.create(
+            name=f'existing {data_path}',
+            key=f'existing-{data_path.replace("/", "-")}',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.data_source,
+            data_path=data_path,
+            activation_policy=policy,
+        )
+
+    def test_a_path_overlapping_an_existing_project_is_reported_not_raised(self):
+        # The model refuses the pair, and the pass has to survive to stage its other Projects.
+        self.existing('automation/deploy', ActivationPolicyChoices.MANUAL)
+
+        results = self.stage_all()
+
+        refused = [result for result in results if result.get('refused')]
+        self.assertEqual(len(refused), 1)
+        self.assertIn('overlaps', refused[0]['refused'])
+        self.assertTrue(CustomScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.UPLOAD).exists())
+
+    def test_a_reused_project_on_an_automatic_policy_is_refused_before_it_activates(self):
+        # An exact path match, so staging reuses this Project rather than creating its own.
+        self.existing('automation', ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
+        results = self.stage_all()
+
+        refused = [result for result in results if result.get('refused')]
+        self.assertEqual(len(refused), 1)
+        for result in results:
+            if result.get('revision_pk'):
+                RevisionValidationJob.enqueue_validation(
+                    CustomScriptProjectRevision.objects.get(pk=result['revision_pk']), immediate=True
+                )
+        self.assertIsNone(CustomScriptProject.objects.get(data_path='automation').active_revision_id)
+
+    def test_the_job_reports_a_refusal_and_still_stages_the_rest(self):
+        # Reachable only when the Project appears after the inventory, so the gate is stubbed out.
+        self.existing('automation/deploy', ActivationPolicyChoices.MANUAL)
+
+        with mock.patch.object(plan, '_existing_project_findings', return_value=[]):
+            job = MigrationStagingJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('was not staged', messages)
+        self.assertIn('1 refused', messages)
+        self.assertTrue(CustomScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.UPLOAD).exists())
 
 
 class StageTestCase(LegacySourceMixin, TestCase):

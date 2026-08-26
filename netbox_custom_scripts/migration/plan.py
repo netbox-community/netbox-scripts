@@ -7,8 +7,9 @@ from dataclasses import asdict, dataclass
 from django.core.exceptions import SuspiciousOperation, ValidationError
 from django.utils.text import slugify
 
-from ..choices import ProjectSourceTypeChoices
+from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ..compat import MIGRATION_HINTS
+from ..models import CustomScriptProject
 from ..utils import data_source_relative_path, source_path_to_dotted_name
 from ..validators import data_paths_overlap
 from . import dialects
@@ -86,6 +87,8 @@ def build_report(modules=None, read=None):
         )
         findings.extend(module_findings)
     findings.extend(_root_findings(proposed))
+    if live:
+        findings.extend(_existing_project_findings(proposed))
     reports = legacy_source.legacy_report_count() if live else 0
     if reports:
         findings.append(
@@ -145,6 +148,61 @@ def _root_findings(proposed):
             }
         )
     return findings
+
+
+def _existing_project_findings(proposed):
+    """Return a blocking finding for each proposal an existing Custom Script Project collides with."""
+    findings = []
+    for proposal in proposed:
+        for project in _colliding_projects(proposal):
+            if project.data_path == proposal.data_path or proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
+                if project.activation_policy != ActivationPolicyChoices.MANUAL:
+                    findings.append(_not_manual_finding(proposal, project))
+            else:
+                findings.append(_conflict_finding(proposal, project))
+    return findings
+
+
+def _colliding_projects(proposal):
+    """Return the existing Projects staging would reuse or be refused by for one proposal."""
+    if proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
+        return CustomScriptProject.objects.filter(key=proposal.key)
+    siblings = CustomScriptProject.objects.filter(
+        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+        data_source_id=proposal.data_source_id,
+    )
+    return [project for project in siblings if data_paths_overlap(project.data_path, proposal.data_path)]
+
+
+def _not_manual_finding(proposal, project):
+    """Return the finding for a Project staging would reuse under a policy that would activate it."""
+    label = dict(ActivationPolicyChoices)[project.activation_policy]
+    return {
+        'level': BLOCKING,
+        'code': 'project_not_manual',
+        'pk': None,
+        'path': proposal.data_path,
+        'message': (
+            f'Custom Script Project "{project.name}" already holds what project "{proposal.key}" would '
+            f'stage, and its activation policy is {label}. Staging would declare the built-in modules on '
+            f'it and validation would then put them into service. Set it to Manual, then run this again.'
+        ),
+    }
+
+
+def _conflict_finding(proposal, project):
+    """Return the finding for a Project whose data path the proposed one could not sit beside."""
+    return {
+        'level': BLOCKING,
+        'code': 'project_conflict',
+        'pk': None,
+        'path': proposal.data_path,
+        'message': (
+            f'Custom Script Project "{project.name}" holds {project.data_path or _ROOT_NAME}, which overlaps '
+            f'the {proposal.data_path or _ROOT_NAME} this migration proposes. One data source cannot carry '
+            f'two projects whose paths contain one another. Move or remove one of them, then run this again.'
+        ),
+    }
 
 
 def _status(findings):

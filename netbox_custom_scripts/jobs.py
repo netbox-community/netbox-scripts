@@ -691,7 +691,12 @@ class MigrationStagingJob(JobRunner):
         results = staging.stage(plan.group(modules), modules)
         self.job.data = {'projects': results}
         labels = dict(RevisionStatusChoices)
+        staged = [result for result in results if not result.get('refused')]
         for result in results:
+            if refusal := result.get('refused'):
+                # The pass is not failed over this: the inventory is the gate on a whole run.
+                self.logger.error(f'Custom Script Project {result["key"]} was not staged. {refusal}')
+                continue
             status = result['revision_status']
             # Ingestion queues validation for a materialized revision and nothing else, so any
             # other status is one the revision already held when content addressing found it.
@@ -704,10 +709,12 @@ class MigrationStagingJob(JobRunner):
                 f'{"Created" if result["created"] else "Reused"} project {result["key"]}, '
                 f'revision {result["revision_pk"]} {outcome}.'
             )
-        pending = sum(1 for result in results if result['revision_status'] == RevisionStatusChoices.MATERIALIZED)
+        pending = sum(1 for result in staged if result['revision_status'] == RevisionStatusChoices.MATERIALIZED)
+        refused = len(results) - len(staged)
         self.logger.info(
-            f'{len(results)} Custom Script Project(s) staged, none activated. '
-            f'{pending} awaiting a verdict, which each revision records.'
+            f'{len(staged)} Custom Script Project(s) staged, none activated. '
+            f'{pending} awaiting a verdict, which each revision records. '
+            f'{refused} refused, each named above.'
         )
 
 

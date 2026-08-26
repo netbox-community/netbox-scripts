@@ -28,6 +28,9 @@ __all__ = (
 # loader of a module PluginConfig is meant to resolve on its own.
 ACTION_SLUG = 'netbox_custom_scripts.run'
 
+# The one object type a rule's action may name and still resolve to a Custom Script.
+LEGACY_SCRIPT_TYPE = 'extras.script'
+
 EVENT_RULES_STEP = 'repoint_event_rules'
 PERMISSIONS_STEP = 'repoint_permissions'
 HISTORY_STEP = 'repoint_job_history'
@@ -459,6 +462,14 @@ def _repoint_action(rule, entry, resolved, plugin_types, mapped):
     """
     if entry['action_object_id'] is None or rule.action_type == ACTION_SLUG:
         return True, None, None
+    # .get, because a run captured before this key existed must keep its old behaviour.
+    if entry.get('action_object_type') not in (None, LEGACY_SCRIPT_TYPE):
+        refusal = _(
+            'Event rule "{name}" runs a built-in script module rather than a Script, which the '
+            'conversion to Script rows was meant to rewrite and did not. It was left withdrawn, so '
+            'repoint it or delete it by hand.'
+        ).format(name=entry['name'])
+        return False, 'withdrawn', refusal
     script = resolved.get(entry['action_object_id'])
     if script is None:
         if entry['action_object_id'] not in mapped:

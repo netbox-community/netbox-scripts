@@ -497,6 +497,27 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
 class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
     """A pass that left work unresolved must run again rather than return its old counts."""
 
+    def test_a_rule_whose_action_names_a_module_is_left_withdrawn(self):
+        # An installation upgraded through the Script model conversion can still hold one of these.
+        module_type = ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False)
+        rule = EventRule.objects.create(
+            name='on module change',
+            event_types=[OBJECT_UPDATED],
+            action_type='script',
+            action_object_type=module_type,
+            action_object_id=self.script.pk,
+        )
+        rule.object_types.add(self.site_type)
+        self.cross_over()
+
+        _counts, warnings = references.repoint_event_rules(self.migration)
+
+        rule.refresh_from_db()
+        self.assertFalse(rule.enabled)
+        self.assertEqual(rule.action_object_type_id, module_type.pk)
+        self.assertEqual(rule.action_object_id, self.script.pk)
+        self.assertTrue(any('on module change' in str(warning) for warning in warnings))
+
     def test_a_pass_that_leaves_work_open_still_records_its_warnings(self):
         # complete_step is skipped on this path, and it used to be the only writer of warnings.
         self.action_rule()

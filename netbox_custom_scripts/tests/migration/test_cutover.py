@@ -368,6 +368,18 @@ class CutoverTestCase(TestCase):
         self.assertFalse(AutoSyncRecord.objects.filter(object_type=concrete, object_id=self.module.pk).exists())
         self.assertEqual(counts['auto_sync'], 1)
 
+    def test_a_resumed_close_keeps_the_auto_sync_it_first_recorded(self):
+        # A pod killed between the deregistration and the step record replays _close, and the
+        # journal is the only record an operator restoring by hand would have.
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        recorded = self.migration.journal['auto_sync']
+        self.assertEqual(recorded, [self.module.pk])
+
+        cutover._close(self.migration.journal)
+
+        self.assertEqual(self.migration.journal['auto_sync'], recorded)
+
     def test_nothing_that_carries_history_is_deleted(self):
         completed = self.legacy_job(status=JobStatusChoices.STATUS_COMPLETED)
 

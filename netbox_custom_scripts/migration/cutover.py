@@ -6,6 +6,8 @@ import datetime
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from core.choices import JobStatusChoices
+
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
 from ..constants import PENDING_VERDICT_REVISION_STATUSES
@@ -135,8 +137,6 @@ def projects_not_serving(run):
 
 def _reason_for(newest):
     """Say why a project cannot serve, separating a verdict still coming from one that cannot come."""
-    from core.choices import JobStatusChoices
-
     status = dict(RevisionStatusChoices)[newest.status]
     if newest.status in PENDING_VERDICT_REVISION_STATUSES:
         # An environment failure reverts the revision and re-raises, leaving the job that failed it.
@@ -261,7 +261,7 @@ def _capture_permissions():
 
 def _capture_event_rules():
     """Record every Event Rule naming the built-in feature, as an action or as a source."""
-    legacy = {object_type.pk for object_type in legacy_source.legacy_object_types()}
+    legacy = {object_type.pk: _label(object_type) for object_type in legacy_source.legacy_object_types()}
     captured = []
     for rule in legacy_source.legacy_event_rules().prefetch_related('object_types'):
         sources = [_label(item) for item in rule.object_types.all() if item.pk in legacy]
@@ -274,6 +274,8 @@ def _capture_event_rules():
                 # Set only where the action names the built-in feature, which is independent of
                 # whether the rule also uses it as an event source.
                 'action_object_id': rule.action_object_id if rule.action_object_type_id in legacy else None,
+                # Script and ScriptModule are separate tables, so an id alone cannot say which.
+                'action_object_type': legacy.get(rule.action_object_type_id),
                 'legacy_source_types': sorted(sources),
             }
         )
@@ -424,8 +426,10 @@ def _drop_auto_sync(journal):
     # Scoped to script modules: a report is not this migration's, so its source keeps syncing.
     keys = legacy_source.legacy_script_module_keys()
     records = legacy_source.legacy_auto_sync_records(module_pks=keys)
-    # Journalled like the other three closures, so an operator restoring by hand has it to read.
-    journal['auto_sync'] = sorted(records.values_list('object_id', flat=True))
+    # Journalled like the other three closures, so an operator restoring by hand has it to read,
+    # and skipped once recorded because a replay reads the deregistered state back as the original.
+    if 'auto_sync' not in journal:
+        journal['auto_sync'] = sorted(records.values_list('object_id', flat=True))
     deleted, _by_model = records.delete()
     return deleted
 

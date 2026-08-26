@@ -12,6 +12,7 @@ from django.utils.text import slugify
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ..compat import MIGRATION_HINTS
+from ..ingestion import uploaded_source_path
 from ..models import CustomScriptProject
 from ..utils import data_source_relative_path, source_path_to_dotted_name
 from ..validators import data_paths_overlap
@@ -124,9 +125,10 @@ def _path(module):
 
 def _staged_path(module, proposal):
     """Return the project-relative path a module's content is staged at, or None if it is outside."""
-    # file_path is a basename for a synced module, so it is not what gets imported.
+    # file_path is a basename for a synced module, so it is not what gets imported. Both branches
+    # mirror staging exactly, which is what stops the inventory reporting a path ingestion refuses.
     if proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
-        return module.file_path
+        return uploaded_source_path(module.file_path)
     return data_source_relative_path(module.data_path, proposal.data_path)
 
 
@@ -297,18 +299,15 @@ def _inspect(module, read, proposal):
         return dialects.UNPARSABLE, [_finding(BLOCKING, 'source_unreadable', module, message)]
 
     dialect = dialects.classify(body)
-    findings = []
-    staged = _staged_path(module, proposal)
-    if staged is None:
-        message = f'{path} sits outside the {proposal.name} project directory, so it cannot be staged.'
-        findings.append(_finding(BLOCKING, 'not_importable', module, message))
-    else:
-        try:
-            source_path_to_dotted_name(staged)
-        except ValidationError as error:
-            message = f'{path} cannot be imported as {staged}: {error.messages[0]}'
-            findings.append(_finding(BLOCKING, 'not_importable', module, message))
-
+    findings = [
+        *_path_findings(module, proposal, path),
+        *_source_findings(module, body, dialect),
+        *_dialect_findings(module, dialect, path),
+    ]
+    if any(finding['level'] == BLOCKING for finding in findings):
+        # Its message says the module migrates as a helper file, which is untrue for one staging
+        # refuses outright, and the finding that refuses it is already in the report.
+        return dialect, findings
     if not dialects.publishes(module.scripts, body):
         # A helper and a module that stopped importing look identical from the built-in rows, so
         # the operator is told rather than either one being guessed at.
@@ -318,18 +317,37 @@ def _inspect(module, read, proposal):
             f'module still imports.'
         )
         findings.append(_finding(WARNING, 'publishes_nothing', module, message))
+    return dialect, findings
 
-    findings.extend(_source_findings(module, body, dialect))
 
+def _path_findings(module, proposal, path):
+    """Return the findings for where one module's content would be staged."""
+    try:
+        staged = _staged_path(module, proposal)
+    except ValidationError as error:
+        return [_finding(BLOCKING, 'not_importable', module, f'{path} cannot be staged: {error.messages[0]}')]
+    if staged is None:
+        message = f'{path} sits outside the {proposal.name} project directory, so it cannot be staged.'
+        return [_finding(BLOCKING, 'not_importable', module, message)]
+    try:
+        source_path_to_dotted_name(staged)
+    except ValidationError as error:
+        message = f'{path} cannot be imported as {staged}: {error.messages[0]}'
+        return [_finding(BLOCKING, 'not_importable', module, message)]
+    return []
+
+
+def _dialect_findings(module, dialect, path):
+    """Return the finding one module's authoring dialect produces, if it produces one."""
     if dialect == dialects.REPORT_STYLE:
         message = f'{path} is report-style. {MIGRATION_HINTS["extras.reports"]}'
-        findings.append(_finding(BLOCKING, 'report_style', module, message))
-    elif dialect == dialects.LEGACY_IMPORT:
+        return [_finding(BLOCKING, 'report_style', module, message)]
+    if dialect == dialects.LEGACY_IMPORT:
         message = f'{path} imports the legacy authoring API. {MIGRATION_HINTS["extras.scripts"]}'
-        findings.append(_finding(WARNING, 'legacy_import', module, message))
-    elif dialect == dialects.UNPARSABLE:
-        findings.append(_finding(BLOCKING, 'unparsable', module, f'{path} is not valid Python.'))
-    return dialect, findings
+        return [_finding(WARNING, 'legacy_import', module, message)]
+    if dialect == dialects.UNPARSABLE:
+        return [_finding(BLOCKING, 'unparsable', module, f'{path} is not valid Python.')]
+    return []
 
 
 def _source_findings(module, body, dialect):
@@ -355,8 +373,9 @@ def _source_findings(module, body, dialect):
             continue
         message = (
             f'{path} does not define {script.name}, which the built-in feature publishes from it. A '
-            f'Custom Script Project publishes only a class the module itself defines or names in '
-            f'script_order, so this one migrates with fewer scripts than the built-in feature had.'
+            f'Custom Script Project publishes only a class the module itself defines, so this one '
+            f'migrates with fewer scripts than the built-in feature had. Move the class into this '
+            f'file if it should keep publishing from here.'
         )
         findings.append(_finding(WARNING, 'script_not_defined_here', module, message))
     return findings
@@ -366,7 +385,7 @@ def _unresolvable_imports(tree):
     """Return the top-level names a module imports unguarded that nothing on this host provides."""
     guarded = _guarded_imports(tree)
     names = set()
-    for node in ast.walk(tree):
+    for node in _import_time_nodes(tree):
         if id(node) in guarded:
             continue
         if isinstance(node, ast.Import):
@@ -377,15 +396,29 @@ def _unresolvable_imports(tree):
     return {name for name in names if not _resolves(name)}
 
 
+def _import_time_nodes(tree):
+    """Yield the nodes a module evaluates when it is imported, skipping every function body."""
+    for child in ast.iter_child_nodes(tree):
+        # A name imported inside a function is resolved when that function runs, so its absence
+        # is a runtime failure for one script rather than a module that cannot load at all.
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        yield child
+        yield from _import_time_nodes(child)
+
+
 def _guarded_imports(tree):
     """Return the ids of import nodes whose module already handles them being absent."""
     guarded = set()
     for block in ast.walk(tree):
         if not isinstance(block, ast.Try) or not any(_handles_missing(h) for h in block.handlers):
             continue
-        for node in ast.walk(block):
-            if isinstance(node, ast.Import | ast.ImportFrom):
-                guarded.add(id(node))
+        # The body only: a name imported in the handler is what runs when the first one failed,
+        # and nothing catches that one.
+        for statement in block.body:
+            for node in ast.walk(statement):
+                if isinstance(node, ast.Import | ast.ImportFrom):
+                    guarded.add(id(node))
     return guarded
 
 

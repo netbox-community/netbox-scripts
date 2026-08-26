@@ -293,6 +293,34 @@ class FindingsTestCase(SimpleTestCase):
 
         self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
 
+    def test_an_import_inside_a_function_body_does_not_block(self):
+        # It runs when the method runs, not at import time, so the module imports and reaches a
+        # verdict exactly as it did under the built-in feature.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'from netbox_custom_scripts.scripts import Script\n\n\n'
+            b'class A(Script):\n    def run(self, data, commit):\n        import pynetbox_absent\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_fallback_import_in_the_handler_is_not_guarded(self):
+        # The try protects its own body. A name imported in the except clause has nothing
+        # catching it, so it is exactly the import that would fail at load time.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'try:\n    import json\nexcept ImportError:\n    import absent_fallback_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        blocking = [f for f in report['findings'] if f['code'] == 'import_unresolvable']
+        self.assertEqual(len(blocking), 1)
+        self.assertIn('absent_fallback_package', blocking[0]['message'])
+
     def test_a_relative_sibling_import_resolves(self):
         modules = [
             legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py', scripts=[(11, 'A')]),
@@ -319,6 +347,37 @@ class FindingsTestCase(SimpleTestCase):
         self.assertEqual(warnings[0]['pk'], 1)
         self.assertIn('Deploy', warnings[0]['message'])
         self.assertEqual(warnings[0]['level'], plan.WARNING)
+
+    def test_an_uploaded_path_the_store_refuses_blocks(self):
+        # The inventory has to apply staging's own path policy, or staging raises where it reported clean.
+        modules = [legacy(1, 'a' * 800 + '.py')]
+
+        report = plan.build_report(modules=modules, read=lambda module: b'X = 1\n')
+
+        blocking = [f for f in report['findings'] if f['code'] == 'not_importable']
+        self.assertEqual(len(blocking), 1)
+        self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_the_helper_warning_is_silent_where_a_module_is_refused_outright(self):
+        # Each of these bodies is refused outright, so none of them migrates at all.
+        cases = {
+            'report_style': b'class R:\n    def test_a(self):\n        pass\n',
+            'unparsable': b'def broken(\n',
+            'import_unresolvable': b'import nope_not_here_at_all\n',
+        }
+        for code, body in cases.items():
+            with self.subTest(code=code):
+                report = plan.build_report(modules=[legacy(1, 'a.py')], read=lambda module, body=body: body)
+                codes = [f['code'] for f in report['findings']]
+                self.assertIn(code, codes)
+                self.assertNotIn('publishes_nothing', codes)
+
+    def test_the_helper_warning_is_silent_for_a_path_that_cannot_be_staged(self):
+        report = plan.build_report(modules=[legacy(1, 'my-report.py')], read=lambda module: b'X = 1\n')
+
+        codes = [f['code'] for f in report['findings']]
+        self.assertIn('not_importable', codes)
+        self.assertNotIn('publishes_nothing', codes)
 
     def test_report_style_blocks_and_legacy_import_warns(self):
         modules = [legacy(1, 'r.py'), legacy(2, 'l.py')]

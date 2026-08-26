@@ -11,6 +11,7 @@ from django.utils import timezone
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.models import DataFile, DataSource
 from extras.models import Script, ScriptModule
+from netbox_custom_scripts import jobs as staging_module
 from netbox_custom_scripts.choices import (
     ActivationPolicyChoices,
     MigrationStateChoices,
@@ -252,6 +253,21 @@ class StageTestCase(LegacySourceMixin, TestCase):
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('is Valid, so no validation was queued', messages)
         self.assertIn('0 awaiting a verdict', messages)
+
+    def test_the_job_opens_its_run_under_the_lock(self):
+        # Watched from inside the lock: no run exists at the moment it is taken.
+        held = []
+        real = staging_module.migration_lock
+
+        def watched(*args, **kwargs):
+            held.append(MigrationRun.objects.count())
+            return real(*args, **kwargs)
+
+        with mock.patch.object(staging_module, 'migration_lock', watched):
+            MigrationStagingJob.enqueue(immediate=True)
+
+        self.assertEqual(held, [0])
+        self.assertEqual(MigrationRun.objects.count(), 1)
 
     def test_the_job_refuses_to_stage_when_a_finding_blocks(self):
         # A hyphenated name is not a Python identifier, so nothing could ever import it.

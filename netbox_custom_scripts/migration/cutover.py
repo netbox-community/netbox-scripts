@@ -224,15 +224,16 @@ def _capture(run):
     # Skipped rather than refreshed: a second capture would read the closed state back as the original.
     warnings = []
     journal = run.journal
+    entries = {}
     if 'permissions' not in journal:
-        journal['permissions'] = _capture_permissions()
+        entries['permissions'] = _capture_permissions()
     if 'event_rules' not in journal:
-        journal['event_rules'] = _capture_event_rules()
+        entries['event_rules'] = _capture_event_rules()
     if 'schedules' not in journal:
-        journal['schedules'], warnings = _capture_schedules()
+        entries['schedules'], warnings = _capture_schedules()
     if 'mapping' not in journal:
-        journal['mapping'] = mapping.build_map()
-    run.save(update_fields=('journal', 'last_updated'))
+        entries['mapping'] = mapping.build_map()
+    run.record_journal(**entries)
     return warnings
 
 

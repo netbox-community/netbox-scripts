@@ -16,6 +16,7 @@ from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionSta
 from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_JOB_TIMEOUT
 from .execution import ScriptNotExecutableError, run_script
 from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
+from .models.migration import migration_lock
 from .runtime.exceptions import (
     DiscoveryError,
     EntrypointImportError,
@@ -682,9 +683,11 @@ class MigrationStagingJob(JobRunner):
             self.logger.error('Refusing to stage anything. Resolve every blocking finding above, then run this again.')
             raise JobFailed()
 
+        with migration_lock():
+            # Nothing in the schema stops a second run, so the check and the open share a lock.
+            run = MigrationRun.current() or MigrationRun.start(user=self.job.user)
         # The state moves before the work, not after, because a pass that fails partway has still
         # copied source into Projects, which is what the staging state means.
-        run = run or MigrationRun.start(user=self.job.user)
         if run.state == MigrationStateChoices.LEGACY:
             run.advance(MigrationStateChoices.STAGING)
 

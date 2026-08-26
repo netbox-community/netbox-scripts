@@ -1,9 +1,11 @@
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.db import DEFAULT_DB_ALIAS, connections
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
 from netbox_custom_scripts.choices import MigrationStateChoices
 from netbox_custom_scripts.models import MigrationRun
+from netbox_custom_scripts.models.migration import MIGRATION_LOCK_KEY, MIGRATION_LOCK_NAMESPACE, migration_lock
 
 FORWARD = (
     MigrationStateChoices.LEGACY,
@@ -148,6 +150,28 @@ class MigrationRunTestCase(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.warnings, ['one module is blocked', 'and another'])
 
+    def test_a_step_recorded_from_a_stale_object_keeps_the_other(self):
+        # Two passes can hold the same row as two Python objects, and the journal is one column,
+        # so the second save used to write a dict that never contained the first step.
+        run = MigrationRun.objects.create()
+        stale = MigrationRun.objects.get(pk=run.pk)
+
+        run.record_step('cutover')
+        stale.record_step('activate')
+
+        run.refresh_from_db()
+        self.assertEqual(sorted(run.journal['steps']), ['activate', 'cutover'])
+
+    def test_warnings_recorded_from_a_stale_object_keep_the_others(self):
+        run = MigrationRun.objects.create()
+        stale = MigrationRun.objects.get(pk=run.pk)
+
+        run.record_warnings(['from the first pass'])
+        stale.record_warnings(['from the second pass'])
+
+        run.refresh_from_db()
+        self.assertEqual(sorted(run.warnings), ['from the first pass', 'from the second pass'])
+
     def test_recording_a_second_step_keeps_the_first(self):
         run = MigrationRun.objects.create()
 
@@ -156,3 +180,52 @@ class MigrationRunTestCase(TestCase):
 
         run.refresh_from_db()
         self.assertEqual(sorted(run.journal['steps']), ['activate', 'cutover'])
+
+
+class MigrationLockTestCase(TransactionTestCase):
+    """
+    The run lock, proved in two halves against a genuinely separate session.
+
+    TransactionTestCase, because a session-level advisory lock is only meaningful against
+    another connection, and a TestCase would hide every write inside one that never commits.
+    Racing threads are deliberately not used: they cannot be made deterministic.
+    """
+
+    @staticmethod
+    def other_session_can_lock():
+        """Report whether a separate session could take the run lock right now."""
+        connection = connections.create_connection(DEFAULT_DB_ALIAS)
+        connection.ensure_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT pg_try_advisory_lock(%s, %s)', (MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY))
+                acquired = cursor.fetchone()[0]
+                if acquired:
+                    cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY))
+            return acquired
+        finally:
+            connection.close()
+
+    def test_the_lock_excludes_another_session_and_releases(self):
+        self.assertTrue(self.other_session_can_lock())
+
+        with migration_lock():
+            self.assertFalse(self.other_session_can_lock())
+
+        self.assertTrue(self.other_session_can_lock())
+
+    def test_the_lock_is_released_when_the_block_raises(self):
+        # It is a session lock, so a rollback does not carry it away and the release has to run.
+        with self.assertRaises(RuntimeError), migration_lock():
+            raise RuntimeError('boom')
+
+        self.assertTrue(self.other_session_can_lock())
+
+    def test_it_nests_without_deadlocking(self):
+        # PostgreSQL counts advisory locks, so a nested acquisition needs its own release.
+        with migration_lock():
+            with migration_lock():
+                self.assertFalse(self.other_session_can_lock())
+            self.assertFalse(self.other_session_can_lock())
+
+        self.assertTrue(self.other_session_can_lock())

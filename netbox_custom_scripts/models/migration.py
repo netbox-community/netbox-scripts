@@ -1,6 +1,8 @@
+from contextlib import contextmanager
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import DEFAULT_DB_ALIAS, connections, models
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -8,8 +10,35 @@ from django.utils.translation import gettext_lazy as _
 from netbox.models import ChangeLoggedModel
 
 from ..choices import MigrationStateChoices
+from ..storage.locks import ADVISORY_LOCK_NAMESPACE
 
-__all__ = ('MigrationRun',)
+__all__ = ('MigrationRun', 'migration_lock')
+
+# A namespace of its own, one above the project keyspace, so a key derived from a storage_key
+# can never collide with this fixed one.
+MIGRATION_LOCK_NAMESPACE = ADVISORY_LOCK_NAMESPACE + 1
+# There is at most one open migration, so the lock is on the concept rather than on a row.
+MIGRATION_LOCK_KEY = 1
+
+
+@contextmanager
+def migration_lock(*, using=DEFAULT_DB_ALIAS):
+    """
+    Hold the serialization lock for the migration run row and its journal.
+
+    Acquisition waits for as long as another holder keeps it. The release runs even when the
+    block raised. Both consequences storage/locks.py documents apply here unchanged.
+    """
+    # Not in storage/locks.py, whose lock is keyed per project and scoped to stored content,
+    # while this one serializes a database row no project owns.
+    with connections[using].cursor() as cursor:
+        cursor.execute('SELECT pg_advisory_lock(%s, %s)', (MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY))
+    try:
+        yield
+    finally:
+        with connections[using].cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY))
+
 
 # The only order a run may move through, one step at a time. A run in the last state is closed.
 _STATE_ORDER = (
@@ -173,24 +202,42 @@ class MigrationRun(ChangeLoggedModel):
             self.completed = timezone.now()
         self.save(update_fields=('state', 'cutover_started', 'completed', 'last_updated'))
 
+    def record_journal(self, **entries):
+        """Record journal entries, keeping whatever else the row holds."""
+        with migration_lock():
+            stored = self._stored('journal') or {}
+            self.journal = {**stored, **self.journal, **entries}
+            self.save(update_fields=('journal', 'last_updated'))
+
     def record_step(self, name, **detail):
         """Mark one step complete in the journal, carrying whatever detail a resume needs."""
-        steps = self.journal.setdefault('steps', {})
-        steps[name] = {'completed': timezone.now().isoformat(), **detail}
-        self.save(update_fields=('journal', 'last_updated'))
+        with migration_lock():
+            # Merged rather than replaced: the journal is one column, so writing this object's
+            # copy would drop what another pass recorded, and reloading it would drop what this
+            # one has not saved yet. A caller's own keys win, and steps take both sides.
+            stored = self._stored('journal') or {}
+            steps = {**stored.get('steps', {}), **self.journal.get('steps', {})}
+            steps[name] = {'completed': timezone.now().isoformat(), **detail}
+            self.journal = {**stored, **self.journal, 'steps': steps}
+            self.save(update_fields=('journal', 'last_updated'))
 
     def record_warnings(self, warnings):
         """Record warnings on the run without marking any step complete, ignoring repeats."""
-        # Every pass that leaves work outstanding is re-runnable and restates what it left, so
-        # without this the list would grow one copy of each message per attempt.
-        fresh = []
-        for message in map(str, warnings):
-            if message not in self.warnings and message not in fresh:
-                fresh.append(message)
-        if not fresh:
-            return
-        self.warnings = [*self.warnings, *fresh]
-        self.save(update_fields=('warnings', 'last_updated'))
+        with migration_lock():
+            stored = self._stored('warnings') or []
+            merged = list(stored)
+            # Every pass that leaves work outstanding is re-runnable and restates what it left,
+            # so without this the list would grow one copy of each message per attempt.
+            for message in [*self.warnings, *map(str, warnings)]:
+                if message not in merged:
+                    merged.append(message)
+            self.warnings = merged
+            if merged != stored:
+                self.save(update_fields=('warnings', 'last_updated'))
+
+    def _stored(self, field):
+        """Return one field as the database currently holds it, without disturbing this object."""
+        return type(self).objects.filter(pk=self.pk).values_list(field, flat=True).first()
 
     def complete_step(self, name, counts, warnings=()):
         """Record one step's warnings on the run, then mark it complete with its counts."""

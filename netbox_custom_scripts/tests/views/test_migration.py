@@ -12,7 +12,11 @@ from django.urls import reverse
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.models import ScriptModule
-from netbox_custom_scripts.choices import MigrationStateChoices, RevisionStatusChoices
+from netbox_custom_scripts.choices import (
+    MigrationStateChoices,
+    ProjectSourceTypeChoices,
+    RevisionStatusChoices,
+)
 from netbox_custom_scripts.jobs import (
     MigrationActivationJob,
     MigrationCleanupJob,
@@ -329,6 +333,10 @@ class MigrationTriggerTestCase(TestCase):
         run = self.open_run(MigrationStateChoices.CUTOVER)
         self.legacy_module()
         run.journal['mapping'] = mapping.build_map()
+        # The fence refuses unless every mapped Project was staged, so one that crossed leaves
+        # the rows behind, serving nothing until an activation succeeds.
+        for key in mapping.project_keys(run.journal['mapping']):
+            CustomScriptProject.objects.create(name=key, key=key, source_type=ProjectSourceTypeChoices.UPLOAD)
         run.record_step(cutover.STEP, counts={})
         run.record_step(cutover.ACTIVATE_STEP, projects=[])
         return run
@@ -356,6 +364,16 @@ class MigrationTriggerTestCase(TestCase):
         self.assertNotIn('Repoint references', body)
         for key in expected:
             self.assertIn(key, body)
+
+    def test_the_references_button_returns_once_a_refused_project_is_deleted(self):
+        # Deleting it is the operator saying they do not want it, which must not wedge the rest.
+        self.grant('add', 'migrate')
+        run = self.staged_fence()
+        self.assertNotIn('Repoint references', self.client.get(self.url('migration')).content.decode())
+
+        CustomScriptProject.objects.filter(key__in=mapping.project_keys(run.journal['mapping'])).delete()
+
+        self.assertIn('Repoint references', self.client.get(self.url('migration')).content.decode())
 
     def test_the_references_button_returns_once_every_project_serves(self):
         self.grant('add', 'migrate')

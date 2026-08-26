@@ -421,7 +421,7 @@ def _require_activated(run):
 
 
 def _require_serving(run):
-    """Return the run, raising CutoverRefused unless every migrated Project is serving a revision."""
+    """Return the run, raising CutoverRefused unless every migrated Project still here is serving."""
     _require_activated(run)
     # Not taken by the permission pass, which maps object types and names no Custom Script. The
     # fence withdrew every grant on the built-in feature, so blocking that pass over an unrelated

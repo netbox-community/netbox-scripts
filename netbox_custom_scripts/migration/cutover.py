@@ -28,8 +28,7 @@ __all__ = (
 STEP = 'cutover'
 ACTIVATE_STEP = 'activate'
 
-# A validation error reaches an operator through a refusal rendered on the Migration page,
-# so it is truncated rather than allowed to fill it.
+# A Job error can be a whole traceback, and this one renders inside a page.
 MAX_REFUSAL_ERROR_CHARS = 200
 
 # Everything activation can refuse with. One project failing must leave the rest to activate, so
@@ -126,13 +125,12 @@ def unservable_projects(run):
 
 
 def projects_not_serving(run):
-    """Return the mapped Project keys serving no revision, empty once every one of them is."""
+    """Return the mapped Project keys whose row still exists and serves no revision."""
     # A module deleted since the fence must not change which Projects this covers.
     keys = mapping.project_keys(mapping.recorded(run))
-    serving = set(
-        CustomScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).values_list('key', flat=True)
-    )
-    return [key for key in keys if key not in serving]
+    rows = CustomScriptProject.objects.filter(key__in=keys).values_list('key', 'active_revision_id')
+    # Absent is the operator's call, not outstanding work, so only a row that exists holds the gate.
+    return sorted(key for key, active_revision_id in rows if active_revision_id is None)
 
 
 def _reason_for(newest):
@@ -141,9 +139,7 @@ def _reason_for(newest):
 
     status = dict(RevisionStatusChoices)[newest.status]
     if newest.status in PENDING_VERDICT_REVISION_STATUSES:
-        # Validation reverts the revision to its pending status and re-raises on an environment
-        # failure, keeping the job that failed it. That job is the only thing telling a verdict
-        # nobody has reached yet from one no amount of waiting will produce.
+        # An environment failure reverts the revision and re-raises, leaving the job that failed it.
         job = newest.validation_job
         if job is not None and job.status in JobStatusChoices.TERMINAL_STATE_CHOICES:
             return _('cannot be validated at all: {error}').format(error=_error_text(job))

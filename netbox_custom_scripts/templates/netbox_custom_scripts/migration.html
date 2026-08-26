@@ -20,8 +20,8 @@ Context:
   - can_activate:   Whether the fence has been crossed, which is activation's only precondition
   - references_job: The most recent reference pass Job, or None
   - references_queued: Whether a reference pass is already under way
-  - can_repoint:    Whether every migrated Project serves, so a reference has a row to name
-  - projects_not_serving: The migrated Projects the reference pass would refuse over, after activation
+  - can_repoint:    Whether every migrated Project that still exists serves, so a reference has a row to name
+  - projects_not_serving: The migrated Projects that exist and serve nothing, which a reference pass would refuse over
   - cleanup_job:    The most recent cleanup Job, or None
   - cleanup_queued: Whether a cleanup is already under way
   - can_clean_up:   Whether the Job history has moved, which is what deletion waits for

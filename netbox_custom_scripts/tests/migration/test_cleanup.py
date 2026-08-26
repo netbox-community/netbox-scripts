@@ -188,6 +188,20 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
 
+    def test_a_deleted_project_is_refused_per_module_rather_than_counted_unserved(self):
+        # One migrated Project is gone, so nothing resolves the built-in classes it replaced.
+        run = self.repointed()
+        CustomScriptProject.objects.get(key__startswith='automation').delete()
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['unserved'], 0)
+        self.assertEqual(counts['blocked'], 1)
+        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        self.assertTrue(any('resolves to' in warning for warning in warnings))
+        # The Project that is still serving is unaffected by its neighbour going away.
+        self.assertFalse(ScriptModule.objects.filter(pk=self.uploaded.pk).exists())
+
     def test_the_plugin_still_serves_what_the_built_in_feature_did(self):
         run = self.repointed()
         script = self.plugin_script()

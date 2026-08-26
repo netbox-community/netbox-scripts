@@ -496,7 +496,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
             self.assertNotIn('no valid revision', entry['reason'])
 
     def test_a_revision_whose_validation_job_failed_names_the_failure(self):
-        # The dead end F-50 names: no verdict is ever recorded, so waiting cannot help.
+        # No verdict is ever recorded here, so waiting for one is a dead end.
         self.stage_all()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         revision = project.revisions.order_by('-created').first()
@@ -537,6 +537,30 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         project.refresh_from_db()
         self.assertNotEqual(project.active_revision_id, project.revisions.order_by('-created').first().pk)
         self.assertEqual(cutover.unservable_projects(self.migration), [])
+
+    def test_a_project_deleted_after_the_fence_leaves_the_serving_gate(self):
+        # The operator deletes one migrated Project after activation put both into service.
+        self.stage_and_validate()
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        cutover.activate_staged(self.migration)
+        self.assertEqual(cutover.projects_not_serving(self.migration), [])
+
+        self.project_for(ProjectSourceTypeChoices.UPLOAD).delete()
+
+        self.assertEqual(cutover.projects_not_serving(self.migration), [])
+
+    def test_a_project_that_exists_and_serves_nothing_still_holds_the_gate(self):
+        # The narrowing above must not swallow the case the gate exists for.
+        self.stage_and_validate()
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        cutover.activate_staged(self.migration)
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        project.active_revision = None
+        project.save()
+
+        self.assertEqual(cutover.projects_not_serving(self.migration), [project.key])
 
     def test_a_module_staging_never_covered_stops_the_fence(self):
         self.stage_and_validate()

@@ -28,6 +28,10 @@ __all__ = (
 STEP = 'cutover'
 ACTIVATE_STEP = 'activate'
 
+# A validation error reaches an operator through a refusal rendered on the Migration page,
+# so it is truncated rather than allowed to fill it.
+MAX_REFUSAL_ERROR_CHARS = 200
+
 # Everything activation can refuse with. One project failing must leave the rest to activate, so
 # these are recorded as an outcome rather than allowed to end the pass.
 _ACTIVATION_FAILURES = (ActivationError, RevisionCorruptError, StorageError, OSError)
@@ -97,7 +101,9 @@ def unservable_projects(run):
     keys = mapping.project_keys(mapping.build_map())
     projects = {project.key: project for project in CustomScriptProject.objects.filter(key__in=keys)}
     by_project = {}
-    columns = CustomScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created')
+    columns = CustomScriptProjectRevision.objects.select_related('validation_job').only(
+        'pk', 'project_id', 'status', 'created', 'validation_job__status', 'validation_job__error'
+    )
     for revision in columns.filter(project__key__in=keys).order_by('-created', '-pk'):
         by_project.setdefault(revision.project_id, []).append(revision)
     blocked = []
@@ -130,11 +136,25 @@ def projects_not_serving(run):
 
 
 def _reason_for(newest):
-    """Say why a project cannot serve, separating a verdict still coming from one already reached."""
+    """Say why a project cannot serve, separating a verdict still coming from one that cannot come."""
+    from core.choices import JobStatusChoices
+
     status = dict(RevisionStatusChoices)[newest.status]
     if newest.status in PENDING_VERDICT_REVISION_STATUSES:
+        # Validation reverts the revision to its pending status and re-raises on an environment
+        # failure, keeping the job that failed it. That job is the only thing telling a verdict
+        # nobody has reached yet from one no amount of waiting will produce.
+        job = newest.validation_job
+        if job is not None and job.status in JobStatusChoices.TERMINAL_STATE_CHOICES:
+            return _('cannot be validated at all: {error}').format(error=_error_text(job))
         return _('is still awaiting a verdict on its newest revision, which is {status}').format(status=status)
     return _('has no valid revision to activate and its newest is {status}').format(status=status)
+
+
+def _error_text(job):
+    """Return a failed validation job's error, short enough to sit inside a page's refusal."""
+    error = (job.error or '').strip() or _('the validation job recorded no error')
+    return error if len(error) <= MAX_REFUSAL_ERROR_CHARS else f'{error[:MAX_REFUSAL_ERROR_CHARS]}...'
 
 
 def require_staged(run):

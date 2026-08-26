@@ -495,6 +495,27 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
             self.assertIn('awaiting a verdict', entry['reason'])
             self.assertNotIn('no valid revision', entry['reason'])
 
+    def test_a_revision_whose_validation_job_failed_names_the_failure(self):
+        # The dead end F-50 names: no verdict is ever recorded, so waiting cannot help.
+        self.stage_all()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        revision = project.revisions.order_by('-created').first()
+        revision.validation_job = Job.objects.create(
+            name='Custom Script revision validation',
+            object_type=ObjectType.objects.get_for_model(CustomScriptProjectRevision),
+            object_id=revision.pk,
+            job_id=uuid.uuid4(),
+            status=JobStatusChoices.STATUS_ERRORED,
+            error='No module named "vendor_sdk"',
+            queue_name='default',
+        )
+        revision.save(update_fields=('validation_job',))
+
+        entry = next(item for item in cutover.unservable_projects(self.migration) if item['project_key'] == project.key)
+
+        self.assertIn('vendor_sdk', entry['reason'])
+        self.assertNotIn('awaiting', entry['reason'])
+
     def test_a_project_already_serving_its_newest_revision_is_servable(self):
         self.stage_and_validate()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)

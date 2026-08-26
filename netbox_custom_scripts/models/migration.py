@@ -179,11 +179,22 @@ class MigrationRun(ChangeLoggedModel):
         steps[name] = {'completed': timezone.now().isoformat(), **detail}
         self.save(update_fields=('journal', 'last_updated'))
 
+    def record_warnings(self, warnings):
+        """Record warnings on the run without marking any step complete, ignoring repeats."""
+        # Every pass that leaves work outstanding is re-runnable and restates what it left, so
+        # without this the list would grow one copy of each message per attempt.
+        fresh = []
+        for message in map(str, warnings):
+            if message not in self.warnings and message not in fresh:
+                fresh.append(message)
+        if not fresh:
+            return
+        self.warnings = [*self.warnings, *fresh]
+        self.save(update_fields=('warnings', 'last_updated'))
+
     def complete_step(self, name, counts, warnings=()):
         """Record one step's warnings on the run, then mark it complete with its counts."""
-        if warnings:
-            self.warnings = [*self.warnings, *warnings]
-            self.save(update_fields=('warnings', 'last_updated'))
+        self.record_warnings(warnings)
         self.record_step(name, counts=counts)
 
     def step_done(self, name):

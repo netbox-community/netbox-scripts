@@ -316,6 +316,17 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertEqual(counts['blocked'], 0)
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
 
+    def test_a_blocked_pass_records_its_warnings_on_the_run(self):
+        # The run page is where outstanding work is gathered, and this pass exists to leave some.
+        run = self.repointed()
+        self.blocked_module(self.synced)
+
+        _counts, warnings = cleanup.retire_legacy(run)
+
+        run.refresh_from_db()
+        self.assertTrue(run.warnings)
+        self.assertEqual(run.warnings, [str(warning) for warning in warnings])
+
     def test_a_blocked_pass_stays_resumable(self):
         run = self.repointed()
         job = self.blocked_module(self.synced)

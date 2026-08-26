@@ -56,6 +56,7 @@ def retire_legacy(run):
     counts, warnings = _delete_modules(run)
     counts.update(legacy_source.reference_counts())
     if counts['blocked'] or counts['unserved']:
+        run.record_warnings(warnings)
         # Left open on purpose: the operator clears what each warning names and runs this again.
         return counts, warnings
     # Retained does not hold the run open, because nothing an operator does would ever clear it.

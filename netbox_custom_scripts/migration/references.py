@@ -94,6 +94,7 @@ def repoint_event_rules(run):
                 rule.save(update_fields=('enabled',))
                 counts['restored'] += 1
     if counts['unresolved']:
+        run.record_warnings(warnings)
         # Left open on purpose: the operator repairs what each warning names and runs this again.
         return counts, warnings
     run.complete_step(EVENT_RULES_STEP, counts, warnings)
@@ -224,6 +225,7 @@ def repoint_job_history(run):
             ).format(count=counts['modules'])
         )
     if counts['outstanding']:
+        run.record_warnings(warnings)
         # A module Job and a departed class's history are excluded, because no plugin row will
         # ever hold either one and the step could then never complete.
         return counts, warnings
@@ -337,6 +339,7 @@ def recreate_schedules(run):
                 ).format(name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
             )
     if counts['outstanding']:
+        run.record_warnings(warnings)
         # A schedule the operator cannot get back, a past-due one-shot or input naming a deleted
         # object, is skipped rather than outstanding, or the step could never complete.
         return counts, warnings

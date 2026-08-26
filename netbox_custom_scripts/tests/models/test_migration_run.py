@@ -120,6 +120,34 @@ class MigrationRunTestCase(TestCase):
         self.assertTrue(run.journal['steps']['cutover']['completed'])
         self.assertFalse(run.step_done('repoint'))
 
+    def test_completing_a_step_records_its_counts_and_its_warnings(self):
+        run = MigrationRun.objects.create()
+
+        run.complete_step('cleanup', {'modules': 2}, ['one module was left in place'])
+
+        run.refresh_from_db()
+        self.assertEqual(run.recorded_counts('cleanup'), {'modules': 2})
+        self.assertEqual(run.warnings, ['one module was left in place'])
+
+    def test_warnings_are_recorded_without_completing_a_step(self):
+        run = MigrationRun.objects.create()
+
+        run.record_warnings(['one module is blocked'])
+
+        run.refresh_from_db()
+        self.assertEqual(run.warnings, ['one module is blocked'])
+        self.assertFalse(run.step_done('cleanup'))
+
+    def test_a_restated_warning_is_recorded_once(self):
+        # The second call repeats the first message and adds one.
+        run = MigrationRun.objects.create()
+
+        run.record_warnings(['one module is blocked'])
+        run.record_warnings(['one module is blocked', 'and another'])
+
+        run.refresh_from_db()
+        self.assertEqual(run.warnings, ['one module is blocked', 'and another'])
+
     def test_recording_a_second_step_keeps_the_first(self):
         run = MigrationRun.objects.create()
 

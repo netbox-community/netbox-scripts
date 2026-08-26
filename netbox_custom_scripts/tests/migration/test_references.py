@@ -497,6 +497,18 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
 class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
     """A pass that left work unresolved must run again rather than return its old counts."""
 
+    def test_a_pass_that_leaves_work_open_still_records_its_warnings(self):
+        # complete_step is skipped on this path, and it used to be the only writer of warnings.
+        self.action_rule()
+        self.cross_over()
+        self.plugin_script().delete()
+
+        _counts, warnings = references.repoint_event_rules(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.EVENT_RULES_STEP))
+        self.assertEqual(self.migration.warnings, [str(warning) for warning in warnings])
+
     def test_an_unmoved_event_rule_leaves_the_step_open_and_moves_on_a_re_run(self):
         rule = self.action_rule()
         self.cross_over()

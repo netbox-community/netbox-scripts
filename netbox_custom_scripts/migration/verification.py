@@ -2,6 +2,9 @@
 
 from django.utils.translation import gettext_lazy as _
 
+from core.choices import JobStatusChoices
+from core.models import Job
+
 from ..models import CustomScript, CustomScriptProject, MigrationRun
 from . import cleanup, cutover, mapping, plan
 from . import references as legacy_references
@@ -15,6 +18,9 @@ SCRIPTS = 'scripts'
 EVENT_RULES = 'event_rules'
 PERMISSIONS = 'permissions'
 JOBS = 'jobs'
+
+# A recreation that ended either way did not take.
+_FAILED_JOB_STATUSES = (JobStatusChoices.STATUS_ERRORED, JobStatusChoices.STATUS_FAILED)
 
 
 def verify(run=None):
@@ -272,7 +278,19 @@ def _verify_jobs(run):
     if not run.step_done(legacy_references.HISTORY_STEP):
         return _check(JOBS, plan.WARNING, _('The Job history has not been repointed yet.'))
     recreated = run.journal.get('recreated_schedules') or {}
-    missing = [entry for entry in captured if str(entry['job_pk']) not in recreated]
+    # A recorded number that has simply gone says nothing: a recurring job is re-enqueued as a new
+    # row every occurrence and housekeeping deletes by age, so the first one is meant to disappear.
+    # What is readable is a recreation that never happened, and one whose Job ended in failure.
+    failed = set(
+        Job.objects.filter(pk__in=list(recreated.values()), status__in=_FAILED_JOB_STATUSES).values_list(
+            'pk', flat=True
+        )
+    )
+    missing = [
+        entry
+        for entry in captured
+        if str(entry['job_pk']) not in recreated or recreated[str(entry['job_pk'])] in failed
+    ]
     if legacy_source.script_jobs().exists():
         return _check(
             JOBS,
@@ -289,10 +307,11 @@ def _verify_jobs(run):
             plan.WARNING,
             _(
                 'No Job names the built-in feature. {count} of the {total} captured schedule(s) were not '
-                'recreated: {names}.'
+                'recreated, or were recreated into a job that failed: {names}.'
             ).format(
                 count=len(missing), total=len(captured), names=', '.join(sorted(entry['name'] for entry in missing))
             ),
+            source=_('the journal and the live jobs'),
         )
     return _check(
         JOBS,
@@ -300,4 +319,5 @@ def _verify_jobs(run):
         _('No Job names the built-in feature, and all {count} captured schedule(s) have a live counterpart.').format(
             count=len(captured)
         ),
+        source=_('the journal and the live jobs'),
     )

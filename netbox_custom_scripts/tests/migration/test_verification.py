@@ -1,5 +1,8 @@
+import uuid
+
 from django.test import TestCase
 
+from core.choices import JobStatusChoices
 from core.models import Job
 from extras.models import EventRule, Script, ScriptModule
 from netbox_custom_scripts.migration import cleanup, mapping, plan, verification
@@ -207,6 +210,41 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         run = self.repoint_all()
         run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
         run.journal['recreated_schedules'] = {}
+        run.save(update_fields=('journal',))
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.WARNING)
+        self.assertIn('nightly deploy', str(check['message']))
+
+    def test_a_recreated_schedule_with_a_live_job_reads_ready(self):
+        run = self.repoint_all()
+        job = Job.objects.create(name='nightly deploy', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_SCHEDULED)
+        run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
+        run.journal['recreated_schedules'] = {'4242': job.pk}
+        run.save(update_fields=('journal',))
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.READY)
+        self.assertIn('live jobs', str(check['source']))
+
+    def test_a_recreated_schedule_whose_recorded_job_aged_out_does_not_warn(self):
+        # The journal names a number no row answers to, which is the ordinary end state.
+        run = self.repoint_all()
+        run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
+        run.journal['recreated_schedules'] = {'4242': 999999}
+        run.save(update_fields=('journal',))
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.READY)
+
+    def test_a_recreated_schedule_whose_job_failed_warns(self):
+        run = self.repoint_all()
+        job = Job.objects.create(name='nightly deploy', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_FAILED)
+        run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
+        run.journal['recreated_schedules'] = {'4242': job.pk}
         run.save(update_fields=('journal',))
 
         check = self.named(verification.verify(run), verification.JOBS)

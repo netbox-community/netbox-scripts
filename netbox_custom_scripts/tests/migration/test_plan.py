@@ -34,6 +34,17 @@ class Provision(Script):
 """
 
 
+# A module that declares a Script row and defines the class behind it, which is the only shape
+# the built-in feature actually produces.
+NATIVE_A = b"""from netbox_custom_scripts.scripts import Script
+
+
+class A(Script):
+    def run(self, data, commit):
+        pass
+"""
+
+
 def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts', scripts=()):
     return LegacyModule(
         pk=pk,
@@ -212,8 +223,9 @@ class FindingsTestCase(SimpleTestCase):
             legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py', scripts=[(11, 'A')]),
             legacy(2, 'b.py', data_source_id=7, data_path='scripts/nested/b.py', scripts=[(12, 'B')]),
         ]
+        bodies = {1: NATIVE_A, 2: NATIVE_A.replace(b'class A', b'class B')}
 
-        report = plan.build_report(modules=modules, read=lambda module: b'')
+        report = plan.build_report(modules=modules, read=lambda module: bodies[module.pk])
 
         self.assertEqual([f['code'] for f in report['findings']], [])
 
@@ -234,6 +246,80 @@ class FindingsTestCase(SimpleTestCase):
         self.assertIn('2 module(s)', blocking[0]['message'])
         self.assertIn(report['projects'][0]['key'], blocking[0]['message'])
 
+    def test_an_import_nothing_provides_blocks(self):
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = b'import nonexistent_vendor_sdk\n\n\nclass A:\n    def run(self):\n        pass\n'
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        blocking = [f for f in report['findings'] if f['code'] == 'import_unresolvable']
+        self.assertEqual(len(blocking), 1)
+        self.assertIn('nonexistent_vendor_sdk', blocking[0]['message'])
+        self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_a_standard_library_import_resolves(self):
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = b'import os\nimport json\n\n\nclass A:\n    def run(self):\n        pass\n'
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_an_absolute_sibling_import_still_blocks(self):
+        # It never reached the sibling under the built-in feature and it will not after migration,
+        # so treating a proposed neighbour as a resolution would hide the dead end.
+        modules = [
+            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py', scripts=[(11, 'A')]),
+            legacy(2, 'helpers.py', data_source_id=7, data_path='scripts/helpers.py'),
+        ]
+        bodies = {1: b'import helpers\n\n\nclass A:\n    def run(self):\n        pass\n', 2: b'X = 1\n'}
+
+        report = plan.build_report(modules=modules, read=lambda module: bodies[module.pk])
+
+        blocking = [f for f in report['findings'] if f['code'] == 'import_unresolvable']
+        self.assertEqual(len(blocking), 1)
+        self.assertEqual(blocking[0]['pk'], 1)
+
+    def test_an_import_the_module_guards_itself_does_not_block(self):
+        # A guarded optional import is an ordinary idiom, and blocking a whole migration over one
+        # would be worse than the dead end this check exists to prevent.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'try:\n    import optional_vendor_sdk\nexcept ImportError:\n    optional_vendor_sdk = None\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_relative_sibling_import_resolves(self):
+        modules = [
+            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py', scripts=[(11, 'A')]),
+            legacy(2, 'helpers.py', data_source_id=7, data_path='scripts/helpers.py'),
+        ]
+        bodies = {1: b'from . import helpers\n\n\nclass A:\n    def run(self):\n        pass\n', 2: b'X = 1\n'}
+
+        report = plan.build_report(modules=modules, read=lambda module: bodies[module.pk])
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_re_exported_script_warns_that_it_will_not_publish(self):
+        # The plugin publishes only a class the module itself defines or names in script_order.
+        modules = [
+            legacy(1, 'a.py', data_source_id=7, data_path='scripts/a.py', scripts=[(11, 'Deploy')]),
+            legacy(2, 'shared.py', data_source_id=7, data_path='scripts/shared.py'),
+        ]
+        bodies = {1: b'from .shared import Deploy\n', 2: b'class Deploy:\n    def run(self):\n        pass\n'}
+
+        report = plan.build_report(modules=modules, read=lambda module: bodies[module.pk])
+
+        warnings = [f for f in report['findings'] if f['code'] == 'script_not_defined_here']
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]['pk'], 1)
+        self.assertIn('Deploy', warnings[0]['message'])
+        self.assertEqual(warnings[0]['level'], plan.WARNING)
+
     def test_report_style_blocks_and_legacy_import_warns(self):
         modules = [legacy(1, 'r.py'), legacy(2, 'l.py')]
         bodies = {1: b'class R:\n    def test_a(self):\n        pass\n', 2: b'from extras.scripts import Script\n'}
@@ -250,7 +336,7 @@ class FindingsTestCase(SimpleTestCase):
         self.assertEqual(codes['unparsable'], plan.BLOCKING)
 
     def test_a_native_module_produces_no_finding(self):
-        body = b'from netbox_custom_scripts.scripts import Script\n'
+        body = NATIVE_A
         report = plan.build_report(modules=[legacy(1, 'a.py', scripts=[(11, 'A')])], read=lambda module: body)
         self.assertEqual(report['findings'], [])
         self.assertEqual(report['dialects']['native'], 1)
@@ -272,9 +358,9 @@ class FindingsTestCase(SimpleTestCase):
 
     def test_status_is_the_worst_finding_level(self):
         bodies = {
-            plan.READY: b'from netbox_custom_scripts.scripts import Script\n',
-            plan.WARNING: b'from extras.scripts import Script\n',
-            plan.BLOCKING: b'class R:\n    def test_a(self):\n        pass\n',
+            plan.READY: NATIVE_A,
+            plan.WARNING: NATIVE_A.replace(b'netbox_custom_scripts.scripts', b'extras.scripts'),
+            plan.BLOCKING: b'class A:\n    def test_a(self):\n        pass\n',
         }
         for expected, body in bodies.items():
             with self.subTest(status=expected):

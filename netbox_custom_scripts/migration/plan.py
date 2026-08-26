@@ -1,7 +1,10 @@
 """What a migration would produce, decided before anything is created."""
 
+import ast
 import hashlib
+import importlib.util
 import posixpath
+import sys
 from dataclasses import asdict, dataclass
 
 from django.core.exceptions import SuspiciousOperation, ValidationError
@@ -293,6 +296,7 @@ def _inspect(module, read, proposal):
         message = f'{path} could not be read: {error}'
         return dialects.UNPARSABLE, [_finding(BLOCKING, 'source_unreadable', module, message)]
 
+    dialect = dialects.classify(body)
     findings = []
     staged = _staged_path(module, proposal)
     if staged is None:
@@ -315,7 +319,8 @@ def _inspect(module, read, proposal):
         )
         findings.append(_finding(WARNING, 'publishes_nothing', module, message))
 
-    dialect = dialects.classify(body)
+    findings.extend(_source_findings(module, body, dialect))
+
     if dialect == dialects.REPORT_STYLE:
         message = f'{path} is report-style. {MIGRATION_HINTS["extras.reports"]}'
         findings.append(_finding(BLOCKING, 'report_style', module, message))
@@ -325,6 +330,84 @@ def _inspect(module, read, proposal):
     elif dialect == dialects.UNPARSABLE:
         findings.append(_finding(BLOCKING, 'unparsable', module, f'{path} is not valid Python.'))
     return dialect, findings
+
+
+def _source_findings(module, body, dialect):
+    """Return the findings one module's own source produces, for imports and for re-exports."""
+    # classify() returns UNPARSABLE for exactly the input ast.parse refuses, so this parse cannot
+    # raise once that branch is taken.
+    if dialect == dialects.UNPARSABLE:
+        return []
+    tree = ast.parse(body)
+    path = _path(module)
+    findings = []
+    for name in sorted(_unresolvable_imports(tree)):
+        message = (
+            f'{path} imports {name}, which is neither a standard-library module nor a distribution '
+            f'installed here, so the module cannot import and no verdict can ever be reached for it. '
+            f'A plain import never reaches a file beside it, so make it relative if that is the intent.'
+        )
+        findings.append(_finding(BLOCKING, 'import_unresolvable', module, message))
+    defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    for script in module.scripts:
+        # A soft-deleted class left the file on purpose and has no counterpart to lose.
+        if not script.is_executable or script.name in defined:
+            continue
+        message = (
+            f'{path} does not define {script.name}, which the built-in feature publishes from it. A '
+            f'Custom Script Project publishes only a class the module itself defines or names in '
+            f'script_order, so this one migrates with fewer scripts than the built-in feature had.'
+        )
+        findings.append(_finding(WARNING, 'script_not_defined_here', module, message))
+    return findings
+
+
+def _unresolvable_imports(tree):
+    """Return the top-level names a module imports unguarded that nothing on this host provides."""
+    guarded = _guarded_imports(tree)
+    names = set()
+    for node in ast.walk(tree):
+        if id(node) in guarded:
+            continue
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split('.')[0] for alias in node.names)
+        # A relative import resolves inside the revision package by construction.
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split('.')[0])
+    return {name for name in names if not _resolves(name)}
+
+
+def _guarded_imports(tree):
+    """Return the ids of import nodes whose module already handles them being absent."""
+    guarded = set()
+    for block in ast.walk(tree):
+        if not isinstance(block, ast.Try) or not any(_handles_missing(h) for h in block.handlers):
+            continue
+        for node in ast.walk(block):
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                guarded.add(id(node))
+    return guarded
+
+
+def _handles_missing(handler):
+    """Whether one except clause catches a module that is not there."""
+    names = [handler.type] if not isinstance(handler.type, ast.Tuple) else list(handler.type.elts)
+    # A bare except catches everything, so it covers this too.
+    return handler.type is None or any(
+        isinstance(name, ast.Name) and name.id in ('ImportError', 'ModuleNotFoundError', 'Exception') for name in names
+    )
+
+
+def _resolves(name):
+    """Whether one top-level module name can be found on this host."""
+    if name in sys.stdlib_module_names:
+        return True
+    try:
+        # The top-level name only: find_spec('a.b') imports 'a', and an inventory must never
+        # execute an operator's dependencies to describe them.
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def _finding(level, code, module, message):

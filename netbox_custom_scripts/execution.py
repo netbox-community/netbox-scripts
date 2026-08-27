@@ -40,6 +40,7 @@ from .runtime.resolution import resolve_script_class
 from .scripts.exceptions import AbortScript
 from .storage import config
 from .storage.exceptions import RevisionCorruptError, StorageError
+from .validation import build_error_sanitizer
 
 __all__ = (
     'LOAD_FAILURES',
@@ -134,10 +135,20 @@ def load_script_class(script):
     This is the same resolution the worker performs, against the same revision, so a form built
     from the class matches the source that will execute. The namespace is unloaded before this
     returns, so the class comes back good for introspection rather than for a run. Raises
-    ScriptResolutionError when the active revision does not publish the row's identity.
+    ScriptResolutionError when the project serves no revision, when the active revision does not
+    publish the row's identity, and for any load failure, whose message is sanitized.
     """
+    identity = f'{script.module_path}.{script.class_name}'
     revision = script.project.active_revision
+    if revision is None:
+        # A project can be deactivated between a caller's is_executable check and this call.
+        raise ScriptResolutionError(
+            f'This project is not serving a revision, so "{identity}" cannot be loaded.',
+            code='not_serving',
+            name=identity,
+        )
     storage_key = str(script.project.storage_key)
+    sanitize = build_error_sanitizer(storage_key, revision.digest)
     with revision_import_session(storage_key, revision.digest):
         try:
             return resolve_script_class(
@@ -150,6 +161,10 @@ def load_script_class(script):
                 storage=config.get_storage(),
                 manifest=revision.manifest,
             )
+        except LOAD_FAILURES as error:
+            # Cache errors carry paths built from the storage key and digest, and this is the
+            # only caller holding both. Collapsed to one class: no call site branches on the type.
+            raise ScriptResolutionError(sanitize(str(error)), code='load_failed', name=identity) from error
         finally:
             unload_revision(storage_key, revision.digest)
 

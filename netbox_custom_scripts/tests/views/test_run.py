@@ -14,7 +14,7 @@ from extras.models import Tag
 from netbox_custom_scripts.activation import activate_revision, deactivate_revision
 from netbox_custom_scripts.jobs import CustomScriptJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
-from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_custom_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_custom_scripts.scripts.logging import LogLevelChoices
 from netbox_custom_scripts.storage import service
@@ -172,6 +172,19 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         content = response.content.decode()
         self.assertIn('could not be loaded', content)
         self.assertNotIn('name="label"', content)
+
+    def test_a_cache_failure_leaks_no_storage_identity_into_the_page(self):
+        self.grant('view', 'run')
+        key = str(self.project.storage_key)
+        leaky = LocalCacheError(f'/var/cache/{key}/{self.revision.digest}/deploy.py could not be read')
+
+        with patch('netbox_custom_scripts.execution.resolve_script_class', side_effect=leaky):
+            response = self.client.get(self.url())
+
+        self.assertHttpStatus(response, 200)
+        content = response.content.decode()
+        self.assertNotIn(key, content)
+        self.assertNotIn(self.revision.digest, content)
 
     def test_a_valid_submission_queues_one_run_and_redirects_to_it(self):
         self.grant('view', 'run')

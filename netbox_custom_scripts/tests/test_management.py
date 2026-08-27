@@ -12,7 +12,7 @@ from core.models import Job, ObjectChange
 from extras.models import Tag
 from netbox_custom_scripts.management.commands.runcustomscript import Command
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject
-from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_custom_scripts.tests.test_execution import MAKES_A_TAG, RAISES, ScriptJobTestMixin
 
 
@@ -220,6 +220,20 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
             self.run_command('deploy.MakeTag')
 
         self.assertIn('could not be loaded', str(caught.exception))
+
+    def test_a_cache_failure_leaks_no_storage_identity_to_the_operator(self):
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+        key = str(self.project.storage_key)
+        leaky = LocalCacheError(f'/var/cache/{key}/{revision.digest}/deploy.py could not be read')
+
+        with (
+            patch('netbox_custom_scripts.execution.resolve_script_class', side_effect=leaky),
+            self.assertRaises(CommandError) as caught,
+        ):
+            self.run_command('deploy.MakeTag')
+
+        self.assertNotIn(key, str(caught.exception))
+        self.assertNotIn(revision.digest, str(caught.exception))
 
     def test_a_retired_script_is_refused_before_its_source_is_loaded(self):
         self.publish({'deploy.py': MAKES_A_TAG})

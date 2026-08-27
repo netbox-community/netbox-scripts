@@ -10,7 +10,7 @@ from core.models import Job, ObjectType
 from netbox_custom_scripts.activation import activate_revision
 from netbox_custom_scripts.jobs import CustomScriptJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
-from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from netbox_custom_scripts.tests.views.test_run import TAKES_A_NAME, RunViewTestMixin
@@ -332,3 +332,16 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
         self.assertIn('could not be loaded', str(response.data))
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_a_cache_failure_leaks_no_storage_identity_into_the_response(self):
+        self.grant('view', 'run')
+        key = str(self.project.storage_key)
+        leaky = LocalCacheError(f'/var/cache/{key}/{self.revision.digest}/deploy.py could not be read')
+
+        with patch('netbox_custom_scripts.execution.resolve_script_class', side_effect=leaky):
+            response = self.post_run({'data': {'label': 'never-runs'}})
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        body = str(response.data)
+        self.assertNotIn(key, body)
+        self.assertNotIn(self.revision.digest, body)

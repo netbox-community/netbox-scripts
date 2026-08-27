@@ -18,7 +18,7 @@ from core.signals import clear_events
 from extras.models import Tag
 from netbox.context import current_request
 from netbox_custom_scripts.activation import activate_revision, deactivate_revision
-from netbox_custom_scripts.execution import ScriptNotExecutableError, run_script
+from netbox_custom_scripts.execution import ScriptNotExecutableError, load_script_class, run_script
 from netbox_custom_scripts.jobs import CustomScriptJob
 from netbox_custom_scripts.models import (
     CustomScript,
@@ -26,6 +26,7 @@ from netbox_custom_scripts.models import (
     CustomScriptProject,
     CustomScriptProjectRevision,
 )
+from netbox_custom_scripts.runtime.exceptions import LocalCacheError, ScriptResolutionError
 from netbox_custom_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_custom_scripts.scripts import AbortScript, Script
 from netbox_custom_scripts.storage import service
@@ -416,6 +417,38 @@ REPORTS_ITS_EVENT = (
     b"            return 'no event'\n"
     b"        return '{} {}'.format(self.event['event_type'], self.event['object_id'])\n"
 )
+
+
+class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
+    """What load_script_class refuses, and what it refuses to disclose while doing it."""
+
+    def test_a_project_serving_nothing_is_refused_rather_than_dereferenced(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        deactivate_revision(self.project.active_revision)
+        script.refresh_from_db()
+
+        with self.assertRaises(ScriptResolutionError) as caught:
+            load_script_class(script)
+
+        self.assertEqual(caught.exception.code, 'not_serving')
+
+    def test_a_cache_failure_keeps_its_paths_out_of_the_message(self):
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        storage_key = str(self.project.storage_key)
+        leaky = f'/var/cache/{storage_key}/{revision.digest}/deploy.py could not be read'
+
+        with (
+            patch('netbox_custom_scripts.execution.resolve_script_class', side_effect=LocalCacheError(leaky)),
+            self.assertRaises(ScriptResolutionError) as caught,
+        ):
+            load_script_class(script)
+
+        message = str(caught.exception)
+        self.assertNotIn(storage_key, message)
+        self.assertNotIn(revision.digest, message)
+        self.assertIn('could not be read', message)
 
 
 class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):

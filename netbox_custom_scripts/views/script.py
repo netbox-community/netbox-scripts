@@ -15,15 +15,13 @@ from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.views import ViewTab, register_model_view
 
-from ..execution import ScriptNotExecutableError, load_script_class
+from ..execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
 from ..filtersets import CustomScriptFilterSet
 from ..forms import CustomScriptBulkEditForm, CustomScriptEditForm, CustomScriptFilterForm
 from ..jobs import CustomScriptJob
 from ..models import CustomScript
 from ..object_actions import RunScript
-from ..runtime.exceptions import ScriptResolutionError
 from ..scripts.logging import LogLevelChoices
-from ..storage.exceptions import StorageError
 from ..tables import CustomScriptLogTable, CustomScriptTable
 from ..ui import CustomScriptPanel, CustomScriptStatePanel
 
@@ -176,7 +174,7 @@ class CustomScriptRunView(generic.ObjectView):
             return None, _('This Custom Script cannot be run. It is disabled or retired, or its Project is.')
         try:
             script_class = load_script_class(script)
-        except (ScriptResolutionError, StorageError, OSError) as error:
+        except LOAD_FAILURES as error:
             return None, _('The Custom Script could not be loaded from its source: {error}').format(error=error)
         instance = script_class()
         # Withheld by omission, so the POST needs no guard: a form without the fields cannot

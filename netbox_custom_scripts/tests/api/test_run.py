@@ -10,6 +10,7 @@ from core.models import Job, ObjectType
 from netbox_custom_scripts.activation import activate_revision
 from netbox_custom_scripts.jobs import CustomScriptJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from netbox_custom_scripts.tests.views.test_run import TAKES_A_NAME, RunViewTestMixin
@@ -317,3 +318,17 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
         self.assertEqual(job.data['output'], 'made-over-rest')
         self.assertIn('Created made-over-rest', [entry['message'] for entry in job.data['log']])
+
+    def test_a_load_failure_outside_the_narrow_set_is_reported_rather_than_raised(self):
+        # EntrypointImportError is not rooted in StorageError, so the narrow tuple missed it.
+        self.grant('view', 'run')
+
+        with patch(
+            'netbox_custom_scripts.api.views.load_script_class',
+            side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
+        ):
+            response = self.post_run({'data': {'label': 'never-runs'}})
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('could not be loaded', str(response.data))
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())

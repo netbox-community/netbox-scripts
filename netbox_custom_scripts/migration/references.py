@@ -7,9 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
 
-from ..execution import ScriptNotExecutableError, load_script_class
-from ..runtime.exceptions import ScriptResolutionError
-from ..storage.exceptions import StorageError
+from ..execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
 from . import cutover, mapping
 
 __all__ = (
@@ -57,7 +55,7 @@ _UNSCHEDULABLE = object()
 
 # Everything a schedule can refuse to be replayed with: the script cannot run, or its revision
 # cannot give up the class. The run view treats each of these as a reason rather than a crash.
-_REPLAY_FAILURES = (ScriptNotExecutableError, ScriptResolutionError, StorageError, OSError)
+_REPLAY_FAILURES = LOAD_FAILURES + (ScriptNotExecutableError,)
 
 
 def repoint_event_rules(run):

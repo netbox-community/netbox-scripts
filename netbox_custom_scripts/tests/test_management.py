@@ -1,5 +1,6 @@
 import io
 import uuid
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -11,6 +12,7 @@ from core.models import Job, ObjectChange
 from extras.models import Tag
 from netbox_custom_scripts.management.commands.runcustomscript import Command
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
 from netbox_custom_scripts.tests.test_execution import MAKES_A_TAG, RAISES, ScriptJobTestMixin
 
 
@@ -203,6 +205,21 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
         command.explain(job)
 
         self.assertIn('no longer exists', errors.getvalue())
+
+    def test_a_load_failure_outside_the_narrow_set_is_reported_rather_than_raised(self):
+        # Not rooted in StorageError, so the narrow tuple let it reach the operator as a traceback.
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        with (
+            patch(
+                'netbox_custom_scripts.management.commands.runcustomscript.load_script_class',
+                side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
+            ),
+            self.assertRaises(CommandError) as caught,
+        ):
+            self.run_command('deploy.MakeTag')
+
+        self.assertIn('could not be loaded', str(caught.exception))
 
     def test_a_retired_script_is_refused_before_its_source_is_loaded(self):
         self.publish({'deploy.py': MAKES_A_TAG})

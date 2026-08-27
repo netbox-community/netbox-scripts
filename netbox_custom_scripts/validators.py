@@ -36,6 +36,7 @@ def normalize_data_path(value):
     value = (value or '').strip()
     if not value:
         return ''
+    # No code= on these: they surface through clean() and the serializer, where nothing branches on them.
     if '\\' in value:
         raise ValidationError(_('Backslashes are not allowed in data paths. Use forward slashes.'))
     if any(ord(char) < 32 or char == '\x7f' for char in value):

@@ -14,34 +14,17 @@ from utilities.rqworker import get_queue_for_model
 from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_JOB_TIMEOUT
-from .execution import ScriptNotExecutableError, run_script
+from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
 from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from .models.migration import migration_lock
-from .runtime.exceptions import (
-    DiscoveryError,
-    EntrypointImportError,
-    InvalidModulePathError,
-    ScriptMetadataError,
-    ScriptResolutionError,
-)
+from .runtime.exceptions import EntrypointImportError
 from .runtime.loader import revision_import_session, unload_revision
 from .runtime.resolution import resolve_script_class
 from .storage import config, service, store
-from .storage.exceptions import ActivationError, RevisionCorruptError, StorageConfigurationError, StorageError
+from .storage.exceptions import ActivationError, StorageConfigurationError, StorageError
 from .storage.locks import project_lock
 from .storage.service import require_default_database
 from .validation import ValidationStateError, build_error_sanitizer, validate_revision
-
-# Everything that means "this revision cannot give us the class the row names". Each one is a
-# statement about content or configuration, so a run fails rather than being retried blindly.
-RESOLUTION_FAILURES = (
-    DiscoveryError,
-    EntrypointImportError,
-    InvalidModulePathError,
-    RevisionCorruptError,
-    ScriptMetadataError,
-    ScriptResolutionError,
-)
 
 
 class ProjectStorageCleanupJob(JobRunner):

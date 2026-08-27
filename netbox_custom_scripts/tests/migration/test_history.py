@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 import django_rq
 from django.test import TestCase
@@ -12,6 +13,7 @@ from dcim.models import Site
 from extras.models import Script, ScriptModule
 from netbox_custom_scripts.migration import cutover, references
 from netbox_custom_scripts.models import CustomScript
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
 from netbox_custom_scripts.tests.migration.test_references import ReferenceMigrationMixin
 
 # A legacy script with a variable, so the journal's primary keys have something to resolve back to.
@@ -330,6 +332,23 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(counts['skipped'], 1)
         self.assertEqual(counts['outstanding'], 1)
         self.assertTrue(any(str(self.script.pk) in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_load_failure_outside_the_narrow_set_is_warned_rather_than_killing_the_pass(self):
+        # Not rooted in StorageError, so it escaped the replay clause and killed the job mid-step.
+        self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+
+        with patch(
+            'netbox_custom_scripts.migration.references.load_script_class',
+            side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
+        ):
+            counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 1)
+        self.assertTrue(any('not there' in warning for warning in warnings))
         self.migration.refresh_from_db()
         self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
 

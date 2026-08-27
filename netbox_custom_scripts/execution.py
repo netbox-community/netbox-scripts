@@ -28,16 +28,40 @@ from netbox.context_managers import event_tracking
 from netbox.registry import registry
 from utilities.exceptions import AbortScript as LegacyAbortScript
 
+from .runtime.exceptions import (
+    DiscoveryError,
+    EntrypointImportError,
+    InvalidModulePathError,
+    ScriptMetadataError,
+    ScriptResolutionError,
+)
 from .runtime.loader import revision_import_session, unload_revision
 from .runtime.resolution import resolve_script_class
 from .scripts.exceptions import AbortScript
 from .storage import config
+from .storage.exceptions import RevisionCorruptError, StorageError
 
 __all__ = (
+    'LOAD_FAILURES',
+    'RESOLUTION_FAILURES',
     'ScriptNotExecutableError',
     'load_script_class',
     'run_script',
 )
+
+# Everything that means "this revision cannot give us the class the row names". Each one is a
+# statement about content or configuration, so a run fails rather than being retried blindly.
+RESOLUTION_FAILURES = (
+    DiscoveryError,
+    EntrypointImportError,
+    InvalidModulePathError,
+    RevisionCorruptError,
+    ScriptMetadataError,
+    ScriptResolutionError,
+)
+
+# load_script_class also reaches the store and the local cache.
+LOAD_FAILURES = RESOLUTION_FAILURES + (StorageError, OSError)
 
 
 class ScriptNotExecutableError(Exception):

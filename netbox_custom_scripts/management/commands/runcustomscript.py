@@ -10,12 +10,10 @@ from django.core.management.base import BaseCommand, CommandError
 from core.choices import JobNotificationChoices, JobStatusChoices
 from utilities.request import NetBoxFakeRequest
 
-from ...execution import ScriptNotExecutableError, load_script_class
+from ...execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
 from ...jobs import CustomScriptJob
 from ...models import CustomScript
-from ...runtime.exceptions import ScriptResolutionError
 from ...scripts.logging import LogLevelChoices
-from ...storage.exceptions import StorageError
 
 EXECUTION_PARAMETERS = ('_commit', '_schedule_at', '_interval', '_notifications')
 LISTED_CANDIDATES = 5
@@ -59,7 +57,7 @@ class Command(BaseCommand):
             )
         try:
             instance = load_script_class(script)()
-        except (ScriptResolutionError, StorageError, OSError) as error:
+        except LOAD_FAILURES as error:
             raise CommandError(f'The Custom Script could not be loaded from its source: {error}') from error
 
         values = self.values(instance, options['data'])

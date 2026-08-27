@@ -14,6 +14,7 @@ from extras.models import Tag
 from netbox_custom_scripts.activation import activate_revision, deactivate_revision
 from netbox_custom_scripts.jobs import CustomScriptJob
 from netbox_custom_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
+from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
 from netbox_custom_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_custom_scripts.scripts.logging import LogLevelChoices
 from netbox_custom_scripts.storage import service
@@ -155,6 +156,21 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertHttpStatus(response, 200)
         content = response.content.decode()
         self.assertIn('cannot be run', content)
+        self.assertNotIn('name="label"', content)
+
+    def test_a_load_failure_outside_the_narrow_set_re_renders_with_the_reason(self):
+        # EntrypointImportError is not rooted in StorageError, so the narrow tuple missed it.
+        self.grant('view', 'run')
+
+        with patch(
+            'netbox_custom_scripts.views.script.load_script_class',
+            side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
+        ):
+            response = self.client.get(self.url())
+
+        self.assertHttpStatus(response, 200)
+        content = response.content.decode()
+        self.assertIn('could not be loaded', content)
         self.assertNotIn('name="label"', content)
 
     def test_a_valid_submission_queues_one_run_and_redirects_to_it(self):

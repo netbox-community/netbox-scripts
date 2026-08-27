@@ -34,6 +34,7 @@ def source_path_to_dotted_name(path):
     could ever import the module this path names. Raises ValidationError naming the
     problem.
     """
+    # Every code here is read rather than displayed: naming.py rethrows it and validation records it.
     if not path.endswith('.py'):
         raise ValidationError(
             _('An entrypoint must be a Python module file ending in ".py".'),

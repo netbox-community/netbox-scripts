@@ -16,7 +16,7 @@ from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.rqworker import any_workers_for_queue
 
-from ..execution import load_script_class
+from ..execution import LOAD_FAILURES, load_script_class
 from ..filtersets import (
     CustomScriptFilterSet,
     CustomScriptModuleFilterSet,
@@ -31,9 +31,7 @@ from ..ingestion import (
 )
 from ..jobs import CustomScriptJob, ProjectEntrypointRefreshJob
 from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
-from ..runtime.exceptions import ScriptResolutionError
 from ..storage import config
-from ..storage.exceptions import StorageError
 from .serializers import (
     CustomScriptModuleSerializer,
     CustomScriptProjectRevisionSerializer,
@@ -220,7 +218,7 @@ class CustomScriptViewSet(NetBoxModelViewSet):
             raise RQWorkerNotRunningException()
         try:
             instance = load_script_class(script)()
-        except (ScriptResolutionError, StorageError, OSError) as error:
+        except LOAD_FAILURES as error:
             raise APIValidationError(
                 {'detail': f'The Custom Script could not be loaded from its source: {error}'}
             ) from error

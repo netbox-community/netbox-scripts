@@ -21,7 +21,7 @@ from ..jobs import (
     MigrationVerificationJob,
 )
 from ..migration import cleanup, cutover, mapping, plan
-from ..models import CustomScriptProject, MigrationRun
+from ..models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
 __all__ = (
@@ -75,16 +75,40 @@ def _migration_rows(request, inventory_job, staging_job):
     keys = list(proposed) + [key for key in produced if key not in proposed]
     projects = {
         project.key: project
-        for project in CustomScriptProject.objects.restrict(request.user, 'view').filter(key__in=keys)
+        for project in CustomScriptProject.objects.restrict(request.user, 'view')
+        .select_related('active_revision')
+        .filter(key__in=keys)
     }
+    newest = _newest_stored_revisions(projects.values())
     return [
         {
             'key': key,
             'name': proposed.get(key, {}).get('name') or key,
             'project': projects.get(key),
+            'revision': _row_revision(projects.get(key), newest),
         }
         for key in keys
     ]
+
+
+def _newest_stored_revisions(projects):
+    """Return the newest revision holding content for each project, keyed by project."""
+    # One query for every row. CustomScriptProject.current_revision answers this per instance,
+    # so reading it from the template would cost one query per Project the page lists.
+    newest = {}
+    stored = CustomScriptProjectRevision.objects.filter(
+        project__in=[project.pk for project in projects], digest__isnull=False
+    ).order_by('project_id', '-created')
+    for revision in stored:
+        newest.setdefault(revision.project_id, revision)
+    return newest
+
+
+def _row_revision(project, newest):
+    """Return the revision one row shows, which is what the project's tree is right now."""
+    if project is None:
+        return None
+    return project.active_revision or newest.get(project.pk)
 
 
 def _queued(job_class):

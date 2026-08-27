@@ -6,7 +6,9 @@ from unittest import mock
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import storages
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.choices import JobStatusChoices
@@ -155,6 +157,53 @@ class MigrationTriggerTestCase(TestCase):
         job.data = {'projects': [{'key': key, 'name': key.replace('-', ' ')} for key in keys]}
         job.save()
         return job
+
+    def serving(self, *keys, activate=True):
+        """Create one Project per key, serving a revision unless activate is False."""
+        for key in keys:
+            project = CustomScriptProject.objects.create(name=key, key=key)
+            revision = CustomScriptProjectRevision.objects.create(
+                project=project, digest='a' * 64, status=RevisionStatusChoices.ACTIVE
+            )
+            if not activate:
+                continue
+            # Set past clean(), which refuses a pointer the activation service did not move.
+            CustomScriptProject.objects.filter(pk=project.pk).update(active_revision=revision)
+
+    def page_query_count(self):
+        """Render the Migration page and report how many queries it took."""
+        with CaptureQueriesContext(connection) as captured:
+            self.assertHttpStatus(self.client.get(self.url('migration')), 200)
+        return len(captured)
+
+    def test_the_page_does_not_query_once_per_project_row(self):
+        # view as well: a row whose Project restrict() filters out never reaches the join at all.
+        self.grant('add', 'view')
+        first = [f'project-{index}' for index in range(2)]
+        self.serving(*first)
+        self.inventoried(*first)
+        two = self.page_query_count()
+
+        rest = [f'project-{index}' for index in range(2, 10)]
+        self.serving(*rest)
+        self.inventoried(*first, *rest)
+
+        self.assertEqual(self.page_query_count(), two)
+
+    def test_the_page_does_not_query_per_row_before_activation(self):
+        # Between staging and activation every Project has a null pointer, which is the state the
+        # page spends most of its life in, and current_revision then falls back to a query.
+        self.grant('add', 'view')
+        first = [f'pending-{index}' for index in range(2)]
+        self.serving(*first, activate=False)
+        self.inventoried(*first)
+        two = self.page_query_count()
+
+        rest = [f'pending-{index}' for index in range(2, 10)]
+        self.serving(*rest, activate=False)
+        self.inventoried(*first, *rest)
+
+        self.assertEqual(self.page_query_count(), two)
 
     def staged(self, status, recorded_status=None, scripts=()):
         """Create a Project with a revision, and the staging Job that reports having made it."""

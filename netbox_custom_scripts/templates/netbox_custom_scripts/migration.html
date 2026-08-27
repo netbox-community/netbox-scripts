@@ -9,7 +9,7 @@ Context:
   - staging_queued: Whether a staging pass is already under way
   - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
   - warning_count:  How many modules the last inventory reported a warning for
-  - rows:           One {key, name, project} per Project either pass named, project None until staged
+  - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
   - run:            The open MigrationRun, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
   - cutover_queued: Whether a cutover is already under way
@@ -187,7 +187,7 @@ Context:
                       {{ row.name }}
                     {% endif %}
                   </td>
-                  {% with revision=row.project.current_revision %}
+                  {% with revision=row.revision %}
                     <td>
                       {% if revision %}
                         <a href="{{ revision.get_absolute_url }}">{% firstof revision.short_digest _("Not stored") %}</a>

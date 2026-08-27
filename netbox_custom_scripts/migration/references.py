@@ -395,7 +395,7 @@ def _recreate(run, entry, script, schedule_at, user, recreated):
         # Recorded with the job rather than after it, so the queue can never hold a task the journal
         # has not claimed. Job.enqueue() hands the task over in a commit hook.
         recreated[str(entry['job_pk'])] = job.pk
-        run.save(update_fields=('journal', 'last_updated'))
+        run.record_journal(recreated_schedules=recreated)
 
 
 def _form_errors(form):
@@ -575,7 +575,7 @@ def _split_permission(run, permission, entry, targets, actions):
     sibling.users.set(users)
     sibling.groups.set(groups)
     split[str(entry['pk'])] = sibling.pk
-    run.save(update_fields=('journal', 'last_updated'))
+    run.record_journal(split_permissions=split)
     if not (lost_users or lost_groups):
         return []
     return [

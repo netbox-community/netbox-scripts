@@ -81,8 +81,14 @@ def _delete_modules(run):
             ).format(keys=', '.join(sorted(waiting)))
         )
     resolved, unresolved = mapping.resolve_scripts(plugin_map)
-    stranded = {entry['legacy_module_pk']: 'unresolved' for entry in unresolved}
+    # Deleting a migrated Project destroys the plugin-side Job history with it, so it is the
+    # operator saying they do not want it. Holding its modules for a replacement that will never
+    # resolve would leave a run nothing could close, and the refusals below still apply per module.
+    absent = {entry['project_key'] for entry in mine} - cutover.mapped_projects_present(run)
+    stranded = {entry['legacy_module_pk']: 'unresolved' for entry in unresolved if entry['project_key'] not in absent}
     for entry in plugin_map['scripts']:
+        if entry['project_key'] in absent:
+            continue
         # A retired row names the identity but the plugin refuses to run it, so deleting the
         # built-in module would take the last runnable copy of that script with it.
         row = resolved.get(entry['legacy_pk'])

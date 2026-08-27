@@ -29,7 +29,7 @@ from django.utils import timezone
 
 from .branching import require_safe_routing
 from .choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from .constants import VALIDATION_LEASE_SECONDS
+from .constants import MAX_VALIDATION_ERROR_LENGTH, VALIDATION_LEASE_SECONDS
 from .models import CustomScriptModule, CustomScriptProjectRevision
 from .runtime.cache import local_revision_dir
 from .runtime.discovery import discover_scripts, zero_publication_reason
@@ -80,7 +80,12 @@ def validate_revision(revision, *, job, passthrough=()):
         Q(status=RevisionStatusChoices.MATERIALIZED)
         | Q(status=RevisionStatusChoices.VALIDATING, validation_started__lt=lease_horizon),
         pk=revision.pk,
-    ).update(status=RevisionStatusChoices.VALIDATING, validation_job=job, validation_started=now)
+    ).update(
+        status=RevisionStatusChoices.VALIDATING,
+        validation_job=job,
+        validation_started=now,
+        validation_error='',
+    )
     if not claimed:
         raise ValidationStateError(
             'The revision is not claimable for validation. Only a materialized revision or a '
@@ -146,8 +151,8 @@ def validate_revision(revision, *, job, passthrough=()):
                     outcomes[source_path] = _collect_publications(failures, identities, records, sanitize, entry, found)
             finally:
                 unload_revision(storage_key, digest)
-    except BaseException:
-        _revert_to_materialized(revision, job)
+    except BaseException as error:
+        _revert_to_materialized(revision, job, sanitize(_failure_reason(error)))
         raise
 
     # A revision serving enabled entrypoints and publishing nothing at all cannot run, so it
@@ -333,13 +338,27 @@ def _finalize(revision, job, status, validation_errors, discovered_scripts):
     return bool(updated)
 
 
-def _revert_to_materialized(revision, job):
-    """Give the claim back after environment trouble, under the same ownership fence."""
+def _failure_reason(error):
+    """Return one failure as the text an operator can act on."""
+    # EntrypointImportError's own message names the entrypoint, and its structured record carries
+    # the underlying failure, which is the part naming what is actually missing.
+    detail = getattr(error, 'detail', None)
+    inner = detail.get('message') if isinstance(detail, dict) else None
+    return f'{type(error).__name__}: {error} {inner}'.strip() if inner else f'{type(error).__name__}: {error}'
+
+
+def _revert_to_materialized(revision, job, reason=''):
+    """Give the claim back after environment trouble, recording why, under the ownership fence."""
     CustomScriptProjectRevision.objects.filter(
         pk=revision.pk,
         status=RevisionStatusChoices.VALIDATING,
         validation_job=job,
-    ).update(status=RevisionStatusChoices.MATERIALIZED, validation_job=None, validation_started=None)
+    ).update(
+        status=RevisionStatusChoices.MATERIALIZED,
+        validation_job=None,
+        validation_started=None,
+        validation_error=reason[:MAX_VALIDATION_ERROR_LENGTH],
+    )
 
 
 def _persist_module_results(revision, entries, outcomes, failures, notes):

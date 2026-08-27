@@ -6,8 +6,6 @@ import datetime
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from core.choices import JobStatusChoices
-
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
 from ..constants import PENDING_VERDICT_REVISION_STATUSES
@@ -22,6 +20,7 @@ __all__ = (
     'CutoverRefused',
     'activate_staged',
     'enter_cutover',
+    'mapped_projects_present',
     'projects_not_serving',
     'require_staged',
     'unservable_projects',
@@ -29,9 +28,6 @@ __all__ = (
 
 STEP = 'cutover'
 ACTIVATE_STEP = 'activate'
-
-# A Job error can be a whole traceback, and this one renders inside a page.
-MAX_REFUSAL_ERROR_CHARS = 200
 
 # Everything activation can refuse with. One project failing must leave the rest to activate, so
 # these are recorded as an outcome rather than allowed to end the pass.
@@ -80,7 +76,7 @@ def enter_cutover(run):
         )
 
     warnings = _capture(run)
-    counts = _close(run.journal)
+    counts = _close(run)
     if run.state == MigrationStateChoices.STAGING:
         run.advance(MigrationStateChoices.CUTOVER)
     run.complete_step(STEP, counts, warnings)
@@ -102,9 +98,7 @@ def unservable_projects(run):
     keys = mapping.project_keys(mapping.build_map())
     projects = {project.key: project for project in CustomScriptProject.objects.filter(key__in=keys)}
     by_project = {}
-    columns = CustomScriptProjectRevision.objects.select_related('validation_job').only(
-        'pk', 'project_id', 'status', 'created', 'validation_job__status', 'validation_job__error'
-    )
+    columns = CustomScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created', 'validation_error')
     for revision in columns.filter(project__key__in=keys).order_by('-created', '-pk'):
         by_project.setdefault(revision.project_id, []).append(revision)
     blocked = []
@@ -126,6 +120,12 @@ def unservable_projects(run):
     return blocked
 
 
+def mapped_projects_present(run):
+    """Return the mapped Project keys whose row still exists."""
+    keys = mapping.project_keys(mapping.recorded(run))
+    return set(CustomScriptProject.objects.filter(key__in=keys).values_list('key', flat=True))
+
+
 def projects_not_serving(run):
     """Return the mapped Project keys whose row still exists and serves no revision."""
     # A module deleted since the fence must not change which Projects this covers.
@@ -139,18 +139,12 @@ def _reason_for(newest):
     """Say why a project cannot serve, separating a verdict still coming from one that cannot come."""
     status = dict(RevisionStatusChoices)[newest.status]
     if newest.status in PENDING_VERDICT_REVISION_STATUSES:
-        # An environment failure reverts the revision and re-raises, leaving the job that failed it.
-        job = newest.validation_job
-        if job is not None and job.status in JobStatusChoices.TERMINAL_STATE_CHOICES:
-            return _('cannot be validated at all: {error}').format(error=_error_text(job))
+        # An environment failure gives the lease fields back, so the recorded reason is the only
+        # thing left saying a retry would land in exactly the same place.
+        if reason := (newest.validation_error or '').strip():
+            return _('cannot be validated at all: {error}').format(error=reason)
         return _('is still awaiting a verdict on its newest revision, which is {status}').format(status=status)
     return _('has no valid revision to activate and its newest is {status}').format(status=status)
-
-
-def _error_text(job):
-    """Return a failed validation job's error, short enough to sit inside a page's refusal."""
-    error = (job.error or '').strip() or _('the validation job recorded no error')
-    return error if len(error) <= MAX_REFUSAL_ERROR_CHARS else f'{error[:MAX_REFUSAL_ERROR_CHARS]}...'
 
 
 def require_staged(run):
@@ -363,13 +357,14 @@ def _render(value):
     return _UNRENDERABLE
 
 
-def _close(journal):
+def _close(run):
     """Close every door available to a plugin, and report how many of each it closed."""
+    journal = run.journal
     return {
         'permissions': _disable_permissions(journal['permissions']),
         'event_rules': _disable_event_rules(journal['event_rules']),
         'schedules': _cancel_schedules(journal['schedules']),
-        'auto_sync': _drop_auto_sync(journal),
+        'auto_sync': _drop_auto_sync(run),
     }
 
 
@@ -422,15 +417,16 @@ def _cancel_schedules(captured):
     return cancelled
 
 
-def _drop_auto_sync(journal):
+def _drop_auto_sync(run):
     """Deregister built-in script source from synchronization, recording what it deregistered."""
     # Scoped to script modules: a report is not this migration's, so its source keeps syncing.
     keys = legacy_source.legacy_script_module_keys()
     records = legacy_source.legacy_auto_sync_records(module_pks=keys)
-    # Journalled like the other three closures, so an operator restoring by hand has it to read,
-    # and skipped once recorded because a replay reads the deregistered state back as the original.
-    if 'auto_sync' not in journal:
-        journal['auto_sync'] = sorted(records.values_list('object_id', flat=True))
+    if 'auto_sync' not in run.journal:
+        # Committed before the delete rather than with the step record, because a pod killed in
+        # between would otherwise leave the rows gone and nothing naming them. A replay then
+        # skips this, since it would read the deregistered state back as the original.
+        run.record_journal(auto_sync=sorted(records.values_list('object_id', flat=True)))
     deleted, _by_model = records.delete()
     return deleted
 

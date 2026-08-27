@@ -471,6 +471,15 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
         null=True,
         editable=False,
     )
+    validation_error = models.TextField(
+        verbose_name=_('validation error'),
+        blank=True,
+        editable=False,
+        help_text=_(
+            'Why the last attempt could not reach a verdict at all. The lease fields are given '
+            'back on that path, so nothing else survives to say why a retry would fare the same.'
+        ),
+    )
     activated = models.DateTimeField(
         verbose_name=_('activated'),
         blank=True,

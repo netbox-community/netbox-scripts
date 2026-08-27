@@ -246,6 +246,32 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         module_row.refresh_from_db()
         self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.PENDING)
 
+    def test_the_reason_a_verdict_could_not_be_reached_is_recorded(self):
+        # The lease fields are given back, so this is the only thing that survives to say why a
+        # revision returning to materialized will never reach a verdict on its own.
+        self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+
+        with self.assertRaises(EntrypointImportError):
+            validate_revision(revision, job=self.job)
+
+        revision.refresh_from_db()
+        self.assertIn('package_that_is_not_installed_anywhere', revision.validation_error)
+
+    def test_a_recorded_reason_is_cleared_when_a_verdict_is_reached(self):
+        self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+        with self.assertRaises(EntrypointImportError):
+            validate_revision(revision, job=self.job)
+        revision.refresh_from_db()
+        self.assertTrue(revision.validation_error)
+
+        working = self.stage({'deploy.py': b'from netbox_custom_scripts.scripts import Script\n'})
+        validate_revision(working, job=self.make_job())
+
+        working.refresh_from_db()
+        self.assertEqual(working.validation_error, '')
+
     def test_a_passthrough_exception_reverts_and_escapes_unwrapped(self):
         self.declare('deploy.py')
         revision = self.stage(

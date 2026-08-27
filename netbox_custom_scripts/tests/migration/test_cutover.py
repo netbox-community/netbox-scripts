@@ -309,7 +309,7 @@ class CutoverTestCase(TestCase):
         self.assertEqual(len(self.migration.journal['schedules']), 1)
         Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
 
-        counts = cutover._close(self.migration.journal)
+        counts = cutover._close(self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
@@ -320,9 +320,9 @@ class CutoverTestCase(TestCase):
         permission = self.legacy_permission()
         rule = self.legacy_action_rule()
         cutover._capture(self.migration)
-        first = cutover._close(self.migration.journal)
+        first = cutover._close(self.migration)
 
-        second = cutover._close(self.migration.journal)
+        second = cutover._close(self.migration)
 
         self.assertEqual(first['permissions'], second['permissions'])
         self.assertEqual(first['event_rules'], second['event_rules'])
@@ -376,9 +376,22 @@ class CutoverTestCase(TestCase):
         recorded = self.migration.journal['auto_sync']
         self.assertEqual(recorded, [self.module.pk])
 
-        cutover._close(self.migration.journal)
+        cutover._close(self.migration)
 
         self.assertEqual(self.migration.journal['auto_sync'], recorded)
+
+    def test_a_crash_before_the_step_record_still_leaves_the_auto_sync_readable(self):
+        # The real replay window: the records are already deleted and the journal entry naming
+        # them was never persisted, which is the only state a resumed close can be entered in.
+        cutover._capture(self.migration)
+        cutover._drop_auto_sync(self.migration)
+        self.migration.refresh_from_db()
+        self.assertNotIn('steps', self.migration.journal)
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['auto_sync'], [self.module.pk])
 
     def test_nothing_that_carries_history_is_deleted(self):
         completed = self.legacy_job(status=JobStatusChoices.STATUS_COMPLETED)
@@ -507,21 +520,15 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
             self.assertIn('awaiting a verdict', entry['reason'])
             self.assertNotIn('no valid revision', entry['reason'])
 
-    def test_a_revision_whose_validation_job_failed_names_the_failure(self):
-        # No verdict is ever recorded here, so waiting for one is a dead end.
+    def test_a_revision_that_cannot_be_validated_names_the_reason(self):
+        # The revision carries a recorded reason and no lease, which is how validation leaves
+        # one it could not judge.
         self.stage_all()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         revision = project.revisions.order_by('-created').first()
-        revision.validation_job = Job.objects.create(
-            name='Custom Script revision validation',
-            object_type=ObjectType.objects.get_for_model(CustomScriptProjectRevision),
-            object_id=revision.pk,
-            job_id=uuid.uuid4(),
-            status=JobStatusChoices.STATUS_ERRORED,
-            error='No module named "vendor_sdk"',
-            queue_name='default',
+        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            validation_error='ModuleNotFoundError: No module named "vendor_sdk"'
         )
-        revision.save(update_fields=('validation_job',))
 
         entry = next(item for item in cutover.unservable_projects(self.migration) if item['project_key'] == project.key)
 

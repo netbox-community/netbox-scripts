@@ -9,7 +9,7 @@ from netbox_custom_scripts.choices import MigrationStateChoices
 from netbox_custom_scripts.migration import cleanup, cutover, references
 from netbox_custom_scripts.models import CustomScriptProject, MigrationRun
 from netbox_custom_scripts.tests.migration.test_references import ReferenceMigrationMixin
-from netbox_custom_scripts.tests.migration.test_staging import LEGACY_SCRIPT
+from netbox_custom_scripts.tests.migration.test_staging import HELPER, LEGACY_SCRIPT
 
 
 class CleanupMixin(ReferenceMigrationMixin):
@@ -188,19 +188,31 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
 
-    def test_a_deleted_project_is_refused_per_module_rather_than_counted_unserved(self):
-        # One migrated Project is gone, so nothing resolves the built-in classes it replaced.
+    def test_a_deleted_project_lets_its_modules_go_and_the_run_close(self):
+        # One migrated Project is gone, and one of its built-in modules publishes nothing.
+        helper = self.legacy_synced_module('automation/util.py', HELPER)
         run = self.repointed()
+        CustomScriptProject.objects.get(key__startswith='automation').delete()
+
+        counts, _warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 0)
+        self.assertFalse(ScriptModule.objects.filter(pk=helper.pk).exists())
+        self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
+
+    def test_a_deleted_project_still_cannot_take_job_history_with_it(self):
+        # Consent to delete the Project is not consent to destroy history the module carries.
+        run = self.repointed()
+        self.module_job(self.synced)
         CustomScriptProject.objects.get(key__startswith='automation').delete()
 
         counts, warnings = cleanup.retire_legacy(run)
 
-        self.assertEqual(counts['unserved'], 0)
-        self.assertEqual(counts['blocked'], 1)
+        self.assertEqual(counts['retained'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
-        self.assertTrue(any('resolves to' in warning for warning in warnings))
-        # The Project that is still serving is unaffected by its neighbour going away.
-        self.assertFalse(ScriptModule.objects.filter(pk=self.uploaded.pk).exists())
+        self.assertTrue(any('Job history of its own' in warning for warning in warnings))
 
     def test_the_plugin_still_serves_what_the_built_in_feature_did(self):
         run = self.repointed()

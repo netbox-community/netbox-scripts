@@ -68,9 +68,13 @@ class RunViewTestMixin:
         self.project.refresh_from_db()
         return revision
 
-    def grant(self, *actions, model=CustomScript):
-        """Grant the named actions on one model to the test user."""
-        permission = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+    def grant(self, *actions, model=CustomScript, constraints=None):
+        """Grant the named actions on one model to the test user, optionally constrained."""
+        permission = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}',
+            actions=list(actions),
+            constraints=constraints,
+        )
         permission.save()
         permission.users.add(self.user)
         permission.object_types.add(ObjectType.objects.get_for_model(model))
@@ -235,6 +239,17 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         # The rest of the group survives, which a fieldset naming an absent field drops.
         self.assertIn('name="_notifications"', content)
         self.assertIn('name="_commit"', content)
+
+    def test_the_scheduling_fields_are_absent_when_the_grant_excludes_this_script(self):
+        # has_perm returns True on a bare codename, so the object is what applies the constraint.
+        self.grant('view', 'run')
+        self.grant('schedule', constraints={'project__key': 'somewhere-else'})
+
+        response = self.client.get(self.url())
+
+        content = response.content.decode()
+        self.assertNotIn('name="_schedule_at"', content)
+        self.assertNotIn('name="_interval"', content)
 
     def test_the_scheduling_fields_appear_with_the_schedule_permission(self):
         self.grant('view', 'run', 'schedule')

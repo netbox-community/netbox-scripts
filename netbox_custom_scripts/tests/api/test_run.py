@@ -281,6 +281,18 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
 
+    def test_a_schedule_is_refused_when_the_grant_excludes_this_script(self):
+        # has_perm returns True on a bare codename, so the object is what applies the constraint.
+        self.grant('view', 'run')
+        self.grant('schedule', constraints={'project__key': 'somewhere-else'})
+
+        response = self.post_run(
+            {'data': {'label': 'never-runs'}, 'schedule_at': (local_now() + timedelta(hours=1)).isoformat()}
+        )
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
     def test_a_recurring_run_is_refused_without_the_schedule_permission(self):
         self.grant('view', 'run')
 

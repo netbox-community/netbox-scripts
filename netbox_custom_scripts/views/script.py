@@ -179,7 +179,9 @@ class CustomScriptRunView(generic.ObjectView):
         instance = script_class()
         # Withheld by omission, so the POST needs no guard: a form without the fields cannot
         # receive them.
-        instance.scheduling_permitted = self.request.user.has_perm(get_permission_for_model(CustomScript, 'schedule'))
+        instance.scheduling_permitted = self.request.user.has_perm(
+            get_permission_for_model(CustomScript, 'schedule'), script
+        )
         return instance, None
 
     def _render(self, request, script, form, instance, reason):

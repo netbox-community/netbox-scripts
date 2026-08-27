@@ -229,7 +229,7 @@ class CustomScriptViewSet(NetBoxModelViewSet):
         # REST has no form to omit the fields from, so the value is refused instead. Read after
         # validation, where an interval with no start time is anchored.
         if (parameters.get('schedule_at') or parameters.get('interval')) and not request.user.has_perm(
-            get_permission_for_model(CustomScript, 'schedule')
+            get_permission_for_model(CustomScript, 'schedule'), script
         ):
             raise PermissionDenied('Scheduling a Custom Script requires the schedule permission.')
 

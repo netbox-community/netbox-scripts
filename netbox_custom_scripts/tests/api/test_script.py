@@ -230,6 +230,23 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertEqual(self.script.module_path, 'deploy')
         self.assertFalse(self.script.is_retired)
 
+    def test_a_patch_cannot_move_a_script_to_another_project(self):
+        # project is a declared field, and DRF ignores Meta.read_only_fields for those, so a
+        # plain change token could reparent a derived row and take its Job history with it.
+        other = CustomScriptProject.objects.create(name='Other Project', key='other-project')
+        self.add_permissions(
+            'netbox_custom_scripts.view_customscript',
+            'netbox_custom_scripts.change_customscript',
+        )
+
+        response = self.client.patch(
+            self._get_detail_url(self.script), {'project': other.pk}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.script.refresh_from_db()
+        self.assertEqual(self.script.project_id, self.project.pk)
+
     def test_patching_requires_the_change_permission(self):
         self.add_permissions('netbox_custom_scripts.view_customscript')
         response = self.client.patch(

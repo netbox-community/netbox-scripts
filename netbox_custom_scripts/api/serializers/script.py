@@ -10,7 +10,7 @@ from .revision import CustomScriptProjectRevisionSerializer
 class CustomScriptSerializer(PrimaryModelSerializer):
     """Serializer for the Custom Script model."""
 
-    project = CustomScriptProjectSerializer(nested=True)
+    project = CustomScriptProjectSerializer(nested=True, read_only=True)
     last_seen_revision = CustomScriptProjectRevisionSerializer(nested=True, read_only=True)
 
     # allow_blank, because the column spends '' on inherit. ChoiceField then also coerces a

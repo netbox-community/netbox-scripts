@@ -43,7 +43,7 @@ class LimitExceededError(StorageError):
     Raised when a source file or project would exceed a configured storage limit.
 
     The code attribute holds one of the fixed rejection codes and the path attribute holds
-    the offending file path, or None for a project-wide limit.
+    the offending file path.
     """
 
     # Ordered as UnsafePathError's, which has fourteen construction sites against this one.

@@ -11,7 +11,7 @@ class LogLevelChoices(ChoiceSet):
     """
     Message severity levels for Custom Script logging.
 
-    Each level maps to a stdlib logging level through ``SYSTEM_LEVELS``.
+    Each level maps to a stdlib logging level through SYSTEM_LEVELS.
     """
 
     LOG_DEBUG = 'debug'

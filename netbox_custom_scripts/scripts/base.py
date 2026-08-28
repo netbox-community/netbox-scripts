@@ -21,7 +21,7 @@ class BaseScript:
     """
     Foundation for Custom Scripts.
 
-    Authors normally subclass ``Script``. Subclassing this class directly is for shared
+    Authors normally subclass Script. Subclassing this class directly is for shared
     building blocks that must not show up as runnable scripts themselves.
     """
 
@@ -186,9 +186,9 @@ class BaseScript:
         """
         Construct the run form for this script.
 
-        The form is a ``ScriptForm`` subclass carrying one field per variable, the commit
+        The form is a ScriptForm subclass carrying one field per variable, the commit
         toggle, the notification policy, and the two scheduling fields when
-        ``scheduling_offered`` holds. commit_default and notifications_default override the
+        scheduling_offered holds. commit_default and notifications_default override the
         values declared on the class, which is how an operator's own defaults reach the form.
         """
         fields = {name: var.as_field() for name, var in self._get_vars().items()}
@@ -209,7 +209,7 @@ class BaseScript:
         """
         Append one record to the run log and mirror it to the system logger.
 
-        Script code should call the level-specific ``log_*`` helpers instead.
+        Script code should call the level-specific log_* helpers instead.
         """
         if level not in LogLevelChoices.values():
             raise ValueError(f'Invalid logging level: {level}')
@@ -257,5 +257,5 @@ class Script(BaseScript):
     Marker base class for runnable scripts.
 
     Script discovery (a later release) publishes subclasses of this class, while plain
-    ``BaseScript`` subclasses stay private helpers.
+    BaseScript subclasses stay private helpers.
     """

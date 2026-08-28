@@ -32,8 +32,8 @@ class ScriptVariable:
     Base class for Custom Script variables.
 
     A variable declares one input of a script and knows how to materialize itself as a
-    Django form field. Subclasses pick the field through ``form_field`` and seed
-    ``field_attrs`` with the keyword arguments that field needs.
+    Django form field. Subclasses pick the field through form_field and seed
+    field_attrs with the keyword arguments that field needs.
     """
 
     form_field = forms.CharField
@@ -56,7 +56,7 @@ class ScriptVariable:
         """
         Build the Django form field for this variable.
 
-        Anything but a checkbox gets NetBox's ``form-control`` CSS class appended so it
+        Anything but a checkbox gets NetBox's form-control CSS class appended so it
         renders styled.
         """
         field = self.form_field(**self.field_attrs)

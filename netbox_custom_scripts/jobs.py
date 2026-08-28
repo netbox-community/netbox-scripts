@@ -427,7 +427,7 @@ class CustomScriptJob(JobRunner):
                 **kwargs,
             )
             # A second statement because core's own row construction carries no data.
-            job.data = payload
+            job.data = cls._row_data(payload)
             job.save(update_fields=('data',))
         return job
 
@@ -455,7 +455,7 @@ class CustomScriptJob(JobRunner):
             job_id=uuid.uuid4(),
             queue_name=kwargs.pop('queue_name', None) or get_queue_for_model(object_type.model),
             notifications=kwargs.pop('notifications'),
-            data=dict(payload),
+            data=cls._row_data(payload),
         )
         job.full_clean()
         job.save()
@@ -468,6 +468,16 @@ class CustomScriptJob(JobRunner):
                 job.terminate(status=JobStatusChoices.STATUS_ERRORED, error='The run was interrupted.')
             raise
         return job
+
+    @staticmethod
+    def _row_data(payload):
+        """Return the payload with an Event Rule's object snapshots dropped, for the Job row."""
+        # payload is both the task kwargs and the row data. Only the row is readable by anyone
+        # holding core.view_job, and snapshots carry the full before and after of the fired object.
+        event = payload.get('event')
+        if not event or 'snapshots' not in event:
+            return dict(payload)
+        return {**payload, 'event': {key: value for key, value in event.items() if key != 'snapshots'}}
 
     def run(
         self,

@@ -83,6 +83,20 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
         self.assertNotIn('request', event)
         self.assertNotIn('user', event)
 
+    def test_the_snapshots_stay_off_the_queued_job_row(self):
+        self.fire()
+
+        event = self.runs().get().data['event']
+        self.assertNotIn('snapshots', event)
+        self.assertEqual(event['event_type'], OBJECT_CREATED)
+
+    def test_the_snapshots_stay_off_an_immediate_job_row(self):
+        # An immediate run builds its row in _run_now, by a different statement.
+        job = self.run_job(self.custom_script, event=self.action._event_payload(self.rule, self.context()))
+
+        self.assertNotIn('snapshots', job.data['event'])
+        self.assertEqual(job.data['event']['event_type'], OBJECT_CREATED)
+
     def test_a_disabled_script_is_reported_rather_than_queued(self):
         self.custom_script.enabled = False
         self.custom_script.save()
@@ -169,6 +183,25 @@ class ActionInputTestCase(ScriptJobTestMixin, TestCase):
             action_type=SLUG,
             action_object=self.custom_script,
         )
+
+    def test_the_worker_still_receives_the_snapshots(self):
+        # Filtering the row must not filter the task kwargs, which is how event reaches the script.
+        context = EventContext(
+            event_type=OBJECT_CREATED,
+            data={},
+            user=self.user,
+            snapshots={'prechange': None, 'postchange': {'name': 'device-1'}},
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.action.enqueue(
+                event_rule=self.rule,
+                event_context=context,
+                action_object=self.custom_script,
+                action_data={},
+            )
+
+        snapshots = self.queue.jobs[0].kwargs['event']['snapshots']
+        self.assertEqual(snapshots['postchange'], {'name': 'device-1'})
 
     def test_the_action_data_becomes_the_script_input(self):
         # django_rq defers an enqueue to transaction.on_commit, and a TestCase never commits.

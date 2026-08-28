@@ -818,8 +818,8 @@ Check this before designing anything that persists bytes.
   earns more lines only for behaviour a caller has to branch on, never for
   rationale: that a call does not raise on bad input, that it deduplicates, what
   it returns, what it raises. If a sentence explains *why* the code is written
-  the way it is, it does not belong in a docstring. Three rules follow, and each
-  names where the displaced prose goes instead:
+  the way it is, it does not belong in a docstring. Three rules follow, and the
+  first two name where the displaced prose goes instead:
   - Rationale about one specific line is an **inline comment at that line**,
     not a paragraph in the docstring. `storage/paths.py` (the `MAX_PATH_BYTES`
     budget) and `runtime/cache.py` (the `mkdir` mode and bytecode traps) are
@@ -828,8 +828,10 @@ Check this before designing anything that persists bytes.
     database-alias contract) belongs in `docs/` and the Architecture section
     above, stated once and referenced. Do not restate it per module or per
     function.
-  - A docstring that only rewords its own identifier and base class is noise.
-    `class FooListView(generic.ObjectListView)` needs no docstring at all.
+  - A docstring that only rewords its own identifier and base class states
+    nothing, but `D101` is enforced, so improve it rather than removing it.
+    `class FooListView(generic.ObjectListView)` earns a line naming what it
+    lists and any narrowing it applies, not "List view for Foo".
 
   No section-banner comments (`# Validation`, `# Helpers`). Split the module
   instead if it needs signposting. The `cloud-compat: ok` markers are not prose

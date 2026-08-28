@@ -98,7 +98,8 @@ class CustomScriptLogTable(BaseTable):
     def render_object(self, value, record):
         """Link the logged object when the run recorded a URL a browser may follow."""
         url = record.get('url')
-        # A script author can log any object, and get_absolute_url() is whatever that class returns.
-        if not url or not url_scheme_is_allowed(url):
+        # A script author can log any object, and get_absolute_url() is whatever that class
+        # returns, including a non-string, which urlparse raises AttributeError on.
+        if not isinstance(url, str) or not url_scheme_is_allowed(url):
             return value
         return format_html('<a href="{}">{}</a>', url, value)

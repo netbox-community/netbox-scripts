@@ -1,5 +1,6 @@
 from django import forms
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from core.models import DataSource
@@ -137,13 +138,13 @@ class CustomScriptProjectUploadForm(PrimaryModelForm):
         return self.cleaned_data
 
     def save(self, *args, **kwargs):
-        """Create the project, then declare, stage, and enqueue the uploaded script."""
+        """Create the project, and declare, stage and enqueue the uploaded script once it commits."""
         project = super().save(*args, **kwargs)
         upload = self.cleaned_data['upload_file']
-        # Staging writes content, so it runs after the project row is committed. A failure
-        # leaves the project with a recorded storage failure to retry from, not a rollback
-        # that would orphan whatever bytes reached the backend.
-        ingest_upload(project, filename=upload.name, content=upload.read())
+        filename, content = upload.name, upload.read()
+        # The editing view wraps this call in a transaction, so staging waits for the commit. A
+        # rollback would otherwise keep the bytes while discarding every row that names them.
+        transaction.on_commit(lambda: ingest_upload(project, filename=filename, content=content))
         return project
 
 
@@ -203,15 +204,19 @@ class CustomScriptProjectAddScriptForm(PrimaryModelForm):
         return self.cleaned_data
 
     def save(self, *args, **kwargs):
-        """Stage the existing tree plus the new file as one new revision."""
+        """Stage the existing tree plus the new file as one new revision, once the request commits."""
+        project = self.instance
         upload = self.cleaned_data['upload_file']
-        # The content read happens here rather than during validation, so a rejected upload
-        # never pulls a whole tree out of the store.
-        ingest_upload(
-            self.instance,
-            filename=upload.name,
-            content=upload.read(),
-            base_files=current_source_tree(self.instance),
+        filename, content = upload.name, upload.read()
+        # Deferred like the upload form's, so a rollback leaves no bytes behind. The tree read
+        # waits with it, so a rejected upload never pulls a whole tree out of the store.
+        transaction.on_commit(
+            lambda: ingest_upload(
+                project,
+                filename=filename,
+                content=content,
+                base_files=current_source_tree(project),
+            )
         )
         return self.instance
 

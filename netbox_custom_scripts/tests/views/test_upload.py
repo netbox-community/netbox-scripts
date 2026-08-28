@@ -9,6 +9,9 @@ from netbox_custom_scripts.choices import ActivationPolicyChoices, ProjectSource
 from netbox_custom_scripts.ingestion import ingest_upload
 from netbox_custom_scripts.jobs import RevisionValidationJob
 from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.storage import config
+from netbox_custom_scripts.storage.paths import STORAGE_PREFIX
+from netbox_custom_scripts.tests.storage.test_store import stored_paths
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -58,7 +61,9 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
             'upload_file': self.upload(),
         }
         data.update(overrides)
-        return self.client.post(self.url(), data)
+        # The form defers staging to the commit, which a TestCase never reaches on its own.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url(), data)
 
     def test_the_form_asks_for_nothing_internal(self):
         self.grant_both()
@@ -129,6 +134,28 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         self.assertHttpStatus(self.post(upload_file=self.upload('automation/deploy.py')), 302)
         self.assertEqual(CustomScriptModule.objects.get().source_path, 'deploy.py')
 
+    def test_a_rolled_back_upload_leaves_the_store_untouched(self):
+        # A constraint the new project falls outside of makes the editing view raise
+        # PermissionsViolation after the form saves, rolling the whole request back. Staging
+        # waits for the commit, so nothing reaches the store.
+        constrained = ObjectPermission(
+            name='project add elsewhere',
+            actions=['view', 'add'],
+            constraints={'key': 'another-project'},
+        )
+        constrained.save()
+        constrained.users.add(self.user)
+        constrained.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        self.grant(CustomScriptModule, 'view', 'add')
+
+        before = stored_paths(config.get_storage(), f'{STORAGE_PREFIX}/')
+        response = self.post()
+
+        self.assertHttpStatus(response, 200)
+        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertEqual(stored_paths(config.get_storage(), f'{STORAGE_PREFIX}/'), before)
+        self.enqueued.assert_not_called()
+
     def test_the_project_permission_alone_is_not_enough(self):
         # The upload declares an entrypoint, so it needs the Module permission too.
         self.grant(CustomScriptProject, 'view', 'add')
@@ -172,9 +199,13 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
     def upload(name='audit.py', content=SCRIPT + b'# audit\n'):
         return SimpleUploadedFile(name, content, content_type='text/x-python')
 
+    def post(self, **data):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url(), data)
+
     def test_a_second_script_joins_the_existing_tree(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'upload_file': self.upload()})
+        response = self.post(upload_file=self.upload())
         self.assertHttpStatus(response, 302)
 
         revision = CustomScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
@@ -188,7 +219,7 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
 
     def test_the_earlier_declaration_survives(self):
         self.grant_both()
-        self.client.post(self.url(), {'upload_file': self.upload()})
+        self.post(upload_file=self.upload())
         self.assertEqual(
             sorted(self.project.modules.filter(enabled=True).values_list('source_path', flat=True)),
             ['audit.py', 'deploy.py'],
@@ -196,7 +227,7 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
 
     def test_replacing_a_known_path_needs_the_confirmation(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'upload_file': self.upload('deploy.py')})
+        response = self.post(upload_file=self.upload('deploy.py'))
         self.assertHttpStatus(response, 200)
         self.assertIn('already holds', response.content.decode())
         self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
@@ -204,7 +235,7 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
 
     def test_the_confirmation_allows_the_replacement_as_a_new_revision(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'upload_file': self.upload('deploy.py'), 'confirm_replace': 'on'})
+        response = self.post(upload_file=self.upload('deploy.py'), confirm_replace='on')
         self.assertHttpStatus(response, 302)
         revision = CustomScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
@@ -217,21 +248,21 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
         # The whole point of keying on the canonical path: the user picked a different name, but
         # Django flattened it onto one the project already holds.
         self.grant_both()
-        response = self.client.post(self.url(), {'upload_file': self.upload('archive/deploy.py')})
+        response = self.post(upload_file=self.upload('archive/deploy.py'))
         self.assertHttpStatus(response, 200)
         self.assertIn('already holds', response.content.decode())
         self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
 
     def test_a_case_variant_is_refused_on_the_upload_field(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'upload_file': self.upload('Deploy.py')})
+        response = self.post(upload_file=self.upload('Deploy.py'))
         self.assertHttpStatus(response, 200)
         self.assertIn('collides', response.content.decode())
         self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
 
     def test_a_non_python_upload_is_refused(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'upload_file': self.upload('notes.txt', b'hello\n')})
+        response = self.post(upload_file=self.upload('notes.txt', b'hello\n'))
         self.assertHttpStatus(response, 200)
         self.assertIn('Python source', response.content.decode())
 

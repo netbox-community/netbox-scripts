@@ -18,6 +18,13 @@ from ..utils import source_path_to_dotted_name
 from .exceptions import RevisionCorruptError, UnsafePathError
 from .paths import case_insensitive_collisions, normalize_source_path
 
+__all__ = (
+    'EMPTY_SNAPSHOT_DIGEST',
+    'build_entrypoint_snapshot',
+    'compute_entrypoint_digest',
+    'validate_entrypoint_snapshot',
+)
+
 # What compute_entrypoint_digest returns for an empty snapshot, the digest a revision
 # staged with no enabled Modules carries. Also the model field default, so a row created
 # without the service still describes itself.

@@ -12,6 +12,19 @@ from pathlib import PureWindowsPath
 
 from .exceptions import UnsafePathError
 
+__all__ = (
+    'MAX_PATH_BYTES',
+    'MAX_PATH_COMPONENT_BYTES',
+    'MAX_PATH_DEPTH',
+    'STORAGE_PREFIX',
+    'case_insensitive_collisions',
+    'case_insensitive_nodes',
+    'normalize_source_path',
+    'project_prefix',
+    'revision_key',
+    'revision_prefix',
+)
+
 _HEX_DIGEST = re.compile(r'^[0-9a-f]{64}$')
 
 # Portability floors for a source path, deliberately fixed rather than configurable. These
@@ -58,30 +71,44 @@ def normalize_source_path(path):
     """
     normalized = unicodedata.normalize('NFC', path)
     if normalized != normalized.strip():
-        raise UnsafePathError(path, 'path_traversal', 'Leading or trailing whitespace is not allowed in source paths.')
+        raise UnsafePathError(
+            path=path, code='path_traversal', message='Leading or trailing whitespace is not allowed in source paths.'
+        )
     # Backslashes and control characters are rejected under the path_traversal code. Both
     # are ways to escape the intended directory: a backslash acts as an alternate separator
     # on some hosts, and control characters can confuse a path parser or truncate a name.
     if '\\' in normalized:
         raise UnsafePathError(
-            path, 'path_traversal', 'Backslashes are not allowed in source paths. Use forward slashes.'
+            path=path,
+            code='path_traversal',
+            message='Backslashes are not allowed in source paths. Use forward slashes.',
         )
     if any(ord(char) < 32 or char == '\x7f' for char in normalized):
-        raise UnsafePathError(path, 'path_traversal', 'Control characters are not allowed in source paths.')
+        raise UnsafePathError(
+            path=path, code='path_traversal', message='Control characters are not allowed in source paths.'
+        )
     if normalized.startswith('/') or PureWindowsPath(normalized).drive:
-        raise UnsafePathError(path, 'absolute_path', 'Absolute and drive-qualified source paths are not allowed.')
+        raise UnsafePathError(
+            path=path, code='absolute_path', message='Absolute and drive-qualified source paths are not allowed.'
+        )
     if normalized.endswith('/'):
-        raise UnsafePathError(path, 'path_traversal', 'Source paths must reference a file, not a directory.')
+        raise UnsafePathError(
+            path=path, code='path_traversal', message='Source paths must reference a file, not a directory.'
+        )
     segments = [segment for segment in normalized.split('/') if segment not in ('', '.')]
     if any(segment == '..' for segment in segments):
-        raise UnsafePathError(path, 'path_traversal', 'Path traversal segments ("..") are not allowed.')
+        raise UnsafePathError(
+            path=path, code='path_traversal', message='Path traversal segments ("..") are not allowed.'
+        )
     if not segments:
-        raise UnsafePathError(path, 'path_traversal', 'Source paths must reference a file within the project.')
+        raise UnsafePathError(
+            path=path, code='path_traversal', message='Source paths must reference a file within the project.'
+        )
     if segments[-1].endswith(_COMPILED_SUFFIXES) or _BYTECODE_DIRECTORY in segments:
         raise UnsafePathError(
-            path,
-            'compiled_artifact',
-            f'Compiled Python files and "{_BYTECODE_DIRECTORY}" directories are not stored as project source.',
+            path=path,
+            code='compiled_artifact',
+            message=f'Compiled Python files and "{_BYTECODE_DIRECTORY}" directories are not stored as project source.',
         )
 
     canonical = '/'.join(segments)
@@ -89,21 +116,21 @@ def normalize_source_path(path):
         length = len(segment.encode('utf-8'))
         if length > MAX_PATH_COMPONENT_BYTES:
             raise UnsafePathError(
-                path,
-                'path_component_too_long',
-                f'"{segment[:40]}..." is {length} bytes, over the {MAX_PATH_COMPONENT_BYTES} byte limit for one '
-                f'path component.',
+                path=path,
+                code='path_component_too_long',
+                message=f'"{segment[:40]}..." is {length} bytes, over the '
+                f'{MAX_PATH_COMPONENT_BYTES} byte limit for one path component.',
             )
     total = len(canonical.encode('utf-8'))
     if total > MAX_PATH_BYTES:
         raise UnsafePathError(
-            path, 'path_too_long', f'The path is {total} bytes, over the {MAX_PATH_BYTES} byte limit.'
+            path=path, code='path_too_long', message=f'The path is {total} bytes, over the {MAX_PATH_BYTES} byte limit.'
         )
     if len(segments) > MAX_PATH_DEPTH:
         raise UnsafePathError(
-            path,
-            'path_too_deep',
-            f'The path is {len(segments)} levels deep, over the {MAX_PATH_DEPTH} level limit.',
+            path=path,
+            code='path_too_deep',
+            message=f'The path is {len(segments)} levels deep, over the {MAX_PATH_DEPTH} level limit.',
         )
     return canonical
 
@@ -149,13 +176,17 @@ def _storage_key_component(storage_key):
     try:
         return str(uuid.UUID(str(storage_key)))
     except (ValueError, AttributeError, TypeError):
-        raise UnsafePathError(str(storage_key), 'escapes_root', 'The storage key must be a UUID.') from None
+        raise UnsafePathError(
+            path=str(storage_key), code='escapes_root', message='The storage key must be a UUID.'
+        ) from None
 
 
 def _digest_component(digest):
     """Return one revision's digest, confirmed to be the 64 lowercase hex characters it must be."""
     if not isinstance(digest, str) or not _HEX_DIGEST.fullmatch(digest):
-        raise UnsafePathError(str(digest), 'escapes_root', 'The revision digest must be 64 lowercase hex characters.')
+        raise UnsafePathError(
+            path=str(digest), code='escapes_root', message='The revision digest must be 64 lowercase hex characters.'
+        )
     return digest
 
 

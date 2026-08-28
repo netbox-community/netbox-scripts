@@ -27,6 +27,12 @@ from contextlib import contextmanager
 
 from django.db import DEFAULT_DB_ALIAS, connections
 
+__all__ = (
+    'ADVISORY_LOCK_NAMESPACE',
+    'advisory_key',
+    'project_lock',
+)
+
 # The first of the two integers every project lock is taken on. PostgreSQL keeps the
 # one-bigint and two-integer advisory keyspaces disjoint, so a two-integer key cannot collide
 # with NetBox itself, which takes single-key locks throughout. The value is arbitrary and

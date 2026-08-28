@@ -32,6 +32,15 @@ from .exceptions import RevisionCorruptError, StorageError, UnsafePathError
 from .manifest import validate_manifest
 from .paths import normalize_source_path, revision_key, revision_prefix
 
+__all__ = (
+    'copy_verified',
+    'delete_revision',
+    'read_revision_tree',
+    'read_verified',
+    'verify_revision_tree',
+    'write_revision',
+)
+
 _HASH_CHUNK = 1024 * 1024
 
 logger = logging.getLogger('netbox.plugins.netbox_custom_scripts.storage')
@@ -200,7 +209,9 @@ def _canonical_source(files):
     for path, content in files.items():
         canonical = normalize_source_path(path)
         if canonical in source:
-            raise UnsafePathError(path, 'duplicate_path', f'Multiple source files resolve to the path "{canonical}".')
+            raise UnsafePathError(
+                path=path, code='duplicate_path', message=f'Multiple source files resolve to the path "{canonical}".'
+            )
         source[canonical] = content
     return source
 

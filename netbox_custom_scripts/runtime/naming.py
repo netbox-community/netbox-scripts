@@ -45,4 +45,4 @@ def entrypoint_dotted_name(path):
     try:
         return source_path_to_dotted_name(path)
     except ValidationError as error:
-        raise InvalidModulePathError(path, error.code, error.messages[0]) from error
+        raise InvalidModulePathError(path=path, code=error.code, message=error.messages[0]) from error

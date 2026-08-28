@@ -27,6 +27,14 @@ from .exceptions import ActivationError, RevisionCorruptError, RevisionVanishedE
 from .locks import project_lock
 from .manifest import build_manifest, compute_digest, validate_manifest
 
+__all__ = (
+    'StagedRevision',
+    'promote_revision',
+    'refresh_revision_entrypoints',
+    'require_default_database',
+    'stage_revision',
+)
+
 
 class StagedRevision(NamedTuple):
     """The result of one staging call: the revision and whether this call created it."""

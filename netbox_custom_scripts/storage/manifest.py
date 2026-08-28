@@ -15,6 +15,12 @@ import re
 from .exceptions import LimitExceededError, RevisionCorruptError, UnsafePathError
 from .paths import case_insensitive_collisions, normalize_source_path
 
+__all__ = (
+    'build_manifest',
+    'compute_digest',
+    'validate_manifest',
+)
+
 _SHA256 = re.compile(r'[0-9a-f]{64}')
 
 
@@ -137,9 +143,9 @@ def _build_entry(canonical, content, max_file_size):
     size = len(content)
     if size > max_file_size:
         raise LimitExceededError(
-            'file_too_large',
-            f'"{canonical}" is {size} bytes, over the {max_file_size} byte limit.',
             path=canonical,
+            code='file_too_large',
+            message=f'"{canonical}" is {size} bytes, over the {max_file_size} byte limit.',
         )
     return {'path': canonical, 'size': size, 'sha256': hashlib.sha256(content).hexdigest()}
 

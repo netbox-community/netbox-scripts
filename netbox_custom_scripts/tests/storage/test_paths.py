@@ -175,11 +175,14 @@ class StorageKeyTestCase(TestCase):
                 paths.revision_key(self.storage_key, self.digest, raw)
 
     def test_the_key_builders_refuse_unsafe_identifiers(self):
-        with self.assertRaises(UnsafePathError):
+        # The code is read programmatically, so it is pinned alongside the refusal itself.
+        with self.assertRaises(UnsafePathError) as ctx:
             paths.project_prefix('../etc')
+        self.assertEqual(ctx.exception.code, 'escapes_root')
         for bad_digest in ('../../escape', 'g' * 64, 'abc/def', 'A' * 64):
-            with self.subTest(bad_digest=bad_digest), self.assertRaises(UnsafePathError):
+            with self.subTest(bad_digest=bad_digest), self.assertRaises(UnsafePathError) as ctx:
                 paths.revision_prefix(self.storage_key, bad_digest)
+            self.assertEqual(ctx.exception.code, 'escapes_root')
 
     def test_the_key_builders_are_pure_functions_of_their_arguments(self):
         self.assertEqual(

@@ -1,3 +1,9 @@
+"""
+Error taxonomy for the project storage layer.
+
+Every exception here roots at StorageError, so a caller can catch the whole tier in one clause.
+"""
+
 __all__ = (
     'ActivationError',
     'LimitExceededError',
@@ -40,7 +46,8 @@ class LimitExceededError(StorageError):
     the offending file path, or None for a project-wide limit.
     """
 
-    def __init__(self, code, message, path=None):
+    # Ordered as UnsafePathError's, which has fourteen construction sites against this one.
+    def __init__(self, path, code, message):
         super().__init__(message)
         self.code = code
         self.path = path

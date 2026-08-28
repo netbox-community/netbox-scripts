@@ -14,7 +14,7 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 
 | Action | What it allows |
 |---|---|
-| `view` | See Projects, their Revisions, their Modules and their state |
+| `view` | See Projects, their Modules and their state, including the revision in force |
 | `add` | Create a Project, including the Upload form that creates one from a file |
 | `change` | Edit a Project's own fields, and upload a further script into one |
 | `delete` | Delete a Project, which cascades its Revisions and Custom Scripts |
@@ -24,9 +24,19 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 
 `activate` covers three surfaces: the **Activate** button on a Project, and the
 per-row **Activate** and **Deactivate** buttons on its Revisions tab. All three
-change what the Project serves, so all three ask for the same action. A Revision
-has no permission of its own, because it has no surface anyone would grant one
-for.
+change what the Project serves, so all three ask for the same action.
+
+**Browsing revisions is a separate permission, `netbox_custom_scripts.view_customscriptprojectrevision`.**
+The line falls between what a Project is serving and its history. A Project's own
+page reports the revision in force, so `view` on the Project is enough to see
+that. The Revisions tab, the Files tab and a revision's own page list the
+history and its stored file paths, so each asks for the Revision view
+permission, and the two tabs are hidden without it.
+
+That matters for one workflow in particular. **Deactivate** is reached only from
+a row on the Revisions tab, so standing a Project down needs `view` and
+`activate` on the Project **and** Revision view. Granting `activate` alone
+leaves the button out of reach.
 
 ## The Migration page
 

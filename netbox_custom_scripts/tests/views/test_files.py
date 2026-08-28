@@ -94,5 +94,6 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
 
     def test_the_tab_is_linked_from_the_detail_page(self):
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         body = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(self.url(self.project), body)

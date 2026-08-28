@@ -47,9 +47,10 @@ class RevisionServiceView(generic.ObjectView):
     discard, which would submit the outer form to the tab URL instead.
 
     Permission is the owning project's activate permission, because what these change is what the
-    project serves. The inherited check would otherwise want a revision permission, and a revision
-    has no other surface anyone would grant one for. Object-level project permissions still apply,
-    through the project queryset the revisions are filtered against.
+    project serves, rather than the revision view permission the inherited check would want.
+    Reaching them still needs that view permission, since the Revisions tab is the only route to
+    them. Object-level project permissions apply through the project queryset the revisions are
+    filtered against.
     """
 
     queryset = CustomScriptProjectRevision.objects.all()

@@ -287,6 +287,15 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('Not stored', body)
         self.assertIn(rejected.get_absolute_url(), body)
 
+    def test_the_tabs_are_withheld_without_the_revision_view_permission(self):
+        self.grant(CustomScriptProject, 'view')
+
+        body = self.body()
+
+        for name in ('revisions', 'files'):
+            url = reverse(f'plugins:netbox_custom_scripts:customscriptproject_{name}', args=[self.project.pk])
+            self.assertNotIn(url, body)
+
     def test_the_history_tab_hides_a_revision_the_grant_excludes(self):
         # Core restricts every ObjectChildrenView's children, and this tab did not.
         other = CustomScriptProjectRevision.objects.create(

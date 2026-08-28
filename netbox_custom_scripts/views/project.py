@@ -202,6 +202,9 @@ class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
     tab = ViewTab(
         label=_('Revisions'),
         badge=lambda obj: obj.revisions.count(),
+        # The badge callable never receives the request, so the tab carries the permission and
+        # core skips rendering it entirely rather than showing a count over an empty table.
+        permission='netbox_custom_scripts.view_customscriptprojectrevision',
         weight=600,
     )
 
@@ -241,6 +244,7 @@ class CustomScriptProjectFilesView(generic.ObjectChildrenView):
     tab = ViewTab(
         label=_('Files'),
         badge=lambda obj: obj.current_revision.file_count if obj.current_revision else 0,
+        permission='netbox_custom_scripts.view_customscriptprojectrevision',
         weight=550,
     )
 

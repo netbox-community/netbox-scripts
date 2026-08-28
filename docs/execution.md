@@ -26,6 +26,20 @@ who may edit a script's administrative fields cannot necessarily run it, and the
 reverse holds too. Scheduling is a second permission again, `schedule`. See
 [Permissions](permissions.md) for the full set.
 
+### Reaching a script you run often
+
+An operator who runs the same two or three Custom Scripts repeatedly can bookmark
+them, using NetBox's own bookmarks rather than anything this plugin adds. A
+bookmarked Custom Script appears on your dashboard, one click from any page.
+Custom Script Projects and Custom Script Modules can be bookmarked the same way.
+Revisions cannot, since they are history rather than something you return to.
+
+Bookmarks are per user. Each person curates their own, and nothing an
+administrator sets changes what another operator sees. A bookmark names the
+Custom Script row, and a script that stops being published is retired rather
+than deleted, so a bookmark survives a retirement and works again the moment the
+script is republished.
+
 ## Running over REST
 
 `POST /api/plugins/custom-scripts/scripts/<id>/run/` requests a run without a

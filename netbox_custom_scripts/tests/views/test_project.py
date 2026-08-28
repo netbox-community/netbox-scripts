@@ -120,8 +120,12 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
     def url(self):
         return reverse('plugins:netbox_custom_scripts:customscriptproject_entrypoints', args=[self.project.pk])
 
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+    def grant(self, model, *actions, constraints=None):
+        obj_perm = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}',
+            actions=list(actions),
+            constraints=constraints,
+        )
         obj_perm.save()
         obj_perm.users.add(self.user)
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
@@ -204,8 +208,12 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.user = create_test_user()
         self.client.force_login(self.user)
 
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+    def grant(self, model, *actions, constraints=None):
+        obj_perm = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}',
+            actions=list(actions),
+            constraints=constraints,
+        )
         obj_perm.save()
         obj_perm.users.add(self.user)
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
@@ -241,6 +249,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_revision_history_moved_to_its_own_tab(self):
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
         # Linked from the detail page as a tab, and rendering the history itself.
         self.assertIn(url, self.body())
@@ -251,12 +260,14 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
     def test_the_history_tab_leads_with_created_then_the_linked_digest(self):
         # The linked column is a table's way into the detail page, so it follows the timestamp.
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
         table = self.client.get(url).context['table']
         self.assertEqual([column.name for column in table.columns][:3], ['created', 'short_digest', 'status'])
 
     def test_the_history_tab_links_each_revision(self):
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
         self.assertIn(self.revision.get_absolute_url(), body)
@@ -264,6 +275,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
     def test_a_staging_with_no_digest_is_named_and_still_linked(self):
         # The row a reader most wants to open, since a rejected staging stored nothing.
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         rejected = CustomScriptProjectRevision.objects.create(
             project=self.project,
             digest=None,
@@ -275,9 +287,27 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('Not stored', body)
         self.assertIn(rejected.get_absolute_url(), body)
 
+    def test_the_history_tab_hides_a_revision_the_grant_excludes(self):
+        # Core restricts every ObjectChildrenView's children, and this tab did not.
+        other = CustomScriptProjectRevision.objects.create(
+            project=self.project,
+            digest='c' * 64,
+            status=RevisionStatusChoices.VALID,
+        )
+        self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view', constraints={'pk': self.revision.pk})
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+
+        body = self.client.get(url).content.decode()
+
+        self.assertIn('d' * 12, body)
+        self.assertNotIn('c' * 12, body)
+        self.assertNotIn(other.get_absolute_url(), body)
+
     def test_the_history_tab_offers_no_actions_on_a_revision(self):
         # A revision is never created or edited by hand, so the tab carries no action buttons.
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
         for absent in ('customscriptprojectrevision_add', 'customscriptprojectrevision_edit'):

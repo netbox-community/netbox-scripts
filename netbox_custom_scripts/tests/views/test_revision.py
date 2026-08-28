@@ -152,6 +152,7 @@ class RevisionServiceViewTestCase(TestCase):
         # invalid HTML that browsers discard, so a button inside one submits the OUTER form to
         # the tab URL. That is exactly what happened: POST to the tab, 405. Links cannot.
         self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(CustomScriptProjectRevision, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         target = self.url(revision, 'activate')
@@ -174,7 +175,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     def test_no_revision_permission_of_its_own_is_needed(self):
         # The operation changes what the project serves, so the project's permission is the
-        # gate. A revision has no other surface an operator would grant a permission for.
+        # gate. Viewing a revision is separate and takes its own permission, as REST does.
         self.grant(CustomScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.assertHttpStatus(self.client.post(self.url(revision, 'activate')), 302)
@@ -183,6 +184,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     def test_the_tab_offers_activate_for_a_valid_revision_and_nothing_else(self):
         self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(CustomScriptProjectRevision, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         self.assertIn(self.url(revision, 'activate'), body)
@@ -190,6 +192,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     def test_the_tab_offers_deactivate_for_the_active_revision(self):
         self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(CustomScriptProjectRevision, 'view')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         body = self.client.get(self.tab_url()).content.decode()

@@ -206,8 +206,8 @@ class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
     )
 
     def get_children(self, request, parent):
-        """Return every revision of this project, newest first per the table's ordering."""
-        return parent.revisions.all()
+        """Return every revision of this project the caller may view, newest first."""
+        return parent.revisions.restrict(request.user, 'view')
 
 
 @register_model_view(CustomScriptProject, 'entrypoints', path='entrypoints')
@@ -247,7 +247,12 @@ class CustomScriptProjectFilesView(generic.ObjectChildrenView):
     def get_children(self, request, parent):
         """Return one row per manifest entry, plus one per declared path absent from it."""
         revision = parent.current_revision
-        if revision is None:
+        # Rows are manifest dictionaries rather than a queryset, so the whole tab is gated on the
+        # revision they came from instead of restricting what get_children returns.
+        if (
+            revision is None
+            or not CustomScriptProjectRevision.objects.restrict(request.user, 'view').filter(pk=revision.pk).exists()
+        ):
             return []
         declared = {module.source_path: module.enabled for module in parent.modules.all()}
         present = {entry['path'] for entry in revision.manifest}

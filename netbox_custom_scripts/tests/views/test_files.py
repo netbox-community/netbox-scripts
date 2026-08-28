@@ -32,8 +32,12 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
         self.user = create_test_user()
         self.client.force_login(self.user)
 
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+    def grant(self, model, *actions, constraints=None):
+        obj_perm = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}',
+            actions=list(actions),
+            constraints=constraints,
+        )
         obj_perm.save()
         obj_perm.users.add(self.user)
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
@@ -43,6 +47,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
 
     def test_the_tab_lists_the_manifest(self):
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         response = self.client.get(self.url(self.project))
         self.assertHttpStatus(response, 200)
         body = response.content.decode()
@@ -55,16 +60,28 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
 
     def test_a_declared_path_missing_from_the_source_is_marked(self):
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         body = self.client.get(self.url(self.project)).content.decode()
         self.assertIn('removed.py (missing from the source)', body)
 
     def test_the_entrypoint_column_reads_the_live_declaration(self):
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
         table = self.client.get(self.url(self.project)).context['table']
         state = {row.record['path']: row.record['entrypoint'] for row in table.rows}
         self.assertTrue(state['deploy.py'])
         self.assertFalse(state['helpers.py'])
         self.assertTrue(state['removed.py'])
+
+    def test_the_tab_is_empty_without_permission_on_its_revision(self):
+        self.grant(CustomScriptProject, 'view')
+
+        response = self.client.get(self.url(self.project))
+
+        self.assertHttpStatus(response, 200)
+        body = response.content.decode()
+        self.assertNotIn('deploy.py', body)
+        self.assertNotIn('a' * 64, body)
 
     def test_a_project_without_content_shows_the_empty_state(self):
         self.grant(CustomScriptProject, 'view')

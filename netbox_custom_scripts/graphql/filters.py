@@ -30,8 +30,8 @@ __all__ = (
 class CustomScriptProjectFilter(PrimaryModelFilter):
     """GraphQL filter for the Custom Script Project model."""
 
-    name: StrFilterLookup[str] | None = strawberry_django.filter_field()
-    key: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    name: StrFilterLookup | None = strawberry_django.filter_field()
+    key: StrFilterLookup | None = strawberry_django.filter_field()
     source_type: (
         BaseFilterLookup[Annotated['ProjectSourceTypeEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]]
         | None
@@ -40,7 +40,7 @@ class CustomScriptProjectFilter(PrimaryModelFilter):
         strawberry_django.filter_field()
     )
     data_source_id: ID | None = strawberry_django.filter_field()
-    data_path: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    data_path: StrFilterLookup | None = strawberry_django.filter_field()
     activation_policy: (
         BaseFilterLookup[Annotated['ActivationPolicyEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]]
         | None
@@ -56,8 +56,8 @@ class CustomScriptProjectRevisionFilter(ChangeLoggedModelFilter):
 
     project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
-    digest: StrFilterLookup[str] | None = strawberry_django.filter_field()
-    entrypoint_digest: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    digest: StrFilterLookup | None = strawberry_django.filter_field()
+    entrypoint_digest: StrFilterLookup | None = strawberry_django.filter_field()
     status: (
         BaseFilterLookup[Annotated['RevisionStatusEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]] | None
     ) = strawberry_django.filter_field()
@@ -69,7 +69,7 @@ class CustomScriptModuleFilter(PrimaryModelFilter):
 
     project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
-    source_path: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    source_path: StrFilterLookup | None = strawberry_django.filter_field()
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
     discovery_status: (
         BaseFilterLookup[Annotated['ModuleDiscoveryStatusEnum', strawberry.lazy('netbox_custom_scripts.graphql.enums')]]
@@ -87,9 +87,9 @@ class CustomScriptFilter(PrimaryModelFilter):
 
     project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
-    module_path: StrFilterLookup[str] | None = strawberry_django.filter_field()
-    class_name: StrFilterLookup[str] | None = strawberry_django.filter_field()
-    display_name: StrFilterLookup[str] | None = strawberry_django.filter_field()
+    module_path: StrFilterLookup | None = strawberry_django.filter_field()
+    class_name: StrFilterLookup | None = strawberry_django.filter_field()
+    display_name: StrFilterLookup | None = strawberry_django.filter_field()
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
     is_retired: FilterLookup[bool] | None = strawberry_django.filter_field()
     last_seen_revision: CustomScriptProjectRevisionFilter | None = strawberry_django.filter_field()

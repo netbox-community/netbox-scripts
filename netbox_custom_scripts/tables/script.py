@@ -3,6 +3,7 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
 from netbox.tables import BaseTable, PrimaryModelTable, columns
+from utilities.validators import url_scheme_is_allowed
 
 from ..models import CustomScript
 from ..scripts.logging import LogLevelChoices
@@ -95,7 +96,9 @@ class CustomScriptLogTable(BaseTable):
         )
 
     def render_object(self, value, record):
-        """Link the logged object when the run recorded a URL for it."""
-        if not record.get('url'):
+        """Link the logged object when the run recorded a URL a browser may follow."""
+        url = record.get('url')
+        # A script author can log any object, and get_absolute_url() is whatever that class returns.
+        if not url or not url_scheme_is_allowed(url):
             return value
-        return format_html('<a href="{}">{}</a>', record['url'], value)
+        return format_html('<a href="{}">{}</a>', url, value)

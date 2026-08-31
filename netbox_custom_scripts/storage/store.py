@@ -127,6 +127,8 @@ def delete_revision(storage, storage_key, digest, paths):
     reconciler still has to reclaim.
     """
     failures = []
+    # Exact keys only. storage.delete() on the revision prefix is not portable: FileSystemStorage
+    # refuses a non-empty directory while InMemoryStorage removes the whole subtree in silence.
     for path in sorted(paths):
         try:
             key = revision_key(storage_key, digest, path)

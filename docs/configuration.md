@@ -52,6 +52,12 @@ STORAGES = {
 /var/lib/netbox-custom-scripts/netbox-custom-scripts/<storage_key>/revisions/<digest>/hello.py
 ```
 
+Deleting a Project or one of its revisions reclaims the files that revision recorded, not
+the directories holding them, so an empty `<storage_key>/revisions/<digest>/` can remain
+once a cleanup has completed. This is cosmetic, and specific to a filesystem backend: an
+object store has no directory to leave behind. Removing such a directory by hand is safe,
+and a revision that is later staged from identical content writes back into it.
+
 Nothing here requires the `django-storages` package. `FileSystemStorage` ships with
 Django, and `django-storages` is needed only for the object-store backends below.
 

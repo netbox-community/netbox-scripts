@@ -144,8 +144,10 @@ class ResolverTestCase(TestCase):
 
 
 class RoutingReasonTestCase(TestCase):
-    def test_no_reason_when_netbox_branching_is_absent(self):
-        # The real state of this project's test configuration, asserted rather than assumed.
+    def test_no_reason_under_either_test_configuration(self):
+        # Asserted rather than assumed, and it holds for either configuration this suite runs
+        # under: branching is absent from the default one, and routes every global model to main
+        # under the branching one. The name therefore names the outcome, not the cause.
         self.assertIsNone(branching.unsafe_routing_reason())
 
     def test_no_reason_when_every_global_model_stays_global(self):
@@ -225,9 +227,9 @@ class RealBranchingApiTestCase(TestCase):
     private resolver list, which is coupling this suite deliberately does not have. The resolver
     handover is asserted directly in ResolverTestCase instead.
 
-    Provisioning a branch, which is what would cover reads and writes inside a branch, tag and
-    journal behaviour there, deletion, and merge, needs a test database that is not shared with
-    the sibling plugin projects, and is tracked separately.
+    Provisioning a branch is what covers reads and writes inside one, tag and journal behaviour
+    there, deletion, and merge. That lives in tests/test_branching_provisioned.py, which runs
+    under testing/configuration_branching.py against a database of its own.
     """
 
     def test_the_effective_routing_keeps_the_global_models_in_main(self):

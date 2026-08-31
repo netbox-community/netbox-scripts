@@ -6,11 +6,14 @@ are TransactionTestCase: a branch lives in its own PostgreSQL schema on its own 
 savepoint rolls back.
 """
 
+import hashlib
 import os
 import time
 import unittest
 import uuid
+from unittest import mock
 
+import django_rq
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -21,19 +24,35 @@ from core.models import ObjectType
 from dcim.models import Site
 from extras.models import JournalEntry, Tag
 from netbox.context_managers import event_tracking
-from netbox_custom_scripts.models import CustomScriptProject
+from netbox_custom_scripts import signals
+from netbox_custom_scripts.choices import RevisionStatusChoices
+from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.storage import config, store
+from netbox_custom_scripts.storage.manifest import compute_digest
+from netbox_custom_scripts.storage.paths import revision_prefix
 
 # Branching can be importable while absent from INSTALLED_APPS, and defining one of its models in
 # that state raises RuntimeError, which no ImportError guard would catch.
 HAS_BRANCHING = apps.is_installed('netbox_branching')
 
 if HAS_BRANCHING:
-    from netbox_branching.choices import BranchMergeStrategyChoices, BranchStatusChoices  # noqa: F401
+    from netbox_branching.choices import BranchMergeStrategyChoices, BranchStatusChoices
     from netbox_branching.models import Branch, ChangeDiff
     from netbox_branching.provisioning import quote_ident
     from netbox_branching.utilities import activate_branch, get_tables_to_replicate
 
 User = get_user_model()
+
+# One tiny tree. The digest comes from the production helper so the constant cannot drift.
+SOURCE = {'hello.py': b'print("hi")\n'}
+MANIFEST = [
+    {
+        'path': 'hello.py',
+        'size': len(SOURCE['hello.py']),
+        'sha256': hashlib.sha256(SOURCE['hello.py']).hexdigest(),
+    }
+]
+DIGEST = compute_digest(MANIFEST)
 
 # Not TestCase subclasses without Branching, so the runner never reaches their machinery at all.
 _TestBase = TransactionTestCase if HAS_BRANCHING else object
@@ -94,6 +113,21 @@ class BranchingTestCase(_TestBase):
         branch = provision_branch(name, user=self.user, **kwargs)
         self._schemas.append(branch.schema_name)
         return branch
+
+    def staged_revision(self, project, entrypoint_digest=''):
+        """Return one VALID revision of a project, with its single source file really stored."""
+        store.write_revision(config.get_storage(), project.storage_key, DIGEST, SOURCE, MANIFEST)
+        return CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest=DIGEST,
+            status=RevisionStatusChoices.VALID,
+            manifest=MANIFEST,
+            entrypoint_digest=entrypoint_digest,
+        )
+
+    def revision_stored(self, project):
+        """Report whether the stored tree behind DIGEST is still in the backend."""
+        return config.get_storage().exists(f'{revision_prefix(project.storage_key, DIGEST)}hello.py')
 
 
 class ProvisioningTestCase(BranchingTestCase):
@@ -186,3 +220,59 @@ class ActiveBranchTestCase(BranchingTestCase):
             )
             self.assertEqual(entries.count(), 1)
         self.assertEqual(entries.count(), 0)
+
+
+class BranchDeletionTestCase(BranchingTestCase):
+    def setUp(self):
+        super().setUp()
+        # This class commits, so the deletion signal really enqueues. Drained to leave it as found.
+        self.addCleanup(django_rq.get_queue('default').empty)
+        self.project = CustomScriptProject.objects.create(name='Deletions', key='deletions')
+
+    def test_a_revision_deleted_inside_a_branch_is_gone_from_main(self):
+        revision = self.staged_revision(self.project)
+        # delete() clears the instance pk, so a later filter on it finds nothing whatever routing did.
+        pk = revision.pk
+        branch = self.branch('Delete')
+        with activate_branch(branch):
+            revision.delete()
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=pk).exists())
+
+    def test_reverting_a_merge_does_not_resurrect_a_deleted_revision(self):
+        # A resurrected row would name bytes the cleanup job already reclaimed, which is the
+        # unrecoverable shape: a revision whose content is gone.
+        revision = self.staged_revision(self.project)
+        pk = revision.pk
+        branch = self.branch('Revert', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
+        # The Site is a branch-aware companion, and it carries the controls below. Without one the
+        # branch holds no changes at all and both operations return before doing anything.
+        with activate_branch(branch), event_tracking(self.request):
+            Site.objects.create(name='Reverted Site', slug='reverted-site')
+            revision.delete()
+        sites = Site.objects.filter(slug='reverted-site')
+        self.assertFalse(sites.exists(), 'a branch-aware row reached main before the merge')
+        # Only a merged branch can be reverted, so this merge is a precondition, not the subject.
+        branch.merge(user=self.user)
+        self.assertTrue(sites.exists(), 'the merge applied nothing, so the revert proves nothing')
+        branch.revert(user=self.user)
+        self.assertFalse(sites.exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=pk).exists())
+
+    def test_a_branch_delete_hands_off_cleanup_for_unreferenced_content(self):
+        # Asserted on the handoff, not on the bytes: only the job removes content, and it never
+        # runs here, so a storage assertion would hold whatever the signal decided.
+        revision = self.staged_revision(self.project)
+        branch = self.branch('Cleanup')
+        with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
+            revision.delete()
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST, paths=['hello.py'])
+
+    def test_a_branch_delete_withholds_cleanup_for_content_a_sibling_names(self):
+        # Two rows share one stored tree, so deleting one must not hand off bytes the other names.
+        first = self.staged_revision(self.project)
+        self.staged_revision(self.project, entrypoint_digest='b' * 64)
+        branch = self.branch('Shared')
+        with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
+            first.delete()
+        enqueue.assert_not_called()
+        self.assertTrue(self.revision_stored(self.project))

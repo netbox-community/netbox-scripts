@@ -276,3 +276,38 @@ class BranchDeletionTestCase(BranchingTestCase):
             first.delete()
         enqueue.assert_not_called()
         self.assertTrue(self.revision_stored(self.project))
+
+
+class MergeAndRevertTestCase(BranchingTestCase):
+    def test_merging_a_branch_does_not_replay_a_project_change(self):
+        branch = self.branch('Merge', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
+        # The Site is a branch-aware companion. Without one the branch holds no changes and
+        # merge() returns before doing anything, which would prove nothing.
+        with activate_branch(branch), event_tracking(self.request):
+            Site.objects.create(name='Merged Site', slug='merged-site')
+            CustomScriptProject.objects.create(name='Merged', key='merged')
+        sites = Site.objects.filter(slug='merged-site')
+        projects = CustomScriptProject.objects.filter(key='merged')
+        # The discriminating pair: the global row is already in main while the branch-aware one
+        # waits for the merge.
+        self.assertEqual(projects.count(), 1)
+        self.assertFalse(sites.exists())
+        branch.merge(user=self.user)
+        self.assertTrue(sites.exists(), 'the merge applied nothing, so the count below proves nothing')
+        # A replay would apply the project a second time.
+        self.assertEqual(projects.count(), 1)
+
+    def test_reverting_a_merge_does_not_undo_a_project_edit(self):
+        project = CustomScriptProject.objects.create(name='Before', key='reverted-edit')
+        branch = self.branch('RevertEdit', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
+        with activate_branch(branch), event_tracking(self.request):
+            Site.objects.create(name='Undone Site', slug='undone-site')
+            project.name = 'After'
+            project.save()
+        sites = Site.objects.filter(slug='undone-site')
+        branch.merge(user=self.user)
+        self.assertTrue(sites.exists(), 'the merge applied nothing')
+        branch.revert(user=self.user)
+        self.assertFalse(sites.exists(), 'the revert undid nothing, so the name below proves nothing')
+        # Re-fetched rather than refreshed, which would answer from the branch the save recorded.
+        self.assertEqual(CustomScriptProject.objects.get(pk=project.pk).name, 'After')

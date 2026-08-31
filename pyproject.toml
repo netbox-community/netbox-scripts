@@ -86,7 +86,7 @@ ignore = [
     "docs/models/*.md",
     "docs/development/*.md",
     "mkdocs.yml",
-    "testing/configuration.py",
+    "testing/*.py",
     # Per-view query-count baseline: test-only tooling, not distribution content.
     "netbox_custom_scripts/tests/query_counts.json",
     # Pre-commit hook script, not distribution content.

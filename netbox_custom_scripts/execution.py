@@ -28,6 +28,7 @@ from netbox.context_managers import event_tracking
 from netbox.registry import registry
 from utilities.exceptions import AbortScript as LegacyAbortScript
 
+from . import branching
 from .runtime.exceptions import (
     DiscoveryError,
     EntrypointImportError,
@@ -123,6 +124,9 @@ def run_script(instance, *, data, commit, request=None):
                         getattr(processor, '__name__', processor),
                         error,
                     )
+            # Innermost, and after the processors on purpose: one of them has just reactivated
+            # whatever branch the requesting user had, off the request the Job carries a copy of.
+            stack.enter_context(branching.main_schema_only())
             _execute(instance, data=data, commit=commit, request=request)
     finally:
         current_request.set(outer_request)

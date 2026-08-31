@@ -19,6 +19,7 @@ already, so nothing here does anything.
 """
 
 import logging
+from contextlib import contextmanager, nullcontext
 
 from django.apps import apps
 from django.core.checks import Error
@@ -136,6 +137,30 @@ def require_safe_routing():
     """
     if reason := unsafe_routing_reason():
         raise ImproperlyConfigured(f'{reason} {ROUTING_HINT}')
+
+
+@contextmanager
+def main_schema_only():
+    """
+    Hold the enclosed block on the main schema, whatever branch a request selected.
+
+    Does nothing when NetBox Branching is absent or exposes no deactivation API, which is the
+    same schema either way.
+    """
+    with _deactivation():
+        yield
+
+
+def _deactivation():
+    """Return NetBox Branching's deactivation context, or a no-op stand-in."""
+    if not apps.is_installed(BRANCHING_APP_LABEL):
+        return nullcontext()
+    try:
+        from netbox_branching.utilities import deactivate_branch
+    except ImportError:
+        logger.debug('NetBox Branching is installed but exposes no deactivate_branch, leaving the branch as set.')
+        return nullcontext()
+    return deactivate_branch()
 
 
 def check_routing(app_configs, **kwargs):

@@ -269,8 +269,9 @@ uniformly to every backend rather than only to a local filesystem.
 ## NetBox Branching
 
 The plugin runs alongside NetBox Branching, and this section records what a branch does and
-does not change. Every statement below is verified against NetBox Branching v1.2.0-beta1 by
-`netbox_custom_scripts/tests/test_branching_provisioned.py`, which provisions a real branch.
+does not change. The routing and execution statements below are verified against NetBox Branching
+v1.2.0-beta1 by `netbox_custom_scripts/tests/test_branching_provisioned.py`, which provisions a
+real branch.
 
 Custom Script Projects, Modules, Custom Scripts, revisions and migration runs are
 installation-global. The plugin routes all five to the main schema, so a Project edited
@@ -282,15 +283,18 @@ That is deliberate. A revision names its stored source by the project's storage 
 own content digest, and that path carries no schema component, so two schemas holding rows
 for one tree would let a deletion in one reclaim source the other still serves.
 
-Tags and journal entries on those objects stay branch-local, because NetBox Branching treats
-assignments as branch-aware ahead of any exemption. Tagging a Project inside a branch is
-therefore visible only in that branch, which matches how NetBox's own exempt models behave.
+Tags and journal entries on those objects stay branch-local. A tag assignment is branch-aware
+ahead of any exemption, so no configuration can make one global, while a journal entry is
+branch-aware by the ordinary change-logging rule. Tagging a Project inside a branch is therefore
+visible only in that branch, which matches how NetBox's own exempt models behave.
 
-**Execution follows the branch that is active when a run happens.** A script writes core
-objects, and which schema receives them is the router's decision per model, so a run started
-while a branch is active writes into that branch. A dry run reverts those writes as well,
-since the run holds a transaction on the main database and a second one on the routed
-database whenever they differ.
+**A run always writes to the main schema, whatever branch the requesting user had active.**
+This is enforced rather than incidental. A Job carries a copy of the request that asked for the
+run, a branch selection travels on that copy, and NetBox Branching reactivates it on the worker,
+so the run stands that branch down before the script is called.
 
-In practice a queued run reaches the main schema, because the worker executing it has no
-branch active whatever the requesting user had selected. A branch is not carried on the Job.
+The alternative was rejected on what it does to a recurring run. A schedule re-enqueues with the
+same request, so a run following the branch would keep writing to it for as long as it stayed
+ready, then move to the main schema without a word the day it was merged, with nothing recording
+which schema any earlier occurrence had used. A Custom Script cannot be used to stage changes
+inside a branch, and that is deliberate.

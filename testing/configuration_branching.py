@@ -35,8 +35,7 @@ PLUGINS = [
     'netbox_branching',
 ]
 
-# Branching reads its own settings through get_plugin_config, which raises on a missing entry, so
-# the empty dict is required rather than optional.
+# Both entries are what NetBox would create anyway, kept explicit so the pair is visible here.
 PLUGINS_CONFIG = {
     'netbox_custom_scripts': {},
     'netbox_branching': {},

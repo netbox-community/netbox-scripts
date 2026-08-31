@@ -179,6 +179,10 @@ jobs:
     env:
       NETBOX_CONFIGURATION: configuration_branching
       PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
+      # Turns a Branching install that did not happen into a failure. Without
+      # it the provisioned classes are not collected and the job passes
+      # having run nothing.
+      NETBOX_CS_REQUIRE_BRANCHING: '1'
     services:
       redis:
         image: redis
@@ -241,6 +245,7 @@ jobs:
       # Provisioning replicates every branch-aware table, once per test.
       - name: Tune PostgreSQL for branch provisioning
         run: |
+          sudo apt-get update -q
           sudo apt-get install -y -q postgresql-client
           PGPASSWORD=netbox psql -h localhost -U netbox \
             -c "ALTER SYSTEM SET checkpoint_timeout = '30min'" \
@@ -255,4 +260,5 @@ jobs:
         working-directory: netbox
         run: >-
           python netbox/manage.py test
+          netbox_custom_scripts.tests.test_branching
           netbox_custom_scripts.tests.test_branching_provisioned -v 2

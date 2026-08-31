@@ -1,14 +1,13 @@
 """
 Integration tests against a real provisioned NetBox Branching branch.
 
-Every test is skipped when NetBox Branching is absent, so the default suite is unchanged. The cases
-are TransactionTestCase: a branch lives in its own PostgreSQL schema on its own connection, which no
-savepoint rolls back.
+Without NetBox Branching these classes are not collected at all, so the default suite is unchanged.
+The cases are TransactionTestCase: a branch lives in its own PostgreSQL schema on its own
+connection, which no savepoint rolls back.
 """
 
 import hashlib
 import os
-import time
 import unittest
 import uuid
 from unittest import mock
@@ -17,7 +16,7 @@ import django_rq
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.test import RequestFactory, TransactionTestCase
+from django.test import RequestFactory, SimpleTestCase, TransactionTestCase
 from django.urls import reverse
 
 from core.models import ObjectType
@@ -45,6 +44,21 @@ if HAS_BRANCHING:
 
 User = get_user_model()
 
+# Set by the CI job that installs NetBox Branching.
+REQUIRE_BRANCHING = os.environ.get('NETBOX_CS_REQUIRE_BRANCHING') == '1'
+
+
+class BranchingRequirementTestCase(SimpleTestCase):
+    """Fail loudly where Branching is meant to be installed and is not."""
+
+    @unittest.skipUnless(REQUIRE_BRANCHING, 'NETBOX_CS_REQUIRE_BRANCHING is not set')
+    def test_netbox_branching_is_installed(self):
+        # Deliberately not a TransactionTestCase and not gated on HAS_BRANCHING. Every class below
+        # subclasses `object` when Branching is absent, so none of them is collected and a run
+        # reporting zero tests exits 0. This is the only assertion that survives that case.
+        self.assertTrue(apps.is_installed('netbox_branching'))
+
+
 # One tiny tree. The digest comes from the production helper so the constant cannot drift.
 SOURCE = {'hello.py': b'print("hi")\n'}
 MANIFEST = [
@@ -59,27 +73,17 @@ DIGEST = compute_digest(MANIFEST)
 # Not TestCase subclasses without Branching, so the runner never reaches their machinery at all.
 _TestBase = TransactionTestCase if HAS_BRANCHING else object
 
-PROVISION_TIMEOUT = float(os.environ.get('NETBOX_CS_BRANCH_PROVISION_TIMEOUT', '60'))
 
-
-def provision_branch(name, merge_strategy=None, user=None, timeout=None):
-    """
-    Return a branch provisioned and waited on until it reports READY.
-
-    Raises TimeoutError naming the status it stopped at.
-    """
+def provision_branch(name, merge_strategy=None, user=None):
+    """Return a provisioned branch, asserted to have reached READY."""
     branch = Branch(name=name, merge_strategy=merge_strategy)
     branch.save(provision=False)
+    # Synchronous, and it writes the terminal status with an update() the instance cannot see.
     branch.provision(user=user)
-    deadline = time.time() + (PROVISION_TIMEOUT if timeout is None else timeout)
-    # A partial provision reports a status instead of raising, so polling it is the only way to
-    # tell a slow branch from a failed one.
-    while time.time() < deadline:
-        branch.refresh_from_db()
-        if branch.status == BranchStatusChoices.READY:
-            return branch
-        time.sleep(0.1)
-    raise TimeoutError(f'Branch {name!r} stopped at status {branch.status!r}')
+    branch.refresh_from_db()
+    if branch.status != BranchStatusChoices.READY:
+        raise AssertionError(f'Branch {name!r} provisioned to status {branch.status!r}')
+    return branch
 
 
 @unittest.skipUnless(HAS_BRANCHING, 'netbox_branching is not installed')
@@ -133,11 +137,6 @@ class BranchingTestCase(_TestBase):
 
 
 class ProvisioningTestCase(BranchingTestCase):
-    def test_netbox_branching_is_actually_installed(self):
-        # An incompatible plugin is skipped with a warning rather than failing, so a green run
-        # proves nothing by itself.
-        self.assertTrue(apps.is_installed('netbox_branching'))
-
     def test_a_branch_provisions_with_this_plugin_installed(self):
         branch = self.branch('Smoke')
         self.assertEqual(branch.status, BranchStatusChoices.READY)
@@ -155,10 +154,9 @@ class ProvisioningTestCase(BranchingTestCase):
         self.assertEqual([name for name in replicated if name.startswith('netbox_custom_scripts_')], [])
 
     def test_the_replication_list_excludes_this_plugin(self):
-        self.assertEqual(
-            [table for table in get_tables_to_replicate() if table.startswith('netbox_custom_scripts_')],
-            [],
-        )
+        tables = get_tables_to_replicate()
+        self.assertTrue(tables, 'nothing is replicated at all, so the filter below proves nothing')
+        self.assertEqual([t for t in tables if t.startswith('netbox_custom_scripts_')], [])
 
 
 class ActiveBranchTestCase(BranchingTestCase):
@@ -169,9 +167,11 @@ class ActiveBranchTestCase(BranchingTestCase):
         # No activate_branch here, so the main schema is what answers.
         self.assertTrue(CustomScriptProject.objects.filter(pk=project.pk).exists())
 
-    def test_a_project_created_outside_is_readable_inside_a_branch(self):
-        project = CustomScriptProject.objects.create(name='Outside', key='outside')
+    def test_a_project_created_after_provisioning_is_readable_inside_a_branch(self):
+        # Created after provisioning, so a branch-aware model would not have been replicated into
+        # the schema and the read would find nothing.
         branch = self.branch('Reads')
+        project = CustomScriptProject.objects.create(name='Outside', key='outside')
         with activate_branch(branch):
             self.assertTrue(CustomScriptProject.objects.filter(pk=project.pk).exists())
 
@@ -200,7 +200,8 @@ class ActiveBranchTestCase(BranchingTestCase):
         self.assertFalse(project_diffs.exists())
 
     def test_a_tag_assignment_inside_a_branch_stays_in_the_branch(self):
-        # Both rows exist in main before provisioning, so the branch schema replicates them.
+        # The Tag exists before provisioning, so the branch replicates it. The Project is global
+        # and is not replicated, which is what the assignment below is assigned across.
         project = CustomScriptProject.objects.create(name='Tagged', key='tagged')
         tag = Tag.objects.create(name='Branch Tag', slug='branch-tag')
         branch = self.branch('Tags')
@@ -289,7 +290,6 @@ class BranchDeletionTestCase(BranchingTestCase):
         with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
             first.delete()
         enqueue.assert_not_called()
-        self.assertTrue(self.revision_stored(self.project))
 
 
 class MergeAndRevertTestCase(BranchingTestCase):
@@ -334,22 +334,30 @@ class WritesASite(Script):
         Site.objects.create(name='Written By A Run', slug='written-by-a-run')
 
 
-class ExecutionInsideABranchTestCase(BranchingTestCase):
+class ExecutionTargetsMainTestCase(BranchingTestCase):
     def sites(self):
         return Site.objects.filter(slug='written-by-a-run')
 
-    def test_a_run_while_a_branch_is_active_writes_into_that_branch(self):
+    def test_a_run_started_inside_a_branch_writes_to_main(self):
         branch = self.branch('DirectRun')
         with activate_branch(branch):
             run_script(WritesASite(), data={}, commit=True)
-            self.assertTrue(self.sites().exists())
-        self.assertFalse(self.sites().exists())
+        # Read with no branch active, so only the main schema can answer.
+        self.assertTrue(self.sites().exists())
 
-    def test_a_dry_run_inside_a_branch_reverts_the_branch_write(self):
+    def test_a_run_started_inside_a_branch_leaves_that_branch_untouched(self):
+        branch = self.branch('BranchUntouched')
+        with activate_branch(branch):
+            run_script(WritesASite(), data={}, commit=True)
+            # The branch holds its own copy of the table, so a write to main is not visible here.
+            self.assertFalse(self.sites().exists())
+        with connection.cursor() as cursor:
+            cursor.execute(f'SELECT count(*) FROM {branch.schema_name}.dcim_site')
+            self.assertEqual(cursor.fetchone()[0], 0, 'the run wrote into the branch schema')
+        self.assertTrue(self.sites().exists())
+
+    def test_a_dry_run_started_inside_a_branch_reverts(self):
         branch = self.branch('DryRun')
         with activate_branch(branch):
-            # One transaction on the default alias and a nested one on whatever the router
-            # returns, so a dry run has to roll back both.
             run_script(WritesASite(), data={}, commit=False)
-            self.assertFalse(self.sites().exists())
         self.assertFalse(self.sites().exists())

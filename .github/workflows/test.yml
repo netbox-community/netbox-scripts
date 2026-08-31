@@ -165,3 +165,94 @@ jobs:
         if: ${{ matrix.coverage }}
         working-directory: netbox
         run: coverage report
+
+  # A job, not a matrix leg: an `include` whose keys match an existing
+  # combination is merged into it, so it would have taken over the
+  # coverage leg rather than adding one.
+  test-branching:
+    name: py3.14 / netbox-v4.7.0-beta1 / branching-1.2.0b1
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Reports without blocking, like the feature leg above.
+    continue-on-error: true
+    env:
+      NETBOX_CONFIGURATION: configuration_branching
+      PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: netbox
+          POSTGRES_PASSWORD: netbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout plugin
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: netbox-custom-scripts
+
+      - name: Checkout NetBox
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: netbox-community/netbox
+          ref: v4.7.0-beta1
+          path: netbox
+
+      - name: Setup Python 3.14
+        # actions/setup-python v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.14'
+          cache: pip
+
+      - name: Install NetBox dependencies
+        working-directory: netbox
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install plugin (editable, with test extras)
+        working-directory: netbox-custom-scripts
+        run: pip install -e '.[test]'
+
+      # Pinned exactly, and to a pre-release, so it cannot drift onto a
+      # line whose NetBox ceiling sits below this plugin's floor.
+      - name: Install NetBox Branching
+        run: pip install 'netboxlabs-netbox-branching==1.2.0b1'
+
+      # Provisioning replicates every branch-aware table, once per test.
+      - name: Tune PostgreSQL for branch provisioning
+        run: |
+          sudo apt-get install -y -q postgresql-client
+          PGPASSWORD=netbox psql -h localhost -U netbox \
+            -c "ALTER SYSTEM SET checkpoint_timeout = '30min'" \
+            -c "ALTER SYSTEM SET max_wal_size = '2GB'" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET lock_timeout = '60s'" \
+            -c "SELECT pg_reload_conf()"
+
+      # This module only, and never --parallel: each test provisions and
+      # drops a schema, which parallel clones would multiply per worker.
+      - name: Run the provisioned-branch tests
+        working-directory: netbox
+        run: >-
+          python netbox/manage.py test
+          netbox_custom_scripts.tests.test_branching_provisioned -v 2

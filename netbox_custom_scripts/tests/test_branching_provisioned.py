@@ -26,7 +26,9 @@ from extras.models import JournalEntry, Tag
 from netbox.context_managers import event_tracking
 from netbox_custom_scripts import signals
 from netbox_custom_scripts.choices import RevisionStatusChoices
+from netbox_custom_scripts.execution import run_script
 from netbox_custom_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_custom_scripts.scripts import Script
 from netbox_custom_scripts.storage import config, store
 from netbox_custom_scripts.storage.manifest import compute_digest
 from netbox_custom_scripts.storage.paths import revision_prefix
@@ -311,3 +313,31 @@ class MergeAndRevertTestCase(BranchingTestCase):
         self.assertFalse(sites.exists(), 'the revert undid nothing, so the name below proves nothing')
         # Re-fetched rather than refreshed, which would answer from the branch the save recorded.
         self.assertEqual(CustomScriptProject.objects.get(pk=project.pk).name, 'After')
+
+
+class WritesASite(Script):
+    """Creates one site, so a caller can see which schema the run wrote to."""
+
+    def run(self, data, commit):
+        Site.objects.create(name='Written By A Run', slug='written-by-a-run')
+
+
+class ExecutionInsideABranchTestCase(BranchingTestCase):
+    def sites(self):
+        return Site.objects.filter(slug='written-by-a-run')
+
+    def test_a_run_while_a_branch_is_active_writes_into_that_branch(self):
+        branch = self.branch('DirectRun')
+        with activate_branch(branch):
+            run_script(WritesASite(), data={}, commit=True)
+            self.assertTrue(self.sites().exists())
+        self.assertFalse(self.sites().exists())
+
+    def test_a_dry_run_inside_a_branch_reverts_the_branch_write(self):
+        branch = self.branch('DryRun')
+        with activate_branch(branch):
+            # One transaction on the default alias and a nested one on whatever the router
+            # returns, so a dry run has to roll back both.
+            run_script(WritesASite(), data={}, commit=False)
+            self.assertFalse(self.sites().exists())
+        self.assertFalse(self.sites().exists())

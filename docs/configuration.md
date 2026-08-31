@@ -265,3 +265,32 @@ means a redirect can deny service but cannot substitute code.
 
 This is the only guarantee available once the store may be an object store, and it applies
 uniformly to every backend rather than only to a local filesystem.
+
+## NetBox Branching
+
+The plugin runs alongside NetBox Branching, and this section records what a branch does and
+does not change. Every statement below is verified against NetBox Branching v1.2.0-beta1 by
+`netbox_custom_scripts/tests/test_branching_provisioned.py`, which provisions a real branch.
+
+Custom Script Projects, Modules, Custom Scripts, revisions and migration runs are
+installation-global. The plugin routes all five to the main schema, so a Project edited
+inside a branch applies everywhere at once, appears in no branch diff, and is neither
+replayed by a merge nor rolled back by reverting one. None of their tables is replicated
+into a branch schema at all.
+
+That is deliberate. A revision names its stored source by the project's storage key and its
+own content digest, and that path carries no schema component, so two schemas holding rows
+for one tree would let a deletion in one reclaim source the other still serves.
+
+Tags and journal entries on those objects stay branch-local, because NetBox Branching treats
+assignments as branch-aware ahead of any exemption. Tagging a Project inside a branch is
+therefore visible only in that branch, which matches how NetBox's own exempt models behave.
+
+**Execution follows the branch that is active when a run happens.** A script writes core
+objects, and which schema receives them is the router's decision per model, so a run started
+while a branch is active writes into that branch. A dry run reverts those writes as well,
+since the run holds a transaction on the main database and a second one on the routed
+database whenever they differ.
+
+In practice a queued run reaches the main schema, because the worker executing it has no
+branch active whatever the requesting user had selected. A branch is not carried on the Job.

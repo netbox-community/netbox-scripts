@@ -269,6 +269,18 @@ class BranchDeletionTestCase(BranchingTestCase):
             revision.delete()
         enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST, paths=['hello.py'])
 
+    def test_deleting_a_project_inside_a_branch_takes_its_revisions_with_it(self):
+        # The cascade path rather than the single-row one, where an earlier review found a defect.
+        project = CustomScriptProject.objects.create(name='Doomed', key='doomed')
+        revision = self.staged_revision(project)
+        storage_key, project_pk, revision_pk = project.storage_key, project.pk, revision.pk
+        branch = self.branch('ProjectDelete')
+        with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
+            project.delete()
+        self.assertFalse(CustomScriptProject.objects.filter(pk=project_pk).exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=revision_pk).exists())
+        enqueue.assert_called_once_with(storage_key=storage_key, digest=DIGEST, paths=['hello.py'])
+
     def test_a_branch_delete_withholds_cleanup_for_content_a_sibling_names(self):
         # Two rows share one stored tree, so deleting one must not hand off bytes the other names.
         first = self.staged_revision(self.project)

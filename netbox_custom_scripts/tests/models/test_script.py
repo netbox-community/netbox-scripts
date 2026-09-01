@@ -22,12 +22,12 @@ class CustomScriptTestCase(TestCase):
         cls.revision = CustomScriptProjectRevision.objects.create(
             project=cls.project,
             digest=DIGEST_A,
-            status=RevisionStatusChoices.MATERIALIZED,
+            status=RevisionStatusChoices.ACTIVE,
         )
         cls.other_revision = CustomScriptProjectRevision.objects.create(
             project=cls.other_project,
             digest=DIGEST_B,
-            status=RevisionStatusChoices.MATERIALIZED,
+            status=RevisionStatusChoices.ACTIVE,
         )
         # A script is only executable while its project is serving a revision, so both projects
         # start out serving one and each test takes away whatever it is about.

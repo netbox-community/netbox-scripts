@@ -132,6 +132,12 @@ class CustomScriptModuleTestCase(TestCase):
             instance.full_clean()
         self.assertIn('the same module name', str(cm.exception.message_dict['source_path']))
 
+    def test_save_refuses_a_case_folded_sibling_without_full_clean(self):
+        CustomScriptModule.objects.create(project=self.project, source_path='Utils.py')
+        with self.assertRaises(ValidationError) as cm:
+            CustomScriptModule.objects.create(project=self.project, source_path='utils.py')
+        self.assertIn('differ only in letter case', str(cm.exception.message_dict['source_path']))
+
     def test_save_refuses_an_unimportable_path_without_full_clean(self):
         instance = CustomScriptModule(project=self.project, source_path='lib/data-helper.py')
         with self.assertRaises(ValidationError) as cm:
@@ -201,8 +207,9 @@ class CustomScriptModuleTestCase(TestCase):
 
     def test_the_exact_duplicate_is_refused_by_the_database(self):
         CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
-        with transaction.atomic(), self.assertRaises(IntegrityError):
-            CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        # bulk_create skips save(), so this reaches the constraint rather than the model guard.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            CustomScriptModule.objects.bulk_create([CustomScriptModule(project=self.project, source_path='deploy.py')])
 
     def test_last_discovered_revision_must_belong_to_the_project(self):
         foreign = CustomScriptProjectRevision.objects.create(

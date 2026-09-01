@@ -177,15 +177,8 @@ class CustomScriptProject(PrimaryModel):
                     'This data path overlaps with project "{name}" ({path}) on the same data source.'
                 ).format(name=conflict.name, path=conflict.data_path or _('the data source root'))
 
-        if self.active_revision_id:
-            # The pointer is only ever set by the activation service, so anything else
-            # reaching here is a bypass and gets the full set of checks.
-            if self.active_revision.project_id != self.pk:
-                errors['active_revision'] = _('The active revision must belong to this project.')
-            elif self.active_revision.status != RevisionStatusChoices.ACTIVE:
-                errors['active_revision'] = _('Only a revision with the active status can be the active revision.')
-            elif not self.active_revision.digest:
-                errors['active_revision'] = _('The active revision must have a content digest.')
+        if (pointer_error := self._active_revision_error()) is not None:
+            errors['active_revision'] = pointer_error
 
         if not self._state.adding:
             original = (
@@ -200,17 +193,29 @@ class CustomScriptProject(PrimaryModel):
         if errors:
             raise ValidationError(errors)
 
+    def _active_revision_error(self):
+        """Return why this project's active revision pointer is unacceptable, or None."""
+        # The pointer is only ever set by the activation service, so anything else reaching
+        # here is a bypass. The assigned object is read as it stands, never re-fetched.
+        if not self.active_revision_id:
+            return None
+        if self.active_revision.project_id != self.pk:
+            return _('The active revision must belong to this project.')
+        if self.active_revision.status != RevisionStatusChoices.ACTIVE:
+            return _('Only a revision with the active status can be the active revision.')
+        if not self.active_revision.digest:
+            return _('The active revision must have a content digest.')
+        return None
+
     def save(self, *args, **kwargs):
-        """Persist the project, refusing any change to an immutable identity field."""
-        # clean() gives key and source_type friendly per-field errors on the form and
-        # REST paths. This guard is the backstop for ORM writes that skip validation.
-        # storage_key is on no form or serializer (editable=False), so it is guarded
-        # here only. Deliberately a re-read rather than a value captured in __init__, which is
-        # the NetBox idiom: from_db() sets _state.db only after __init__ returns, so a capture
-        # there resolves through the router's default rather than the alias the row came from.
+        """Persist the project, refusing an immutable identity change or an unusable active revision."""
+        # clean() gives key and source_type friendly per-field errors on the form and REST
+        # paths. This guard is the backstop for ORM writes that skip validation, and
+        # storage_key is on no form or serializer at all, so it is guarded here only.
         if not self._state.adding:
-            # The persisted row is read from the alias this save writes to. Reading it from
-            # anywhere else compares the new value against a different database.
+            # Read from the alias this save writes to, and re-read rather than captured in
+            # __init__: from_db() sets _state.db only after __init__ returns, so a capture
+            # there resolves through the router's default instead.
             using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
             original = (
                 type(self).objects.using(using).filter(pk=self.pk).values('key', 'source_type', 'storage_key').first()
@@ -226,6 +231,11 @@ class CustomScriptProject(PrimaryModel):
                     errors['storage_key'] = _('The storage key is immutable.')
                 if errors:
                     raise ValidationError(errors)
+
+        update_fields = kwargs.get('update_fields')
+        if update_fields is None or {'active_revision', 'active_revision_id'}.intersection(update_fields):
+            if (pointer_error := self._active_revision_error()) is not None:
+                raise ValidationError({'active_revision': pointer_error})
         super().save(*args, **kwargs)
 
     def get_source_type_color(self):

@@ -236,6 +236,16 @@ class ValidateDiscoveredScriptsTestCase(TestCase):
             validate_discovered_scripts(damaged)
         self.assertEqual(captured.exception.code, 'invalid_entry')
 
+    def test_an_entrypoint_module_id_that_is_not_a_positive_int_is_refused(self):
+        # True is an int in Python and would otherwise pass as a module id.
+        for value in (None, '3', 0, -1, True):
+            damaged = [dict(self.snapshot[0])]
+            damaged[0]['entrypoint_module_id'] = value
+            with self.subTest(value=value), self.assertRaises(ScriptMetadataError) as captured:
+                validate_discovered_scripts(damaged)
+            self.assertEqual(captured.exception.code, 'invalid_entry')
+            self.assertEqual(captured.exception.name, 'entrypoint_module_id')
+
     def test_a_position_that_is_not_the_index_is_refused(self):
         damaged = [dict(record) for record in self.snapshot]
         damaged[1]['position'] = 0

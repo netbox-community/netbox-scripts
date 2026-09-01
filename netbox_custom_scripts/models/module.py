@@ -133,6 +133,14 @@ class CustomScriptModule(PrimaryModel):
             source_path_to_dotted_name(self.source_path)
         except ValidationError as error:
             raise ValidationError({'source_path': error}) from error
+        # A collision is only introduced by a new row or a moved path, and the constraint
+        # behind this one is case-sensitive, so it cannot catch the pair itself.
+        update_fields = kwargs.get('update_fields')
+        if (self._state.adding or update_fields is None or 'source_path' in update_fields) and self.project_id:
+            conflict = self._sibling_path_conflict()
+            if conflict is not None:
+                raise ValidationError({'source_path': conflict})
+
         # clean() gives the identity fields friendly per-field errors on the form and REST
         # paths. This guard is the backstop for ORM writes that skip validation.
         if not self._state.adding:

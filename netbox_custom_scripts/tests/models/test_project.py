@@ -446,9 +446,43 @@ class CustomScriptProjectTestCase(TestCase):
                     project.full_clean()
                 self.assertIn('active_revision', cm.exception.message_dict)
 
+    def test_save_refuses_a_revision_that_is_not_active(self):
+        # clean() is the form and REST path. This is the backstop for an ORM write, so it
+        # names the same field and reason rather than raising something generic.
+        project = CustomScriptProject.objects.create(name='AR Save', key='ar-save')
+        project.active_revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest='9' * 64, status=RevisionStatusChoices.STAGING
+        )
+        with self.assertRaises(ValidationError) as cm:
+            project.save()
+        self.assertIn('active revision', str(cm.exception.message_dict['active_revision']))
+
+    def test_save_refuses_a_revision_belonging_to_another_project(self):
+        owner = CustomScriptProject.objects.create(name='AR Own2', key='ar-own2')
+        other = CustomScriptProject.objects.create(name='AR Other2', key='ar-other2')
+        other.active_revision = CustomScriptProjectRevision.objects.create(
+            project=owner, digest='8' * 64, status=RevisionStatusChoices.ACTIVE
+        )
+        with self.assertRaises(ValidationError) as cm:
+            other.save()
+        self.assertIn('belong to this project', str(cm.exception.message_dict['active_revision']))
+
+    def test_save_refuses_a_bad_pointer_named_by_its_column_in_update_fields(self):
+        # Django accepts a foreign key's attname there, so a gate testing only the field name
+        # would let an ORM writer past the very check it exists for.
+        project = CustomScriptProject.objects.create(name='AR Attname', key='ar-attname')
+        project.active_revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest='7' * 64, status=RevisionStatusChoices.STAGING
+        )
+        with self.assertRaises(ValidationError) as cm:
+            project.save(update_fields=('active_revision_id',))
+        self.assertIn('active revision', str(cm.exception.message_dict['active_revision']))
+
     def test_active_revision_for_reverse_accessor(self):
         project = CustomScriptProject.objects.create(name='AR Reverse', key='ar-reverse')
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest='1' * 64)
+        revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest='1' * 64, status=RevisionStatusChoices.ACTIVE
+        )
         self.assertFalse(revision.active_revision_for.exists())
         project.active_revision = revision
         project.save()
@@ -459,7 +493,9 @@ class CustomScriptProjectTestCase(TestCase):
         # The deletion signal validates a captured manifest against its digest, so a
         # deletable fixture must carry a pair that actually matches.
         digest = compute_digest([])
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest=digest)
+        revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest=digest, status=RevisionStatusChoices.ACTIVE
+        )
         project.active_revision = revision
         project.save()
         project.delete()
@@ -470,7 +506,9 @@ class CustomScriptProjectTestCase(TestCase):
         # SET_NULL rather than PROTECT. A project that loses its active revision serves nothing
         # until another is activated, which is the same state it starts life in.
         project = CustomScriptProject.objects.create(name='AR Clear', key='ar-clear')
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest=compute_digest([]))
+        revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
+        )
         project.active_revision = revision
         project.save()
         revision.delete()
@@ -481,7 +519,9 @@ class CustomScriptProjectTestCase(TestCase):
         # The regression test for the pointer that protected its own project. PROTECT fired
         # here even though the protecting row was the project being deleted.
         project = CustomScriptProject.objects.create(name='AR Bulk', key='ar-bulk')
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest=compute_digest([]))
+        revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
+        )
         project.active_revision = revision
         project.save()
         CustomScriptProject.objects.filter(pk=project.pk).delete()
@@ -493,7 +533,9 @@ class CustomScriptProjectTestCase(TestCase):
         # collector, PROTECT fired, and the page refused with the project named as its own
         # dependent object.
         project = CustomScriptProject.objects.create(name='AR Collect', key='ar-collect')
-        revision = CustomScriptProjectRevision.objects.create(project=project, digest=compute_digest([]))
+        revision = CustomScriptProjectRevision.objects.create(
+            project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
+        )
         project.active_revision = revision
         project.save()
         collector = Collector(using=DEFAULT_DB_ALIAS)

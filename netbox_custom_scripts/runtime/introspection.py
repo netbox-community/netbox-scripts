@@ -104,6 +104,14 @@ def validate_discovered_scripts(value):
                     code='invalid_entry',
                     name=key,
                 )
+        module_id = record.get('entrypoint_module_id')
+        # bool is a subclass of int, so True would otherwise pass as a module id.
+        if not isinstance(module_id, int) or isinstance(module_id, bool) or module_id <= 0:
+            raise ScriptMetadataError(
+                f'Entry {index} of the discovered scripts is missing an entrypoint module id.',
+                code='invalid_entry',
+                name='entrypoint_module_id',
+            )
         if record.get('position') != index:
             raise ScriptMetadataError(
                 f'Entry {index} of the discovered scripts records the wrong position.',

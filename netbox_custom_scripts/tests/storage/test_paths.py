@@ -76,6 +76,13 @@ class PathSafetyTestCase(TestCase):
             paths.normalize_source_path('__pycache__/notes.py')
         self.assertEqual(ctx.exception.code, 'compiled_artifact')
 
+    def test_rejects_compiled_artifacts_whatever_their_letter_case(self):
+        for raw in ('deploy.PYC', 'lib/deploy.Pyo', 'lib/__PyCache__/notes.py', '__PYCACHE__/notes.py'):
+            with self.subTest(raw=raw):
+                with self.assertRaises(UnsafePathError) as ctx:
+                    paths.normalize_source_path(raw)
+                self.assertEqual(ctx.exception.code, 'compiled_artifact')
+
     def test_accepts_a_name_merely_containing_a_compiled_suffix(self):
         self.assertEqual(paths.normalize_source_path('lib/pycvalues.py'), 'lib/pycvalues.py')
 

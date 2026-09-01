@@ -104,7 +104,10 @@ def normalize_source_path(path):
         raise UnsafePathError(
             path=path, code='path_traversal', message='Source paths must reference a file within the project.'
         )
-    if segments[-1].endswith(_COMPILED_SUFFIXES) or _BYTECODE_DIRECTORY in segments:
+    # Refusing only the lower-case spelling stores opaque bytecode as reviewable source.
+    # Import never reaches it here, so this bounds what the tree holds, not what runs.
+    folded = [segment.lower() for segment in segments]
+    if folded[-1].endswith(_COMPILED_SUFFIXES) or _BYTECODE_DIRECTORY in folded:
         raise UnsafePathError(
             path=path,
             code='compiled_artifact',

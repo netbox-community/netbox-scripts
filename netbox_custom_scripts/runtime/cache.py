@@ -351,10 +351,10 @@ def _purge_bytecode(local_dir):
     try:
         for base, directories, files in local_dir.walk(top_down=False, on_error=_reraise):
             for name in files:
-                if name.endswith(_BYTECODE_SUFFIXES):
+                if name.lower().endswith(_BYTECODE_SUFFIXES):
                     (base / name).unlink()  # cloud-compat: ok, compiled artifacts in the disposable cache
             for name in directories:
-                if name != '__pycache__':
+                if name.lower() != '__pycache__':
                     continue
                 candidate = base / name
                 if candidate.is_symlink():

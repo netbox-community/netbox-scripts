@@ -361,6 +361,19 @@ class MaterializeRevisionTestCase(TestCase):
         self.assertEqual(watcher.opened, [])
         self.assertEqual(tree_contents(self.target), self.files)
 
+    def test_pre_existing_bytecode_is_purged_whatever_its_letter_case(self):
+        self.materialize()
+        self.unlock_target()
+        pycache = self.target / 'pkg' / '__PyCache__'
+        pycache.mkdir()
+        (pycache / 'util.cpython-312.PYC').write_bytes(b'planted')
+        (self.target / 'stray.PYC').write_bytes(b'planted')
+        watcher = OpenRecordingStorage()
+        self.assertEqual(self.materialize(storage=watcher), self.target)
+        # No backend traffic, so the purge reconciled the tree rather than a rebuild doing it.
+        self.assertEqual(watcher.opened, [])
+        self.assertEqual(tree_contents(self.target), self.files)
+
     @unittest.skipIf(os.geteuid() == 0, 'write protection does not bind the superuser')
     def test_bytecode_that_cannot_be_removed_fails_closed(self):
         self.materialize()

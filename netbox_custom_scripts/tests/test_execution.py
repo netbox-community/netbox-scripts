@@ -9,7 +9,8 @@ from unittest.mock import patch
 import django_rq
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.db import DEFAULT_DB_ALIAS, connections, transaction
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from core.choices import JobNotificationChoices, JobStatusChoices
 from core.exceptions import JobFailed
@@ -595,6 +596,69 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
                 )
 
         self.assertFalse(Job.objects.filter(object_id=self.script().pk).exists())
+
+    def test_a_declared_timeout_reaches_the_queued_run(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        script.job_timeout_override = 300
+        script.save()
+
+        with patch.object(CustomScriptJob, 'enqueue', wraps=CustomScriptJob.enqueue) as enqueue:
+            CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+
+        self.assertEqual(enqueue.call_args.kwargs['job_timeout'], 300)
+
+    def test_an_immediate_run_discards_the_declared_timeout(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        script.job_timeout_override = 300
+        script.save()
+        seen = {}
+
+        with patch.object(CustomScriptJob, 'run', lambda runner, **kwargs: seen.update(kwargs)):
+            CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user, immediate=True)
+
+        self.assertEqual(seen['module_path'], 'deploy')
+        self.assertNotIn('job_timeout', seen)
+
+    def test_an_immediate_run_inside_an_open_transaction_is_refused(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        with self.assertRaises(RuntimeError), transaction.atomic():
+            CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, immediate=True)
+
+        self.assertFalse(Job.objects.filter(object_id=self.script().pk).exists())
+
+
+# TransactionTestCase: a second session can only observe rows this one has committed, and under
+# TestCase the save is a savepoint a real commit is indistinguishable from.
+class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
+    """The immediate run's Job row is really committed before the script executes."""
+
+    @staticmethod
+    def visible_to_another_session(pk):
+        """Report whether a separate session can see one Job row, which only a commit allows."""
+        connection = connections.create_connection(DEFAULT_DB_ALIAS)
+        connection.ensure_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT COUNT(*) FROM core_job WHERE id = %s', (pk,))
+                return cursor.fetchone()[0] == 1
+        finally:
+            connection.close()
+
+    def test_the_row_is_visible_to_another_session_while_the_run_executes(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        observed = {}
+
+        def observe(runner, **kwargs):
+            observed['visible'] = self.visible_to_another_session(runner.job.pk)
+
+        with patch.object(CustomScriptJob, 'run', observe):
+            job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=False, user=self.user, immediate=True)
+
+        self.assertTrue(observed['visible'])
+        self.assertTrue(self.visible_to_another_session(job.pk))
 
 
 class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):

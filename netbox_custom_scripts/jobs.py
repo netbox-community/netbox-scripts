@@ -470,8 +470,9 @@ class CustomScriptJob(JobRunner):
         immediate run commits its Job row before executing, so the row is visible for the whole
         run and an interrupted run leaves it behind. Raises ScriptNotExecutableError when the
         script cannot run, which covers a disabled or retired script, a disabled project, and a
-        project serving no revision, and ValueError for an immediate run that also asks to be
-        deferred or repeated.
+        project serving no revision, ValueError for an immediate run that also asks to be
+        deferred or repeated, and RuntimeError for an immediate run started inside an open
+        transaction.
         """
         if immediate and (schedule_at or interval):
             raise ValueError('An immediate run cannot also be deferred or repeated.')
@@ -522,10 +523,13 @@ class CustomScriptJob(JobRunner):
         """
         Save a pinned Job row, then run the script in this process.
 
-        Assumes the caller holds no open transaction, which is what makes the row visible for
-        the duration of the run. Re-raises anything that tears the process down, after
-        recording it on the row.
+        The save is durable: the row is committed and visible for the whole run, and a caller
+        holding an open transaction is refused with RuntimeError. A declared job timeout is
+        dropped, since no worker exists to enforce one. Re-raises anything that tears the
+        process down, after recording it on the row.
         """
+        # Popped here rather than left to run()'s catch-all, where the discard would be invisible.
+        kwargs.pop('job_timeout', None)
         # Core's enqueue() runs the handler before returning and accepts no data, so its row and
         # this pin could only be written in two steps with the script executing between them. The
         # row is built here instead, so one INSERT carries the pin, and job_id mirrors core's own
@@ -544,7 +548,8 @@ class CustomScriptJob(JobRunner):
             data=cls._row_data(payload),
         )
         job.full_clean()
-        job.save()
+        with transaction.atomic(durable=True):
+            job.save()
         try:
             cls.handle(job_id=str(job.job_id), job=job, data=data, request=request, **payload, **kwargs)
         except BaseException:

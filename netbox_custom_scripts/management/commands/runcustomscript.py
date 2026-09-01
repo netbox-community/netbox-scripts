@@ -24,7 +24,10 @@ class Command(BaseCommand):
 
     # cloud-compat: ok, additive only. Every run this starts is equally available over the
     # REST route, so nothing here is the sole way to reach a capability.
-    help = 'Run a Custom Script and wait for it to finish.'
+    help = (
+        'Run a Custom Script and wait for it to finish. The run happens in this process, so a job '
+        'timeout declared by the script is not enforced and the run is bounded only by this command.'
+    )
 
     def add_arguments(self, parser):
         """Declare the run's own parameters. Variable values arrive as one JSON object instead."""

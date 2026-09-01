@@ -20,7 +20,7 @@ from .runtime.exceptions import ScriptMetadataError
 from .runtime.introspection import validate_discovered_scripts
 from .storage import service
 from .storage.exceptions import ActivationError
-from .storage.service import require_default_database
+from .storage.service import project_or_vanished, require_default_database, revision_or_vanished
 
 __all__ = (
     'activate_revision',
@@ -62,11 +62,11 @@ def deactivate_revision(revision):
     branching.require_safe_routing()
     using = require_default_database(revision)
     with transaction.atomic(using=using):
-        project = CustomScriptProject.objects.using(using).select_for_update().get(pk=revision.project_id)
-        locked = (
-            CustomScriptProjectRevision.objects.using(using)
-            .select_for_update()
-            .get(pk=revision.pk, project_id=project.pk)
+        project = project_or_vanished(CustomScriptProject.objects.using(using).select_for_update(), revision.project_id)
+        locked = revision_or_vanished(
+            CustomScriptProjectRevision.objects.using(using).select_for_update(),
+            revision.pk,
+            project_id=project.pk,
         )
         if project.active_revision_id != locked.pk:
             raise ActivationError(f'Revision {locked.pk} is not the active revision of its project.')

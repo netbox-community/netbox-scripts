@@ -23,15 +23,23 @@ from ..choices import RevisionStatusChoices
 from ..models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from . import config, store
 from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
-from .exceptions import ActivationError, RevisionCorruptError, RevisionVanishedError, StorageError
+from .exceptions import (
+    ActivationError,
+    ProjectVanishedError,
+    RevisionCorruptError,
+    RevisionVanishedError,
+    StorageError,
+)
 from .locks import project_lock
 from .manifest import build_manifest, compute_digest, validate_manifest
 
 __all__ = (
     'StagedRevision',
+    'project_or_vanished',
     'promote_revision',
     'refresh_revision_entrypoints',
     'require_default_database',
+    'revision_or_vanished',
     'stage_revision',
 )
 
@@ -56,9 +64,9 @@ def stage_revision(project, files):
     owner left it.
 
     Raises TypeError for a key that is not str or a value that is not bytes-like,
-    RevisionVanishedError for a project deleted underneath the write, ImproperlyConfigured for
-    an unsafe database or branching route, and re-raises a storage failure after recording
-    STORAGE_FAILED.
+    ProjectVanishedError or RevisionVanishedError for a project deleted underneath the write,
+    ImproperlyConfigured for an unsafe database or branching route, and re-raises a storage
+    failure after recording STORAGE_FAILED.
     """
     branching.require_safe_routing()
     storage = config.get_storage()
@@ -91,7 +99,9 @@ def stage_revision(project, files):
 
     # The caller's instance contributes only its primary key, so a stale or mutated
     # storage_key cannot decide where content is written.
-    storage_key = CustomScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=project.pk)
+    storage_key = project_or_vanished(
+        CustomScriptProject.objects.using(using).values_list('storage_key', flat=True), project.pk
+    )
 
     # Held from the identity row through the content write to the status that settles it, so
     # cleanup, another stager, and activation cannot interleave inside a store the database
@@ -163,8 +173,9 @@ def refresh_revision_entrypoints(revision):
     a StagedRevision whose created flag says whether this configuration was already staged.
 
     Raises ValueError for a revision with no digest, since a rejected staging attempt stored
-    no content to refresh, and RevisionCorruptError when the stored tree no longer matches
-    the manifest the new row would copy.
+    no content to refresh, RevisionCorruptError when the stored tree no longer matches the
+    manifest the new row would copy, and ProjectVanishedError or RevisionVanishedError for a
+    row deleted underneath the read.
 
     Guards match the rest of the lifecycle: branching routing and the default database are
     enforced before any row is read or written.
@@ -173,15 +184,15 @@ def refresh_revision_entrypoints(revision):
     storage = config.get_storage()
     using = require_default_database(revision)
 
-    source = CustomScriptProjectRevision.objects.using(using).get(pk=revision.pk)
+    source = revision_or_vanished(CustomScriptProjectRevision.objects.using(using), revision.pk)
     if not source.digest:
         raise ValueError(f'Revision {source.pk} has no digest, so there is no stored content to refresh.')
     manifest = _validated_manifest(source)
     snapshot, entrypoint_digest = build_entrypoint_snapshot(
         CustomScriptModule.objects.using(using).filter(project=source.project_id, enabled=True)
     )
-    storage_key = (
-        CustomScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=source.project_id)
+    storage_key = project_or_vanished(
+        CustomScriptProject.objects.using(using).values_list('storage_key', flat=True), source.project_id
     )
     # The new row claims content this call has just proven present, so the verification and the
     # row that depends on it happen under one hold. Otherwise cleanup could reclaim the tree in
@@ -221,7 +232,8 @@ def promote_revision(revision, *, on_promote):
 
     Raises ActivationError for a revision that has not passed project validation or that
     changed while its content was being verified, RevisionCorruptError when its stored tree no
-    longer matches its manifest, and ImproperlyConfigured for an unsafe database or branching
+    longer matches its manifest, ProjectVanishedError or RevisionVanishedError for a row
+    deleted underneath the read, and ImproperlyConfigured for an unsafe database or branching
     route.
     """
     branching.require_safe_routing()
@@ -229,9 +241,9 @@ def promote_revision(revision, *, on_promote):
     revision_pk = revision.pk
     using = require_default_database(revision)
 
-    snapshot = CustomScriptProjectRevision.objects.using(using).get(pk=revision_pk)
-    project_state = (
-        CustomScriptProject.objects.using(using).values('storage_key', 'active_revision_id').get(pk=snapshot.project_id)
+    snapshot = revision_or_vanished(CustomScriptProjectRevision.objects.using(using), revision_pk)
+    project_state = project_or_vanished(
+        CustomScriptProject.objects.using(using).values('storage_key', 'active_revision_id'), snapshot.project_id
     )
     already_active = (
         snapshot.status == RevisionStatusChoices.ACTIVE and project_state['active_revision_id'] == snapshot.pk
@@ -260,11 +272,11 @@ def _promote(snapshot, revision_pk, using, on_promote):
     with transaction.atomic(using=using):
         # Project row before revision row, the same order a project delete takes, so concurrent
         # activations serialize rather than deadlock.
-        project = CustomScriptProject.objects.using(using).select_for_update().get(pk=snapshot.project_id)
-        locked = (
-            CustomScriptProjectRevision.objects.using(using)
-            .select_for_update()
-            .get(pk=revision_pk, project_id=project.pk)
+        project = project_or_vanished(CustomScriptProject.objects.using(using).select_for_update(), snapshot.project_id)
+        locked = revision_or_vanished(
+            CustomScriptProjectRevision.objects.using(using).select_for_update(),
+            revision_pk,
+            project_id=project.pk,
         )
         # The snapshot and its digest are compared, not just the digest: a swap leaving the digest
         # field untouched would activate content the return-trip check never covered. The recorded
@@ -286,10 +298,10 @@ def _promote(snapshot, revision_pk, using, on_promote):
             return locked
 
         if project.active_revision_id is not None:
-            previous = (
-                CustomScriptProjectRevision.objects.using(using)
-                .select_for_update()
-                .get(pk=project.active_revision_id, project_id=project.pk)
+            previous = revision_or_vanished(
+                CustomScriptProjectRevision.objects.using(using).select_for_update(),
+                project.active_revision_id,
+                project_id=project.pk,
             )
             previous.status = RevisionStatusChoices.RETIRED
             previous.save(using=using, update_fields=('status', 'last_updated'))
@@ -302,6 +314,24 @@ def _promote(snapshot, revision_pk, using, on_promote):
         project.save(using=using, update_fields=('active_revision', 'last_updated'))
 
     return locked
+
+
+def project_or_vanished(query, project_id):
+    """Return one shaped project read, reporting a concurrent deletion as such."""
+    try:
+        return query.get(pk=project_id)
+    except CustomScriptProject.DoesNotExist as error:
+        raise ProjectVanishedError(f'Project {project_id} was deleted while its content was being changed.') from error
+
+
+def revision_or_vanished(query, revision_pk, **filters):
+    """Return one shaped revision read, reporting a concurrent deletion as such."""
+    try:
+        return query.get(pk=revision_pk, **filters)
+    except CustomScriptProjectRevision.DoesNotExist as error:
+        raise RevisionVanishedError(
+            f'Revision {revision_pk} was deleted while its content was being changed.'
+        ) from error
 
 
 def _refresh_surviving(revision, using):

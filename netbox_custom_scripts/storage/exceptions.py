@@ -7,6 +7,7 @@ Every exception here roots at StorageError, so a caller can catch the whole tier
 __all__ = (
     'ActivationError',
     'LimitExceededError',
+    'ProjectVanishedError',
     'RevisionCorruptError',
     'RevisionVanishedError',
     'StorageConfigurationError',
@@ -65,6 +66,15 @@ class RevisionVanishedError(StorageError):
     staging call already inside its write window can finish against rows that no longer exist.
     Its content is reclaimed by the cleanup the delete recorded, which rechecks references
     under the same lock, so the caller has nothing to undo and nothing to retry.
+    """
+
+
+class ProjectVanishedError(StorageError):
+    """
+    Raised when a project's row was deleted while its stored content was being changed.
+
+    Its revisions cascade away with it and the cleanup the delete recorded reclaims their
+    content, so the caller has nothing to undo and nothing to retry.
     """
 
 

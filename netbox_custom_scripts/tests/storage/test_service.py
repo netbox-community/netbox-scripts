@@ -11,7 +11,12 @@ from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.storage import config, service, store
 from netbox_custom_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST, build_entrypoint_snapshot
-from netbox_custom_scripts.storage.exceptions import ActivationError, RevisionCorruptError, StorageError
+from netbox_custom_scripts.storage.exceptions import (
+    ActivationError,
+    ProjectVanishedError,
+    RevisionCorruptError,
+    StorageError,
+)
 from netbox_custom_scripts.storage.paths import STORAGE_PREFIX, project_prefix, revision_prefix
 from netbox_custom_scripts.tests.storage.test_store import RefusingStorage
 
@@ -409,6 +414,20 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
         self.assertIsNotNone(activated.activated)
         self.assertEqual(self.project.active_revision_id, revision.pk)
+
+    def test_a_project_deleted_before_the_promote_lock_reports_the_vanished_project(self):
+        revision = self.validated()
+
+        def delete_the_project(*args, **kwargs):
+            CustomScriptProject.objects.filter(pk=revision.project_id).delete()
+
+        # Verification runs after the unlocked reads and before the row lock, which is the
+        # window a concurrent delete lands in.
+        with (
+            mock.patch.object(store, 'verify_revision_tree', side_effect=delete_the_project),
+            self.assertRaises(ProjectVanishedError),
+        ):
+            service.promote_revision(revision, on_promote=lambda **kwargs: None)
 
     def test_promote_revision_rejects_a_merely_materialized_revision(self):
         revision = self.materialize()

@@ -7,7 +7,7 @@ from django.test.utils import CaptureQueriesContext
 
 from core.models import Job, ObjectType
 from netbox_custom_scripts import activation
-from netbox_custom_scripts.activation import activate_revision, synchronize_scripts
+from netbox_custom_scripts.activation import activate_revision, deactivate_revision, synchronize_scripts
 from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.models import (
     CustomScript,
@@ -16,7 +16,7 @@ from netbox_custom_scripts.models import (
 )
 from netbox_custom_scripts.runtime import loader
 from netbox_custom_scripts.storage import service, store
-from netbox_custom_scripts.storage.exceptions import ActivationError
+from netbox_custom_scripts.storage.exceptions import ActivationError, ProjectVanishedError
 from netbox_custom_scripts.tests.storage.test_service import StorageServiceMixin, content
 
 DIGEST_A = 'a' * 64
@@ -319,6 +319,24 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
         self.assertFalse(CustomScript.objects.exists())
+
+
+class DeactivateRevisionTestCase(ActivationMixin, TestCase):
+    def test_a_project_deleted_before_the_lock_reports_the_vanished_project(self):
+        # Deactivation shares the promote seam and does no content verification, so its window
+        # between the caller's read and the row lock is the whole request.
+        revision = self.valid_with([record()])
+        activate_revision(revision)
+
+        def delete_then_resolve(instance):
+            CustomScriptProject.objects.filter(pk=revision.project_id).delete()
+            return DEFAULT_DB_ALIAS
+
+        with (
+            mock.patch.object(activation, 'require_default_database', side_effect=delete_then_resolve),
+            self.assertRaises(ProjectVanishedError),
+        ):
+            deactivate_revision(revision)
 
 
 class PromotionCallbackTestCase(ActivationMixin, TestCase):

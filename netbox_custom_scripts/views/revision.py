@@ -53,7 +53,9 @@ class RevisionServiceView(generic.ObjectView):
     filtered against.
     """
 
-    queryset = CustomScriptProjectRevision.objects.all()
+    # return_url() reaches the project after an operation that may have found it deleted, so a
+    # lazy fetch here would raise past the handler that just caught it.
+    queryset = CustomScriptProjectRevision.objects.select_related('project')
 
     def get_required_permission(self):
         """Require the owning project's activate permission, not the revision's own."""

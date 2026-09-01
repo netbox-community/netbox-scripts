@@ -1,14 +1,18 @@
 import contextlib
 import hashlib
 import uuid
+from datetime import timedelta
 from unittest import mock
 
 from django.db import transaction
 from django.test import TestCase, override_settings
+from django.utils import timezone
+from rq.timeouts import JobTimeoutException
 
-from core.choices import JobStatusChoices
+from core.choices import JobIntervalChoices, JobStatusChoices
 from core.exceptions import JobFailed
 from core.models import Job
+from netbox.registry import registry
 from netbox_custom_scripts import jobs
 from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.jobs import ProjectStorageCleanupJob
@@ -185,3 +189,137 @@ class SharedDigestJobTestCase(TestCase):
         prefix = revision_prefix(STORAGE_KEY, DIGEST)
         self.assertEqual({path for path in PATHS if self.storage.exists(f'{prefix}{path}')}, set(PATHS))
         self.assertIn('references it again', str(runner.job.log_entries))
+
+
+class ProjectStorageSweepJobTestCase(TestCase):
+    """Cover the sweep that reports content an unfinished cleanup left in the store."""
+
+    def setUp(self):
+        self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
+        self.storage = config.get_storage()
+        store.write_revision(self.storage, STORAGE_KEY, DIGEST, SOURCE, MANIFEST)
+        self.project = CustomScriptProject.objects.create(
+            name='Sweep Project',
+            key='sweep-project',
+            storage_key=STORAGE_KEY,
+        )
+
+    def cleanup_job(self, *, status, age_hours, data=None):
+        """Create a cleanup Job row in a given state, backdating created past auto_now_add."""
+        job = Job.objects.create(
+            name=ProjectStorageCleanupJob.name,
+            job_id=uuid.uuid4(),
+            status=status,
+            data={'storage_key': STORAGE_KEY, 'digest': DIGEST, 'paths': PATHS} if data is None else data,
+        )
+        Job.objects.filter(pk=job.pk).update(created=timezone.now() - timedelta(hours=age_hours))
+        return job
+
+    def runner(self):
+        """Return a sweep runner bound to a real Job row, the way handle() builds one."""
+        return jobs.ProjectStorageSweepJob(Job.objects.create(name='sweep-test', job_id=uuid.uuid4()))
+
+    def sweep(self):
+        """Run one sweep and return the report it recorded."""
+        runner = self.runner()
+        runner.run(job_id='x')
+        return runner.job.data
+
+    def test_the_sweep_is_registered_as_a_daily_system_job(self):
+        self.assertIn(jobs.ProjectStorageSweepJob, registry['system_jobs'])
+        self.assertEqual(
+            registry['system_jobs'][jobs.ProjectStorageSweepJob]['interval'],
+            JobIntervalChoices.INTERVAL_DAILY,
+        )
+
+    def test_an_old_pending_cleanup_reports_its_content_as_stranded(self):
+        job = self.cleanup_job(status=JobStatusChoices.STATUS_PENDING, age_hours=4)
+        report = self.sweep()
+        self.assertEqual([entry['jobs'] for entry in report['stranded']], [[job.pk]])
+        self.assertEqual(report['stranded'][0]['paths'], PATHS)
+
+    def test_a_failed_cleanup_reports_its_content_without_waiting_out_the_grace(self):
+        job = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        self.assertEqual([entry['jobs'] for entry in self.sweep()['stranded']], [[job.pk]])
+
+    def test_several_cleanups_naming_one_tree_are_reported_once(self):
+        # Django deletes the whole batch before any post_delete fires, so the receiver's sibling
+        # guard never sees a survivor and each row enqueues its own cleanup.
+        first = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        second = self.cleanup_job(status=JobStatusChoices.STATUS_PENDING, age_hours=4)
+        report = self.sweep()
+        self.assertEqual(len(report['stranded']), 1)
+        self.assertEqual(report['stranded'][0]['jobs'], sorted((first.pk, second.pk)))
+        self.assertEqual(report['stranded'][0]['paths'], PATHS)
+
+    def test_a_recent_pending_cleanup_is_left_alone(self):
+        self.cleanup_job(status=JobStatusChoices.STATUS_PENDING, age_hours=0)
+        report = self.sweep()
+        self.assertEqual(report['stranded'], [])
+        self.assertEqual(report['reclaimed'], [])
+
+    def test_a_completed_cleanup_is_never_a_candidate(self):
+        self.cleanup_job(status=JobStatusChoices.STATUS_COMPLETED, age_hours=4)
+        self.assertEqual(self.sweep()['stranded'], [])
+
+    def test_content_a_revision_names_again_is_referenced_rather_than_stranded(self):
+        job = self.cleanup_job(status=JobStatusChoices.STATUS_PENDING, age_hours=4)
+        CustomScriptProjectRevision.objects.create(
+            project=self.project,
+            digest=DIGEST,
+            status=RevisionStatusChoices.VALID,
+            manifest=MANIFEST,
+        )
+        report = self.sweep()
+        self.assertEqual(report['stranded'], [])
+        self.assertEqual([entry['jobs'] for entry in report['referenced']], [[job.pk]])
+
+    def test_a_cleanup_whose_content_is_already_gone_reports_as_reclaimed(self):
+        job = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        store.delete_revision(self.storage, STORAGE_KEY, DIGEST, PATHS)
+        report = self.sweep()
+        self.assertEqual(report['stranded'], [])
+        self.assertEqual([entry['jobs'] for entry in report['reclaimed']], [[job.pk]])
+
+    def test_a_cleanup_with_no_usable_payload_is_reported_as_unreadable(self):
+        job = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0, data={})
+        self.assertEqual(self.sweep()['unreadable'], [job.pk])
+
+    def test_a_backend_that_cannot_answer_leaves_the_sweep_running(self):
+        job = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        with mock.patch.object(store, 'present_keys', side_effect=StorageError('unreachable')):
+            report = self.sweep()
+        self.assertEqual(report['unreadable'], [job.pk])
+        self.assertEqual(report['stranded'], [])
+
+    def test_the_sweep_reclaims_nothing(self):
+        self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        self.sweep()
+        prefix = revision_prefix(STORAGE_KEY, DIGEST)
+        self.assertEqual({path for path in PATHS if self.storage.exists(f'{prefix}{path}')}, set(PATHS))
+
+    def test_a_sweep_cut_short_still_records_what_it_classified(self):
+        # The report has to reach the row before classification starts, not after it finishes.
+        self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        runner = self.runner()
+        with (
+            mock.patch.object(runner, '_classify', side_effect=JobTimeoutException('killed')),
+            self.assertRaises(JobTimeoutException),
+        ):
+            runner.run(job_id='x')
+        self.assertEqual(runner.job.data['stranded'], [])
+        self.assertEqual(runner.job.data['unreadable'], [])
+
+    def test_candidates_are_classified_oldest_first(self):
+        newer = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=1)
+        older = self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=9)
+        self.assertEqual(
+            [job.pk for job in jobs.ProjectStorageSweepJob._stalled_cleanups()],
+            [older.pk, newer.pk],
+        )
+
+    def test_the_recheck_happens_under_the_project_lock(self):
+        self.cleanup_job(status=JobStatusChoices.STATUS_FAILED, age_hours=0)
+        with mock.patch.object(jobs, 'project_lock', wraps=jobs.project_lock) as lock:
+            self.sweep()
+        lock.assert_called_once_with(STORAGE_KEY)

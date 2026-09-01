@@ -42,3 +42,7 @@ MAX_SCRIPT_MODULE_PATH_LENGTH = 1000
 # timeout signal.
 VALIDATION_JOB_TIMEOUT = 10 * 60
 VALIDATION_LEASE_SECONDS = 30 * 60
+
+# The grace covers an ordinary queue backlog and a run still in progress, so the sweep names
+# only a handoff that was genuinely lost.
+STALLED_CLEANUP_GRACE_SECONDS = 60 * 60

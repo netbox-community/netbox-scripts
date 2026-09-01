@@ -266,6 +266,34 @@ means a redirect can deny service but cannot substitute code.
 This is the only guarantee available once the store may be an object store, and it applies
 uniformly to every backend rather than only to a local filesystem.
 
+## Reclaiming stored content
+
+Deleting a Project or a revision records a cleanup Job carrying the exact keys to remove, in the
+same transaction that deletes the row, so the intent to reclaim survives even if the queue never
+picks the job up. Deletion is by exact key and tolerates content that is already gone, which is
+what makes a retry safe.
+
+A daily storage sweep runs as a background system job and reports what a cleanup did not finish.
+It rechecks each unfinished cleanup under the project lock and records four groups on its own Job
+row: content still in the store and named by no revision, content already reclaimed, content a
+later revision references again, and cleanups whose payload or backend could not be read. The
+first group is also logged as a warning naming the storage key and digest. Several cleanup Jobs
+can name one stored tree, since a Project cascade records one per revision, so the report counts
+trees rather than Jobs.
+
+The pass is bounded by `RQ_DEFAULT_TIMEOUT`, five minutes unless a deployment raises it, and a
+background system job cannot set a timeout of its own. It therefore takes the oldest stalled
+cleanups first and records the report as it goes, so a very large backlog yields a truncated
+report naming the most stale content rather than no report at all. The next day's run starts
+again from the oldest.
+
+The sweep reclaims nothing. Removing content a row might still name cannot be undone, so
+reclamation stays a deliberate step an operator takes after reading the report. Content that no
+cleanup Job names at all is outside what the sweep can see, because finding it means enumerating
+the backend and the storage contract does not require a backend that can list. Content addressing
+also means such a stray heals itself: identical bytes uploaded later resolve to the same key and
+the new revision adopts them.
+
 ## NetBox Branching
 
 The plugin runs alongside NetBox Branching, and this section records what a branch does and

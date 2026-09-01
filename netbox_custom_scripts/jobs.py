@@ -1,19 +1,22 @@
 """Background jobs for the Custom Scripts plugin."""
 
 import uuid
+from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
 from rq.timeouts import JobTimeoutException
 
-from core.choices import JobStatusChoices
+from core.choices import JobIntervalChoices, JobStatusChoices
 from core.exceptions import JobFailed
 from core.models import Job, ObjectType
-from netbox.jobs import JobRunner
+from netbox.jobs import JobRunner, system_job
 from utilities.rqworker import get_queue_for_model
 
 from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
-from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_JOB_TIMEOUT
+from .constants import ACTIVATABLE_REVISION_STATUSES, STALLED_CLEANUP_GRACE_SECONDS, VALIDATION_JOB_TIMEOUT
 from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
 from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
 from .models.migration import migration_lock
@@ -93,6 +96,89 @@ class ProjectStorageCleanupJob(JobRunner):
                 detail = f'Storage cleanup left content in the store: {storage_key} {digest}: {error}'
                 self.logger.error(detail)
                 raise JobFailed() from error
+
+
+@system_job(interval=JobIntervalChoices.INTERVAL_DAILY)
+class ProjectStorageSweepJob(JobRunner):
+    """
+    Report revision content an unfinished cleanup left in the store, reclaiming nothing.
+
+    Rechecks each stalled cleanup under the project lock and records four groups on its own
+    Job row: stranded, reclaimed, referenced and unreadable. Scoped to content a cleanup Job
+    names.
+    """
+
+    class Meta:
+        name = 'Custom Script Project storage sweep'
+
+    def run(self, **kwargs):
+        """Classify every stalled cleanup, record the report, and log what is stranded."""
+        grouped, unreadable = self._candidates()
+        report = {'stranded': [], 'reclaimed': [], 'referenced': [], 'unreadable': unreadable}
+        # Bound to RQ_DEFAULT_TIMEOUT, which a system job cannot raise, so the row is given the
+        # report before the loop and the dict is mutated in place. A pass killed partway is
+        # terminated with a full save, which then persists whatever it had classified.
+        self.job.data = report
+        for (storage_key, digest), candidate in grouped.items():
+            self._classify(storage_key, digest, candidate, report)
+        for entry in report['stranded']:
+            self.logger.warning(
+                f'Stranded revision content, {len(entry["paths"])} file(s) from cleanup Job(s) '
+                f'{entry["jobs"]}: {entry["storage_key"]} {entry["digest"]}'
+            )
+        self.logger.info(
+            f'{len(report["stranded"])} stranded, {len(report["reclaimed"])} already reclaimed, '
+            f'{len(report["referenced"])} referenced again, {len(report["unreadable"])} unreadable.'
+        )
+
+    @staticmethod
+    def _stalled_cleanups():
+        """Return every cleanup Job that has not finished reclaiming the content it names."""
+        cutoff = timezone.now() - timedelta(seconds=STALLED_CLEANUP_GRACE_SECONDS)
+        # An enqueued cleanup gets the grace period, since it may be waiting its turn or running
+        # right now. One that errored or failed has already reported leaving content behind.
+        waiting = Q(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES, created__lt=cutoff)
+        gave_up = Q(status__in=(JobStatusChoices.STATUS_ERRORED, JobStatusChoices.STATUS_FAILED))
+        # Oldest first, so a pass cut short by the timeout leaves the most stale content named.
+        return ProjectStorageCleanupJob.get_jobs().filter(waiting | gave_up).order_by('created')
+
+    def _candidates(self):
+        """Group stalled cleanups by the content they name, and list those naming none."""
+        grouped, unreadable = {}, []
+        for job in self._stalled_cleanups():
+            payload = job.data or {}
+            storage_key, digest, paths = payload.get('storage_key'), payload.get('digest'), payload.get('paths')
+            if not (storage_key and digest and paths):
+                self.logger.warning(f'Cleanup Job {job.pk} carries no payload naming content to reclaim.')
+                unreadable.append(job.pk)
+                continue
+            # A project cascade enqueues one cleanup per row and rows can share a tree, so
+            # several Jobs reach here naming one digest. Grouping is what keeps the report
+            # counting stored trees rather than Job rows.
+            candidate = grouped.setdefault((storage_key, digest), {'jobs': [], 'paths': set()})
+            candidate['jobs'].append(job.pk)
+            candidate['paths'].update(paths)
+        return grouped, unreadable
+
+    def _classify(self, storage_key, digest, candidate, report):
+        """Record one stored tree under the outcome its content is actually in."""
+        entry = {'jobs': sorted(candidate['jobs']), 'storage_key': storage_key, 'digest': digest}
+        try:
+            # The recheck the cleanup job makes, needing the same lock for the same reason.
+            with project_lock(storage_key):
+                if CustomScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
+                    report['referenced'].append(entry)
+                    return
+                present = store.present_keys(config.get_storage(), storage_key, digest, candidate['paths'])
+        except (OSError, StorageError) as error:
+            # One unreachable project must not end the sweep.
+            self.logger.warning(f'Could not inspect the content Job(s) {entry["jobs"]} name: {error}')
+            report['unreadable'].extend(entry['jobs'])
+            return
+        if present:
+            report['stranded'].append({**entry, 'paths': present})
+        else:
+            report['reclaimed'].append(entry)
 
 
 class ProjectReconciliationJob(JobRunner):

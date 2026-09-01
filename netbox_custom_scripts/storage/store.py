@@ -35,6 +35,7 @@ from .paths import normalize_source_path, revision_key, revision_prefix
 __all__ = (
     'copy_verified',
     'delete_revision',
+    'present_keys',
     'read_revision_tree',
     'read_verified',
     'verify_revision_tree',
@@ -139,6 +140,16 @@ def delete_revision(storage, storage_key, digest, paths):
             failures.append(f'{path}: {error}')
     if failures:
         raise StorageError('Unable to remove stored revision content: ' + ', '.join(failures))
+
+
+def present_keys(storage, storage_key, digest, paths):
+    """
+    Return the paths of one revision whose stored keys are still occupied, sorted.
+
+    Probes exact keys, needing no directory semantics from the backend. Raises UnsafePathError
+    for a path no key can be built from, and StorageError when the backend cannot say.
+    """
+    return [path for path in sorted(paths) if _exists(storage, revision_key(storage_key, digest, path))]
 
 
 def copy_verified(storage, key, entry, destination=None):

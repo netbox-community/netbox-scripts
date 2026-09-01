@@ -648,3 +648,28 @@ class RevisionRemovalTestCase(TestCase):
         self.delete(digest, storage=storage)
         for path in files:
             self.assertFalse(storage.exists(f'{revision_prefix(STORAGE_KEY, digest)}{path}'))
+
+    def test_present_keys_reports_only_the_paths_still_in_the_store(self):
+        self.storage.delete(f'{revision_prefix(STORAGE_KEY, self.second)}b.py')
+        self.assertEqual(
+            store.present_keys(self.storage, STORAGE_KEY, self.second, self.manifest_paths[self.second]),
+            ['pkg/c.py'],
+        )
+
+    def test_present_keys_reports_nothing_for_content_already_reclaimed(self):
+        paths = self.manifest_paths[self.second]
+        self.delete(self.second)
+        self.assertEqual(store.present_keys(self.storage, STORAGE_KEY, self.second, paths), [])
+
+    def test_present_keys_never_needs_the_backend_to_list(self):
+        storage = RefusingStorage(failing={'listdir'}, error=NotImplementedError('no listing here'))
+        digest = self.stage({'b.py': b'second', 'pkg/c.py': b'nested'}, storage=storage)
+        self.assertEqual(
+            store.present_keys(storage, STORAGE_KEY, digest, self.manifest_paths[digest]),
+            ['b.py', 'pkg/c.py'],
+        )
+
+    def test_present_keys_reports_a_backend_that_cannot_answer(self):
+        storage = RefusingStorage(failing={'exists'}, error=RuntimeError('the sdk gave up'))
+        with self.assertRaises(StorageError):
+            store.present_keys(storage, STORAGE_KEY, self.first, self.manifest_paths[self.first])

@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from netbox.models import ChangeLoggedModel, PrimaryModel
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
-from ..constants import ACTIVATABLE_REVISION_STATUSES
+from ..constants import ACTIVATABLE_REVISION_STATUSES, UNSTORED_REVISION_STATUSES
 from ..storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from ..utils import data_source_relative_path
 from ..validators import data_paths_overlap, normalize_data_path
@@ -303,6 +303,17 @@ class CustomScriptProject(PrimaryModel):
         # The newest attempt is what the source state reports on, and a rejected one has no digest.
         return self.revisions.using(self._read_alias()).order_by('-created').first()
 
+    def latest_stored_revision(self):
+        """Return this project's newest revision holding stored content, or None."""
+        # Without the exclusion one failed write would poison every later upload of this project.
+        return (
+            self.revisions.using(self._read_alias())
+            .filter(digest__isnull=False)
+            .exclude(status__in=UNSTORED_REVISION_STATUSES)
+            .order_by('-created')
+            .first()
+        )
+
     @property
     def source_state(self):
         """A short plain-language summary of where this project's source stands."""
@@ -319,13 +330,11 @@ class CustomScriptProject(PrimaryModel):
         The revision whose tree is this project's source right now, or None.
 
         The active revision when there is one, otherwise the newest revision that holds stored
-        content, so a project with no active revision still has a tree to enumerate and build on.
+        content, so a project with no active revision still has a tree to enumerate.
         Cached per instance.
         """
         # The detail view reads a field of it per panel row, and every caller reloads or wants it as is.
-        return self.active_revision or (
-            self.revisions.using(self._read_alias()).filter(digest__isnull=False).order_by('-created').first()
-        )
+        return self.active_revision or self.latest_stored_revision()
 
     def _source_paths(self):
         """Return every project-relative path of the source this project currently has."""

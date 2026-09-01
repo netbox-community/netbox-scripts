@@ -129,6 +129,23 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         self.assertNotEqual(refreshed.entrypoint_digest, source.entrypoint_digest)
         self.assertEqual([entry['path'] for entry in refreshed.manifest], ['alpha.py', 'beta.py'])
 
+    def test_the_refresh_restages_the_newest_stored_tree_rather_than_the_active_one(self):
+        # The selection can change while a newer revision is still waiting for activation.
+        # Restaging what the project serves would drop that revision's content silently.
+        active = self.project.revisions.order_by('created').first()
+        CustomScriptProjectRevision.objects.filter(pk=active.pk).update(status=RevisionStatusChoices.ACTIVE)
+        CustomScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active)
+        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        self.assertEqual([entry['path'] for entry in active.manifest], ['alpha.py'])
+
+        before = self.project.revisions.count()
+        self.project.select_entrypoints(['beta.py'])
+        self.run_job()
+
+        self.assertEqual(self.project.revisions.count(), before + 1)
+        refreshed = self.project.latest_revision()
+        self.assertEqual([entry['path'] for entry in refreshed.manifest], ['alpha.py', 'beta.py'])
+
     def test_a_changed_selection_hands_the_new_revision_to_validation(self):
         self.project.select_entrypoints(['alpha.py'])
         self.run_job()

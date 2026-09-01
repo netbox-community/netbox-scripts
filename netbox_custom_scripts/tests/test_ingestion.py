@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from unittest import mock
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -17,7 +17,13 @@ from netbox_custom_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
-from netbox_custom_scripts.ingestion import ingest_data_source, ingest_upload, uploaded_source_path
+from netbox_custom_scripts.ingestion import (
+    check_upload_conflicts,
+    current_source_tree,
+    ingest_data_source,
+    ingest_upload,
+    uploaded_source_path,
+)
 from netbox_custom_scripts.jobs import RevisionValidationJob
 from netbox_custom_scripts.models import (
     CustomScript,
@@ -27,6 +33,8 @@ from netbox_custom_scripts.models import (
 )
 from netbox_custom_scripts.storage import service, store
 from netbox_custom_scripts.storage.exceptions import StorageError
+
+from .test_branching import routing
 
 IN_MEMORY_STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
@@ -258,6 +266,41 @@ class IngestUploadTestCase(TestCase):
             ingest_upload(self.project, filename='Deploy.py', content=SCRIPT, base_files={'deploy.py': SCRIPT})
         self.assertIn('collides', str(ctx.exception))
         self.assertEqual(CustomScriptModule.objects.filter(project=self.project).count(), 1)
+
+    def test_a_second_upload_builds_on_the_un_activated_first(self):
+        # A project on the manual policy serves one revision while a newer one waits, and the
+        # next upload has to carry that newer tree rather than the one still in force.
+        first = ingest_upload(self.project, filename='alpha.py', content=SCRIPT)
+        CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
+        self.project.active_revision_id = first.revision.pk
+        self.project.save(update_fields=('active_revision',))
+
+        ingest_upload(self.project, filename='beta.py', content=SCRIPT, base_files=current_source_tree(self.project))
+        staged = ingest_upload(
+            self.project, filename='gamma.py', content=SCRIPT, base_files=current_source_tree(self.project)
+        )
+
+        self.assertEqual(
+            sorted(entry['path'] for entry in staged.revision.manifest),
+            ['alpha.py', 'beta.py', 'gamma.py'],
+        )
+
+    def test_a_replacement_is_detected_against_the_newest_stored_revision(self):
+        # The conflict check and the tree the upload builds on have to read one revision, or
+        # the confirmation is skipped for exactly the content it guards.
+        first = ingest_upload(self.project, filename='alpha.py', content=SCRIPT)
+        CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
+        self.project.active_revision_id = first.revision.pk
+        self.project.save(update_fields=('active_revision',))
+        ingest_upload(self.project, filename='beta.py', content=SCRIPT, base_files=current_source_tree(self.project))
+
+        with self.assertRaises(ValidationError):
+            check_upload_conflicts(self.project, 'beta.py', confirm_replace=False)
+
+    def test_an_upload_declares_nothing_when_routing_is_unsafe(self):
+        with routing(customscriptmodule=True), self.assertRaises(ImproperlyConfigured):
+            ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        self.assertFalse(CustomScriptModule.objects.filter(project=self.project).exists())
 
     def test_base_files_are_carried_into_the_new_revision(self):
         base = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)

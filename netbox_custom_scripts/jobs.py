@@ -315,8 +315,8 @@ class ProjectEntrypointRefreshJob(JobRunner):
         if project is None:
             self.logger.info(f'Custom Script Project {project_id} no longer exists, nothing to refresh.')
             return
-        source = project.current_revision
-        if source is None or not source.digest:
+        source = project.latest_stored_revision()
+        if source is None:
             # A project that has never ingested stored no content, so there is nothing to
             # restage and the selection applies to the first revision that arrives.
             self.logger.info(f'"{project}" holds no stored source yet, so its selection applies to its next revision.')

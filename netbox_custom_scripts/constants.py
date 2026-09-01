@@ -21,6 +21,8 @@ PENDING_VERDICT_REVISION_STATUSES = ('staging', 'materialized', 'validating')
 # because both belong to project validation: storage must never re-drive a revision whose
 # lifecycle it does not own, nor resurrect one that validation rejected.
 RETRYABLE_REVISION_STATUSES = ('staging', 'storage_failed')
+# A digest is recorded before the write completes, so these carry one while the store holds nothing.
+UNSTORED_REVISION_STATUSES = ('staging', 'storage_failed')
 
 # A revision records why a validation could not reach a verdict, and that text reaches an operator
 # through a refusal rendered on a page, so it is bounded rather than allowed to hold a traceback.

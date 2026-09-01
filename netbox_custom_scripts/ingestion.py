@@ -23,9 +23,10 @@ where it stays inspectable and retryable.
 """
 
 from django.core.exceptions import ValidationError
-from django.db import router, transaction
+from django.db import transaction
 from django.utils.translation import gettext as _
 
+from . import branching
 from .choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from .jobs import RevisionValidationJob
 from .models import CustomScriptModule
@@ -82,7 +83,7 @@ def check_upload_conflicts(project, path, *, confirm_replace):
     """
     # Compared against the canonical path, never the name the client sent, so two files a caller
     # thinks of as different cannot silently replace one another.
-    revision = project.current_revision
+    revision = project.latest_stored_revision()
     existing = {entry['path'] for entry in revision.manifest} if revision else set()
     if path in existing and not confirm_replace:
         raise ValidationError(
@@ -101,10 +102,12 @@ def current_source_tree(project):
 
     A revision is an immutable whole tree, so adding one file means staging everything that was
     already there plus the new one, and the existing content has to be read back to do that.
+    The newest stored revision is the tree, whether or not the project serves it, so a file
+    added while an earlier revision is still active is carried forward rather than dropped.
     Every file is verified against the manifest on the way out, so a damaged tree raises
     RevisionCorruptError here rather than being carried silently into a new revision.
     """
-    revision = project.current_revision
+    revision = project.latest_stored_revision()
     if revision is None:
         return {}
     return store.read_revision_tree(config.get_storage(), project.storage_key, revision.digest, revision.manifest)
@@ -124,8 +127,9 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True):
     Pass declare=False to stage the file without declaring it, so the project gains the content
     and no entrypoint.
 
-    Raises ValidationError for a name the path policy or the source rule refuses, and whatever
-    staging raises for a storage failure or a project deleted underneath the write.
+    Raises ValidationError for a name the path policy or the source rule refuses,
+    ImproperlyConfigured for an unsafe routing or a non-default alias, and whatever staging
+    raises for a storage failure or a project deleted underneath the write.
     """
     if project.source_type != ProjectSourceTypeChoices.UPLOAD:
         raise ValidationError(
@@ -137,7 +141,10 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True):
     files = dict(base_files or {})
     files[path] = bytes(content)
 
-    using = router.db_for_write(type(project), instance=project)
+    # The same pair stage_revision opens with, taken here because the declaration commits first
+    # and a refusal after it would leave a stray entrypoint behind.
+    branching.require_safe_routing()
+    using = service.require_default_database(project)
     if declare:
         with transaction.atomic(using=using):
             declare_entrypoint(project, path, using)

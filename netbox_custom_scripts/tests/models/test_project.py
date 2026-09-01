@@ -752,6 +752,18 @@ class CustomScriptProjectSourceStateTestCase(TestCase):
         rejected = self.revision(RevisionStatusChoices.INVALID, digest=None)
         self.assertEqual(self.project.latest_revision(), rejected)
 
+    def test_latest_stored_revision_skips_a_write_that_never_completed(self):
+        stored = self.revision(RevisionStatusChoices.MATERIALIZED, digest='a' * 64)
+        self.revision(RevisionStatusChoices.STORAGE_FAILED, digest='b' * 64)
+        self.revision(RevisionStatusChoices.STAGING, digest='c' * 64)
+        self.assertEqual(self.project.latest_stored_revision(), stored)
+
+    def test_latest_stored_revision_keeps_a_rejected_revision_that_holds_content(self):
+        # A verdict of invalid says the code is wrong, not that the tree is absent, and the
+        # next upload still has to build on it.
+        invalid = self.revision(RevisionStatusChoices.INVALID, digest='d' * 64)
+        self.assertEqual(self.project.latest_stored_revision(), invalid)
+
     def test_the_active_revision_being_newest_is_reported_as_current(self):
         active = self.revision(RevisionStatusChoices.ACTIVE)
         self.project.active_revision = active

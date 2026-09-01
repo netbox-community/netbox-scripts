@@ -196,8 +196,8 @@ def read_revision_tree(storage, storage_key, digest, manifest):
     Return one stored revision's whole tree, as a mapping of path to verified bytes.
 
     Staging a combined tree needs every existing file back in hand, which is why this exists
-    alongside the streaming reads. The tree is therefore held in memory whole, bounded by the
-    maximum project size the deployment configured.
+    alongside the streaming reads. The tree is held in memory whole, bounded by the limits that
+    were in force when it was staged rather than by whatever the deployment configures now.
 
     The manifest is validated before anything is read, for the same reason verify_revision_tree
     does it: the paths come from a database row and decide which keys are read.

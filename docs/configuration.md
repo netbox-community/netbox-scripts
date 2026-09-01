@@ -91,6 +91,17 @@ or NetBox Cloud, a per-pod local directory does not: a revision written by a web
 absent for the worker pod that has to run it, so those deployments need an object store or
 a shared volume.
 
+### Database connection pooling
+
+**Custom Script Projects need session-mode pooling, or a database alias that is not pooled.**
+Every operation that touches stored content serializes on a PostgreSQL session-level advisory
+lock, and such a lock belongs to the physical backend connection that took it. Under
+transaction-mode pooling, which pgbouncer offers and many deployments select, each transaction
+can land on a different backend, so the acquire, the protected writes and the release drift
+apart. Two callers can then both believe they hold one project's lock, or a lock can be left
+behind until the pool recycles that connection, which stalls every later operation on that
+Project.
+
 ### When the entry is missing or unusable
 
 NetBox still boots, and everything unrelated to project storage keeps working. The

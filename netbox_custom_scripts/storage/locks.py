@@ -20,6 +20,9 @@ Two consequences a caller has to know. The lock is not transactional, so a rollb
 release it and every acquisition needs its release in a finally. It is also counted by
 PostgreSQL, so a nested acquisition of the same key succeeds and needs its own release, which
 makes the context manager safe to nest.
+
+A session lock belongs to the physical backend connection, so transaction-mode pooling breaks
+it. That requirement is stated with the other deployment ones in docs/configuration.md.
 """
 
 import hashlib

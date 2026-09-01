@@ -42,6 +42,36 @@ class CompatImportTestCase(SimpleTestCase):
     def test_the_stand_in_delegates_every_other_attribute(self):
         self.assertIs(compat_import('extras').models, extras.models)
 
+    def test_one_revision_cannot_mutate_what_another_resolves(self):
+        first = compat_import('extras')
+        first.scripts = object()
+        self.assertIs(compat_import('extras').scripts, netbox_custom_scripts.scripts)
+
+    def test_an_unresolvable_name_is_absent_rather_than_an_import_failure(self):
+        self.assertFalse(hasattr(compat_import('extras'), 'not_a_real_name'))
+
+    def test_a_host_submodule_that_fails_to_import_is_not_reported_as_absent(self):
+        # Only an absent name is an attribute miss. A submodule that exists and raises is the
+        # host's problem, and converting it would blame the author for it.
+        real = importlib.import_module
+
+        def explode(name, *args, **kwargs):
+            if name == 'extras.brokenmod':
+                raise ModuleNotFoundError('No module named "numpy"', name='numpy')
+            return real(name, *args, **kwargs)
+
+        with (
+            mock.patch.object(compat.importlib, 'import_module', side_effect=explode),
+            self.assertRaises(ModuleNotFoundError) as caught,
+        ):
+            getattr(compat_import('extras'), 'brokenmod')
+        self.assertEqual(caught.exception.name, 'numpy')
+
+    def test_a_star_import_of_extras_binds_the_legacy_names(self):
+        namespace = {'__builtins__': compat._compat_builtins()}
+        exec('from extras import *', namespace)  # noqa: S102
+        self.assertIs(namespace['scripts'], netbox_custom_scripts.scripts)
+
     def test_a_non_legacy_submodule_is_served_as_it_is(self):
         # from extras.models import Tag
         self.assertIs(compat_import('extras.models', fromlist=('Tag',)), extras.models)

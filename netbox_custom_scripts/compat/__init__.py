@@ -2,8 +2,9 @@
 Legacy authoring imports for revision code.
 
 Revision modules run with a builtins mapping whose __import__ resolves the name extras through a
-plugin-owned stand-in. importlib.import_module('extras.scripts') never consults __import__ and is
-the one form out of reach.
+plugin-owned stand-in. Each resolution builds its own stand-in, so the name is scoped per revision
+the way every other identity here is. importlib.import_module('extras.scripts') never consults
+__import__ and is the one form out of reach.
 """
 
 import builtins
@@ -35,7 +36,6 @@ MIGRATION_HINTS = {
 }
 
 _builtins_template = None
-_extras_proxy = None
 
 
 def install():
@@ -118,20 +118,26 @@ def _serve_legacy(legacy):
 
 
 def _extras_stand_in():
-    """Return the module that stands in for the extras package inside revision code."""
-    global _extras_proxy
-    if _extras_proxy is None:
-        proxy = ModuleType('extras')
+    """Return a module that stands in for the extras package inside revision code."""
+    proxy = ModuleType('extras')
+    # A real attribute, so a star import binds the legacy names rather than nothing.
+    proxy.__all__ = tuple(name.removeprefix('extras.') for name in LEGACY_MODULES)
 
-        # No setattr for the legacy names, so each reach re-probes and one proxy serves both eras.
-        def __getattr__(attribute):
-            if f'extras.{attribute}' in LEGACY_MODULES:
-                return _serve_legacy(f'extras.{attribute}')
-            try:
-                return getattr(importlib.import_module('extras'), attribute)
-            except AttributeError:
-                return importlib.import_module(f'extras.{attribute}')
+    # No setattr for the legacy names, so each reach re-probes and one proxy serves both eras.
+    def __getattr__(attribute):
+        if f'extras.{attribute}' in LEGACY_MODULES:
+            return _serve_legacy(f'extras.{attribute}')
+        try:
+            return getattr(importlib.import_module('extras'), attribute)
+        except AttributeError:
+            pass
+        try:
+            return importlib.import_module(f'extras.{attribute}')
+        except ModuleNotFoundError as error:
+            if error.name != f'extras.{attribute}':
+                raise
+            # A raw miss classifies an author's typo as an environment failure, recording no verdict.
+            raise AttributeError(attribute) from error
 
-        proxy.__getattr__ = __getattr__
-        _extras_proxy = proxy
-    return _extras_proxy
+    proxy.__getattr__ = __getattr__
+    return proxy

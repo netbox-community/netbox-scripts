@@ -222,6 +222,18 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
         self.assertEqual(result.validation_errors[0]['exception_type'], 'RuntimeError')
 
+    def test_a_typo_in_a_legacy_extras_import_is_an_invalid_verdict(self):
+        # Classified environment this would re-raise and record nothing, and every rerun would
+        # reach the same place, leaving the project waiting on a verdict that never comes.
+        self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'from extras import mdels\n'})
+        result = validate_revision(revision, job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        (record,) = result.validation_errors
+        self.assertEqual(record['source_path'], 'deploy.py')
+        self.assertEqual(record['code'], 'entrypoint_import_failed')
+        self.assertEqual(record['exception_type'], 'ImportError')
+
     def test_a_missing_revision_module_is_an_invalid_verdict(self):
         self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'from .helpers import tool\n'})

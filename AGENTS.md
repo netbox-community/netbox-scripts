@@ -183,7 +183,7 @@ when domain content calls for them.
 │   │   ├── manifest.py            , Manifest build/validate pair, content digests, per-node letter-case collision rejection.
 │   │   ├── entrypoints.py         , Entrypoint snapshot build/validate pair, the return-trip trust boundary.
 │   │   ├── store.py               , Verified writes and reads against the backend, copy_verified bounded-read primitive, read_verified / read_revision_tree in-memory reads, present_keys exact-key existence probe for the storage sweep.
-│   │   ├── locks.py               , project_lock(): the per-project advisory lock every content operation holds, and the one home of the key derivation.
+│   │   ├── locks.py               , project_lock(): the per-project advisory lock every content operation holds, taken through django_pg_utils.advisory_lock, the helper NetBox ships and takes its own locks through. This module owns the key derivation and the (770100, .) namespace, with models/migration.py deriving (770101, 1) from it. The separation from core is numeric and not by arity, since core takes two-integer pairs too, so docs/development/netbox-internals.md records both values against ADVISORY_LOCK_KEYS.
 │   │   ├── service.py             , stage_revision / refresh_revision_entrypoints / promote_revision (mandatory on_promote callback) + the database-alias contract.
 │   │   └── exceptions.py          , Storage error taxonomy.
 │   ├── runtime/
@@ -401,9 +401,11 @@ fault.
 
 Every operation that touches stored content holds `storage.locks.project_lock()`,
 keyed by the project's immutable `storage_key`. It is a PostgreSQL session-level
-advisory lock on the two-integer keyspace, so it cannot collide with NetBox's own
-single-bigint keys, and it does not hold a database transaction open across
-backend I/O. Two deliberate exclusions: deletion takes no lock, because the
+advisory lock on the two-integer keyspace, taken through the helper NetBox uses
+for its own, and it does not hold a database transaction open across backend I/O.
+The separation from core's keys is numeric rather than by arity, because core
+takes two-integer pairs too, which `docs/development/netbox-internals.md`
+records. Two deliberate exclusions: deletion takes no lock, because the
 cleanup job rechecks references under it before reclaiming anything, and
 validation takes it only for its row transitions, because the lease already owns
 the long import span.

@@ -40,7 +40,7 @@ the plugin contract allows explicitly.
 | `core.models.Job.object_type` / `.object_id` update | `migration/references.py` | Repointing run history, batched, and done before anything is deleted because a Script's jobs go with it |
 | `extras.models.ScriptModule.delete` | `migration/cleanup.py` | Retiring a module and its stored source. Called per instance, because `QuerySet.delete()` does not call the model's `delete()`, which is what removes the file |
 
-Six modules, on purpose. If NetBox adds a documented execution context, replacing
+Seven modules, on purpose. If NetBox adds a documented execution context, replacing
 the execution rows is a change to `execution.py` alone. The three `api/views.py`
 rows are the REST run endpoint's, and none of them touch how a run executes.
 
@@ -70,6 +70,37 @@ reach a worker at all.
 The `AbortTransaction` NetBox uses for dry-run rollback is the one internal we
 declined to depend on. It is a bare exception used purely as a rollback trigger,
 so the plugin defines its own equivalent and behaves identically.
+
+## The advisory-lock namespaces
+
+Two things the plugin holds are not symbols and so are not in the table above.
+It serializes on two-integer PostgreSQL advisory locks in **two** namespaces:
+`(770100, .)` per project, keyed by `storage_key` in `storage/locks.py`, and
+`(770101, 1)` for the migration run row in `models/migration.py`. The second is
+**derived** from the first, so moving one moves both. Both are taken through
+`django_pg_utils.advisory_lock` from `django-pgware`, which NetBox pins in its
+own `requirements.txt` and takes its own locks through in `netbox/jobs.py`,
+`extras/jobs.py` and `ipam/api/views.py`.
+
+**The separation from core's locks is numeric, not a matter of arity.** It would
+be easy to conclude otherwise, because PostgreSQL does keep the one-bigint and
+two-integer keyspaces disjoint, but core uses both: `CustomField.data_lock_key()`
+returns the pair `(ADVISORY_LOCK_KEYS['custom-field-data'], pk)`, which
+`extras/jobs.py` takes at session scope through the same helper and
+`extras/models/customfields.py` takes at transaction scope by hand. So the
+guarantee rests only on the numbers. Every key core takes is either registered in
+`ADVISORY_LOCK_KEYS` (`netbox/constants.py`, currently 100100 to 115100) or
+hashed per tree by the `utilities/ltree.py` triggers, and none of them is 770100
+or 770101.
+
+`ADVISORY_LOCK_KEYS` is therefore the thing to watch. It is where a new core key
+gets added, `custom-field-data` shows core will use one as the namespace half of
+a pair, and nothing would catch a new entry landing on either of these two
+values. Recording them here is what makes such a change collide with something in
+review.
+
+The helper itself is a dependency the plugin relies on without declaring, as it
+does with `django_rq` and `strawberry`. It arrives with NetBox.
 
 ## The ask upstream
 

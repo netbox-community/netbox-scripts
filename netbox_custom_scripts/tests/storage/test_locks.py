@@ -1,6 +1,8 @@
 import uuid
+import warnings
+from unittest import mock
 
-from django.db import DEFAULT_DB_ALIAS, connection
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connection, connections
 from django.test import TestCase
 
 from netbox_custom_scripts.storage.locks import ADVISORY_LOCK_NAMESPACE, advisory_key, project_lock
@@ -27,6 +29,12 @@ def held_locks():
             ('advisory',),
         )
         return [(_signed(classid), _signed(objid)) for classid, objid in cursor.fetchall()]
+
+
+def _force_unlock(namespace, key):
+    """Release a key whose own unlock was made to fail."""
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (namespace, key))
 
 
 class AdvisoryKeyTestCase(TestCase):
@@ -95,3 +103,43 @@ class ProjectLockTestCase(TestCase):
         storage_key = uuid.uuid4()
         with project_lock(storage_key, using=DEFAULT_DB_ALIAS):
             self.assertIn(advisory_key(storage_key), held_locks())
+
+    def test_a_failed_release_leaves_the_blocks_exception_in_place(self):
+        storage_key = uuid.uuid4()
+        namespace, key = advisory_key(storage_key)
+        conn = connections[DEFAULT_DB_ALIAS]
+        # Only the release is made to fail, so the acquire really takes the lock and this
+        # session would hold it past the test.
+        self.addCleanup(_force_unlock, namespace, key)
+        cursors = [conn.cursor(), OperationalError('the connection dropped')]
+
+        with warnings.catch_warnings(record=True) as raised:
+            warnings.simplefilter('always')
+            # Exit order is right to left, so the lock releases while assertRaises is still
+            # watching and catch_warnings is still recording.
+            with (
+                mock.patch.object(conn, 'cursor', side_effect=cursors),
+                self.assertRaises(RuntimeError) as caught,
+                project_lock(storage_key),
+            ):
+                raise RuntimeError('the block failed')
+
+        self.assertEqual(str(caught.exception), 'the block failed')
+        self.assertTrue(any('failed to release' in str(entry.message) for entry in raised))
+
+    def test_a_failed_release_after_a_successful_block_warns_and_does_not_raise(self):
+        storage_key = uuid.uuid4()
+        namespace, key = advisory_key(storage_key)
+        conn = connections[DEFAULT_DB_ALIAS]
+        self.addCleanup(_force_unlock, namespace, key)
+        cursors = [conn.cursor(), OperationalError('the connection dropped')]
+
+        with warnings.catch_warnings(record=True) as raised:
+            warnings.simplefilter('always')
+            with mock.patch.object(conn, 'cursor', side_effect=cursors), project_lock(storage_key):
+                pass
+
+        # The caller is told nothing beyond the warning, so the lock stays held until the
+        # connection closes. Documented on project_lock rather than routed to a job log.
+        self.assertTrue(any('failed to release' in str(entry.message) for entry in raised))
+        self.assertIn(advisory_key(storage_key), held_locks())

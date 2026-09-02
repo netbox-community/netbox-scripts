@@ -1,11 +1,10 @@
-from contextlib import contextmanager
-
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import DEFAULT_DB_ALIAS, connections, models
+from django.db import DEFAULT_DB_ALIAS, models
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django_pg_utils import advisory_lock
 
 from netbox.models import ChangeLoggedModel
 
@@ -15,29 +14,23 @@ from ..storage.locks import ADVISORY_LOCK_NAMESPACE
 __all__ = ('MigrationRun', 'migration_lock')
 
 # A namespace of its own, one above the project keyspace, so a key derived from a storage_key
-# can never collide with this fixed one.
+# can never collide with this fixed one. Derived, so moving ADVISORY_LOCK_NAMESPACE moves this
+# with it, which is why docs/development/netbox-internals.md records both.
 MIGRATION_LOCK_NAMESPACE = ADVISORY_LOCK_NAMESPACE + 1
 # There is at most one open migration, so the lock is on the concept rather than on a row.
 MIGRATION_LOCK_KEY = 1
 
 
-@contextmanager
 def migration_lock(*, using=DEFAULT_DB_ALIAS):
     """
     Hold the serialization lock for the migration run row and its journal.
 
-    Acquisition waits for as long as another holder keeps it. The release runs even when the
-    block raised. Both consequences storage/locks.py documents apply here unchanged.
+    Acquisition waits for as long as another holder keeps it. The same primitive and the same
+    release contract as the per-project lock in storage/locks.py.
     """
     # Not in storage/locks.py, whose lock is keyed per project and scoped to stored content,
     # while this one serializes a database row no project owns.
-    with connections[using].cursor() as cursor:
-        cursor.execute('SELECT pg_advisory_lock(%s, %s)', (MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY))
-    try:
-        yield
-    finally:
-        with connections[using].cursor() as cursor:
-            cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY))
+    return advisory_lock((MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_KEY), using=using)
 
 
 # The only order a run may move through, one step at a time. A run in the last state is closed.

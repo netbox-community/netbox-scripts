@@ -13,22 +13,19 @@ is exactly what activation goes out of its way to avoid, and a lease would add a
 reclaim timer beside the validation lease already in the revision row. A session lock is
 released when the connection drops, so a pod killed without warning frees its own claim.
 
-This module owns its primitive rather than importing NetBox's advisory_lock. At the 4.7 floor
-that is a removal candidate, not a settled divergence.
-
 Two consequences a caller has to know. The lock is not transactional, so a rollback does not
-release it and every acquisition needs its release in a finally. It is also counted by
-PostgreSQL, so a nested acquisition of the same key succeeds and needs its own release, which
-makes the context manager safe to nest.
+release it and only leaving the block does. It is also counted by PostgreSQL, so a nested
+acquisition of the same key succeeds and needs its own release, which makes the context
+manager safe to nest.
 
 A session lock belongs to the physical backend connection, so transaction-mode pooling breaks
 it. That requirement is stated with the other deployment ones in docs/configuration.md.
 """
 
 import hashlib
-from contextlib import contextmanager
 
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import DEFAULT_DB_ALIAS
+from django_pg_utils import advisory_lock
 
 __all__ = (
     'ADVISORY_LOCK_NAMESPACE',
@@ -36,10 +33,11 @@ __all__ = (
     'project_lock',
 )
 
-# The first of the two integers every project lock is taken on. PostgreSQL keeps the
-# one-bigint and two-integer advisory keyspaces disjoint, so a two-integer key cannot collide
-# with NetBox itself, which takes single-key locks throughout. The value is arbitrary and
-# exists to be recognisable in query logs.
+# The first of the two integers every project lock is taken on, arbitrary and recognisable in
+# query logs. models/migration.py derives the next namespace up from it. Core registers its own
+# keys in ADVISORY_LOCK_KEYS (netbox/constants.py) and hashes per-tree ones in utilities/ltree.py,
+# and none of them is 770100 or 770101. The separation is numeric and not by arity: extras/jobs.py
+# already takes custom-field-data as the two-integer pair (115100, pk).
 ADVISORY_LOCK_NAMESPACE = 770100
 
 
@@ -47,29 +45,22 @@ def advisory_key(storage_key):
     """
     Return the integer pair one project's lock is taken on.
 
-    The second integer is derived from the storage_key rather than the primary key, because
-    storage_key is immutable and names the content itself, so the lock stays put across a
-    rename and cannot be moved by anything an author edits. It is truncated to fit a signed
-    32-bit integer, which is what the two-key advisory lock functions accept.
+    The second integer is truncated to fit a signed 32-bit integer, which is what the two-key
+    advisory lock functions accept.
     """
+    # Keyed on the storage_key rather than the primary key: it is immutable, so the lock stays
+    # put across a rename and nothing an author edits can move it.
     digest = hashlib.sha256(str(storage_key).encode()).digest()
     return ADVISORY_LOCK_NAMESPACE, int.from_bytes(digest[:4], byteorder='big', signed=True)
 
 
-@contextmanager
 def project_lock(storage_key, *, using=DEFAULT_DB_ALIAS):
     """
     Hold the serialization lock for one project's stored content.
 
-    Acquisition waits for as long as another holder keeps the lock. The release runs even when
-    the block raised, because a session lock outlives the failed transaction that would
-    otherwise have carried it away.
+    Acquisition waits for as long as another holder keeps the lock. The release runs on both
+    paths and never raises, it warns: a failure after the block raised leaves that exception in
+    place, and a failure after the block succeeded leaves the lock held for the life of the
+    connection.
     """
-    namespace, key = advisory_key(storage_key)
-    with connections[using].cursor() as cursor:
-        cursor.execute('SELECT pg_advisory_lock(%s, %s)', (namespace, key))
-    try:
-        yield
-    finally:
-        with connections[using].cursor() as cursor:
-            cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (namespace, key))
+    return advisory_lock(advisory_key(storage_key), using=using)

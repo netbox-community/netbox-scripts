@@ -512,10 +512,28 @@ class MigrationTriggerTestCase(TestCase):
 
     def test_the_cutover_route_queues_the_job_and_returns_to_the_page(self):
         self.grant('add', 'migrate')
-        response = self.client.post(self.url('migration_cutover'))
+        response = self.client.post(self.url('migration_cutover'), {'confirm': 'true', 'backup_taken': 'on'})
         self.assertHttpStatus(response, 302)
         self.assertEqual(response.url, self.url('migration'))
         self.cutover.assert_called_once()
+
+    def test_the_cutover_refuses_a_post_that_acknowledges_nothing(self):
+        # Posted as a browser would, with the form's own marker but the box left unticked, so the
+        # refusal is the acknowledgement and not ConfirmationForm's hidden field.
+        self.grant('add', 'migrate')
+
+        response = self.client.post(self.url('migration_cutover'), {'confirm': 'true'})
+
+        self.assertHttpStatus(response, 200)
+        self.cutover.assert_not_called()
+
+    def test_the_cutover_confirmation_asks_for_the_backup(self):
+        self.grant('add', 'migrate')
+
+        body = self.client.get(self.url('migration_cutover')).content.decode()
+
+        self.assertIn('backup_taken', body)
+        self.assertIn('no way back', body)
 
     def test_the_cutover_refuses_while_one_is_already_queued(self):
         self.grant('add', 'migrate')

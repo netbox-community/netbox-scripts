@@ -74,7 +74,9 @@ another staging pass is queued, and it refuses if the inventory reports any bloc
 reads is its own fresh report rather than the one on this page, so a blocking finding you have since
 resolved does not stop it, and one introduced since the last inventory still will.
 
-**Enter cutover** confirms first, and is the point of no return.
+**Enter cutover** confirms first, and is the point of no return. The confirmation will not submit until you
+state that the backup from step 3 of [Before you start](#before-you-start) is taken, because restoring it is
+the only route back.
 
 **Activate Projects** and **Repoint references** appear once the cutover has been recorded. Neither
 confirms, because by then the decision has been made.

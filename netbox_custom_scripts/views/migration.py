@@ -11,6 +11,7 @@ from utilities.permissions import get_permission_for_model
 from utilities.views import ContentTypePermissionRequiredMixin, register_model_view
 
 from ..choices import MigrationStateChoices
+from ..forms import MigrationCutoverForm
 from ..jobs import (
     MigrationActivationJob,
     MigrationCleanupJob,
@@ -277,7 +278,7 @@ class MigrationStagingView(BaseMigrationView):
 
 
 class MigrationCutoverView(DestructiveMigrationView):
-    """Queue the cutover, confirming first."""
+    """Queue the cutover, confirming first and requiring the backup to be acknowledged."""
 
     template_name = 'netbox_custom_scripts/migration_cutover.html'
 
@@ -286,14 +287,25 @@ class MigrationCutoverView(DestructiveMigrationView):
         return render(
             request,
             self.template_name,
-            {'return_url': reverse('plugins:netbox_custom_scripts:migration')},
+            {
+                'form': MigrationCutoverForm(),
+                'return_url': reverse('plugins:netbox_custom_scripts:migration'),
+            },
         )
 
     def post(self, request):
-        """Queue the cutover unless one is already under way."""
+        """Queue the cutover unless one is under way or the backup is unacknowledged."""
         if _queued(MigrationCutoverJob):
             messages.warning(request, _('A Custom Script migration cutover is already queued.'))
             return redirect('plugins:netbox_custom_scripts:migration')
+        form = MigrationCutoverForm(request.POST)
+        if not form.is_valid():
+            # Re-rendered rather than redirected, so the message lands beside the box to tick.
+            return render(
+                request,
+                self.template_name,
+                {'form': form, 'return_url': reverse('plugins:netbox_custom_scripts:migration')},
+            )
         MigrationCutoverJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration cutover.'))
         return redirect('plugins:netbox_custom_scripts:migration')

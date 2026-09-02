@@ -85,7 +85,8 @@ when domain content calls for them.
 │   │   ├── bulk_edit/script.py      , CustomScriptBulkEditForm: enabled only, description removed declaratively since BulkEditView setattr ignores editable=False.
 │   │   ├── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
 │   │   ├── filtersets/module.py     , CustomScriptModuleFilterForm.
-│   │   └── filtersets/script.py     , CustomScriptFilterForm.
+│   │   ├── filtersets/script.py     , CustomScriptFilterForm.
+│   │   └── confirmations.py        , MigrationCutoverForm: the one acknowledgement the cutover will not submit without. A ConfirmationForm subclass, so the hidden marker that template's hidden_fields loop exists to render is present, and the visible checkbox is rendered by hand because the loop covers nothing else.
 │   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and keep the pinned deps (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision, MigrationRun.

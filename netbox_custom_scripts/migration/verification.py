@@ -22,6 +22,9 @@ JOBS = 'jobs'
 # A recreation that ended either way did not take.
 _FAILED_JOB_STATUSES = (JobStatusChoices.STATUS_ERRORED, JobStatusChoices.STATUS_FAILED)
 
+# A row in one of these is still owed a run, so it is still owed a queue task.
+_WAITING_JOB_STATUSES = (JobStatusChoices.STATUS_PENDING, JobStatusChoices.STATUS_SCHEDULED)
+
 
 def verify(run=None):
     """
@@ -272,6 +275,50 @@ def _verify_permissions(run):
     )
 
 
+def _references_running():
+    """Whether a reference pass is queued or running, so the queue is still being written."""
+    from ..jobs import MigrationReferencesJob
+
+    return MigrationReferencesJob.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
+
+
+def _queueless_schedules(recreated, names):
+    """
+    Return which recreated schedules are waiting with no queue task behind them.
+
+    Probes only the Job rows in a waiting status. Returns ([], False) for a queue it could not
+    read.
+    """
+    import django_rq
+    from redis.exceptions import RedisError
+    from rq.exceptions import NoSuchJobError
+    from rq.job import Job as RQJob
+
+    from utilities.rqworker import get_queue_for_model
+
+    lost = []
+    # Waiting rows only: a recurrence is re-enqueued as a new row each occurrence, so a terminal
+    # one holding no task is the ordinary end state rather than a loss.
+    waiting = (
+        Job.objects.filter(pk__in=list(recreated.values()), status__in=_WAITING_JOB_STATUSES)
+        .select_related('object_type')
+        .only('pk', 'job_id', 'queue_name', 'object_type')
+    )
+    for job in waiting:
+        # Queue.fetch_job() would be shorter and removes the id from the queue on a miss, which a
+        # pass that promises to change nothing cannot do.
+        name = job.queue_name or get_queue_for_model(job.object_type.model if job.object_type else None)
+        try:
+            RQJob.fetch(str(job.job_id), connection=django_rq.get_queue(name).connection)
+        except NoSuchJobError:
+            lost.append(names.get(job.pk) or str(job.pk))
+        except (RedisError, KeyError):
+            # Distinct from an absent task on purpose. Treating an outage as a loss would name
+            # every migrated schedule as gone and send the operator to recreate all of them.
+            return [], False
+    return sorted(lost), True
+
+
 def _verify_jobs(run):
     """No Job names the built-in feature, and every captured schedule has a live counterpart."""
     captured = run.journal.get('schedules') or []
@@ -291,6 +338,20 @@ def _verify_jobs(run):
         for entry in captured
         if str(entry['job_pk']) not in recreated or recreated[str(entry['job_pk'])] in failed
     ]
+    # Read from the queue rather than the row, because the row is exactly what survives. The marker
+    # is written inside the enqueue transaction and the task is handed over in a commit hook.
+    by_pk = {recreated[str(entry['job_pk'])]: entry['name'] for entry in captured if str(entry['job_pk']) in recreated}
+    lost, queue_read = ([], False) if _references_running() else _queueless_schedules(recreated, by_pk)
+    if lost:
+        return _check(
+            JOBS,
+            plan.BLOCKING,
+            _(
+                '{count} recreated schedule(s) are recorded as migrated but hold no task in the queue, so '
+                'they will never run: {names}. Recreate each one by hand.'
+            ).format(count=len(lost), names=', '.join(lost)),
+            source=_('the journal and the queue'),
+        )
     if legacy_source.script_jobs().exists():
         return _check(
             JOBS,
@@ -300,6 +361,13 @@ def _verify_jobs(run):
                 'can hold, so it stays where it is.'
             ).format(count=legacy_source.script_jobs().count()),
             source=_('the built-in rows'),
+        )
+    if not queue_read:
+        return _check(
+            JOBS,
+            plan.WARNING,
+            _('The queue was not read, so whether each recreated schedule holds a task is unknown.'),
+            source=_('the journal alone'),
         )
     if missing:
         return _check(

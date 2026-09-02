@@ -411,7 +411,7 @@ stays readable.
 | Scripts | Every built-in Script has a live Custom Script that is not retired |
 | Event Rules | No Event Rule names the built-in feature, and every rule that was enabled before the cutover is enabled again |
 | Permissions | No permission names the built-in feature |
-| Jobs | No Job names the built-in feature, and every captured schedule has a live counterpart |
+| Jobs | No Job names the built-in feature, every captured schedule has a live counterpart, and one still waiting holds a task in the queue |
 
 **A check reports `warning` until the pass it verifies has run**, so a report taken before the
 cutover says that nothing has happened rather than that something is wrong. Only a pass that has run
@@ -423,10 +423,18 @@ then and the Scripts check has to fall back to what the migrated Projects publis
 checked against what the migration recorded. Without that, a green report after cleanup would be
 indistinguishable from a check that had nothing left to look at.
 
-Two `warning` results are ordinary rather than faults, and both are restated on every run because
-each is operator work that stays outstanding until somebody does it: a permission that carried
-constraints and was left withdrawn for you to recreate, and a Job that names a built-in script module
-rather than a Script, which no Custom Script Project can hold.
+**One Jobs result is `blocking` rather than a warning.** A schedule the journal records as migrated
+whose Job row is still waiting with no task in the queue will never fire, and no re-run of the
+reference pass fixes it, because the journal already claims it. Recreate that schedule by hand.
+
+**A queue this pass cannot reach is reported as a warning, not as a loss.** The Jobs check then says
+so and names the journal alone as what it read, because an unread queue cannot tell a missing task
+from an unreachable one. Run **Verify** again once the queue is back.
+
+Two other `warning` results are ordinary rather than faults, and both are restated on every run
+because each is operator work that stays outstanding until somebody does it: a permission that
+carried constraints and was left withdrawn for you to recreate, and a Job that names a built-in
+script module rather than a Script, which no Custom Script Project can hold.
 
 ## What is not part of this release
 

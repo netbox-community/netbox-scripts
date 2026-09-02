@@ -1,6 +1,10 @@
 import uuid
+from unittest import mock
 
+import django_rq
 from django.test import TestCase
+from redis.exceptions import RedisError
+from rq.job import Job as RQJob
 
 from core.choices import JobStatusChoices
 from core.models import Job
@@ -18,6 +22,28 @@ class VerificationMixin(CleanupMixin):
     def named(report, name):
         """Return one check out of a report."""
         return next(check for check in report['checks'] if check['name'] == name)
+
+    def rq_task(self, job):
+        """Put a fetchable RQ task in place for one Job row, with no worker involved."""
+        queue = django_rq.get_queue(job.queue_name or 'default')
+        task = RQJob.create(
+            func='netbox.jobs.JobRunner.handle',
+            kwargs={},
+            connection=queue.connection,
+            id=str(job.job_id),
+            timeout=600,
+        )
+        task.save()
+        self.addCleanup(queue.connection.delete, f'rq:job:{job.job_id}')
+        return task
+
+    def waiting_schedule(self, run, *, name='nightly deploy', status=JobStatusChoices.STATUS_SCHEDULED):
+        """Journal one captured schedule as recreated into a live Job, and return that Job."""
+        job = Job.objects.create(name=name, job_id=uuid.uuid4(), status=status)
+        run.journal['schedules'] = [{'job_pk': 4242, 'name': name}]
+        run.journal['recreated_schedules'] = {'4242': job.pk}
+        run.save(update_fields=('journal',))
+        return job
 
 
 class VerificationBeforeAnythingTestCase(VerificationMixin, TestCase):
@@ -219,10 +245,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
 
     def test_a_recreated_schedule_with_a_live_job_reads_ready(self):
         run = self.repoint_all()
-        job = Job.objects.create(name='nightly deploy', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_SCHEDULED)
-        run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
-        run.journal['recreated_schedules'] = {'4242': job.pk}
-        run.save(update_fields=('journal',))
+        self.rq_task(self.waiting_schedule(run))
 
         check = self.named(verification.verify(run), verification.JOBS)
 
@@ -239,6 +262,48 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         check = self.named(verification.verify(run), verification.JOBS)
 
         self.assertEqual(check['level'], plan.READY)
+
+    def test_a_recreated_schedule_the_queue_never_received_blocks(self):
+        # The journal claims it and the row survives, so only the queue can say it will never fire.
+        run = self.repoint_all()
+        self.waiting_schedule(run)
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn('nightly deploy', str(check['message']))
+        self.assertIn('queue', str(check['source']))
+
+    def test_a_recurrence_that_already_fired_is_not_reported(self):
+        # The ordinary end state, and what the probe's waiting-rows scope exists for.
+        run = self.repoint_all()
+        self.waiting_schedule(run, status=JobStatusChoices.STATUS_COMPLETED)
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.READY)
+
+    def test_a_lost_schedule_is_reported_ahead_of_a_lingering_built_in_job(self):
+        # The queueless one names work the operator can do. The lingering Job is left on purpose.
+        self.module_job(self.synced)
+        run = self.repoint_all()
+        self.waiting_schedule(run)
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.BLOCKING)
+
+    def test_a_queue_that_cannot_be_read_warns_rather_than_naming_every_schedule_lost(self):
+        # No schedule is named: an unread queue says nothing about any one of them.
+        run = self.repoint_all()
+        self.rq_task(self.waiting_schedule(run))
+
+        with mock.patch.object(RQJob, 'fetch', side_effect=RedisError('connection refused')):
+            check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.WARNING)
+        self.assertNotIn('nightly deploy', str(check['message']))
+        self.assertIn('journal alone', str(check['source']))
 
     def test_a_recreated_schedule_whose_job_failed_warns(self):
         run = self.repoint_all()

@@ -222,10 +222,10 @@ state back as though it were the original.
 | Queued runs | Every waiting job is failed closed and its task dropped, so nothing queued can still execute. The owner is notified, and the message says the plugin will recreate it. |
 | Synchronization | The built-in script source is deregistered, so no later synchronization rewrites it. |
 
-**What this is not.** It is the closest thing to a write fence a plugin can build, and it is not a
-complete one. It withdraws every grant NetBox's own permissions UI can make and nothing more. A
-superuser still passes, and so does anything `DEFAULT_PERMISSIONS` or a plain Django permission
-grant confers. Plan the cutover as a maintenance window rather than relying on this alone.
+**What this is not.** It is not a complete write fence, and it does not try to be. It withdraws
+every grant NetBox's own permissions UI can make and nothing more. A superuser still passes, and so
+does anything `DEFAULT_PERMISSIONS` or a plain Django permission grant confers. Plan the cutover as
+a maintenance window rather than relying on this alone.
 
 **What it refuses.** A run that has not staged anything, a run that has already moved past the
 cutover, and any installation where a built-in Script job is still running. Wait for those to
@@ -440,6 +440,6 @@ script module rather than a Script, which no Custom Script Project can hold.
 
 | Area | Status |
 |---|---|
-| A complete write fence | Not possible for a plugin. See [Crossing the fence](#crossing-the-fence). |
+| A complete write fence | Not in this release. The row-level half is buildable in a plugin and deliberately not shipped, and the rest needs NetBox. See [Crossing the fence](#crossing-the-fence). |
 | Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |
 | Reversing a cutover | Not planned. See [Recovery](#recovery). |

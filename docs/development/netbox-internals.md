@@ -30,7 +30,7 @@ the plugin contract allows explicitly.
 | `users.models.ObjectPermission.object_types` | `migration/source.py` | How many permissions name the built-in models |
 | `core.models.Job.object_type` | `migration/source.py` | How much Job history exists, including what is scheduled or recurring |
 | `extras.models.ScriptModule.jobs` and `.event_rules` | `migration/source.py` | Whether deleting one module would take Job history or an Event Rule with it. Both are `GenericRelation`s, so Django's collector deletes those rows rather than orphaning them |
-| `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Withdrawing every grant on the built-in feature, which is as close to a write fence as a plugin gets |
+| `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Withdrawing every grant on the built-in feature, which is what the shipped cutover fences with |
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Taking a rule out of service for the handover, and putting it back once its action and sources name plugin rows |
 | `core.models.Job.terminate` | `migration/cutover.py` | Failing a queued run closed. Used rather than an `update()` so the owner is notified, and there is no cancelled status to set |
 | `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | A queued run's input, which lives only on the RQ task because `Job.enqueue()` keeps it off the row, and then dropping that task so nothing can execute it |
@@ -115,6 +115,16 @@ where the body failed.
 Nothing in that list is specific to Custom Scripts. It is what any plugin running
 user-supplied code inside NetBox's transaction and event machinery needs.
 
+**There is a second motivation, and it is the more general one.** Without a
+documented context, a plugin's only way to get change attribution and events is
+to supply a request, because `core.signals.handle_changed_object` reads
+`current_request` and returns before it records an ObjectChange or queues an
+event. So a run with nobody at the other end, one an Event Rule drove or one
+started from the command line, loses both unless it travels behind a synthesized
+request. That one absence produces two separate symptoms, an unattributed change
+and an event that never fires, and a context able to carry an attribution
+identity without a synthetic request would close both.
+
 Two narrower asks sit inside it, and both exist because a NetBox utility is almost
 what the plugin needs. `utilities.request.apply_request_processors()` is the loop
 `execution.py` writes out by hand, and the hand-written copy differs in two ways
@@ -151,10 +161,42 @@ migration should not depend on the field names of a feature being retired, and t
 a supported export is the difference between a migration NetBox can guarantee and
 one that happens to work.
 
-A write fence is a separate ask, and the only one this plugin could not build. It is
-persistent, core-owned state that makes NetBox's own views, REST viewsets, Event Rule
-dispatch and `runscript` refuse, below the view layer so there is one place to enforce
-it rather than four. No plugin can do that without monkey-patching.
+A write fence is a separate ask, and it is narrower than this page used to claim. In
+full it would be persistent, core-owned state that makes NetBox's own views, REST
+viewsets, Event Rule dispatch and `runscript` refuse, below the view layer so there
+is one place to enforce it rather than four.
+
+**Most of the row-level half is buildable in a plugin today.** That was measured
+rather than assumed. A `pre_save` receiver raising `AbortRequest` refuses a write to
+`ScriptModule` or to `Script`, and it does so with no request in scope, so a
+background job is refused as surely as a form post. NetBox documents the pattern for
+plugins, though only for aborting a request, and core depends on the requestless case
+itself: `handle_deleted_object` raises `AbortRequest` for a protection rule before it
+looks for a request at all. Anyone building it should know that a direct save sends
+`pre_save` with the **proxy** as sender while the automatic synchronization loads and
+saves the **concrete** `ManagedFile`, so a fence has to connect to both or the
+automatic path walks straight past it.
+
+**Two things in the row-level half are out of reach, and they are what is left to
+ask for.** The run paths named above are a separate matter: a signal cannot refuse an
+execution, and once cleanup has deleted the rows there is nothing left to run.
+
+The first is the synchronization write. `ManagedFile.sync_data()` writes the file
+through the storage backend and never calls `save()`, so a row-level fence stops the
+row and leaves the replacement content on the backend. There is no seam between the
+two for a plugin to reach, and `SyncedDataMixin.clean()` calls `sync()`, so merely
+validating the row is already enough to replace the content.
+
+The second is core's own gap rather than a missing feature, and it is why the fence
+cannot be extended to that path. The `auto_sync` receiver on `post_sync` iterates
+every `AutoSyncRecord` on the source in a bare loop with no per-record error
+handling, so any receiver that raises on one record ends the pass and every remaining
+record is skipped in silence, including those belonging to config templates, export
+templates, config contexts and config context profiles. The Data Source then reports
+failed, because `sync()` writes `COMPLETED` before emitting the signal and the job
+overwrites that status on the way out. **So the documented way to refuse a write
+cannot be used on the synchronization path without breaking unrelated features.**
+Per-record isolation there would fix that for every plugin, not only for this one.
 
 **The cutover ships without it, and measuring what it could close is what made the ask
 small.** The cutover withdraws every grant NetBox's own permissions UI can make,

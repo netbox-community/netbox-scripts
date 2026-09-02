@@ -59,6 +59,9 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
             'name': 'Deploy Devices',
             'key': 'deploy-devices',
             'upload_file': self.upload(),
+            # The rendered select always submits its initial, so a minimal post here would be
+            # less faithful than including it.
+            'activation_policy': ActivationPolicyChoices.MANUAL,
         }
         data.update(overrides)
         # The form defers staging to the commit, which a TestCase never reaches on its own.
@@ -90,17 +93,36 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
         self.enqueued.assert_called_once()
 
-    def test_the_checkbox_selects_automatic_activation(self):
+    def test_the_standing_policy_field_is_what_the_project_persists(self):
+        # The field that decides what later revisions do, which the tick beside it cannot set.
         self.grant_both()
-        self.assertHttpStatus(self.post(validate_and_activate='on'), 302)
+        self.assertHttpStatus(self.post(activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID), 302)
         project = CustomScriptProject.objects.get(key='deploy-devices')
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.AUTOMATIC_IF_VALID)
 
-    def test_leaving_the_checkbox_clear_keeps_activation_manual(self):
+    def test_activating_this_upload_does_not_persist_an_automatic_policy(self):
+        # The defect this split closes: the checkbox used to set the project's policy for life.
         self.grant_both()
-        self.assertHttpStatus(self.post(), 302)
+        self.assertHttpStatus(self.post(activate_this_revision='on'), 302)
         project = CustomScriptProject.objects.get(key='deploy-devices')
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
+
+    def test_the_standing_policy_field_offers_manual_first(self):
+        # The safe default an operator has to opt out of, rather than opt in to.
+        self.grant_both()
+        form = self.client.get(self.url()).context['form']
+        self.assertEqual(form.fields['activation_policy'].initial, ActivationPolicyChoices.MANUAL)
+        self.assertTrue(form.fields['activate_this_revision'].initial)
+
+    def test_the_one_shot_travels_to_the_validation_job(self):
+        self.grant_both()
+        self.assertHttpStatus(self.post(activate_this_revision='on'), 302)
+        self.assertEqual(self.enqueued.call_args.kwargs['activate_once'], True)
+
+    def test_no_one_shot_is_asked_for_when_the_box_is_clear(self):
+        self.grant_both()
+        self.assertHttpStatus(self.post(), 302)
+        self.assertEqual(self.enqueued.call_args.kwargs['activate_once'], False)
 
     def test_a_non_python_upload_is_refused_on_the_field(self):
         self.grant_both()
@@ -123,8 +145,15 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
 
     def test_a_missing_file_is_refused(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'name': 'Deploy Devices', 'key': 'deploy-devices'})
+        data = {
+            'name': 'Deploy Devices',
+            'key': 'deploy-devices',
+            'activation_policy': ActivationPolicyChoices.MANUAL,
+        }
+        response = self.client.post(self.url(), data)
         self.assertHttpStatus(response, 200)
+        # Named, so the absence of a project cannot be some other field's refusal.
+        self.assertIn('upload_file', response.context['form'].errors)
         self.assertFalse(CustomScriptProject.objects.exists())
 
     def test_a_nested_file_name_is_reduced_to_its_basename(self):

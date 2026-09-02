@@ -244,3 +244,4 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
             self.run_command('deploy.MakeTag')
 
         self.assertIn('cannot be run', str(caught.exception))
+        self.assertIn('It is retired', str(caught.exception))

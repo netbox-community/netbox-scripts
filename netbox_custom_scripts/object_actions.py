@@ -98,5 +98,6 @@ class RunScript(ObjectAction):
 
     @classmethod
     def get_context(cls, context, obj):
-        """Tell the template whether this script can be run right now."""
-        return {'executable': obj.is_executable}
+        """Tell the template whether this script can be run right now, and why not."""
+        reason = obj.run_refusal_reason
+        return {'executable': reason is None, 'refusal_reason': reason}

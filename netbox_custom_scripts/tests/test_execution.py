@@ -472,9 +472,10 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         script.enabled = False
         script.save()
 
-        with self.assertRaises(ScriptNotExecutableError):
+        with self.assertRaises(ScriptNotExecutableError) as caught:
             CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
 
+        self.assertIn('It is disabled.', str(caught.exception))
         self.assertFalse(Job.objects.filter(object_id=script.pk).exists())
 
     def test_enqueue_is_refused_when_the_project_serves_no_revision(self):
@@ -483,8 +484,11 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         deactivate_revision(revision)
         script.refresh_from_db()
 
-        with self.assertRaises(ScriptNotExecutableError):
+        with self.assertRaises(ScriptNotExecutableError) as caught:
             CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+
+        # Deactivation retires the script too, so retirement is the condition that holds first.
+        self.assertIn('It is retired', str(caught.exception))
 
     def test_the_notification_policy_comes_from_the_script_metadata(self):
         self.publish({'deploy.py': MAKES_A_TAG})

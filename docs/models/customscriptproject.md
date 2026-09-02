@@ -47,8 +47,10 @@ operation at `projects/<id>/entrypoints/`.
 
 A project's **Files** tab lists the files of its current revision, one row per
 manifest entry with its size and short checksum, and marks which paths are
-enabled entrypoints. A declared path that is missing from the source is
-annotated, and the tab is empty until a revision holds content.
+enabled entrypoints. A declared path the revision does not hold is annotated,
+and the annotation distinguishes one that is gone from the source from one a
+newer revision holds that is not being served yet. The tab is empty until a
+revision holds content.
 
 ## Invariants
 
@@ -88,8 +90,10 @@ own:
 | `manual` | The revision stops at `valid`. An operator activates it from the project's page. |
 | `automatic_if_valid` | The validation job activates the revision itself on a `valid` verdict. |
 
-The **Validate and activate** tick on the [upload form](../uploading.md) sets this, so the
-common case never has to think about the field. An automatic activation that is refused, for
+The [upload form](../uploading.md) asks for this separately from its **Activate this upload**
+tick, because the two are different decisions: the tick puts that one revision into service,
+while this field decides what later revisions do. The form leaves this on `manual`. An
+automatic activation that is refused, for
 example because the stored tree no longer matches its manifest, fails the validation job and
 leaves both the verdict and the previously active revision alone.
 

@@ -164,7 +164,20 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         response = self.post_run({'data': {'label': 'made-over-rest'}})
 
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('It is disabled.', str(response.data))
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_the_refusal_names_a_project_serving_no_revision_rather_than_guessing(self):
+        # This response used to read "It is disabled or retired, or its Project is", which is
+        # false here. Reached by deleting the active revision, which SET_NULLs the pointer.
+        self.grant('view', 'run')
+        CustomScriptProject.objects.filter(pk=self.script.project_id).update(active_revision=None)
+
+        response = self.post_run({'data': {'label': 'made-over-rest'}})
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('Its Project is serving no revision.', str(response.data))
+        self.assertNotIn('disabled or retired', str(response.data))
 
     def test_change_permission_alone_cannot_run(self):
         # Running a script and editing its administrative fields are different privileges.

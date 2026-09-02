@@ -211,7 +211,7 @@ class CustomScriptViewSet(NetBoxModelViewSet):
         script = self.get_object()
         if not script.is_executable:
             raise APIValidationError(
-                {'detail': 'This Custom Script cannot be run. It is disabled or retired, or its Project is.'}
+                {'detail': _('This Custom Script cannot be run. {reason}').format(reason=script.run_refusal_reason)}
             )
         # Checked before the source is loaded, so a run nothing can pick up does no storage I/O.
         if not any_workers_for_queue('default'):

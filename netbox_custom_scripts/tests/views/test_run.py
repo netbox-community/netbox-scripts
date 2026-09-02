@@ -160,7 +160,18 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertHttpStatus(response, 200)
         content = response.content.decode()
         self.assertIn('cannot be run', content)
+        # Deactivation retires the script, so retirement is the first condition that holds.
+        self.assertIn('It is retired', content)
         self.assertNotIn('name="label"', content)
+
+    def test_the_run_page_names_a_project_serving_no_revision_rather_than_guessing(self):
+        self.grant('view', 'run')
+        CustomScriptProject.objects.filter(pk=self.script.project_id).update(active_revision=None)
+
+        content = self.client.get(self.url()).content.decode()
+
+        self.assertIn('Its Project is serving no revision.', content)
+        self.assertNotIn('disabled or retired', content)
 
     def test_a_load_failure_outside_the_narrow_set_re_renders_with_the_reason(self):
         # EntrypointImportError is not rooted in StorageError, so the narrow tuple missed it.
@@ -590,6 +601,7 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
         self.assertNotIn(self.url('run'), content)
         # Specific to our own button, so a stray "disabled" elsewhere on the page cannot pass it.
         self.assertIn('This Custom Script cannot be run right now.', content)
+        self.assertIn('It is retired', content)
 
     def test_the_detail_page_offers_the_run_button_too(self):
         self.grant('view', 'run')
@@ -598,6 +610,19 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
 
         self.assertHttpStatus(response, 200)
         self.assertIn(self.url('run'), response.content.decode())
+
+    def test_the_detail_page_button_is_inert_and_names_the_reason(self):
+        # The only render of buttons/run.html's disabled branch. An unresolvable context name
+        # would leave the tooltip silently truncated rather than failing.
+        self.grant('view', 'run')
+        deactivate_revision(self.revision)
+
+        content = self.client.get(self.script.get_absolute_url()).content.decode()
+
+        # The Run ViewTab is gated on the permission rather than on executability, so its link
+        # is still here. It is the button that goes inert.
+        self.assertIn('disabled', content)
+        self.assertIn('This Custom Script cannot be run right now. It is retired', content)
 
 
 class OverriddenDefaultsTestCase(RunViewTestMixin, TestCase):

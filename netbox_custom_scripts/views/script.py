@@ -171,7 +171,7 @@ class CustomScriptRunView(generic.ObjectView):
     def _load(self, script):
         """Return an instance of the script's class, or None and the reason there is not one."""
         if not script.is_executable:
-            return None, _('This Custom Script cannot be run. It is disabled or retired, or its Project is.')
+            return None, _('This Custom Script cannot be run. {reason}').format(reason=script.run_refusal_reason)
         try:
             script_class = load_script_class(script)
         except LOAD_FAILURES as error:

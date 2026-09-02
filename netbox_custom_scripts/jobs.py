@@ -365,14 +365,14 @@ class RevisionValidationJob(JobRunner):
         """
         branching.require_safe_routing()
         require_default_database(revision)
-        payload = {'revision_pk': revision.pk}
+        payload = {'revision_pk': revision.pk, 'activate_once': bool(kwargs.pop('activate_once', False))}
         with transaction.atomic():
             job = cls.enqueue(job_timeout=VALIDATION_JOB_TIMEOUT, **payload, **kwargs)
             job.data = payload
             job.save(update_fields=('data',))
         return job
 
-    def run(self, revision_pk=None, **kwargs):
+    def run(self, revision_pk=None, activate_once=False, **kwargs):
         """Recheck routing safety, then validate, failing the job on anything but a verdict."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
@@ -400,17 +400,19 @@ class RevisionValidationJob(JobRunner):
             self.logger.warning(f'The revision is invalid, {len(revision.validation_errors)} problem(s) recorded.')
             return
         self.logger.info(f'The revision validated as {revision.status}.')
-        self._activate_if_policy_allows(revision)
+        self._activate_if_requested(revision, activate_once)
 
-    def _activate_if_policy_allows(self, revision):
+    def _activate_if_requested(self, revision, activate_once=False):
         """
-        Promote a valid revision when its project asked for automatic activation.
+        Promote a valid revision when the project's policy or this one enqueue asked for it.
 
         The verdict is already recorded and correct, so a refused or failed activation fails the
         job without touching it. The project keeps serving whatever it served before, which is
         the required outcome for a validation that cannot complete its last step.
         """
-        if revision.project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
+        # The one-shot rides with the enqueue rather than on the project, so a policy an
+        # operator changes between the upload and the verdict cannot lose it.
+        if not activate_once and revision.project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
             self.logger.info('Leaving activation to an operator, this project activates manually.')
             return
         try:
@@ -478,10 +480,7 @@ class CustomScriptJob(JobRunner):
             raise ValueError('An immediate run cannot also be deferred or repeated.')
         branching.require_safe_routing()
         if not script.is_executable:
-            raise ScriptNotExecutableError(
-                f'"{script}" cannot be run right now. It is disabled, retired, or its project '
-                'is disabled or is not serving a revision.'
-            )
+            raise ScriptNotExecutableError(f'"{script}" cannot be run right now. {script.run_refusal_reason}')
         # JobRunner.handle() re-enqueues a periodic job with the same kwargs it received, so a
         # pin carried into a recurrence would execute one frozen revision forever, long after
         # the project moved on. A recurrence therefore resolves what is active at each run.

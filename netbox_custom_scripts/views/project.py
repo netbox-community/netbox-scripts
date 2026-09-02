@@ -260,9 +260,17 @@ class CustomScriptProjectFilesView(generic.ObjectChildrenView):
             return []
         declared = {module.source_path: module.enabled for module in parent.modules.all()}
         present = {entry['path'] for entry in revision.manifest}
+        awaiting = parent.paths_awaiting_activation()
         rows = [{**entry, 'entrypoint': declared.get(entry['path'], False)} for entry in revision.manifest]
         rows += [
-            {'path': path, 'size': None, 'sha256': None, 'entrypoint': enabled, 'missing': True}
+            {
+                'path': path,
+                'size': None,
+                'sha256': None,
+                'entrypoint': enabled,
+                'missing': True,
+                'awaiting': path in awaiting,
+            }
             for path, enabled in declared.items()
             if path not in present
         ]

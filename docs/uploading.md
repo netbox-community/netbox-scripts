@@ -5,7 +5,7 @@ covers adding that content through the UI and what the plugin does with it.
 
 ## Creating a Project from one script
 
-*Custom Scripts > Custom Script Projects*, then **Upload Script**. The form asks for four
+*Custom Scripts > Custom Script Projects*, then **Upload Script**. The form asks for five
 things and nothing else:
 
 | Field | Meaning |
@@ -13,7 +13,8 @@ things and nothing else:
 | Name | The Project's display name. |
 | Key | Its stable identifier, generated from the name and immutable afterwards. |
 | Script | A Python module to publish. |
-| Validate and activate | On by default. Puts the revision in service as soon as it validates. |
+| Activate this upload | On by default. Puts **this one** revision in service as soon as it validates. |
+| Activation policy | What later revisions do, and this one too when the tick above is clear. Manual by default, so nothing activates unasked. |
 
 Nothing about paths, digests, revision status, or storage locations is asked for, because the
 plugin derives all of it. What happens when the form is submitted:
@@ -26,7 +27,8 @@ plugin derives all of it. What happens when the form is submitted:
    manifest, and reaches `materialized`.
 5. Validation is enqueued. It runs in a worker, imports the entrypoint, and discovers the
    Custom Scripts it publishes.
-6. On a `valid` verdict, the revision is activated when the Project's activation policy allows.
+6. On a `valid` verdict, the revision is activated if you ticked **Activate this upload**, or if
+   the Project's activation policy allows it.
 
 Steps 5 and 6 need a running RQ worker. Without one the revision stays `materialized` and the
 Project reports that new source is waiting to be validated.

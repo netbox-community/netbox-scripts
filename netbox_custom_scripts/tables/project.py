@@ -100,8 +100,8 @@ class CustomScriptProjectFileTable(BaseTable):
     """
     The files of a project's current revision, for the project's Files tab.
 
-    Rows are the manifest's plain dictionaries plus one row per declared path the source no
-    longer holds, so this table is fed a list and has no queryset behind it.
+    Rows are the manifest's plain dictionaries plus one row per declared path the served
+    revision does not hold, so this table is fed a list and has no queryset behind it.
     """
 
     path = tables.Column(
@@ -128,7 +128,9 @@ class CustomScriptProjectFileTable(BaseTable):
         default_columns = ('path', 'size', 'sha256', 'entrypoint')
 
     def render_path(self, value, record):
-        """Annotate a declared path the source no longer holds."""
+        """Annotate a declared path the served revision does not hold."""
+        if record.get('awaiting'):
+            return _('{path} (not in the active revision yet)').format(path=value)
         if record.get('missing'):
             return _('{path} (missing from the source)').format(path=value)
         return value

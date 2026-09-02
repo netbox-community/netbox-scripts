@@ -144,7 +144,7 @@ class IngestUploadTestCase(TestCase):
 
     def test_validation_is_enqueued_once_for_the_staged_revision(self):
         staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        self.enqueued.assert_called_once_with(staged.revision)
+        self.enqueued.assert_called_once_with(staged.revision, activate_once=False)
 
     def test_a_name_needing_canonicalization_is_stored_canonical(self):
         staged = ingest_upload(self.project, filename='./deploy.py', content=SCRIPT)
@@ -238,7 +238,7 @@ class IngestUploadTestCase(TestCase):
 
         second = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         self.assertEqual(second.revision.status, RevisionStatusChoices.MATERIALIZED)
-        self.enqueued.assert_called_once_with(first.revision)
+        self.enqueued.assert_called_once_with(first.revision, activate_once=False)
 
     def test_a_nested_path_is_preserved_at_this_layer(self):
         # Flattening to a basename happens in Django's uploaded-file handling, so it binds the
@@ -427,7 +427,10 @@ class IngestDataSourceTestCase(TestCase):
     def test_validation_is_enqueued_once_for_the_staged_revision(self):
         self.populate()
         staged = ingest_data_source(self.project)
-        self.enqueued.assert_called_once_with(staged.revision)
+        self.enqueued.assert_called_once()
+        self.assertEqual(self.enqueued.call_args.args, (staged.revision,))
+        # The sync path keeps the project policy, so it asks for no one-shot at all.
+        self.assertNotIn('activate_once', self.enqueued.call_args.kwargs)
 
     def test_a_synchronization_that_changed_nothing_is_a_no_op(self):
         # Identical content under an unchanged entrypoint configuration resolves to the revision
@@ -476,12 +479,12 @@ class ValidationJobActivationTestCase(TestCase):
         revision.refresh_from_db()
         return revision
 
-    def run_job(self, revision):
+    def run_job(self, revision, **kwargs):
         """Drive the job body past validation, with the verdict already recorded."""
         # Bound to a real Job row, because the runner's logger writes to it.
         runner = RevisionValidationJob(Job.objects.create(name='validation-test', job_id=uuid.uuid4()))
         with mock.patch('netbox_custom_scripts.jobs.validate_revision', return_value=revision):
-            runner.run(revision_pk=revision.pk, job_id='x')
+            runner.run(revision_pk=revision.pk, job_id='x', **kwargs)
 
     def test_an_automatic_project_activates_the_valid_revision(self):
         revision = self.valid_revision(ActivationPolicyChoices.AUTOMATIC_IF_VALID)
@@ -497,6 +500,27 @@ class ValidationJobActivationTestCase(TestCase):
         revision.refresh_from_db()
         self.project.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_a_one_shot_activates_under_a_manual_policy(self):
+        # What the upload form's "Activate this upload" box asks for, without touching the policy
+        # every later revision is judged by.
+        revision = self.valid_revision(ActivationPolicyChoices.MANUAL)
+        self.run_job(revision, activate_once=True)
+        revision.refresh_from_db()
+        self.project.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
+        self.assertEqual(self.project.active_revision_id, revision.pk)
+        self.assertEqual(self.project.activation_policy, ActivationPolicyChoices.MANUAL)
+
+    def test_a_one_shot_does_not_activate_an_invalid_revision(self):
+        revision = self.valid_revision(ActivationPolicyChoices.MANUAL)
+        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.INVALID, validation_errors=[{'path': 'deploy.py', 'message': 'bad'}]
+        )
+        revision.refresh_from_db()
+        self.run_job(revision, activate_once=True)
+        self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
     def test_an_invalid_revision_is_never_activated(self):

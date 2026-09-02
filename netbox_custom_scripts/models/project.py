@@ -346,6 +346,26 @@ class CustomScriptProject(PrimaryModel):
         # The detail view reads a field of it per panel row, and every caller reloads or wants it as is.
         return self.active_revision or self.latest_stored_revision()
 
+    def paths_awaiting_activation(self):
+        """Return the paths the newest activatable-or-pending revision holds that the served tree does not."""
+        # A declared path absent from the served tree is a fault or a wait, and only a revision
+        # that could still be activated makes it a wait. An invalid one never will be.
+        if self.active_revision_id is None:
+            return set()
+        current = self.current_revision
+        newest = (
+            self.revisions.using(self._read_alias())
+            .filter(digest__isnull=False)
+            .exclude(status__in=UNSTORED_REVISION_STATUSES)
+            .exclude(status=RevisionStatusChoices.INVALID)
+            .order_by('-created')
+            .first()
+        )
+        if current is None or newest is None or newest.pk == current.pk:
+            return set()
+        served = {entry['path'] for entry in current.manifest}
+        return {entry['path'] for entry in newest.manifest} - served
+
     def _source_paths(self):
         """Return every project-relative path of the source this project currently has."""
         # A data source is readable before anything is staged, so it wins over the manifest.

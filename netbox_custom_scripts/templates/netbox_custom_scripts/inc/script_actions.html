@@ -22,7 +22,7 @@ operator sees that running is unavailable instead of finding no button.
     <button type="button"
             class="btn btn-sm btn-primary"
             disabled
-            title="{% trans "This Custom Script cannot be run right now." %}">
+            title="{% blocktrans with reason=record.run_refusal_reason %}This Custom Script cannot be run right now. {{ reason }}{% endblocktrans %}">
       <i class="mdi mdi-play" aria-hidden="true"></i> {% trans "Run" %}
     </button>
   {% endif %}

@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import ObjectType
 from netbox_custom_scripts.choices import RevisionStatusChoices
@@ -63,6 +66,79 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
         self.grant(CustomScriptProjectRevision, 'view')
         body = self.client.get(self.url(self.project)).content.decode()
         self.assertIn('removed.py (missing from the source)', body)
+
+    def test_a_declared_path_only_a_newer_revision_holds_reads_as_not_yet_active(self):
+        project, _newer = self.project_serving_an_older_revision()
+        self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (not in the active revision yet)', body)
+        self.assertNotIn('added.py (missing from the source)', body)
+
+    def test_a_path_only_an_invalid_revision_holds_reads_as_missing(self):
+        # An invalid revision can never be activated, so promising activation would be a worse
+        # lie than the wording this replaced.
+        project, _newer = self.project_serving_an_older_revision(RevisionStatusChoices.INVALID)
+        self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (missing from the source)', body)
+        self.assertNotIn('added.py (not in the active revision yet)', body)
+
+    def test_an_invalid_newest_revision_does_not_mask_an_activatable_one_behind_it(self):
+        project, _newer = self.project_serving_an_older_revision()
+        CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest='2' * 64,
+            status=RevisionStatusChoices.INVALID,
+            manifest=[{'path': 'deploy.py', 'size': 10, 'sha256': 'e' * 64}],
+            file_count=1,
+            total_size=10,
+        )
+        self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (not in the active revision yet)', body)
+
+    def test_the_two_absences_are_distinguished_on_one_project(self):
+        project, _newer = self.project_serving_an_older_revision()
+        CustomScriptModule.objects.create(project=project, source_path='gone.py', enabled=True)
+        self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (not in the active revision yet)', body)
+        self.assertIn('gone.py (missing from the source)', body)
+
+    @staticmethod
+    def project_serving_an_older_revision(newer_status=RevisionStatusChoices.VALID):
+        """Return a project whose active revision is older than its newest stored one."""
+        project = CustomScriptProject.objects.create(name='Staged Project', key='staged-project')
+        active = CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest='d' * 64,
+            status=RevisionStatusChoices.ACTIVE,
+            manifest=[{'path': 'deploy.py', 'size': 10, 'sha256': 'e' * 64}],
+            file_count=1,
+            total_size=10,
+        )
+        newer = CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest='f' * 64,
+            status=newer_status,
+            manifest=[
+                {'path': 'deploy.py', 'size': 10, 'sha256': 'e' * 64},
+                {'path': 'added.py', 'size': 20, 'sha256': '1' * 64},
+            ],
+            file_count=2,
+            total_size=30,
+        )
+        # created is auto_now_add, so the ordering latest_stored_revision() reads is set here
+        # rather than left to two writes landing in the same microsecond.
+        CustomScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
+        CustomScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
+        CustomScriptProject.objects.filter(pk=project.pk).update(active_revision=active)
+        CustomScriptModule.objects.create(project=project, source_path='added.py', enabled=True)
+        return CustomScriptProject.objects.get(pk=project.pk), newer
 
     def test_the_entrypoint_column_reads_the_live_declaration(self):
         self.grant(CustomScriptProject, 'view')

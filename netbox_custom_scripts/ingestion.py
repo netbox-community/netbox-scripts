@@ -113,7 +113,7 @@ def current_source_tree(project):
     return store.read_revision_tree(config.get_storage(), project.storage_key, revision.digest, revision.manifest)
 
 
-def ingest_upload(project, *, filename, content, base_files=None, declare=True):
+def ingest_upload(project, *, filename, content, base_files=None, declare=True, activate_once=False):
     """
     Stage an uploaded file as a revision, declare it unless told not to, and enqueue validation.
 
@@ -125,7 +125,8 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True):
     that already reached a verdict resolves to that revision and leaves it alone.
 
     Pass declare=False to stage the file without declaring it, so the project gains the content
-    and no entrypoint.
+    and no entrypoint. Pass activate_once=True to activate this one revision on a valid verdict
+    whatever the project's standing policy says.
 
     Raises ValidationError for a name the path policy or the source rule refuses,
     ImproperlyConfigured for an unsafe routing or a non-default alias, and whatever staging
@@ -154,7 +155,7 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True):
     # verdict it already holds. Only MATERIALIZED is claimable, so enqueueing any other status
     # would fail a job over an upload that changed nothing.
     if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
-        RevisionValidationJob.enqueue_validation(staged.revision)
+        RevisionValidationJob.enqueue_validation(staged.revision, activate_once=activate_once)
     return staged
 
 

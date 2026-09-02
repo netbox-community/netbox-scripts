@@ -54,10 +54,7 @@ class Command(BaseCommand):
         """Run the script in this process, exiting non-zero unless it reached completion."""
         script = self.resolve(options['script'])
         if not script.is_executable:
-            raise CommandError(
-                f'"{script}" cannot be run. It is disabled or retired, or its Project is disabled '
-                'or is not serving a revision.'
-            )
+            raise CommandError(f'"{script}" cannot be run. {script.run_refusal_reason}')
         try:
             instance = load_script_class(script)()
         except LOAD_FAILURES as error:

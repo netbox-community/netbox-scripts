@@ -10,7 +10,7 @@ from utilities.forms.fields import DynamicModelChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import HTMXSelect
 
-from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
+from ...choices import ProjectSourceTypeChoices
 from ...ingestion import check_upload_conflicts, current_source_tree, ingest_upload, uploaded_source_path
 from ...jobs import ProjectEntrypointRefreshJob
 from ...models import CustomScriptProject
@@ -98,21 +98,22 @@ class CustomScriptProjectUploadForm(PrimaryModelForm):
         label=_('Script'),
         help_text=_('A Python module to publish. Its file name becomes the path within the Project.'),
     )
-    validate_and_activate = forms.BooleanField(
+    activate_this_revision = forms.BooleanField(
         required=False,
         initial=True,
-        label=_('Validate and activate'),
-        help_text=_('Activate this revision automatically once it validates. Otherwise activate it yourself.'),
+        label=_('Activate this upload'),
+        help_text=_('Activate this one upload as soon as it validates, even when the policy below is manual.'),
     )
 
     fieldsets = (
         FieldSet('name', 'key', 'description', name=_('Project')),
-        FieldSet('upload_file', 'validate_and_activate', name=_('Script')),
+        FieldSet('upload_file', 'activate_this_revision', name=_('Script')),
+        FieldSet('activation_policy', name=_('Activation policy')),
     )
 
     class Meta:
         model = CustomScriptProject
-        fields = ('name', 'key', 'description')
+        fields = ('name', 'key', 'description', 'activation_policy')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -127,24 +128,17 @@ class CustomScriptProjectUploadForm(PrimaryModelForm):
         uploaded_source_path(upload.name)
         return upload
 
-    def clean(self):
-        """Map the checkbox onto the activation policy, in time for model validation."""
-        super().clean()
-        self.instance.activation_policy = (
-            ActivationPolicyChoices.AUTOMATIC_IF_VALID
-            if self.cleaned_data.get('validate_and_activate')
-            else ActivationPolicyChoices.MANUAL
-        )
-        return self.cleaned_data
-
     def save(self, *args, **kwargs):
         """Create the project, and declare, stage and enqueue the uploaded script once it commits."""
         project = super().save(*args, **kwargs)
         upload = self.cleaned_data['upload_file']
         filename, content = upload.name, upload.read()
+        activate_once = self.cleaned_data.get('activate_this_revision', False)
         # The editing view wraps this call in a transaction, so staging waits for the commit. A
         # rollback would otherwise keep the bytes while discarding every row that names them.
-        transaction.on_commit(lambda: ingest_upload(project, filename=filename, content=content))
+        transaction.on_commit(
+            lambda: ingest_upload(project, filename=filename, content=content, activate_once=activate_once)
+        )
         return project
 
 
@@ -252,16 +246,25 @@ class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
             self.fields.pop(name, None)
         declared = {module.source_path: module for module in self.instance.modules.all()}
         candidates = set(self.instance.entrypoint_candidates())
+        # Only an uploaded project can have a path the served tree lacks and a stored revision
+        # holds: for a Data Source the candidates come from the live directory.
+        awaiting = (
+            self.instance.paths_awaiting_activation()
+            if self.instance.source_type == ProjectSourceTypeChoices.UPLOAD
+            else set()
+        )
         self.fields['entrypoints'].choices = [
-            (path, self._label(path, declared.get(path), path in candidates))
+            (path, self._label(path, declared.get(path), path in candidates, path in awaiting))
             for path in self.instance.declarable_entrypoints()
         ]
         self.initial['entrypoints'] = [path for path, module in declared.items() if module.enabled]
 
     @staticmethod
-    def _label(path, module, available):
+    def _label(path, module, available, awaiting=False):
         """Return the checkbox label, annotated with why an operator might care about the path."""
         if not available:
+            if awaiting:
+                return _('{path} (not in the active revision yet)').format(path=path)
             return _('{path} (missing from the source)').format(path=path)
         if module is None:
             return path

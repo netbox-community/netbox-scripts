@@ -95,18 +95,26 @@ class CustomScriptTestCase(TestCase):
         self.assertIsNotNone(other.pk)
 
     def test_is_executable_when_enabled_and_published(self):
-        self.assertTrue(self._script().is_executable)
+        script = self._script()
+        self.assertTrue(script.is_executable)
+        self.assertIsNone(script.run_refusal_reason)
 
     def test_is_not_executable_when_disabled(self):
-        self.assertFalse(self._script(enabled=False).is_executable)
+        script = self._script(enabled=False)
+        self.assertFalse(script.is_executable)
+        self.assertEqual(str(script.run_refusal_reason), 'It is disabled.')
 
     def test_is_not_executable_when_retired(self):
-        self.assertFalse(self._script(is_retired=True).is_executable)
+        script = self._script(is_retired=True)
+        self.assertFalse(script.is_executable)
+        self.assertEqual(str(script.run_refusal_reason), 'It is retired, so its Project no longer publishes it.')
 
     def test_is_not_executable_when_the_project_is_disabled(self):
         self.other_project.enabled = False
         self.other_project.save()
-        self.assertFalse(self._script(project=self.other_project).is_executable)
+        script = self._script(project=self.other_project)
+        self.assertFalse(script.is_executable)
+        self.assertEqual(str(script.run_refusal_reason), 'Its Project is disabled.')
 
     def test_is_not_executable_when_the_project_serves_no_revision(self):
         # Deactivation retires every script in the same transaction, so this state is normally
@@ -114,7 +122,11 @@ class CustomScriptTestCase(TestCase):
         # code paths, which is what execution has to be able to trust.
         CustomScriptProject.objects.filter(pk=self.other_project.pk).update(active_revision=None)
         self.other_project.refresh_from_db()
-        self.assertFalse(self._script(project=self.other_project).is_executable)
+        script = self._script(project=self.other_project)
+        self.assertFalse(script.is_executable)
+        # The condition every surface used to omit. Reached by deleting the active revision,
+        # which SET_NULLs the pointer and leaves the scripts unretired.
+        self.assertEqual(str(script.run_refusal_reason), 'Its Project is serving no revision.')
 
     def test_a_description_longer_than_the_inherited_bound_round_trips(self):
         # The model overrides the abstract base CharField with a TextField, so the authoring

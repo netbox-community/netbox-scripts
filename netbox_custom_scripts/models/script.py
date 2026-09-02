@@ -184,13 +184,19 @@ class CustomScript(JobsMixin, PrimaryModel):
     @property
     def is_executable(self):
         """Whether every enabling condition for running this script currently holds."""
-        # The active revision is checked in its own right rather than inferred from retirement.
-        # Deactivation does retire every script in the same transaction, so the two always agree
-        # today, but that is two code paths agreeing rather than a guarantee, and a run has to
-        # resolve its class out of a revision that is actually being served.
-        return (
-            self.enabled
-            and not self.is_retired
-            and self.project.enabled
-            and self.project.active_revision_id is not None
-        )
+        return self.run_refusal_reason is None
+
+    @property
+    def run_refusal_reason(self):
+        """The first unmet condition for running this script, phrased for an operator, or None."""
+        if not self.enabled:
+            return _('It is disabled.')
+        if self.is_retired:
+            return _('It is retired, so its Project no longer publishes it.')
+        if not self.project.enabled:
+            return _('Its Project is disabled.')
+        # Checked in its own right rather than inferred from retirement: deactivation retires
+        # every script in the same transaction, but that is two code paths agreeing, not a guarantee.
+        if self.project.active_revision_id is None:
+            return _('Its Project is serving no revision.')
+        return None

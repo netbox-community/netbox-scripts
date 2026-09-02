@@ -9,6 +9,7 @@ Context:
   - url:        The script's run route
   - label:      The button label
   - executable: Whether the script can be run right now
+  - refusal_reason: The unmet condition, when it cannot
 {% endcomment %}
 {% if executable %}
   <a href="{{ url }}" class="btn btn-primary" role="button">
@@ -18,7 +19,7 @@ Context:
   <button type="button"
           class="btn btn-primary"
           disabled
-          title="{% trans "This Custom Script cannot be run right now." %}">
+          title="{% blocktrans with reason=refusal_reason %}This Custom Script cannot be run right now. {{ reason }}{% endblocktrans %}">
     <i class="mdi mdi-play" aria-hidden="true"></i> {{ label }}
   </button>
 {% endif %}

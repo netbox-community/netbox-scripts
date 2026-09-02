@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import timezone
 
 from netbox_custom_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_custom_scripts.forms import CustomScriptProjectEntrypointsForm
@@ -83,7 +86,29 @@ class EntrypointSelectionTestCase(TestCase):
         CustomScriptModule.objects.create(project=self.project, source_path='removed.py')
         form = CustomScriptProjectEntrypointsForm(instance=self.project)
         labels = dict(form.fields['entrypoints'].choices)
-        self.assertIn('missing', str(labels['removed.py']))
+        self.assertEqual(str(labels['removed.py']), 'removed.py (missing from the source)')
+
+    def test_a_path_only_a_newer_revision_holds_is_labelled_not_yet_active(self):
+        project = CustomScriptProject.objects.create(name='Staged Selection', key='staged-selection')
+        active = CustomScriptProjectRevision.objects.create(
+            project=project, digest='b' * 64, manifest=manifest('deploy.py'), status=RevisionStatusChoices.ACTIVE
+        )
+        newer = CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest='c' * 64,
+            manifest=manifest('deploy.py', 'added.py'),
+            status=RevisionStatusChoices.VALID,
+        )
+        CustomScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
+        CustomScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
+        CustomScriptProject.objects.filter(pk=project.pk).update(active_revision=active)
+        project = CustomScriptProject.objects.get(pk=project.pk)
+        CustomScriptModule.objects.create(project=project, source_path='added.py')
+        CustomScriptModule.objects.create(project=project, source_path='gone.py')
+
+        labels = dict(CustomScriptProjectEntrypointsForm(instance=project).fields['entrypoints'].choices)
+        self.assertEqual(str(labels['added.py']), 'added.py (not in the active revision yet)')
+        self.assertEqual(str(labels['gone.py']), 'gone.py (missing from the source)')
 
     def test_select_entrypoints_refuses_an_unknown_path_directly(self):
         with self.assertRaises(ValidationError):

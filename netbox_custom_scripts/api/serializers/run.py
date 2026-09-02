@@ -9,8 +9,8 @@ class CustomScriptRunInputSerializer(serializers.Serializer):
     """
     One run request: the script's variable values, plus the parameters the run itself takes.
 
-    Values nest under ``data``, so a variable named commit or interval cannot collide with an
-    execution parameter. What is inside ``data`` is validated by the script class's own form.
+    Values nest under data, so a variable named commit or interval cannot collide with an
+    execution parameter. What is inside data is validated by the script class's own form.
     """
 
     # All optional, so a body written against the built-in run endpoint still validates here.

@@ -224,13 +224,10 @@ class ObjectVar(ScriptVariable):
     """
     A reference to a single NetBox object, chosen through a dynamic API-backed dropdown.
 
-    :param model: The NetBox model to select from
-    :param query_params: Extra query parameters for the dropdown's REST lookups
-    :param context: Mapping of template context variables used when rendering the
-        dropdown options
-    :param null_option: Label offered for an explicit empty selection
-    :param selector: Add the advanced object-selector widget
-    :param quick_add: Add a widget for creating the related object on the spot
+    model names the NetBox model to select from. query_params carries extra parameters for the
+    dropdown's REST lookups, and context maps the template context variables used to render its
+    options. null_option labels an explicit empty selection. selector adds the advanced
+    object-selector widget, and quick_add a widget for creating the related object on the spot.
     """
 
     form_field = DynamicModelChoiceField

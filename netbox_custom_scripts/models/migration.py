@@ -56,7 +56,9 @@ class MigrationRun(ChangeLoggedModel):
     The row carries the migration state, the journal each cutover step replays from, and what the
     steps recorded. At most one run is open at a time, and its state only moves forward, because
     crossing into cutover cannot be undone. Abandoning a migration before that point needs no
-    state of its own: the run stays in staging, which is repeatable.
+    state of its own: the run stays in staging, which is repeatable. The cutover state is recorded
+    before the first irreversible act, so it means the fence may have fired rather than that it
+    finished, and only the recorded step says it completed.
 
     This is migration infrastructure rather than a domain model, so it carries no REST or GraphQL
     surface and no list view, and it can be removed once the v5.0 upgrade guard has run.

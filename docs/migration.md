@@ -197,6 +197,13 @@ anything. Fix the source, run the inventory again, and stage once it is clear.
 The cutover is the irreversible step, and it does two things in one pass: it records every
 reference the later passes replay, and then it closes what a plugin is able to close.
 
+**The run records the cutover state before it captures anything.** The state is the only thing
+that can tell you the fence may have fired, so it is written before the first irreversible act
+rather than after the last one. A cutover interrupted partway therefore reads `cutover` with the
+crossing unrecorded, and three things follow: staging refuses that state outright, the Migration
+page says so and keeps offering **Enter cutover**, and running it again finishes the crossing.
+Nothing is captured twice and nothing is closed twice.
+
 **It captures first.** Every permission granting an action on the built-in feature, with who holds
 it. Every Event Rule naming the built-in feature, as an action or as a source. Every waiting
 built-in Script job, with the input it was going to run with. All three go on the migration run's
@@ -371,6 +378,11 @@ before cleanup rather than after.
 built-in feature has not been touched, so there is nothing to undo and no state to reconcile.
 
 **After the fence there is no rollback.**
+
+**A run reading `cutover` has not necessarily finished crossing**, so treat the backup as still
+required for any run in that state. The Migration page names it and keeps **Enter cutover**
+available, and that is the pass to run. The recorded crossing, shown on the run's own page, is what
+says the fence is fully closed.
 
 That is a property of the design rather than a missing feature. The cutover deletes queue tasks,
 disables rows an operator may since have edited, and hands execution to Projects whose content is

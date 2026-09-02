@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import tempfile
 import uuid
+from unittest import mock
 
 import django_rq
 from django.test import TestCase, override_settings
@@ -173,6 +174,7 @@ class CutoverTestCase(TestCase):
         self.assertIn(str(running.pk), str(caught.exception))
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.state, MigrationStateChoices.STAGING)
+        self.assertIsNone(self.migration.cutover_started)
 
     def test_a_permission_is_captured_with_who_holds_it_and_what_else_it_names(self):
         site_type = ObjectType.objects.get_for_model(Site)
@@ -410,6 +412,37 @@ class CutoverTestCase(TestCase):
         self.assertIsNotNone(self.migration.cutover_started)
         self.assertTrue(self.migration.step_done(cutover.STEP))
 
+    def test_the_state_moves_before_anything_closes(self):
+        # An operator reads this state to decide whether the backup is still needed.
+        permission = self.legacy_permission()
+        seen = {}
+
+        def observe(captured):
+            # A fresh query rather than refresh_from_db, which would overwrite the journal the
+            # object under test is still holding.
+            seen['state'] = MigrationRun.objects.values_list('state', flat=True).get(pk=self.migration.pk)
+            return 0
+
+        with mock.patch.object(cutover, '_disable_permissions', side_effect=observe):
+            cutover.enter_cutover(self.migration)
+
+        self.assertEqual(seen['state'], MigrationStateChoices.CUTOVER)
+        self.assertTrue(ObjectPermission.objects.filter(pk=permission.pk, enabled=True).exists())
+
+    def test_a_capture_that_fails_leaves_the_run_where_staging_can_take_it_back(self):
+        # Advancing before the capture stranded a run: nothing is closed, but unservable_projects()
+        # can still refuse it and the staging job will not accept the cutover state.
+        with (
+            mock.patch.object(cutover, '_capture', side_effect=RuntimeError('pod evicted')),
+            self.assertRaises(RuntimeError),
+        ):
+            cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.STAGING)
+        self.assertIsNone(self.migration.cutover_started)
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+
     def test_a_second_run_changes_nothing_and_returns_the_recorded_counts(self):
         # Later steps re-enable what the fence disabled, so a repeat must not undo them.
         permission = self.legacy_permission()
@@ -616,8 +649,8 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         self.assertTrue(self.migration.step_done(cutover.STEP))
 
     def test_a_crossing_that_closed_without_advancing_is_not_refused(self):
-        # advance() runs after the closures, so this state is reachable too, and the frozen map is
-        # what tells the two apart rather than the state.
+        # A version that advanced after the closures could leave this, so an upgraded install can
+        # still hold it. The frozen map is what tells the two apart rather than the state.
         self.stage_and_validate()
         cutover.enter_cutover(self.migration)
         self.crash_after_closing(MigrationStateChoices.STAGING)

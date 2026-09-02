@@ -13,7 +13,8 @@ Context:
   - run:            The open MigrationRun, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
   - cutover_queued: Whether a cutover is already under way
-  - can_cut_over:   Whether the run is staged, has not crossed the fence, and can be served after it
+  - can_cut_over:   Whether the crossing has not been recorded yet and can be served past the fence
+  - cutover_interrupted: Whether the state reached cutover with the crossing unrecorded, so the fence may have closed
   - unservable_projects: The staged Projects that could serve nothing past the fence, each {project_key, reason}
   - activation_job: The most recent activation Job, or None
   - activation_queued: Whether an activation is already under way
@@ -213,6 +214,14 @@ Context:
                 </tr>
               {% endfor %}
             </table>
+          {% endif %}
+          {% if cutover_interrupted and perms.netbox_custom_scripts.migrate_customscriptproject %}
+            <div class="alert alert-warning mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "The cutover did not finish" %}</h3>
+              <p class="mb-0">
+                {% trans "This migration reached the cutover state without recording the crossing, so the fence may already have closed. Enter the cutover again to finish it, and treat the backup as still required until it reports." %}
+              </p>
+            </div>
           {% endif %}
         </div>
         <div class="card-footer text-end">

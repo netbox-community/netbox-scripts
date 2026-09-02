@@ -76,9 +76,11 @@ def enter_cutover(run):
         )
 
     warnings = _capture(run)
-    counts = _close(run)
+    # After the capture and before the closures. Before the capture too, a crash here would leave
+    # a run that unservable_projects() can still refuse and staging will not take back.
     if run.state == MigrationStateChoices.STAGING:
         run.advance(MigrationStateChoices.CUTOVER)
+    counts = _close(run)
     run.complete_step(STEP, counts, warnings)
     return counts
 

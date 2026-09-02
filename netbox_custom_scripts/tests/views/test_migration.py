@@ -458,9 +458,10 @@ class MigrationTriggerTestCase(TestCase):
         guard.assert_not_called()
 
     def test_the_page_does_not_ask_what_a_crossed_fence_would_refuse(self):
-        # The check reads the built-in rows, so it runs only where the button could render.
+        # The check reads the built-in rows, so it runs only where the button could render. That
+        # is the recorded step rather than the state, since the button stays up mid-crossing.
         self.grant('add', 'migrate')
-        self.open_run(MigrationStateChoices.CUTOVER)
+        self.open_run(MigrationStateChoices.CUTOVER).record_step(cutover.STEP, counts={})
 
         with mock.patch.object(cutover, 'unservable_projects') as guard:
             self.client.get(self.url('migration'))
@@ -468,11 +469,39 @@ class MigrationTriggerTestCase(TestCase):
         guard.assert_not_called()
 
     def test_the_cutover_button_is_gone_once_the_fence_has_been_crossed(self):
-        # The page must not offer a step the job would refuse.
+        # The page must not offer a step the job would return from having done nothing.
+        self.grant('add', 'migrate')
+        self.open_run(MigrationStateChoices.CUTOVER).record_step(cutover.STEP, counts={})
+
+        self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
+    def test_the_cutover_is_still_offered_to_a_run_the_fence_left_mid_crossing(self):
+        # Withholding the button here would strand the operator: staging refuses this state and
+        # activation waits on the step record.
         self.grant('add', 'migrate')
         self.open_run(MigrationStateChoices.CUTOVER)
 
-        self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertIn('Enter cutover', body)
+        self.assertNotIn('Activate Projects', body)
+
+    def test_the_page_says_the_fence_may_have_fired(self):
+        self.grant('add', 'migrate')
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+
+        self.assertIn('may already have closed', self.client.get(self.url('migration')).content.decode())
+
+        run.record_step(cutover.STEP, counts={})
+
+        self.assertNotIn('may already have closed', self.client.get(self.url('migration')).content.decode())
+
+    def test_a_staged_run_is_not_described_as_mid_crossing(self):
+        # The other half of the predicate: without it the notice would greet every staged run.
+        self.grant('add', 'migrate')
+        self.open_run(MigrationStateChoices.STAGING)
+
+        self.assertNotIn('may already have closed', self.client.get(self.url('migration')).content.decode())
 
     def test_the_cutover_confirmation_queues_nothing(self):
         self.grant('add', 'migrate')
@@ -509,25 +538,31 @@ class MigrationTriggerTestCase(TestCase):
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
     def test_a_staging_user_is_offered_none_of_the_steps_past_the_fence(self):
-        # Every render condition is satisfied, so the permission is all that keeps them off.
+        # Every render condition is satisfied at each point, so the permission is all that keeps
+        # them off. The crossing and the steps after it cannot render at once, so it takes two.
         self.grant('add')
         run = self.open_run(MigrationStateChoices.STAGING)
+
+        self.assertNotIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
         run.record_step('cutover', counts={})
         run.record_step('activate', projects=[])
         body = self.client.get(self.url('migration')).content.decode()
 
-        self.assertNotIn('Enter cutover', body)
         self.assertNotIn('Activate Projects', body)
         self.assertNotIn('Repoint references', body)
 
     def test_a_migrating_user_is_offered_every_step_the_state_allows(self):
         self.grant('add', 'migrate')
         run = self.open_run(MigrationStateChoices.STAGING)
+
+        self.assertIn('Enter cutover', self.client.get(self.url('migration')).content.decode())
+
         run.record_step('cutover', counts={})
         run.record_step('activate', projects=[])
         body = self.client.get(self.url('migration')).content.decode()
 
-        self.assertIn('Enter cutover', body)
+        self.assertNotIn('Enter cutover', body)
         self.assertIn('Activate Projects', body)
         self.assertIn('Repoint references', body)
 

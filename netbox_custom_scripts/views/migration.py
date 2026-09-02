@@ -142,9 +142,15 @@ class MigrationView(BaseMigrationView):
         inventory_job = _latest(MigrationInventoryJob)
         staging_job = _latest(MigrationStagingJob)
         run = MigrationRun.current()
-        staged = bool(run and run.state == MigrationStateChoices.STAGING)
+        # Mirrors what enter_cutover accepts. Keying this off the state alone would withhold the
+        # one button that finishes a crossing a crash left half done.
+        crossable = bool(
+            run
+            and run.state in (MigrationStateChoices.STAGING, MigrationStateChoices.CUTOVER)
+            and not run.step_done(cutover.STEP)
+        )
         # Read only where the button would otherwise render, because this reaches the built-in rows.
-        unservable = cutover.unservable_projects(run) if staged else []
+        unservable = cutover.unservable_projects(run) if crossable else []
         activated = bool(run and run.step_done(cutover.ACTIVATE_STEP))
         # Gated on the frozen map rather than on the step, because that is what the predicate
         # reads and a run without one would raise here instead of refusing further along.
@@ -181,7 +187,10 @@ class MigrationView(BaseMigrationView):
                 # A schedule needs the built-in rows still there, so every reference step first.
                 'can_clean_up': bool(run and cleanup.ready(run)),
                 # Crossing with nothing to serve is not recoverable, so the page withholds it.
-                'can_cut_over': staged and not unservable,
+                'can_cut_over': crossable and not unservable,
+                # The state moves before the closures, so both conjuncts together say the fence may
+                # already have fired, which nothing else on the page distinguishes from not started.
+                'cutover_interrupted': crossable and run.state == MigrationStateChoices.CUTOVER,
                 'unservable_projects': unservable,
                 # Only once activation has run, or this would name every Project the moment the
                 # fence captured and tell the operator to redo a step they have not taken yet.

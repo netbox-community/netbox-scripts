@@ -740,7 +740,7 @@ class MigrationStagingJob(JobRunner):
 
     def run(self, **kwargs):
         """Refuse past the fence or on any blocking finding, then create and stage the Projects."""
-        from .migration import plan, source, staging
+        from .migration import mapping, plan, source, staging
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
@@ -753,6 +753,14 @@ class MigrationStagingJob(JobRunner):
             self.logger.error(
                 f'Refusing to stage anything. The migration is already in the {run.state} state, and '
                 'nothing may be staged once the cutover has begun.'
+            )
+            raise JobFailed()
+        # State alone would take back a run an older build left reading staging with the fence
+        # already closed. A frozen map says the capture happened whatever the state says.
+        if run and mapping.recorded(run) is not None:
+            self.logger.error(
+                'Refusing to stage anything. This migration has already captured the built-in feature, '
+                'so the cutover has begun even though the state does not say so.'
             )
             raise JobFailed()
 

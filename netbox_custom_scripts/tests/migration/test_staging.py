@@ -319,6 +319,18 @@ class StageTestCase(LegacySourceMixin, TestCase):
 
         self.assertIsNone(MigrationRun.current())
 
+    def test_the_job_refuses_a_run_whose_capture_is_recorded_whatever_the_state(self):
+        # What an older build left behind: closed, but the state never moved. Only the frozen map
+        # tells the truth, and staging against it would re-stage onto a fenced installation.
+        run = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
+        run.record_journal(mapping={})
+
+        job = MigrationStagingJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertIn('already captured', ' '.join(entry['message'] for entry in job.log_entries))
+
     def test_the_job_refuses_to_stage_once_the_cutover_has_begun(self):
         MigrationRun.objects.create(state=MigrationStateChoices.CUTOVER)
 

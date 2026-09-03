@@ -114,3 +114,39 @@ class ListViewActionsTestCase(SimpleTestCase):
         for view in LIST_VIEWS:
             with self.subTest(view=view.__name__):
                 self.assertIsNot(view.actions, ObjectListView.actions)
+
+
+class MenuButtonPermissionsTestCase(SimpleTestCase):
+    """
+    Every menu button declares every permission its route enforces.
+
+    A menu button has no inert state: the template renders it or it is absent, and it gates on
+    user.has_perms, which is all-of. So a button declaring fewer permissions than its view
+    enforces sends the operator to a 403 with no form and no explanation.
+    """
+
+    @staticmethod
+    def buttons():
+        """Yield (button, view class) for every button in the plugin's menu."""
+        from django.urls import resolve
+
+        from netbox_custom_scripts.navigation import menu
+
+        for group in menu.groups:
+            for item in group.items:
+                for button in item.buttons:
+                    view = resolve(reverse(button.link)).func
+                    yield button, getattr(view, 'view_class', None)
+
+    def test_every_menu_button_declares_what_its_view_enforces(self):
+        for button, view in self.buttons():
+            required = set(getattr(view, 'additional_permissions', ()) or ())
+            with self.subTest(button=button.link):
+                self.assertTrue(
+                    required.issubset(set(button.permissions)),
+                    f'{button.link} enforces {sorted(required)} but the button declares {sorted(button.permissions)}.',
+                )
+
+    def test_the_menu_offers_at_least_one_button(self):
+        # The guard above passes vacuously if the traversal ever stops finding buttons.
+        self.assertGreater(len(list(self.buttons())), 0)

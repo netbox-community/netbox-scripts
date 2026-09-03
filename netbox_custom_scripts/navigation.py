@@ -18,7 +18,12 @@ _customscriptproject_item = PluginMenuItem(
             link='plugins:netbox_custom_scripts:customscriptproject_upload',
             title=_('Upload Script'),
             icon_class='mdi mdi-file-upload-outline',
-            permissions=['netbox_custom_scripts.add_customscriptproject'],
+            # Both, because the upload declares an entrypoint and the view requires the Module
+            # half too. A menu button offers no inert state, so a missing half hides it.
+            permissions=[
+                'netbox_custom_scripts.add_customscriptproject',
+                'netbox_custom_scripts.add_customscriptmodule',
+            ],
         ),
         PluginMenuButton(
             link='plugins:netbox_custom_scripts:customscriptproject_bulk_import',

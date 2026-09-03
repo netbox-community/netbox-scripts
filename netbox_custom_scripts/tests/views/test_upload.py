@@ -304,3 +304,9 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
     def test_the_module_permission_alone_is_not_enough(self):
         self.grant(CustomScriptModule, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
+
+    def test_the_project_permission_alone_is_not_enough(self):
+        # The pair the Add Script button renders inert for. Without this the button's decision
+        # and the view's could drift apart with nothing catching it.
+        self.grant(CustomScriptProject, 'view', 'change')
+        self.assertHttpStatus(self.client.get(self.url()), 403)

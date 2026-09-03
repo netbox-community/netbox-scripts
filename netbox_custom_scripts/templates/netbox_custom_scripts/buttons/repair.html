@@ -15,10 +15,13 @@ Context:
     <i class="mdi mdi-wrench-outline" aria-hidden="true"></i> {{ label }}
   </a>
 {% else %}
-  <button type="button"
-          class="btn btn-outline-primary"
-          disabled
-          title="{% trans "This Project is serving no revision, so there is nothing to republish its Custom Scripts from." %}">
-    <i class="mdi mdi-wrench-outline" aria-hidden="true"></i> {{ label }}
-  </button>
+  {# The title sits on the wrapper: a disabled .btn gets pointer-events:none, so a title on
+     the button itself never surfaces. #}
+  <span class="d-inline-block"
+        tabindex="0"
+        title="{% trans "This Project is serving no revision, so there is nothing to republish its Custom Scripts from." %}">
+    <button type="button" class="btn btn-outline-primary" disabled>
+      <i class="mdi mdi-wrench-outline" aria-hidden="true"></i> {{ label }}
+    </button>
+  </span>
 {% endif %}

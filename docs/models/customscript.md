@@ -102,6 +102,13 @@ detail, and update, and refuses to create or delete. A PATCH may set `enabled`,
 `comments`, `owner`, tags, and custom fields. Every derived field is read only,
 and a value supplied for one is ignored rather than rejected.
 
+The intent is to reject a write a client could reasonably believe took effect
+and to ignore one to a field the client never authored, but the split the API
+actually makes is by **value, not by key**. A bad value on a writable field is a
+400. Any other key is dropped in silence, whether it is a derived field like
+`module_path` or a plain misspelling, because DRF reads the request by iterating
+the writable fields and never looks at a key that is not one of them.
+
 The UI has the same shape: list, detail, edit, and bulk edit, with no add, no
 delete, and no bulk import. Retirement replaces deletion, so a script that stops
 being published keeps its primary key and the Job history attached to it.

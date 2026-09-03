@@ -24,6 +24,12 @@ GOOD_FILES = {'hello.py': b'print("hi")\n', 'pkg/mod.py': b'VALUE = 1\n'}
 BAD_FILES = {'hello.py': b'print("hi")\n', '../escape.py': b'nope\n'}
 CONFLICT_FILES = {'pkg': b'plain file\n', 'pkg/module.py': b'child module\n'}
 WRITE_TARGET = 'netbox_custom_scripts.storage.service.store.write_revision'
+
+
+def promote_without_synchronizing(**kwargs):
+    """Stand-in for the mandatory on_promote callback, for cases testing the primitive alone."""
+
+
 IN_MEMORY_STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
     'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
@@ -396,7 +402,7 @@ class BranchingGuardTestCase(StorageServiceMixin, TestCase):
     def test_activation_is_refused(self):
         revision = self.validated()
         with self.unsafe(), self.assertRaises(ImproperlyConfigured):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
@@ -409,7 +415,7 @@ class BranchingGuardTestCase(StorageServiceMixin, TestCase):
 class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
     def test_promote_revision_promotes_validated_revision(self):
         revision = self.validated()
-        activated = service.promote_revision(revision, on_promote=lambda **kwargs: None)
+        activated = service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.project.refresh_from_db()
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
         self.assertIsNotNone(activated.activated)
@@ -427,20 +433,20 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
             mock.patch.object(store, 'verify_revision_tree', side_effect=delete_the_project),
             self.assertRaises(ProjectVanishedError),
         ):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
 
     def test_promote_revision_rejects_a_merely_materialized_revision(self):
         revision = self.materialize()
         with self.assertRaises(ActivationError):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
     def test_promote_revision_retires_previous_active_revision(self):
         first = self.validated(content(1))
         second = self.validated(content(2))
-        service.promote_revision(first, on_promote=lambda **kwargs: None)
-        service.promote_revision(second, on_promote=lambda **kwargs: None)
+        service.promote_revision(first, on_promote=promote_without_synchronizing)
+        service.promote_revision(second, on_promote=promote_without_synchronizing)
         first.refresh_from_db()
         second.refresh_from_db()
         self.project.refresh_from_db()
@@ -451,9 +457,9 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
     def test_promote_revision_reactivates_retired_revision(self):
         first = self.validated(content(1))
         second = self.validated(content(2))
-        service.promote_revision(first, on_promote=lambda **kwargs: None)
-        service.promote_revision(second, on_promote=lambda **kwargs: None)
-        service.promote_revision(first, on_promote=lambda **kwargs: None)
+        service.promote_revision(first, on_promote=promote_without_synchronizing)
+        service.promote_revision(second, on_promote=promote_without_synchronizing)
+        service.promote_revision(first, on_promote=promote_without_synchronizing)
         first.refresh_from_db()
         second.refresh_from_db()
         self.project.refresh_from_db()
@@ -463,8 +469,8 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
 
     def test_promote_revision_is_idempotent_on_already_active_revision(self):
         revision = self.validated()
-        first = service.promote_revision(revision, on_promote=lambda **kwargs: None)
-        second = service.promote_revision(revision, on_promote=lambda **kwargs: None)
+        first = service.promote_revision(revision, on_promote=promote_without_synchronizing)
+        second = service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(second.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(first.activated, second.activated)
@@ -474,7 +480,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision.status = RevisionStatusChoices.INVALID
         revision.save()
         with self.assertRaises(ActivationError):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
 
     def test_promote_revision_rejects_staging_or_validating_revision(self):
         for marker, status in enumerate((RevisionStatusChoices.STAGING, RevisionStatusChoices.VALIDATING)):
@@ -483,7 +489,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
                 revision.status = status
                 revision.save()
                 with self.assertRaises(ActivationError):
-                    service.promote_revision(revision, on_promote=lambda **kwargs: None)
+                    service.promote_revision(revision, on_promote=promote_without_synchronizing)
 
     def test_a_digestless_activatable_revision_cannot_exist(self):
         # promote_revision still guards against a null digest, but the check constraint now
@@ -497,7 +503,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.validated()
         self.remove(revision.digest, 'hello.py')
         with self.assertRaises(RevisionCorruptError) as ctx:
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertIn('missing:hello.py', ctx.exception.reasons)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
@@ -506,7 +512,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.validated()
         self.overwrite(revision.digest, 'hello.py', b'tampered with\n')
         with self.assertRaises(RevisionCorruptError) as ctx:
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertTrue(
             any(reason.startswith(('size_mismatch', 'checksum_mismatch')) for reason in ctx.exception.reasons)
         )
@@ -518,7 +524,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.validated()
         revision.project = other
 
-        service.promote_revision(revision, on_promote=lambda **kwargs: None)
+        service.promote_revision(revision, on_promote=promote_without_synchronizing)
 
         self.project.refresh_from_db()
         other.refresh_from_db()
@@ -528,7 +534,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
     def test_promote_revision_locks_project_before_revision(self):
         revision = self.validated()
         with CaptureQueriesContext(connection) as queries:
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         locking = [entry['sql'] for entry in queries if 'FOR UPDATE' in entry['sql']]
         self.assertEqual(len(locking), 2)
         self.assertIn('"netbox_custom_scripts_customscriptproject"', locking[0])
@@ -540,7 +546,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.validated()
         revision._state.db = 'schema_example'
         with self.assertRaises(ImproperlyConfigured) as ctx:
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertIn('"default"', str(ctx.exception))
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
@@ -553,7 +559,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.validated()
         revision._state.db = None
         with mock.patch.object(router, 'db_for_write', return_value=DEFAULT_DB_ALIAS) as db_for_write:
-            activated = service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            activated = service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
         self.assertIn(CustomScriptProjectRevision, [call.args[0] for call in db_for_write.call_args_list])
 
@@ -571,7 +577,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
 
         baseline = len(connection.savepoint_ids)
         with mock.patch.object(store, 'verify_revision_tree', side_effect=recording_verify):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertEqual(depths, [baseline])
 
     def test_activation_rejects_a_revision_that_changed_after_verification(self):
@@ -589,7 +595,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
             mock.patch.object(store, 'verify_revision_tree', side_effect=verify_then_swap),
             self.assertRaises(ActivationError) as ctx,
         ):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertIn('changed while', str(ctx.exception))
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
@@ -724,7 +730,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
             entrypoint_snapshot=[{'module': 1, 'source_path': '../outside.py'}]
         )
         with self.assertRaises(RevisionCorruptError):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
         self.project.refresh_from_db()
@@ -749,7 +755,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
             mock.patch.object(store, 'verify_revision_tree', side_effect=verify_then_swap_snapshot),
             self.assertRaises(ActivationError) as ctx,
         ):
-            service.promote_revision(revision, on_promote=lambda **kwargs: None)
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertIn('changed while', str(ctx.exception))
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
@@ -759,6 +765,6 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
     def test_activation_accepts_a_revision_with_a_sound_snapshot(self):
         module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
         revision = self.validated()
-        activated = service.promote_revision(revision, on_promote=lambda **kwargs: None)
+        activated = service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(activated.entrypoint_snapshot, [{'module': module.pk, 'source_path': 'hello.py'}])

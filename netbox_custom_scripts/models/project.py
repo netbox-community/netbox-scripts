@@ -210,8 +210,8 @@ class CustomScriptProject(PrimaryModel):
     def save(self, *args, **kwargs):
         """Persist the project, refusing an immutable identity change or an unusable active revision."""
         # clean() gives key and source_type friendly per-field errors on the form and REST
-        # paths. This guard is the backstop for ORM writes that skip validation, and
-        # storage_key is on no form or serializer at all, so it is guarded here only.
+        # paths, and storage_key's editable=False keeps it off both. This guard is the backstop
+        # for ORM writes, which skip all of it.
         if not self._state.adding:
             # Read from the alias this save writes to, and re-read rather than captured in
             # __init__: from_db() sets _state.db only after __init__ returns, so a capture

@@ -28,7 +28,7 @@ logging, global search, REST, and GraphQL.
 | Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |
 | Reconciliation | Rebuilding a Data Source-backed project's source from the whole directory as it stands, after a synchronization or on demand. | [Data Source Projects](data-sources.md) |
 | Entrypoint candidate | A Python file in a project's source that could be declared an entrypoint, and publishes nothing until it is. | [Data Source Projects](data-sources.md) |
-| Private runtime namespace | The generated package names revision code imports under, isolating projects, revisions, and installed packages from each other. | [Runtime and Loading](runtime.md) |
+| Private runtime namespace | The generated package names revision code imports under, keeping projects, revisions, and installed packages from colliding by **name**. It is not a sandbox: a revision runs with the worker's permissions. | [Runtime and Loading](runtime.md) |
 
 ## Supported workflows
 

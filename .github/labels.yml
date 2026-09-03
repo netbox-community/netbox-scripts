@@ -6,12 +6,12 @@
 # with the NBL-specific `test-against:feature` label used by
 # `.github/workflows/test.yml`.
 #
-# Excluded from upstream NetBox core: `type: translation`,
+# Excluded from upstream NetBox Community: `type: translation`,
 # `plugin candidate`, `beta`, `netbox`, and all `topic:*` labels
-# (those describe NetBox-core domains rather than per-plugin
+# (those describe NetBox's own domains rather than per-plugin
 # concerns).
 #
-# Description edits applied on top of NetBox-core wording:
+# Description edits applied on top of NetBox Community's wording:
 #   complexity: high      typo fix
 #   severity: medium      typo fix + adverb grammar
 #   status: needs owner   rewritten (original phrasing

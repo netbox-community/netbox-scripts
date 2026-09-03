@@ -41,6 +41,8 @@ _builtins_template = None
 def install():
     """Install the revision import seam, at most once per process."""
     if not any(isinstance(finder, _RevisionFinder) for finder in sys.meta_path):
+        # Ahead of PathFinder, which would otherwise resolve a revision name against the
+        # revision directory and return a spec whose loader this finder never wrapped.
         sys.meta_path.insert(0, _RevisionFinder())
 
 

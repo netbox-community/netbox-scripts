@@ -24,6 +24,11 @@ NetBox's `STORAGES` setting. **This entry is required.** Everything the plugin w
 under a single `netbox-custom-scripts/` prefix, so it stays separate from whatever else
 that backend holds.
 
+**Treat write access to the backend you name here as equivalent to running code as the
+NetBox service account.** The plugin executes what it reads from here, checked against a
+manifest held in the database. Read
+[Storage trust boundary](#storage-trust-boundary) before choosing one.
+
 The entry is required rather than falling back to NetBox's `default` storage because a
 revision is executable source, and it deserves a backend chosen for it rather than
 inheriting the visibility, retention, and sharing policy of ordinary media. Pointing the
@@ -129,6 +134,23 @@ confirms the copied content arrived intact.
 | `max_project_size` | positive integer (bytes) | 104857600 (100 MiB) | Largest accepted total size of a project's source tree. |
 | `max_file_count` | positive integer | 1000 | Largest accepted number of files in a project's source tree. |
 | `runtime_cache_root` | path | system temporary directory | Directory the [runtime cache](#runtime-cache) materializes revision trees under. |
+
+**`max_project_size` bounds what is accepted, not what is held.** Staging assembles the
+whole candidate tree in memory as a mapping of path to bytes and sums it only once it is
+built, so an oversize tree is fully resident before it is rejected. Three things follow
+that are worth sizing for.
+
+An upload holds the project's existing tree plus the new file, so one call can reach this
+limit plus `max_file_size` before the check fires. Both upload routes run in the web
+process: the create and Add Script forms defer to a commit hook, and the REST upload action
+stages inline in the request.
+
+A Data Source staging is not bounded by this limit at all. It reads every `DataFile` on the
+source, bytes included, and filters by `data_path` afterwards, so the resident figure is the
+whole repository rather than the project's directory, once per project on that source per
+synchronization. That runs in an RQ worker, as migration staging does.
+
+Verification and the entrypoint refresh are not affected. Both read one file at a time.
 
 A limit set to a non-positive or non-integer value is rejected as a configuration error
 when it is read.

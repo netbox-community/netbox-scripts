@@ -254,8 +254,10 @@ when domain content calls for them.
 
 ### Domain model
 
-Three models, all installation-global (`GLOBAL_MODELS` in `branching.py` routes
-them to the main schema under NetBox Branching). `CustomScriptProject`:
+Four domain models, plus `MigrationRun`, which is migration infrastructure rather
+than domain content. All five are installation-global: `GLOBAL_MODELS` in
+`branching.py` routes every one of them to the main schema under NetBox
+Branching. `CustomScriptProject`:
 one project = one script source tree = one Python package boundary, owning
 either uploaded content or a Data Source directory, never both, with frozen
 identity fields (`key`, `source_type` immutable, `storage_key` never changes).
@@ -464,8 +466,8 @@ inline as the plugin grows.
 - **Search**, `search.py` registers `SearchIndex` subclasses for major models
   so they appear in NetBox's global search.
 - **Cross-model UI**, `template_content.py` registers
-  `PluginTemplateExtension` subclasses that extend NetBox-core (or other
-  plugin) detail pages.
+  `PluginTemplateExtension` subclasses that extend NetBox's own (or another
+  plugin's) detail pages.
 
 ## Commands
 
@@ -804,7 +806,7 @@ Check this before designing anything that persists bytes.
   Do not "correct" them to the current line.
   The same floor rule applies to inherited field definitions. `OwnerMixin.owner`
   carries `related_name='+'` on the 4.7 line, which `0001_initial.py` now encodes
-  on all three models. Reconcile to the declared floor rather than accepting a
+  on all three PrimaryModel subclasses. Reconcile to the declared floor rather than accepting a
   standing `makemigrations --check` diff, because tolerated drift is how a real
   schema change gets missed.
 - **Project identity invariants.** `key` and `source_type` are immutable
@@ -815,8 +817,8 @@ Check this before designing anything that persists bytes.
   `enforce_source_ownership` check constraint). Code using
   `QuerySet.update()` bypasses normalization and must supply canonical
   values itself.
-- **GraphQL choice fields** follow NetBox core: typed enums (from
-  `graphql/enums.py`) appear on filter inputs only; object types expose raw
+- **GraphQL choice fields** follow NetBox Community's convention: typed enums (from
+  `graphql/enums.py`) appear on filter inputs only, and object types expose raw
   choice values as strings.
 - **Docstrings carry the contract, not the reasoning.** One line by default. It
   earns more lines only for behaviour a caller has to branch on, never for

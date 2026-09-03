@@ -100,6 +100,14 @@ related object when one is given. `log_failure()` also marks the whole run as
 failed. Messages are forwarded to the NetBox system log under the
 `netbox.plugins.netbox_custom_scripts.scripts` namespace.
 
+**What you log is persisted and readable.** The run log is stored on the Job row,
+so anyone holding NetBox's `core.view_job` permission can read it, and it
+outlives the run. Before it lands there the plugin scrubs its own runtime
+identities out of the whole record, storage keys, digests and cache paths, and
+your messages go through that same pass. Nothing looks for a secret. Treat
+`log_*` like any other output destination: do not pass a credential, a token,
+or a response body you have not looked at.
+
 ## What a run knows about its own context
 
 Two attributes are set on the instance before `run()` is called. Each is `None`
@@ -226,9 +234,20 @@ surface built into NetBox. The deliberate differences:
 - `ScriptVariable`, `AbortScript`, and `LogLevelChoices` are part of the
   public import surface. The built-in implementation keeps some of these in
   unrelated modules.
-- Storage-coupled members (`filename`, `source`, `get_module_and_script`) are
-  absent. Discovery identifies scripts through the project, the logical module
-  path, and the class name instead of file bookkeeping on the class.
+- Storage-coupled members (`filename`, `source`, `findsource()`,
+  `get_module_and_script`) are absent. Discovery identifies scripts through the
+  project, the logical module path, and the class name instead of file
+  bookkeeping on the class.
+- **`self.storage` is absent by design, and that is a guarantee rather than an
+  omission.** In the built-in feature it is the same `scripts` backend the
+  module was loaded from, so a script could rewrite the source NetBox had just
+  imported. Here a revision is immutable and content-addressed: its digest is
+  its identity, and a script writing into its own tree would invalidate the
+  digest every later verification checks against. A script that needs to
+  persist something writes to a NetBox model, or to a backend the deployment
+  gives it for that purpose.
+- The Report harness is absent, `self._current_test` with it. Report-style
+  classes are refused at discovery rather than emulated.
 - Discovery publishes only what the entrypoint itself defines or explicitly
   lists in `script_order`. The built-in implementation publishes any Script
   subclass bound in the module, including ones imported from installed

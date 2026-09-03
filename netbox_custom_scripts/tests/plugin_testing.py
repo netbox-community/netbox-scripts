@@ -69,7 +69,7 @@ class PluginTestCases:
 class PluginAPIViewTestCases:
     """Plugin-aware variants of the standard API view test cases.
 
-    ``APIViewTestCases.APIViewTestCase`` (NetBox-core) covers Get / List /
+    ``APIViewTestCases.APIViewTestCase`` (from NetBox) covers Get / List /
     Create / Update / Delete / Bulk operations plus GraphQL. The composite
     below mirrors it but routes via the ``plugins-api:`` namespace.
     """

@@ -17,7 +17,7 @@
 #
 # Coverage:
 #   Collected on a SINGLE matrix leg (see the matrix `include`) and run as
-#   separate, individually-gated steps, mirroring NetBox core's CI:
+#   separate, individually-gated steps, mirroring NetBox Community's CI:
 #   coverage run --parallel -> coverage combine -> coverage report. Other
 #   legs run plain `manage.py test --parallel`.
 

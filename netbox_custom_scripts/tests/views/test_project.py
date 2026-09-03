@@ -523,6 +523,22 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         """Count the change-log entries recorded against Custom Scripts."""
         return ObjectChange.objects.filter(changed_object_type=ObjectType.objects.get_for_model(CustomScript)).count()
 
+    def test_the_success_message_reports_what_this_route_published(self):
+        # The wording lives in one builder shared with the Revisions tab, but this route's
+        # wiring to it is its own thing to break.
+        self.grant('view', 'activate')
+        self.publish()
+        response = self.client.post(self.url(), follow=True)
+
+        self.assertIn('publishing 1 Custom Script.', str(list(response.context['messages'])[0]))
+
+    def test_a_revision_publishing_nothing_says_so_on_this_route_too(self):
+        # The fixture records no discovered scripts, which is a real and easily misread state.
+        self.grant('view', 'activate')
+        response = self.client.post(self.url(), follow=True)
+
+        self.assertIn('publishes no Custom Scripts', str(list(response.context['messages'])[0]))
+
     def test_activating_through_the_view_publishes_scripts_and_logs_the_change(self):
         # A request-bound write reverses the model's own routes during event serialization, so
         # this is also the proof that the identity surface holds up under a real request.

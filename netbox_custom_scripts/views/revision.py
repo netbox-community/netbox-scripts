@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 
 from netbox.ui import layout
 from netbox.ui.panels import ContextTablePanel
@@ -9,10 +10,36 @@ from utilities.permissions import get_permission_for_model
 from utilities.views import register_model_view
 
 from .. import activation
+from ..constants import ACTIVATABLE_REVISION_STATUSES
 from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import CustomScriptProjectRevisionEntrypointTable, CustomScriptProjectRevisionProblemTable
 from ..ui import CustomScriptProjectRevisionPanel, CustomScriptProjectRevisionStatePanel
+
+
+def activation_message(revision, scripts):
+    """Report an activation, naming what the revision publishes and what it retired."""
+    if not scripts.published:
+        # A revision can validate and publish nothing, which is the state an operator is most
+        # likely to misread as success.
+        return _('Revision {revision} is now the active revision. It publishes no Custom Scripts.').format(
+            revision=revision.short_digest
+        )
+    published = ngettext(
+        'Revision {revision} is now the active revision, publishing {count} Custom Script.',
+        'Revision {revision} is now the active revision, publishing {count} Custom Scripts.',
+        scripts.published,
+    ).format(revision=revision.short_digest, count=scripts.published)
+    if not scripts.retired:
+        return published
+    # A revision that drops a script retires its row, which is the outcome least likely to be
+    # expected and was previously counted as though it had been published.
+    retired = ngettext(
+        'It retired {count} Custom Script the previous revision published.',
+        'It retired {count} Custom Scripts the previous revision published.',
+        scripts.retired,
+    ).format(count=scripts.retired)
+    return f'{published} {retired}'
 
 
 @register_model_view(CustomScriptProjectRevision)
@@ -99,23 +126,31 @@ class RevisionServiceView(generic.ObjectView):
 
 @register_model_view(CustomScriptProjectRevision, 'activate', path='activate')
 class CustomScriptProjectRevisionActivateView(RevisionServiceView):
-    """Put one specific revision of a project into service."""
+    """
+    Put one specific revision of a project into service.
 
+    The queryset excludes a revision whose status does not allow it, the active one included, so
+    the route refuses what the tab declines to offer. Withholding the button is not enough: an
+    action filters by permission and never by route, and reaching this view for the revision
+    already in force would silently take the repair path while the confirmation page promised a
+    retirement that cannot happen. Repair Scripts on the Project is the route for that.
+    """
+
+    queryset = CustomScriptProjectRevision.objects.select_related('project').filter(
+        status__in=ACTIVATABLE_REVISION_STATUSES
+    )
     template_name = 'netbox_custom_scripts/customscriptprojectrevision_activate.html'
 
     def post(self, request, **kwargs):
         """Activate the revision, reporting a refusal rather than raising at the user."""
         revision = self.get_object(**kwargs)
         try:
-            activation.activate_revision(revision)
+            result = activation.activate_revision(revision)
         except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             messages.error(request, _('The revision could not be activated: {error}').format(error=error))
         else:
-            messages.success(
-                request,
-                _('Revision {revision} is now the active revision.').format(revision=revision.short_digest),
-            )
+            messages.success(request, activation_message(revision, result.scripts))
         return redirect(self.return_url(revision))
 
 

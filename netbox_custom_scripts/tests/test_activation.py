@@ -56,7 +56,7 @@ class SynchronizeScriptsTestCase(TestCase):
 
     def sync(self, records, revision=None, project=None):
         """Synchronize one project against a snapshot, the way the promotion callback does."""
-        synchronize_scripts(
+        return synchronize_scripts(
             project=project or self.project,
             revision=revision or self.revision,
             records=records,
@@ -185,21 +185,39 @@ class SynchronizeScriptsTestCase(TestCase):
         # unconditional save would log a change and queue an event per script per activation.
         self.sync([record()])
         with CaptureQueriesContext(connection) as captured:
-            self.sync([record()])
+            written = self.sync([record()])
         writes = [
             query['sql']
             for query in captured.captured_queries
             if f'INSERT INTO "{SCRIPT_TABLE}"' in query['sql'] or f'UPDATE "{SCRIPT_TABLE}"' in query['sql']
         ]
         self.assertEqual(writes, [])
+        # The reported count is what the operator is told, so it has to agree with the queries.
+        self.assertEqual(written.written, 0)
 
     def test_a_partial_change_writes_only_the_fields_that_differ(self):
         self.sync([record()])
         with CaptureQueriesContext(connection) as captured:
-            self.sync([record(display_name='Renamed')])
+            written = self.sync([record(display_name='Renamed')])
         (update,) = [q['sql'] for q in captured.captured_queries if f'UPDATE "{SCRIPT_TABLE}"' in q['sql']]
         self.assertIn('display_name', update)
         self.assertNotIn('description', update)
+        self.assertEqual(written.written, 1)
+
+    def test_the_count_covers_creates_updates_and_retirements(self):
+        self.assertEqual(self.sync([record(), record(class_name='AuditDevices', position=1)]).written, 2)
+        # One row renamed, one dropped from the snapshot and therefore retired.
+        self.assertEqual(self.sync([record(display_name='Renamed')]).written, 2)
+        self.assertEqual(self.sync([record(display_name='Renamed')]).written, 0)
+
+    def test_published_and_retired_are_counted_apart_from_the_writes(self):
+        # Reporting one number as the other is what told an operator a retired row was published.
+        self.sync([record(), record(class_name='AuditDevices', position=1)])
+        result = self.sync([record()])
+
+        # written is 1, not 2: the surviving row keeps the same revision here, so nothing about
+        # it differs and it is not saved. Across two revisions it would be.
+        self.assertEqual((result.published, result.retired, result.written), (1, 1, 1))
 
     def test_job_history_survives_a_retirement_and_a_return(self):
         # Retirement preserves the primary key, and JobsMixin resolves history by object id

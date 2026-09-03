@@ -37,6 +37,7 @@ from ..object_actions import ActivateRevision, AddScript, ReconcileSource
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import CustomScriptProjectFileTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable
 from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
+from .revision import activation_message
 
 
 @register_model_view(CustomScriptProject, 'list', path='', detail=False)
@@ -127,16 +128,13 @@ class CustomScriptProjectActivateView(generic.ObjectView):
             messages.error(request, _('This Project has no validated revision to activate.'))
             return redirect(project.get_absolute_url())
         try:
-            activation.activate_revision(candidate)
+            result = activation.activate_revision(candidate)
         except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             # The project keeps serving whatever it served before.
             messages.error(request, _('The revision could not be activated: {error}').format(error=error))
             return redirect(project.get_absolute_url())
-        messages.success(
-            request,
-            _('Revision {revision} is now the active revision.').format(revision=candidate.short_digest),
-        )
+        messages.success(request, activation_message(candidate, result.scripts_changed))
         return redirect(project.get_absolute_url())
 
 

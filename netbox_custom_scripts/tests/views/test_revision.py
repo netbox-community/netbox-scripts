@@ -21,14 +21,15 @@ REVISION_STORAGES = {
 }
 
 
-def record(class_name='Deploy'):
+def record(class_name='Deploy', position=0):
     """One snapshot record, the shape runtime introspection produces."""
     return {
         'module_path': 'deploy',
         'class_name': class_name,
         'entrypoint_module_id': 1,
         'entrypoint_path': 'deploy.py',
-        'position': 0,
+        # Validation refuses a snapshot whose positions are not sequential.
+        'position': position,
         'display_name': class_name,
         'description': '',
         'metadata': {},
@@ -80,6 +81,58 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, revision.pk)
         self.assertTrue(CustomScript.objects.get(project=self.project).is_executable)
+
+    def test_the_success_message_names_what_the_revision_published(self):
+        self.grant(CustomScriptProject, 'view', 'activate')
+        revision = self.valid_revision(records=[record(), record(class_name='AuditDevices', position=1)])
+        response = self.client.post(self.url(revision, 'activate'), follow=True)
+        message = str(list(response.context['messages'])[0])
+
+        self.assertIn('publishing 2 Custom Scripts', message)
+
+    def test_the_success_message_is_singular_for_one_script(self):
+        self.grant(CustomScriptProject, 'view', 'activate')
+        response = self.client.post(self.url(self.valid_revision(), 'activate'), follow=True)
+        message = str(list(response.context['messages'])[0])
+
+        self.assertIn('publishing 1 Custom Script.', message)
+
+    def test_a_revision_publishing_nothing_says_so_rather_than_reporting_zero(self):
+        self.grant(CustomScriptProject, 'view', 'activate')
+        response = self.client.post(self.url(self.valid_revision(records=[]), 'activate'), follow=True)
+        message = str(list(response.context['messages'])[0])
+
+        self.assertIn('publishes no Custom Scripts', message)
+        self.assertNotIn('publishing 0', message)
+
+    def test_a_retirement_is_reported_separately_from_what_is_published(self):
+        self.grant(CustomScriptProject, 'view', 'activate')
+        first = self.valid_revision(records=[record(), record(class_name='AuditDevices', position=1)])
+        # follow, so the first activation's message is rendered rather than left queued for this one.
+        self.client.post(self.url(first, 'activate'), follow=True)
+        second = self.valid_revision(records=[record()])
+        response = self.client.post(self.url(second, 'activate'), follow=True)
+        message = str(list(response.context['messages'])[0])
+
+        self.assertIn('publishing 1 Custom Script.', message)
+        self.assertIn('retired 1 Custom Script', message)
+        self.assertNotIn('publishing 2', message)
+
+    def test_the_route_refuses_the_revision_already_in_force(self):
+        # A stale confirmation page is the realistic way to reach this.
+        self.grant(CustomScriptProject, 'view', 'activate')
+        revision = self.valid_revision()
+        self.client.post(self.url(revision, 'activate'))
+
+        self.assertHttpStatus(self.client.get(self.url(revision, 'activate')), 404)
+        self.assertHttpStatus(self.client.post(self.url(revision, 'activate')), 404)
+
+    def test_the_route_refuses_a_revision_that_never_validated(self):
+        self.grant(CustomScriptProject, 'view', 'activate')
+        materialized = self.valid_revision()
+        CustomScriptProjectRevision.objects.filter(pk=materialized.pk).update(status=RevisionStatusChoices.MATERIALIZED)
+
+        self.assertHttpStatus(self.client.post(self.url(materialized, 'activate')), 404)
 
     def test_deactivating_retires_the_revision_and_its_scripts(self):
         self.grant(CustomScriptProject, 'view', 'activate')

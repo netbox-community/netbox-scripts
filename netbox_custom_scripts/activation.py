@@ -11,6 +11,8 @@ verdict the revision already carries, and the recorded snapshot is what the verd
 about.
 """
 
+from typing import NamedTuple
+
 from django.db import transaction
 
 from . import branching
@@ -23,10 +25,33 @@ from .storage.exceptions import ActivationError
 from .storage.service import project_or_vanished, require_default_database, revision_or_vanished
 
 __all__ = (
+    'ActivationResult',
+    'ScriptSyncResult',
     'activate_revision',
     'deactivate_revision',
     'synchronize_scripts',
 )
+
+
+class ScriptSyncResult(NamedTuple):
+    """
+    What one synchronization did.
+
+    published is how many Custom Scripts the snapshot names, retired how many rows it stopped
+    naming, and written how many rows were actually saved. The three answer different questions
+    and only written counts database work, so a caller reporting to an operator has to pick.
+    """
+
+    published: int
+    retired: int
+    written: int
+
+
+class ActivationResult(NamedTuple):
+    """One activation's outcome: the revision now in force, and what its synchronization did."""
+
+    revision: CustomScriptProjectRevision
+    scripts: ScriptSyncResult
 
 
 def activate_revision(revision):
@@ -38,9 +63,21 @@ def activate_revision(revision):
     check inside the callback covers the locked row, which is the value rows are actually
     built from. Raises ActivationError, including for a snapshot no build could have produced,
     and RevisionCorruptError when the stored tree no longer matches its manifest.
+
+    Returns an ActivationResult carrying the revision and a ScriptSyncResult.
     """
     _validated_records(revision)
-    return service.promote_revision(revision, on_promote=_publish_scripts)
+    # The promotion primitive returns the revision and discards what its callback returns, so
+    # the count is collected here rather than by widening that contract.
+    written = []
+
+    def on_promote(*, project, revision, using):
+        written.append(_publish_scripts(project=project, revision=revision, using=using))
+
+    promoted = service.promote_revision(revision, on_promote=on_promote)
+    # promote_revision calls the callback exactly once, before its already-active early return.
+    (result,) = written
+    return ActivationResult(promoted, result)
 
 
 def deactivate_revision(revision):
@@ -71,6 +108,8 @@ def deactivate_revision(revision):
         if project.active_revision_id != locked.pk:
             raise ActivationError(f'Revision {locked.pk} is not the active revision of its project.')
 
+        # No count is threaded out here: deactivation has one outcome, every Custom Script
+        # retired, which the confirmation page states before it happens.
         synchronize_scripts(project=project, revision=locked, records=[], using=using)
         locked.status = RevisionStatusChoices.RETIRED
         locked.save(using=using, update_fields=('status', 'last_updated'))
@@ -92,7 +131,13 @@ def synchronize_scripts(*, project, revision, records, using):
 
     The project row is already locked by the promotion, so no row needs a lock of its own, and
     enabled is never written, because it belongs to the administrator.
+
+    Returns a ScriptSyncResult. Each row it writes is a real row change, so inside a request
+    it is change logged and queues an OBJECT_UPDATED event attributed to the user who asked for
+    the activation. A job applies no request processor, so the same write records neither.
     """
+    written = 0
+    retired = 0
     rows = {(row.module_path, row.class_name): row for row in project.scripts.using(using)}
     for record in records:
         identity = (record['module_path'], record['class_name'])
@@ -113,16 +158,20 @@ def synchronize_scripts(*, project, revision, records, using):
                 class_name=identity[1],
                 **values,
             )
+            written += 1
         else:
-            _save_changes(row, values, using)
+            written += _save_changes(row, values, using)
     for row in rows.values():
         # last_seen_revision keeps naming the last revision that did publish this script.
-        _save_changes(row, {'is_retired': True}, using)
+        if _save_changes(row, {'is_retired': True}, using):
+            written += 1
+            retired += 1
+    return ScriptSyncResult(published=len(records), retired=retired, written=written)
 
 
 def _publish_scripts(*, project, revision, using):
-    """Bring a project's Custom Script rows in line with the revision being promoted."""
-    synchronize_scripts(
+    """Bring a project's Custom Script rows in line with the revision being promoted, counting writes."""
+    return synchronize_scripts(
         project=project,
         revision=revision,
         records=_validated_records(revision),
@@ -143,13 +192,14 @@ def _validated_records(revision):
 
 
 def _save_changes(row, values, using):
-    """Save one row's differing fields, and issue no statement when none differ."""
+    """Save one row's differing fields, returning whether it wrote and issuing nothing when none differ."""
     changed = [name for name, value in values.items() if _differs(row, name, value)]
     if not changed:
-        return
+        return False
     for name in changed:
         setattr(row, name, values[name])
     row.save(using=using, update_fields=(*changed, 'last_updated'))
+    return True
 
 
 def _differs(row, name, value):

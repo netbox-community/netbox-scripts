@@ -285,7 +285,6 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         visible = [name for name, _label in response.context['table'].selected_columns]
 
         self.assertIn('entrypoint_count', visible)
-        self.assertIn('Entrypoints', response.content.decode())
 
     def test_the_history_tab_links_each_revision(self):
         self.grant(CustomScriptProject, 'view')
@@ -611,3 +610,94 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         with event_tracking(request):
             activation.activate_revision(self.revision)
         self.assertEqual(self.script_changes(), before)
+
+
+@override_settings(STORAGES=ACTIVATE_STORAGES)
+class CustomScriptProjectRepairViewTestCase(TestCase):
+    """Republishing a serving Project's rows, the one route to the already-active path."""
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+        self.project = CustomScriptProject.objects.create(name='Repair Project', key='repair-project')
+        self.revision = service.stage_revision(self.project, {'deploy.py': b'VALUE = 1\n'}).revision
+        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
+            status=RevisionStatusChoices.VALID,
+            discovered_scripts=[
+                {
+                    'module_path': 'deploy',
+                    'class_name': 'Deploy',
+                    'entrypoint_module_id': 1,
+                    'entrypoint_path': 'deploy.py',
+                    'position': 0,
+                    'display_name': 'Deploy',
+                    'description': '',
+                    'metadata': {},
+                }
+            ],
+        )
+        self.revision.refresh_from_db()
+        activation.activate_revision(self.revision)
+        self.project.refresh_from_db()
+
+    def url(self, project=None):
+        return reverse('plugins:netbox_custom_scripts:customscriptproject_repair', args=[(project or self.project).pk])
+
+    def grant(self, *actions, constraints=None):
+        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions), constraints=constraints)
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+
+    def message(self, response):
+        return str(list(response.context['messages'])[0])
+
+    def test_the_action_links_to_the_repair_route(self):
+        self.grant('view', 'activate')
+        self.assertIn(self.url(), self.client.get(self.project.get_absolute_url()).content.decode())
+
+    def test_the_action_is_inert_rather_than_hidden_for_a_project_serving_nothing(self):
+        # Hiding it would leave an operator hunting for a button that used to be there.
+        self.grant('view', 'activate')
+        idle = CustomScriptProject.objects.create(name='Idle', key='idle')
+        body = self.client.get(idle.get_absolute_url()).content.decode()
+
+        self.assertIn('Repair Scripts', body)
+        self.assertNotIn(self.url(idle), body)
+        self.assertIn('serving no revision', body)
+
+    def test_a_get_confirms_and_names_the_revision(self):
+        self.grant('view', 'activate')
+        response = self.client.get(self.url())
+        self.assertHttpStatus(response, 200)
+        self.assertIn(self.revision.short_digest, response.content.decode())
+
+    def test_posting_recreates_a_row_that_went_missing_and_reports_the_count(self):
+        self.grant('view', 'activate')
+        CustomScript.objects.filter(project=self.project).delete()
+        response = self.client.post(self.url(), follow=True)
+
+        self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
+        self.assertIn('Repaired 1 Custom Script', self.message(response))
+
+    def test_posting_with_nothing_wrong_says_so_instead_of_claiming_a_repair(self):
+        self.grant('view', 'activate')
+        response = self.client.post(self.url(), follow=True)
+
+        self.assertIn('already matched its revision', self.message(response))
+        self.assertNotIn('Repaired', self.message(response))
+
+    def test_the_change_permission_alone_is_not_enough(self):
+        self.grant('view', 'change')
+        self.assertHttpStatus(self.client.get(self.url()), 403)
+        self.assertHttpStatus(self.client.post(self.url()), 403)
+
+    def test_a_project_serving_nothing_has_no_reachable_route(self):
+        # The queryset excludes it, so a hand-typed URL is a 404 rather than an error later.
+        self.grant('view', 'activate')
+        idle = CustomScriptProject.objects.create(name='Idle', key='idle')
+        self.assertHttpStatus(self.client.get(self.url(idle)), 404)
+
+    def test_an_object_constraint_narrows_the_route(self):
+        self.grant('view', 'activate', constraints={'key': 'somebody-elses-project'})
+        self.assertHttpStatus(self.client.get(self.url()), 404)

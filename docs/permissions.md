@@ -18,13 +18,16 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 | `add` | Create a Project, including the Upload form that creates one from a file |
 | `change` | Edit a Project's own fields, and upload a further script into one |
 | `delete` | Delete a Project, which cascades its Revisions and Custom Scripts |
-| `activate` | Put a Revision into service, and stand a Project down from one |
+| `activate` | Put a Revision into service, stand a Project down from one, and repair its Custom Scripts |
 | `migrate` | Move this installation off the built-in Custom Scripts feature |
 | `reconcile` | Rebuild a Project's source from its Data Source directory on demand |
 
-`activate` covers three surfaces: the **Activate** button on a Project, and the
-per-row **Activate** and **Deactivate** buttons on its Revisions tab. All three
-change what the Project serves, so all three ask for the same action.
+`activate` covers four surfaces: the **Activate** and **Repair Scripts**
+buttons on a Project, and the per-row **Activate** and **Deactivate** buttons on
+its Revisions tab. All four decide what the Project serves or what it publishes,
+so all four ask for the same action. **Repair Scripts** republishes the rows of
+the revision already in force, which is the same write activation makes, so it
+is the same privilege.
 
 **Browsing revisions is a separate permission, `netbox_custom_scripts.view_customscriptprojectrevision`.**
 The line falls between what a Project is serving and its history. A Project's own

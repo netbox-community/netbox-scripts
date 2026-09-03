@@ -181,10 +181,15 @@ proving it present and promoting it.
 Re-activating the revision already in force is not a no-op. It synchronizes again,
 which repairs rows that went missing, and because synchronization skips any row
 that already matches, the repair writes nothing and logs nothing when nothing is
-wrong. Where something is wrong, each repaired row is a real row change: it is
-recorded in the change log and queues an update event, attributed to whoever
-asked for the activation. That trail is what a recovery action most needs, so it
-is kept rather than suppressed.
+wrong. **Repair Scripts** on the Project's page is the operator's route to it,
+and it reports how many rows moved so a repair does not read like a no-op.
+Neither Activate route reaches it: both refuse the revision already in force,
+at the route and not only by withholding the button. Where something is wrong,
+each repaired row is a real row change: in a request it is recorded in the change
+log and queues an update event attributed to whoever asked for it, and in a
+background job it records neither, because a job applies no request processor.
+That trail is what a recovery action most needs, so it is kept rather than
+suppressed.
 
 Deactivation is the reverse: it retires the revision, clears the project's
 pointer, and retires every Custom Script, because a project serving no revision

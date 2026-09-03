@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.object_actions import (
@@ -33,7 +34,7 @@ from ..forms import (
 )
 from ..jobs import ProjectReconciliationJob
 from ..models import CustomScriptProject, CustomScriptProjectRevision
-from ..object_actions import ActivateRevision, AddScript, ReconcileSource
+from ..object_actions import ActivateRevision, AddScript, ReconcileSource, RepairScripts
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import CustomScriptProjectFileTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable
 from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
@@ -60,7 +61,7 @@ class CustomScriptProjectView(generic.ObjectView):
     queryset = CustomScriptProject.objects.select_related('data_source')
     # Workflow order: add source, then put it in service. Only one of the first two ever renders,
     # each for the source type it belongs to.
-    actions = (AddScript, ReconcileSource, ActivateRevision, CloneObject, EditObject, DeleteObject)
+    actions = (AddScript, ReconcileSource, ActivateRevision, RepairScripts, CloneObject, EditObject, DeleteObject)
     layout = layout.SimpleLayout(
         left_panels=[
             CustomScriptProjectPanel(),
@@ -134,7 +135,66 @@ class CustomScriptProjectActivateView(generic.ObjectView):
             # The project keeps serving whatever it served before.
             messages.error(request, _('The revision could not be activated: {error}').format(error=error))
             return redirect(project.get_absolute_url())
-        messages.success(request, activation_message(candidate, result.scripts_changed))
+        messages.success(request, activation_message(candidate, result.scripts))
+        return redirect(project.get_absolute_url())
+
+
+@register_model_view(CustomScriptProject, 'repair', path='repair')
+class CustomScriptProjectRepairView(generic.ObjectView):
+    """
+    Republish a Project's Custom Script rows from the revision it is already serving.
+
+    A recovery action for rows that drifted from the snapshot they derive from, which the
+    Activate routes cannot reach: both exclude the revision in force, so re-activating it has no
+    operator route of its own. GET confirms and POST performs.
+
+    Activation is the only path that derives rows under the project lock, so this re-activates
+    rather than synchronizing rows directly. The queryset is narrowed to projects serving
+    something, so the route does not apply to one that is not.
+    """
+
+    queryset = CustomScriptProject.objects.filter(active_revision__isnull=False).select_related('active_revision')
+    template_name = 'netbox_custom_scripts/customscriptproject_repair.html'
+
+    def get_required_permission(self):
+        """Require the activate permission, granted separately from change."""
+        return get_permission_for_model(self.queryset.model, 'activate')
+
+    def get(self, request, **kwargs):
+        """Confirm, naming the revision the rows would be rebuilt from."""
+        project = self.get_object(**kwargs)
+        return render(
+            request,
+            self.template_name,
+            {'object': project, 'return_url': project.get_absolute_url()},
+        )
+
+    def post(self, request, **kwargs):
+        """Republish, reporting how many rows moved rather than a bare success."""
+        project = self.get_object(**kwargs)
+        try:
+            result = activation.activate_revision(project.active_revision)
+        except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
+            # Expected refusals: the revision moved on, or its stored tree no longer matches.
+            messages.error(request, _('The Custom Scripts could not be repaired: {error}').format(error=error))
+            return redirect(project.get_absolute_url())
+        if result.scripts.written:
+            messages.success(
+                request,
+                ngettext(
+                    'Repaired {count} Custom Script of {project}.',
+                    'Repaired {count} Custom Scripts of {project}.',
+                    result.scripts.written,
+                ).format(count=result.scripts.written, project=project),
+            )
+        else:
+            # The whole point of the action: a repair and a no-op must not look the same.
+            messages.success(
+                request,
+                _('Every Custom Script of {project} already matched its revision, so nothing was written.').format(
+                    project=project
+                ),
+            )
         return redirect(project.get_absolute_url())
 
 
@@ -148,7 +208,9 @@ class CustomScriptProjectReconcileView(generic.ObjectView):
     deliberately does not drive the Data Source's own synchronization: that inventory is what a
     project's source is built from, and refreshing it is the Data Source's own operation.
 
-    The work itself is a job, because the request process performs no storage I/O. GET confirms
+    The work itself is a job, because reconciliation reads a directory whose size is unknown
+    until it is read and then writes content. Activation and repair verify an already staged
+    tree, bounded at staging time, which is why those stay in the request. GET confirms
     and POST enqueues, and the queryset is narrowed to Data Source-backed projects, so the route
     does not apply to a project whose source is uploaded.
     """

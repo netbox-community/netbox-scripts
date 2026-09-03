@@ -10,6 +10,7 @@ __all__ = (
     'ActivateRevision',
     'AddScript',
     'ReconcileSource',
+    'RepairScripts',
     'RunScript',
 )
 
@@ -79,6 +80,27 @@ class ReconcileSource(ObjectAction):
     def get_context(cls, context, obj):
         """Tell the template whether this project has a directory to reconcile against."""
         return {'synchronized': obj.source_type == ProjectSourceTypeChoices.DATA_SOURCE}
+
+
+class RepairScripts(ObjectAction):
+    """
+    Republish a Custom Script Project's rows from the revision it is already serving.
+
+    A recovery action for rows that drifted from the snapshot they derive from. It takes the
+    activate permission, because republishing rows into service is what that grants, and it
+    renders inert rather than hidden for a project serving nothing, so an operator sees why.
+    """
+
+    name = 'repair'
+    label = _('Repair Scripts')
+    permissions_required = {'activate'}
+    url_kwargs = ['pk']
+    template_name = 'netbox_custom_scripts/buttons/repair.html'
+
+    @classmethod
+    def get_context(cls, context, obj):
+        """Tell the template whether this project is serving a revision to republish from."""
+        return {'serving': obj.active_revision_id is not None}
 
 
 class RunScript(ObjectAction):

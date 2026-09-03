@@ -1,0 +1,24 @@
+{% load i18n %}
+{% comment %}
+Repair Scripts button for one Custom Script Project.
+
+Rendered inert rather than hidden for a project serving nothing, so an operator sees that there
+is no revision to republish from instead of finding no button and wondering where it went.
+
+Context:
+  - url:     The project's repair route
+  - label:   The button label
+  - serving: Whether the project is serving a revision
+{% endcomment %}
+{% if serving %}
+  <a href="{{ url }}" class="btn btn-outline-primary" role="button">
+    <i class="mdi mdi-wrench-outline" aria-hidden="true"></i> {{ label }}
+  </a>
+{% else %}
+  <button type="button"
+          class="btn btn-outline-primary"
+          disabled
+          title="{% trans "This Project is serving no revision, so there is nothing to republish its Custom Scripts from." %}">
+    <i class="mdi mdi-wrench-outline" aria-hidden="true"></i> {{ label }}
+  </button>
+{% endif %}

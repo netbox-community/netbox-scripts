@@ -11,7 +11,7 @@ from utilities.views import register_model_view
 from .. import activation
 from ..models import CustomScriptProject, CustomScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from ..tables import CustomScriptProjectRevisionProblemTable
+from ..tables import CustomScriptProjectRevisionEntrypointTable, CustomScriptProjectRevisionProblemTable
 from ..ui import CustomScriptProjectRevisionPanel, CustomScriptProjectRevisionStatePanel
 
 
@@ -23,18 +23,27 @@ class CustomScriptProjectRevisionView(generic.ObjectView):
     layout = layout.SimpleLayout(
         left_panels=[CustomScriptProjectRevisionPanel()],
         right_panels=[CustomScriptProjectRevisionStatePanel()],
-        bottom_panels=[ContextTablePanel('problems_table', title=_('Recorded problems'))],
+        bottom_panels=[
+            ContextTablePanel('entrypoints_table', title=_('Entrypoints')),
+            ContextTablePanel('problems_table', title=_('Recorded problems')),
+        ],
     )
 
     def get_extra_context(self, request, instance):
-        """Supply the problems table, withholding the key entirely when there is nothing to show."""
+        """Supply the entrypoint and problem tables, withholding the problems key when there are none."""
+        # The snapshot is already sorted by source path, so there is no other order to offer.
+        entrypoints = CustomScriptProjectRevisionEntrypointTable(instance.entrypoint_snapshot, orderable=False)
+        entrypoints.configure(request)
+        # This one always renders: an empty snapshot is why a revision publishes nothing, which is
+        # worth saying rather than leaving as a missing card.
+        context = {'entrypoints_table': entrypoints}
         # ContextTablePanel renders nothing for an unresolved key, which is how a revision with
         # no problems avoids an empty card.
-        if not (problems := instance.problems):
-            return {}
-        table = CustomScriptProjectRevisionProblemTable(problems, orderable=False)
-        table.configure(request)
-        return {'problems_table': table}
+        if problems := instance.problems:
+            problems_table = CustomScriptProjectRevisionProblemTable(problems, orderable=False)
+            problems_table.configure(request)
+            context['problems_table'] = problems_table
+        return context
 
 
 class RevisionServiceView(generic.ObjectView):

@@ -72,6 +72,13 @@ class CustomScriptProjectRevisionTable(BaseTable):
         empty_values=(),
     )
     status = columns.ChoiceFieldColumn(verbose_name=_('Status'))
+    entrypoint_count = tables.Column(
+        verbose_name=_('Entrypoints'),
+        accessor='entrypoint_snapshot',
+        # The accessor is the snapshot itself, so ordering would sort the JSON rather than
+        # the length this column renders.
+        orderable=False,
+    )
     file_count = tables.Column(verbose_name=_('Files'))
     total_size = tables.Column(verbose_name=_('Size'))
     activated = columns.DateTimeColumn(verbose_name=_('Activated'))
@@ -87,13 +94,17 @@ class CustomScriptProjectRevisionTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         model = CustomScriptProjectRevision
-        fields = ('created', 'short_digest', 'status', 'file_count', 'total_size', 'activated')
+        fields = ('created', 'short_digest', 'status', 'entrypoint_count', 'file_count', 'total_size', 'activated')
         default_columns = fields
         order_by = ('-created',)
 
     def render_short_digest(self, value):
         """Name a staging whose content was rejected before anything was stored."""
         return value or _('Not stored')
+
+    def render_entrypoint_count(self, value):
+        """Count the declared entrypoints, which is what two revisions on one digest differ on."""
+        return len(value)
 
 
 class CustomScriptProjectFileTable(BaseTable):
@@ -138,6 +149,25 @@ class CustomScriptProjectFileTable(BaseTable):
     def render_sha256(self, value):
         """Render the short digest form."""
         return value[:12]
+
+
+class CustomScriptProjectRevisionEntrypointTable(BaseTable):
+    """
+    The entrypoints one revision froze, for its detail view.
+
+    Rows are the entrypoint snapshot's own dictionaries, so this table is fed a list and has no
+    queryset behind it. It is where the Revisions tab's entrypoint count resolves.
+    """
+
+    source_path = tables.Column(
+        verbose_name=_('Source path'),
+    )
+
+    class Meta(BaseTable.Meta):
+        # Required rather than decorative: a table with no model derives no default empty text.
+        empty_text = _('This revision froze no entrypoints, so it publishes nothing.')
+        fields = ('source_path',)
+        default_columns = fields
 
 
 class CustomScriptProjectRevisionProblemTable(BaseTable):

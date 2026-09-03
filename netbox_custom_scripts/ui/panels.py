@@ -99,7 +99,7 @@ class MigrationRunVersionPanel(ObjectAttributesPanel):
 
 
 class CustomScriptProjectPanel(ObjectAttributesPanel):
-    """Identity attributes of a Custom Script Project (detail view, left column)."""
+    """Identity attributes of a Custom Script Project, and where its source stands (detail view, left column)."""
 
     title = _('Project')
 
@@ -108,6 +108,9 @@ class CustomScriptProjectPanel(ObjectAttributesPanel):
     storage_key = attrs.TextAttr('storage_key', label=_('Storage key'))
     enabled = attrs.BooleanAttr('enabled', label=_('Enabled'))
     description = attrs.TextAttr('description', label=_('Description'))
+    # Keyed on the newest revision of all, including one with nothing stored, so it cannot sit
+    # in a panel whose other fields read off current_revision.
+    source_state = attrs.TextAttr('source_state', label=_('Source state'))
 
 
 class CustomScriptProjectSourcePanel(ObjectAttributesPanel):
@@ -123,17 +126,15 @@ class CustomScriptProjectSourcePanel(ObjectAttributesPanel):
 
 class CustomScriptProjectStatePanel(ObjectAttributesPanel):
     """
-    The revision a project is serving right now (detail view, right column).
+    The revision whose tree is a project's source right now (detail view, right column).
 
-    Answers the two questions an operator has after adding source: is it live, and if not what
-    is it waiting on. The state line covers the second, the fields describe the tree currently
-    in force. Earlier revisions are the Revisions tab's business, and the manifest, digests, and
-    lease owner stay out of both.
+    Every field reads off current_revision, which is the active revision or, when none is
+    active, the newest one holding stored content. Earlier revisions are the Revisions tab's
+    business, and the manifest, digests, and lease owner stay out of both.
     """
 
     title = _('Current revision')
 
-    source_state = attrs.TextAttr('source_state', label=_('State'))
     created = attrs.DateTimeAttr('current_revision.created', label=_('Created'))
     status = attrs.ChoiceAttr('current_revision.status', label=_('Status'))
     revision = attrs.RelatedObjectAttr('current_revision', label=_('Revision'), linkify=True)

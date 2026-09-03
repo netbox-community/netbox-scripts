@@ -123,13 +123,21 @@ no longer matches its manifest is refused and the Project keeps serving what it 
 
 ## Following what happened
 
-The Project's page carries a **Current revision** panel: a plain-language state line, then the
-revision in force with its date, status, digest, file count, size, and activation time. The
-state line is the part that explains a Project which is not yet serving its newest source, for
-example that new source is being validated or that it failed validation.
+The Project's page carries two readings, deliberately kept apart. **Source state**, on the
+**Project** panel, is a plain-language summary of where the newest source stands, and it is the
+part that explains a Project not yet serving what was last uploaded, for example that new source
+is being validated or that it failed validation. The **Current revision** panel describes the
+revision whose tree is the Project's source, which is the active one or, before anything has
+been activated, the newest one that was stored. It carries the date, status, digest, file
+count, size, and activation time. The two panels can describe different revisions, which is
+why they are not stacked in one.
 
-The **Revisions** tab lists every revision the Project has ever had. The **Entrypoints** tab
-shows which modules discovery imports, with each declaration's discovery outcome.
+The **Revisions** tab lists every revision the Project has ever had. Two rows can show the same
+digest, because a revision is identified by its source tree **and** the entrypoint set it froze,
+so changing the selection over unchanged source produces a second revision. The **Entrypoints**
+column is what tells those two apart, and a revision's own page lists the paths it froze. The
+**Entrypoints** tab shows which modules discovery imports, with each declaration's discovery
+outcome.
 
 ### Changing which modules are entrypoints
 

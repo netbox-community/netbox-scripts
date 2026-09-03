@@ -1,6 +1,7 @@
 from .module import CustomScriptModuleTable
 from .project import (
     CustomScriptProjectFileTable,
+    CustomScriptProjectRevisionEntrypointTable,
     CustomScriptProjectRevisionProblemTable,
     CustomScriptProjectRevisionTable,
     CustomScriptProjectTable,
@@ -11,6 +12,7 @@ __all__ = (
     'CustomScriptLogTable',
     'CustomScriptModuleTable',
     'CustomScriptProjectFileTable',
+    'CustomScriptProjectRevisionEntrypointTable',
     'CustomScriptProjectRevisionProblemTable',
     'CustomScriptProjectRevisionTable',
     'CustomScriptProjectTable',

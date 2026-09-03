@@ -7,7 +7,10 @@ from netbox_custom_scripts.choices import RevisionStatusChoices
 from netbox_custom_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.storage.exceptions import ActivationError
-from netbox_custom_scripts.tables import CustomScriptProjectRevisionProblemTable
+from netbox_custom_scripts.tables import (
+    CustomScriptProjectRevisionEntrypointTable,
+    CustomScriptProjectRevisionProblemTable,
+)
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -334,3 +337,68 @@ class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
         self.assertEqual([row['path'] for row in rows], ['notes.txt', ''])
         self.assertEqual([row['traceback'] for row in rows], ['', ''])
         self.assertEqual(self.invalid.problems[0]['path'], 'broken.py')
+
+
+class RevisionEntrypointPanelTestCase(TestCase):
+    """A revision's page lists the entrypoints it froze, which is where the tab's count resolves."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = CustomScriptProject.objects.create(name='Entrypoint Project', key='entrypoint-project')
+        cls.declared = CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='a' * 64,
+            entrypoint_digest='b' * 64,
+            entrypoint_snapshot=[
+                {'module': 1, 'source_path': 'audit.py'},
+                {'module': 2, 'source_path': 'tools/deploy.py'},
+            ],
+        )
+        # Same source tree, different selection: the pair the Revisions tab cannot otherwise
+        # tell apart.
+        cls.narrowed = CustomScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='a' * 64,
+            entrypoint_digest='c' * 64,
+            entrypoint_snapshot=[{'module': 1, 'source_path': 'audit.py'}],
+        )
+        cls.empty = CustomScriptProjectRevision.objects.create(
+            project=cls.project, digest='d' * 64, entrypoint_snapshot=[]
+        )
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+        obj_perm = ObjectPermission(name='revision view', actions=['view'])
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProjectRevision))
+
+    def body(self, revision):
+        url = reverse('plugins:netbox_custom_scripts:customscriptprojectrevision', args=[revision.pk])
+        response = self.client.get(url)
+        self.assertHttpStatus(response, 200)
+        return response.content.decode()
+
+    def test_the_panel_lists_every_frozen_path(self):
+        body = self.body(self.declared)
+
+        self.assertIn('Entrypoints', body)
+        self.assertIn('audit.py', body)
+        self.assertIn('tools/deploy.py', body)
+
+    def test_two_revisions_on_one_digest_list_different_paths(self):
+        self.assertEqual(self.declared.short_digest, self.narrowed.short_digest)
+        self.assertIn('tools/deploy.py', self.body(self.declared))
+        self.assertNotIn('tools/deploy.py', self.body(self.narrowed))
+
+    def test_a_revision_freezing_none_says_so_rather_than_rendering_no_panel(self):
+        body = self.body(self.empty)
+
+        self.assertIn('Entrypoints', body)
+        self.assertIn('publishes nothing', body)
+
+    def test_the_panel_offers_no_column_but_the_path(self):
+        # The snapshot also carries Module primary keys, which are provenance rather than
+        # something an operator reads, and the row they name may since have been deleted.
+        self.assertEqual(CustomScriptProjectRevisionEntrypointTable.Meta.fields, ('source_path',))

@@ -16,6 +16,7 @@ from netbox_custom_scripts.models import (
 )
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.plugin_testing import PluginTestCases
+from netbox_custom_scripts.ui import CustomScriptProjectPanel, CustomScriptProjectStatePanel
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, create_test_user
 
@@ -223,9 +224,18 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.assertHttpStatus(response, 200)
         return response.content.decode()
 
-    def test_the_state_panel_reports_a_revision_awaiting_activation(self):
+    def test_the_project_panel_reports_a_revision_awaiting_activation(self):
         self.grant(CustomScriptProject, 'view')
         self.assertIn('waiting to be activated', self.body())
+
+    def test_the_state_line_is_not_inside_the_current_revision_panel(self):
+        # The sentence describes the newest revision, the panel below it describes the served one.
+        self.grant(CustomScriptProject, 'view')
+        body = self.body()
+        self.assertLess(body.index('waiting to be activated'), body.index('Current revision'))
+        # And where the fact lives, so declaring it back on the revision panel fails here too.
+        self.assertIn('source_state', CustomScriptProjectPanel._attrs)
+        self.assertNotIn('source_state', CustomScriptProjectStatePanel._attrs)
 
     def test_the_panel_describes_the_current_revision(self):
         self.grant(CustomScriptProject, 'view')
@@ -264,6 +274,18 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
         table = self.client.get(url).context['table']
         self.assertEqual([column.name for column in table.columns][:3], ['created', 'short_digest', 'status'])
+
+    def test_the_history_tab_shows_the_entrypoint_count(self):
+        # Asserted on the configured table, because a declared column survives being dropped
+        # from the displayed set and would still answer get_cell().
+        self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptProjectRevision, 'view')
+        url = reverse('plugins:netbox_custom_scripts:customscriptproject_revisions', args=[self.project.pk])
+        response = self.client.get(url)
+        visible = [name for name, _label in response.context['table'].selected_columns]
+
+        self.assertIn('entrypoint_count', visible)
+        self.assertIn('Entrypoints', response.content.decode())
 
     def test_the_history_tab_links_each_revision(self):
         self.grant(CustomScriptProject, 'view')

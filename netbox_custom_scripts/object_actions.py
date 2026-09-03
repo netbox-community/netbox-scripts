@@ -44,9 +44,9 @@ class AddScript(ObjectAction):
     rebuilds its source from its directory and ingestion refuses an upload into one.
 
     The change permission, not add, because the target route is the project's own detail route
-    and what it changes is the project's source. The view additionally requires the Module add
-    permission, which an action's permission set cannot express, so a user holding only the
-    project half is refused by the view rather than by a hidden button.
+    and what it changes is the project's source. The view also requires the Module add
+    permission, which permissions_required cannot express because it names another model, so the
+    button checks it here and renders inert rather than refusing after the operator has clicked.
     """
 
     name = 'add_script'
@@ -57,8 +57,11 @@ class AddScript(ObjectAction):
 
     @classmethod
     def get_context(cls, context, obj):
-        """Tell the template whether this project takes uploads at all."""
-        return {'uploadable': obj.source_type == ProjectSourceTypeChoices.UPLOAD}
+        """Tell the template whether this project takes uploads, and whether the user may declare one."""
+        return {
+            'uploadable': obj.source_type == ProjectSourceTypeChoices.UPLOAD,
+            'may_declare': context['request'].user.has_perm('netbox_custom_scripts.add_customscriptmodule'),
+        }
 
 
 class ReconcileSource(ObjectAction):

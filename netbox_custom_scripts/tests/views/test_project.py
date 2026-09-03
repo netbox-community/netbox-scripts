@@ -351,12 +351,27 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('No source', response.content.decode())
 
     def test_the_add_script_action_links_to_the_upload_route(self):
+        # Both halves: an upload creates a Module, so the route needs that permission too.
         self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptModule, 'add')
         expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[self.project.pk])
         self.assertIn(expected, self.body())
 
+    def test_the_add_script_action_is_inert_without_the_module_add_permission(self):
+        # permissions_required cannot name another model, so without this check the button would
+        # link somewhere the view refuses once a file has already been chosen.
+        self.grant(CustomScriptProject, 'view', 'change')
+        body = self.body()
+        expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[self.project.pk])
+
+        self.assertIn('Add Script', body)
+        self.assertNotIn(expected, body)
+        self.assertIn('Custom Script Module add permission', body)
+
     def test_the_add_script_action_is_hidden_without_the_change_permission(self):
+        # The Module half is granted so the inert branch cannot satisfy the assertion for us.
         self.grant(CustomScriptProject, 'view')
+        self.grant(CustomScriptModule, 'add')
         expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[self.project.pk])
         self.assertNotIn(expected, self.body())
 
@@ -372,8 +387,10 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_add_script_action_is_absent_on_a_data_source_project(self):
         # Ingestion refuses an upload into a synchronized project, so offering the button would
-        # put a user on a path that can only fail.
+        # put a user on a path that can only fail. The Module half is granted for the same reason
+        # as the test above.
         self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(CustomScriptModule, 'add')
         synced = self.synchronized_project()
         expected = reverse('plugins:netbox_custom_scripts:customscriptproject_add_script', args=[synced.pk])
         self.assertNotIn(expected, self.client.get(synced.get_absolute_url()).content.decode())

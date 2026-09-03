@@ -2,12 +2,15 @@ import contextlib
 import sys
 import types
 import unittest
+from contextvars import ContextVar
 from unittest import mock
 
+from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
 from netbox_custom_scripts import branching
+from netbox_custom_scripts.execution import CHANGELOGGED_PROBE_MODEL
 from netbox_custom_scripts.models import (
     CustomScript,
     CustomScriptModule,
@@ -18,6 +21,7 @@ from netbox_custom_scripts.models import (
 
 PACKAGE = 'netbox_branching'
 MODULE = f'{PACKAGE}.utilities'
+CONTEXTVARS = f'{PACKAGE}.contextvars'
 
 # Every model in branching.GLOBAL_MODELS, so a model added there without being listed here fails
 # rather than going unchecked.
@@ -56,6 +60,14 @@ def fake_branching(**members):
         setattr(module, name, value)
     package.utilities = module
     return {PACKAGE: package, MODULE: module}
+
+
+def fake_contextvars(branch=None):
+    """Return a sys.modules entry standing in for the branching contextvar, holding one branch."""
+    module = types.ModuleType(CONTEXTVARS)
+    module.active_branch = ContextVar('active_branch', default=None)
+    module.active_branch.set(branch)
+    return {CONTEXTVARS: module}
 
 
 @contextlib.contextmanager
@@ -173,6 +185,59 @@ class RoutingReasonTestCase(TestCase):
             reason = branching.unsafe_routing_reason()
         self.assertIn('could not report', reason)
         self.assertIn('branching is misconfigured', reason)
+
+
+class ProbeReasonTestCase(TestCase):
+    """Whether the model a run probes can still report where a change-logged write goes."""
+
+    def probe(self):
+        return apps.get_model(*CHANGELOGGED_PROBE_MODEL)
+
+    def test_no_reason_under_either_test_configuration(self):
+        # Branching is absent from the default configuration and routes dcim.device to a branch
+        # under the branching one, so the answer is the same either way.
+        self.assertIsNone(branching.probe_unusable_reason(self.probe()))
+
+    def test_no_reason_while_the_probe_model_is_branch_aware(self):
+        with routing(device=True):
+            self.assertIsNone(branching.probe_unusable_reason(self.probe()))
+
+    def test_a_reason_naming_the_model_once_it_is_no_longer_branch_aware(self):
+        with routing():
+            reason = branching.probe_unusable_reason(self.probe())
+
+        self.assertIn('dcim.device', reason)
+        self.assertIn('no longer routes', reason)
+
+    def test_a_reason_when_the_routing_api_is_unavailable(self):
+        with routing_api_missing():
+            self.assertIn('supports_branching API is unavailable', branching.probe_unusable_reason(self.probe()))
+
+    def test_a_reason_when_the_routing_api_raises(self):
+        with routing_raising(RuntimeError('branching is misconfigured')):
+            reason = branching.probe_unusable_reason(self.probe())
+
+        self.assertIn('could not report', reason)
+        self.assertIn('branching is misconfigured', reason)
+
+
+class ActiveBranchTestCase(TestCase):
+    """Reading the branch a context has selected, which is what the routing decision reads."""
+
+    def test_no_branch_when_branching_is_absent(self):
+        self.assertIsNone(branching.active_branch_name())
+
+    def test_the_branch_the_contextvar_holds(self):
+        with branching_installed(fake_contextvars('fixing-hq')):
+            self.assertEqual(branching.active_branch_name(), 'fixing-hq')
+
+    def test_no_branch_when_the_contextvar_is_unset(self):
+        with branching_installed(fake_contextvars()):
+            self.assertIsNone(branching.active_branch_name())
+
+    def test_no_branch_when_the_module_is_unavailable(self):
+        with branching_installed({CONTEXTVARS: None}):
+            self.assertIsNone(branching.active_branch_name())
 
 
 class RoutingCheckTestCase(TestCase):

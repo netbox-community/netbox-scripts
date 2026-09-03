@@ -10,9 +10,10 @@ of declarations would change what an installation-global revision means.
 
 NetBox Branching's own exempt_models setting is the documented way to route models to the main
 schema, and this module registers a resolver so that a fresh installation is already right before
-an operator configures anything. Either way the decision belongs to NetBox Branching: everything
-here asks it for the effective answer through the public supports_branching() and never
-reimplements the policy behind it.
+an operator configures anything. Either way the decision belongs to NetBox Branching: routing
+questions here go to the public supports_branching(), and which branch a context selected is read
+from the contextvar the routing decision itself reads, so nothing reimplements the policy behind
+either answer.
 
 NetBox Branching is optional. When it is absent there is one schema and these models are global
 already, so nothing here does anything.
@@ -127,6 +128,43 @@ def unsafe_routing_reason():
     return None
 
 
+def probe_unusable_reason(model):
+    """Return why a model can no longer report the database a change-logged write takes, or None."""
+    if not apps.is_installed(BRANCHING_APP_LABEL):
+        return None
+    label = f'{model._meta.app_label}.{model._meta.model_name}'
+    try:
+        from netbox_branching.utilities import supports_branching
+    except ImportError:
+        return (
+            f'NetBox Branching is installed, but its supports_branching API is unavailable, so {label} '
+            f'cannot report where a change-logged write goes.'
+        )
+    try:
+        if supports_branching(model):
+            return None
+    except Exception as error:
+        return f'NetBox Branching could not report how {label} is routed: {str(error).rstrip(".")}.'
+    return (
+        f'NetBox Branching no longer routes {label} to a branch schema, so it cannot report where a '
+        f'change-logged write goes.'
+    )
+
+
+def active_branch_name():
+    """Return the name of the branch this context has selected, or None when there is not one."""
+    if not apps.is_installed(BRANCHING_APP_LABEL):
+        return None
+    try:
+        # The same contextvar the routing decision reads, so this cannot disagree with it.
+        from netbox_branching.contextvars import active_branch
+    except ImportError:
+        logger.debug('NetBox Branching is installed but exposes no active_branch, reading no branch as set.')
+        return None
+    branch = active_branch.get()
+    return str(branch) if branch else None
+
+
 def require_safe_routing():
     """
     Refuse an operation that would write or remove source NetBox Branching may not keep in main.
@@ -144,8 +182,8 @@ def main_schema_only():
     """
     Hold the enclosed block on the main schema, whatever branch a request selected.
 
-    Does nothing when NetBox Branching is absent or exposes no deactivation API, which is the
-    same schema either way.
+    Does nothing when NetBox Branching is absent, which is one schema anyway, and nothing when it
+    exposes no deactivation API, where a branch a request selected does stay active.
     """
     with _deactivation():
         yield

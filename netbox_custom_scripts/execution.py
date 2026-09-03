@@ -19,6 +19,7 @@ import traceback
 from contextlib import ExitStack
 
 from django.apps import apps
+from django.core.exceptions import ImproperlyConfigured
 from django.db import DEFAULT_DB_ALIAS, router, transaction
 from django.utils.translation import gettext as _
 
@@ -177,7 +178,18 @@ def _execute(instance, *, data, commit, request):
     """Call the script inside its transactions, converting whatever escapes into log records."""
     try:
         try:
-            changelogged_alias = router.db_for_write(apps.get_model(*CHANGELOGGED_PROBE_MODEL))
+            probe = apps.get_model(*CHANGELOGGED_PROBE_MODEL)
+            if reason := branching.probe_unusable_reason(probe):
+                # A branch is still active here only when main_schema_only() found no
+                # deactivation API. The router would then route a write to it while the probe
+                # reads the default alias, so nothing covers that write.
+                if branch := branching.active_branch_name():
+                    raise ImproperlyConfigured(
+                        f'{reason} Branch {branch} is active, so changes this run makes could not be '
+                        f'rolled back with it.'
+                    )
+                instance.log_warning(reason)
+            changelogged_alias = router.db_for_write(probe)
             with transaction.atomic(using=DEFAULT_DB_ALIAS):
                 # Nothing may sit between these two blocks. A statement here runs after the
                 # inner block has already unwound, so its writes would commit to the default

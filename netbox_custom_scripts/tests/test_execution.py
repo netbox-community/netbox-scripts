@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import django_rq
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -16,6 +17,7 @@ from core.choices import JobNotificationChoices, JobStatusChoices
 from core.exceptions import JobFailed
 from core.models import Job, ObjectChange
 from core.signals import clear_events
+from extras.choices import LogLevelChoices
 from extras.models import Tag
 from netbox.context import current_request
 from netbox_custom_scripts.activation import activate_revision, deactivate_revision
@@ -33,6 +35,7 @@ from netbox_custom_scripts.scripts import AbortScript, Script
 from netbox_custom_scripts.storage import service
 from netbox_custom_scripts.tests.runtime.test_cache import discard_tree
 from netbox_custom_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_custom_scripts.tests.test_branching import branching_installed, fake_branching, fake_contextvars
 from netbox_custom_scripts.validation import validate_revision
 from utilities.datetime import local_now
 from utilities.exceptions import AbortScript as LegacyAbortScript
@@ -90,6 +93,16 @@ def fake_request(user):
             'id': uuid.uuid4(),
         }
     )
+
+
+@contextmanager
+def unroutable_probe(*, branch=None):
+    """Install branching with the probe model no longer branch-aware, and a branch set or not."""
+    # No deactivate_branch on the fake, which is the one state main_schema_only() leaves a branch
+    # active in, and therefore the only way a run reaches _execute inside one.
+    modules = {**fake_branching(supports_branching=lambda model: False), **fake_contextvars(branch)}
+    with branching_installed(modules):
+        yield
 
 
 class ExecutionTestMixin:
@@ -907,3 +920,30 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertEqual(job.data['revision_digest'], revision.digest)
+
+
+class RoutingProbeTestCase(ExecutionTestMixin, TestCase):
+    """What a run does once the model it probes can no longer report the routing."""
+
+    def test_a_run_still_inside_a_branch_is_refused(self):
+        # Nothing this run wrote could be rolled back with the branch, so it must not start.
+        with unroutable_probe(branch='fixing-hq'), self.assertRaises(ImproperlyConfigured) as refusal:
+            self.run_one(Creating)
+
+        self.assertIn('dcim.device', str(refusal.exception))
+        self.assertIn('fixing-hq', str(refusal.exception))
+        self.assertFalse(Tag.objects.filter(slug='created-by-script').exists())
+
+    def test_a_run_outside_a_branch_says_so_in_its_log_and_still_commits(self):
+        with unroutable_probe():
+            instance = self.run_one(Creating)
+
+        self.assertIn('dcim.device', self.messages(instance))
+        self.assertIn(LogLevelChoices.LOG_WARNING, self.levels(instance))
+        self.assertTrue(Tag.objects.filter(slug='created-by-script').exists())
+
+    def test_an_ordinary_run_carries_no_such_warning(self):
+        # A guard that fired here would put a line on every run of every script.
+        instance = self.run_one(Creating)
+
+        self.assertNotIn(LogLevelChoices.LOG_WARNING, self.levels(instance))

@@ -16,7 +16,7 @@ the plugin contract allows explicitly.
 | `netbox.context_managers.event_tracking` | `execution.py` | Change attribution and event queuing. Skipped deliberately for a dry run |
 | `netbox.context.current_request` | `execution.py` | Read before a run and restored afterwards, so a failed or nested run leaves no stale request behind |
 | `core.signals.clear_events` | `execution.py` | Discards queued events when a run is abandoned |
-| `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Which database change-logged writes go to, which is a branch schema while a branch is active |
+| `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Which database change-logged writes go to, which is a branch schema while a branch is active. The model is asked of NetBox Branching first, so one that stopped being branch-aware is named rather than read as the default alias |
 | `utilities.request.copy_safe_request` | `views/script.py`, `api/views.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
 | `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Whether a worker is live for the queue, so a REST run that nothing could pick up is refused rather than queued |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
@@ -64,8 +64,9 @@ The behaviour they provide is not optional. Without the request processors a
 script's database changes get no user attribution and its events never reach the
 event pipeline, which silently breaks change logging, webhooks and Event Rules for
 everything the script touches. Without the router probe a script running inside a
-branch writes to the wrong schema. Without a safe request copy the run cannot
-reach a worker at all.
+branch writes through a connection no transaction of ours has opened, so a dry run
+may not revert and a failure may not roll back. Without a safe request copy the run
+cannot reach a worker at all.
 
 The `AbortTransaction` NetBox uses for dry-run rollback is the one internal we
 declined to depend on. It is a bare exception used purely as a rollback trigger,

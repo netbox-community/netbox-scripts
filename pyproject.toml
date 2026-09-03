@@ -91,6 +91,8 @@ ignore = [
     "netbox_custom_scripts/tests/query_counts.json",
     # Pre-commit hook script, not distribution content.
     "scripts/check_cloud_compat.py",
+    # CI canary script, not distribution content.
+    "scripts/check_netbox_internals.py",
     "uv.lock",
     ".github/ISSUE_TEMPLATE/*.yaml",
     ".github/ISSUE_TEMPLATE/config.yml",

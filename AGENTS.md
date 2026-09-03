@@ -156,13 +156,14 @@ when domain content calls for them.
 │   │   ├── test_ingestion.py      , Ingestion ordering and failure modes for both callers, plus UploadToActiveTestCase and DataSourceToActiveTestCase: each slice end to end against real validation.
 │   │   ├── test_entrypoint_refresh.py , The selection-change path: the enqueue, the Job body, the form's changed-only rule, and the activation policy end to end.
 │   │   ├── test_inherited_guarantees.py , Guarantees delivered by a base class rather than by our code, each asserted as behaviour so an override drops it loudly: a read-only token cannot start a run (TokenPermissions, which enforces it from BOTH has_permission and has_object_permission, so a control has to bypass both), and a raising action neither propagates nor ends the dispatch batch (is_plugin_provided, which register_event_rule_action assigns onto the INSTANCE, so a class attribute is overwritten and only the registered instance decides).
+│   │   ├── test_internals_canary.py , The canary script loaded by path: every listed crossing resolves on this host, the resolver reports a missing attribute, module or registry key under its row, refuses a malformed probe rather than resolving part of it, the lock check keys on the plugin's real namespaces, a plugin NetBox skipped at settings load is reported, and the page's table and the probe list agree row for row, every row carrying a probe.
 │   │   ├── test_permissions.py    , The source-management separation: change alone cannot activate or reconcile, each own action can, and an object constraint narrows both projects and their revisions.
 │   │   ├── test_event_rules.py    , The `netbox_custom_scripts.run` action: registration, the refusals validate() makes and the ones it leaves to dispatch, the event payload, and import resolution by project key. Skipped entirely below the 4.7 line through an importlib.util.find_spec probe, which is the only guard the feature needs. One class reads the queued task, because enqueue_run keeps script input off the Job row so that is the only place action_data can be seen.
 │   │   ├── test_event_sources.py  , The plugin's models as Event Rule sources: all four qualify, a rule saves against one, the webhook body carries identity and no stored document, and a matching rule reaches the queue. The queue is isolated in testing/configuration.py rather than per class, so emptying here only separates one test from the next. Never clear with RQQueueTestMixin, which uses a server-wide flushall(). Dispatch needs captureOnCommitCallbacks, since django_rq defers an enqueue to on_commit and a TestCase never commits.
 │   │   ├── test_management.py     , The runcustomscript command: what it resolves, what it refuses, that a committed run is change logged against the named user, and that a failure raised before the script is reached still reports why.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class, `__all__` alphabetised.
+│   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class except the three shared bases, `__all__` alphabetised.
 │   │   ├── migration.py            , The Migration page, the run's detail view, and the seven enqueue views, on TWO gates. BaseMigrationView takes add_customscriptproject for the page, the inventory, staging and verification, because creating Projects is all those authorize. DestructiveMigrationView takes migrate_customscriptproject for the cutover, activation, repoint and cleanup, because closing and deleting rows of the built-in feature is not a form of creating a Project. The cutover is offered while the crossing is unrecorded rather than while the state reads staging, so the one button that finishes an interrupted crossing stays up, and a notice beside it says the fence may already have closed. Staging, the cutover and cleanup confirm first and refuse while a pass of their own class is queued, the inventory and verification do neither, because they write nothing. The repoint button is withheld, with the Projects named, while any of them serves nothing, gated on the frozen map rather than on the recorded step because that is what the predicate reads.
 │   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the read-only Files tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate, Repair and Reconcile confirmation views. Activate reports through views/revision.py's shared activation_message(), so the two Activate routes cannot word the same outcome differently. Repair re-activates the revision already in force, which is the only route to the already-active path, because the per-revision Activate view now filters its queryset to ACTIVATABLE_REVISION_STATUSES and the project-level one resolves through activatable_revision(). Withholding the button was not enough: an action filters by permission and never by route. Its queryset is narrowed to projects serving something, and it reports a repair and a no-op differently, which is the defect it exists for. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
@@ -236,7 +237,8 @@ when domain content calls for them.
 │       └── *.html                 , [add as needed] Per-model detail templates and bulk-action forms.
 ├── docs/                          , mkdocs site (zensical primary, mkdocs compatible).
 ├── scripts/
-│   └── check_cloud_compat.py      , AST checker for the Cloud / Enterprise platform contract (pre-commit hook).
+│   ├── check_cloud_compat.py      , AST checker for the Cloud / Enterprise platform contract (pre-commit hook).
+│   └── check_netbox_internals.py  , Resolves every crossing docs/development/netbox-internals.md lists after django.setup() with no database, refuses a core advisory-lock key on either plugin namespace, and fails when NetBox skipped the plugin outside its version range. CI runs it against NetBox's feature branch as the one blocking job on that ref.
 ├── testing/
 │   └── configuration.py           , NetBox config used by the test workflow (maintainer-added; see Development). **Points Redis at databases 15 and 14, not the 0 and 1 a running NetBox uses, and is the one home of that isolation.** The test runner isolates the database but nothing isolates Redis, so a committing TransactionTestCase enqueues a live RQ job whose kwargs carry pickled model instances holding TEST primary keys, which any worker on the host then inserts verbatim into whichever database it serves.
 ├── .github/workflows/             , test.yml, release.yml, claude-review.yml.
@@ -486,6 +488,7 @@ inside a NetBox checkout that has this plugin installed with
 | `pre-commit install` | Install the pre-commit hook into `.git/hooks` |
 | `pre-commit run --all-files` | Run every default-stage hook against the whole tree |
 | `pre-commit run --hook-stage manual check-manifest` | Run `check-manifest` (manual stage), exercise before tagging a release |
+| `python scripts/check_netbox_internals.py --netbox <netbox>/netbox` | Resolve every NetBox internal the plugin depends on against that checkout, no database needed |
 | `python netbox/manage.py makemigrations netbox_custom_scripts` | Generate Django migrations after model changes |
 | `python netbox/manage.py migrate` | Apply migrations |
 | `python netbox/manage.py runserver` | Start NetBox locally with the plugin loaded |
@@ -559,10 +562,11 @@ periodically.
     development checkout floats across branches, so check which line it is on
     first.
   - **A count that changes only on `main` or `feature` is core's, not a
-    regression.** Both legs are `continue-on-error` for exactly this reason. The
-    baseline moves when the pinned ref moves, not before. Confirm the cause by
-    running the same test against a pristine tree (`git archive HEAD` into a
-    scratch directory, then point `PYTHONPATH` at it) before touching the file.
+    regression.** The `feature` test leg is `continue-on-error` for exactly this
+    reason. The baseline moves when the pinned ref moves, not before. Confirm
+    the cause by running the same test against a pristine tree (`git archive
+    HEAD` into a scratch directory, then point `PYTHONPATH` at it) before
+    touching the file.
 
 ### Reporting test results
 
@@ -579,12 +583,17 @@ Do not claim a test passed without running it.
 
 Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
-- **`test.yml`**, PR / branch validation. Two jobs: a fast `lint` job
-  running `pre-commit run --all-files`, followed by a `test` matrix
-  (Python versions x `[v4.7.0-beta1, feature]`) that runs only if
-  `lint` passes. The `feature` leg is the moving 4.7 canary and reports
-  without blocking (`continue-on-error`). Postgres and Redis
-  service containers. Triggers on pull requests and pushes to `main`.
+- **`test.yml`**, PR / branch validation. Four jobs, three of them gated on
+  a fast `lint` job running `pre-commit run --all-files`: a `test` matrix
+  (Python versions x `[v4.7.0-beta1, feature]`), `test-branching` (one leg
+  with NetBox Branching installed, the two branching test modules only), and
+  `internals`, which resolves every symbol `docs/development/netbox-internals.md`
+  lists against the `feature` ref. The `feature` test leg and the branching
+  job report without blocking (`continue-on-error`). `internals` is the one
+  blocking check on the moving ref: with no database, services or fixtures, a
+  failure there is a crossing, the plugin skipped outside its version range,
+  or a settings or setup change. Postgres and Redis service containers for
+  the two test jobs. Triggers on pull requests and pushes to `main`.
 - **`release.yml`**, Build + `twine check` + publish to NetBox Labs'
   internal CodeArtifact via the shared reusable workflow in
   `netboxlabs/internal-workflows`. Triggers on published GitHub

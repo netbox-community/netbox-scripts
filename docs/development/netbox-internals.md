@@ -46,6 +46,22 @@ the execution rows is a change to `execution.py` alone. The rows naming
 `api/views.py` are the REST run endpoint's, one of them shared with the run view,
 and none of them touch how a run executes.
 
+Every row is also a probe in `scripts/check_netbox_internals.py`, which resolves each
+symbol after `django.setup()` with no database and reports a failure under the row it
+belongs to. CI runs it against NetBox's `feature` branch as a blocking job while the test
+leg on that branch stays advisory, so a crossing that disappears upstream fails a pull
+request here before any release this plugin supports carries the change. A probe checks
+that a symbol is present, not its signature or its relation kind, which the full suite on
+the pinned ref covers. The script also fails when NetBox skipped the plugin at settings load
+for being outside its version range, because a green run over a plugin that cannot load
+there would say nothing. Adding a row to this table means adding a probe there, in the same
+order, and a test holds the two in step. Locally:
+
+```bash
+PYTHONPATH=$PWD/testing NETBOX_CONFIGURATION=configuration \
+  python scripts/check_netbox_internals.py --netbox /path/to/netbox/netbox
+```
+
 Every migration row that **reads** the built-in feature is confined to
 `migration/source.py`, which is the only module in the plugin that finds those rows
 at all. The three modules below it **write** to rows that `source.py` handed them,
@@ -97,10 +113,9 @@ hashed per tree by the `utilities/ltree.py` triggers, and none of them is 770100
 or 770101.
 
 `ADVISORY_LOCK_KEYS` is therefore the thing to watch. It is where a new core key
-gets added, `custom-field-data` shows core will use one as the namespace half of
-a pair, and nothing would catch a new entry landing on either of these two
-values. Recording them here is what makes such a change collide with something in
-review.
+gets added, and `custom-field-data` shows core will use one as the namespace half of
+a pair. The same script checks every entry against both namespaces, so one landing on
+either value fails CI on the `feature` branch instead of waiting to be noticed in review.
 
 The helper itself is a dependency the plugin relies on without declaring, as it
 does with `django_rq` and `strawberry`. It arrives with NetBox.

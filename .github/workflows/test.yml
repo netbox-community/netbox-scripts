@@ -1,17 +1,19 @@
 ---
 # .github/workflows/test.yml
 #
-# PR validation: lint (pre-commit) then test matrix. The test job is
-# gated on the lint job passing, so expensive CI minutes are spent only
-# on green code. The Python axis lists the interpreter versions this
-# plugin supports; the NetBox axis covers the declared
-# min / max supported versions plus main as an early-warning canary. The
-# feature leg is a second canary for the next minor release and reports
-# without blocking (continue-on-error).
+# PR validation: lint (pre-commit), then three jobs gated on it, so
+# expensive CI minutes are spent only on green code. The Python axis
+# lists the interpreter versions this plugin supports. The NetBox axis
+# covers the pinned NetBox ref plus the moving feature branch as a
+# canary for the next minor, which reports without blocking
+# (continue-on-error). The internals job below is the one blocking
+# check on that branch: it resolves the NetBox symbols the plugin
+# depends on and nothing else.
 #
 # Test config:
-#   The plugin's testing/configuration.py is loaded via
-#   NETBOX_CONFIGURATION + PYTHONPATH, per the convention documented in
+#   The plugin's testing/configuration.py, or configuration_branching.py
+#   for the branching job, is loaded via NETBOX_CONFIGURATION +
+#   PYTHONPATH, per the convention documented in
 #   AGENTS.md Development section. The plugin is installed editable into
 #   NetBox's checkout so its source path is on sys.path.
 #
@@ -262,3 +264,54 @@ jobs:
           python netbox/manage.py test
           netbox_custom_scripts.tests.test_branching
           netbox_custom_scripts.tests.test_branching_provisioned -v 2
+
+  # Blocking, unlike the feature test leg. With no database, services or
+  # fixtures, what fails here is a crossing, the plugin skipped outside its
+  # version range, or NetBox settings or setup, each worth a look before a
+  # merge.
+  internals:
+    name: netbox-feature / internals canary
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: false
+    env:
+      NETBOX_CONFIGURATION: configuration
+      PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
+    steps:
+      - name: Checkout plugin
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          path: netbox-custom-scripts
+
+      - name: Checkout NetBox
+        # actions/checkout v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: netbox-community/netbox
+          ref: feature
+          path: netbox
+
+      - name: Setup Python 3.12
+        # actions/setup-python v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install NetBox dependencies
+        working-directory: netbox
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install plugin (editable)
+        working-directory: netbox-custom-scripts
+        run: pip install -e .
+
+      - name: Resolve every listed NetBox internal
+        working-directory: netbox-custom-scripts
+        run: >-
+          python scripts/check_netbox_internals.py
+          --netbox ${{ github.workspace }}/netbox/netbox

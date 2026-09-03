@@ -241,8 +241,9 @@ def recreate_schedules(run):
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. Each recreated job is recorded against the captured one inside the
     transaction that creates it. Anything that cannot be replayed is reported and skipped, and the
-    part of that a later run could still recover counts as outstanding, which leaves the step
-    incomplete. Raises CutoverRefused until every migrated Project is serving a revision.
+    part of that a later pass is meant to pick up once the operator has fixed it counts as
+    outstanding, which leaves the step incomplete. Raises CutoverRefused until every migrated
+    Project is serving a revision.
     """
     _require_serving(run)
     if run.step_done(SCHEDULES_STEP):
@@ -298,12 +299,37 @@ def recreate_schedules(run):
             continue
         user = _user(entry['user_pk'])
         if entry['user_pk'] and user is None:
+            counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" belonged to a user who no longer exists, so it was recreated with '
-                    'no owner and its completion notifies nobody.'
-                ).format(name=entry['name'])
+                    'Schedule "{name}" belonged to a user who no longer exists, so it was not recreated. '
+                    'Schedule it again by hand against {script} under an account that should own it.'
+                ).format(name=entry['name'], script=script)
             )
+            continue
+        # Deactivated is treated like deleted: no grant lets this account run anything, and
+        # reactivating a person for a migration's sake is not a remedy to hand an operator.
+        if user is not None and not user.is_active:
+            counts['skipped'] += 1
+            warnings.append(
+                _(
+                    'Schedule "{name}" belonged to {user}, whose account is deactivated, so it was not '
+                    'recreated. Schedule it again by hand against {script} under an account that should own it.'
+                ).format(name=entry['name'], user=user, script=script)
+            )
+            continue
+        # Against the script, because a grant can name particular ones and the run view honours
+        # that. A schedule that never had an owner keeps the standing it had before the migration.
+        if user is not None and not user.has_perm('netbox_custom_scripts.run_customscript', script):
+            counts['skipped'] += 1
+            counts['outstanding'] += 1
+            warnings.append(
+                _(
+                    'Schedule "{name}" belonged to {user}, who can no longer run {script}, so it was not '
+                    'recreated. Grant them the permission to run it and run this pass again.'
+                ).format(name=entry['name'], user=user, script=script)
+            )
+            continue
         try:
             _recreate(run, entry, script, schedule_at, user, recreated)
         except _REPLAY_FAILURES as error:
@@ -341,8 +367,8 @@ def recreate_schedules(run):
             )
     if counts['outstanding']:
         run.record_warnings(warnings)
-        # A schedule the operator cannot get back, a past-due one-shot or input naming a deleted
-        # object, is skipped rather than outstanding, or the step could never complete.
+        # A past-due one-shot, or a schedule whose owner is gone or deactivated or whose input names
+        # something deleted, is skipped rather than outstanding, or the step could never complete.
         return counts, warnings
     run.complete_step(SCHEDULES_STEP, counts, warnings)
     return counts, warnings

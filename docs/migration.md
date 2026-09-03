@@ -279,16 +279,23 @@ until an unrelated Project was fixed.
 |---|---|
 | Event Rules | Each captured rule's action is pointed at the Custom Script that replaced its built-in Script, and the built-in object types it watched are replaced with the plugin's. A rule that moved completely is re-enabled. |
 | Permissions | Each captured grant is moved onto the plugin's object types. An action with no counterpart on the plugin is dropped and reported. |
-| Job history | The built-in Scripts' Jobs are moved onto the Custom Scripts that replaced them, so a run's history survives the migration. |
+| Job history | The built-in Scripts' Jobs are moved onto the Custom Scripts that replaced them, so a run's history stays reachable from the script that replaced it. |
 | Schedules | Every schedule the cutover cancelled is enqueued again against the Custom Script. |
 
-Recreating a schedule follows three rules worth knowing, because between them they decide when a
-migration runs your code.
+Recreating a schedule follows five rules worth knowing, because between them they decide when a
+migration runs your code and who it runs as.
 
 - A schedule still in the future keeps its time.
 - A recurrence that fell due during the handover keeps its interval and starts now. A queue runs a
   past-due job the moment it is enqueued, and a migration must not run a script unasked.
 - A one-shot that fell due is refused for the same reason, and reported so you can decide.
+- A schedule is replayed under the account that owned it, and only while that account can still run
+  the script. One whose owner no longer holds the permission is refused and the step stays open, so
+  granting it and running the pass again picks the schedule up.
+- A schedule whose owner has been deleted or deactivated is refused for good rather than replayed
+  with no owner or under an account that cannot act, because a recurring run nobody owns notifies
+  nobody and is attributed to nobody, and no grant lets a deactivated account run anything.
+  Recreate it by hand under an account that should own it.
 
 **A run that was merely queued rather than scheduled is recreated to run at once**, with the commit
 setting it was queued with, because that is what the cutover promised the owner when it cancelled it.
@@ -300,14 +307,19 @@ Each of the four steps records its completion only once it has left nothing a la
 do. So a reference it could not move, because the Custom Script it names does not resolve yet, is
 picked up the next time you run the pass rather than skipped for good.
 
-What it reports as **permanent** is not retried, and the test is whether the cutover's frozen map
-can ever resolve it. A class removed or renamed before the migration keeps a built-in Script row
-only so its history survives, and that row is deliberately absent from the map, so its Job history,
-an Event Rule naming it and a schedule naming it are all left where they are for good. So are a job
-naming a built-in module rather than a Script, a permission carrying constraints, and a schedule
-whose time has passed or whose input names an object you deleted. Every one of those is listed on
-the migration's own page so you can deal with it by hand, and none of them holds the migration
-open.
+What it reports as **permanent** is not retried: it is what you would have to redo by hand rather
+than fix and let the pass finish. A class removed or renamed before the migration keeps a built-in
+Script row only so its history survives, and that row is deliberately absent from the map, so its
+Job history, an Event Rule naming it and a schedule naming it are all left where they are for good.
+So are a job naming a built-in module rather than a Script, a permission carrying constraints, and
+a schedule whose time has passed, whose owner has been deleted or deactivated, or whose input names
+an object you deleted. Every one of those is listed on the migration's own page so you can deal
+with it by hand, and none of them holds the migration open.
+
+**Staying put is not the same as staying reachable.** NetBox removes the built-in Custom Scripts
+feature at v5.0. It says nothing about deleting the rows, but a row naming a model that no longer
+exists has no page to open it on, so anything permanent whose history matters to you is worth
+dealing with before that upgrade rather than after.
 
 ## Retiring the built-in rows
 
@@ -371,8 +383,8 @@ refuse that. It is a fresh script rather than a returning one, because the old r
 
 **A stale built-in job cannot execute.** The cutover fails every waiting job closed and drops its
 task from the queue, so there is nothing left for a worker to pick up. Recurring runs are recreated
-against the Custom Script that replaced the built-in one, which is why the reference pass comes
-before cleanup rather than after.
+against the Custom Script that replaced the built-in one, subject to the owner rules above, which is
+why the reference pass comes before cleanup rather than after.
 
 ## Recovery
 

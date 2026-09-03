@@ -3,6 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import django_rq
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 from rq.job import Job as RQJob
@@ -15,6 +16,7 @@ from netbox_custom_scripts.migration import cutover, references
 from netbox_custom_scripts.models import CustomScript
 from netbox_custom_scripts.runtime.exceptions import EntrypointImportError
 from netbox_custom_scripts.tests.migration.test_references import ReferenceMigrationMixin
+from users.models import ObjectPermission
 
 # A legacy script with a variable, so the journal's primary keys have something to resolve back to.
 VARIABLE_SCRIPT = b"""from extras.scripts import ObjectVar, Script
@@ -385,20 +387,95 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.refresh_from_db()
         self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
-    def test_a_schedule_belonging_to_a_deleted_user_is_recreated_with_no_owner(self):
-        from django.contrib.auth import get_user_model
-
-        user = get_user_model().objects.create_user(username='departed')
+    def owned_schedule(self, username='scheduler'):
+        """Capture one schedule owned by a named account, and return the account."""
+        user = get_user_model().objects.create_user(username=username)
         job = self.legacy_schedule()
         Job.objects.filter(pk=job.pk).update(user=user)
+        return user
+
+    def grant_run(self, user):
+        """Give one account permission to run every Custom Script."""
+        permission = ObjectPermission(name='run custom scripts', actions=['run'])
+        permission.save()
+        permission.users.add(user)
+        permission.object_types.add(ObjectType.objects.get_for_model(CustomScript))
+
+    def test_a_schedule_belonging_to_a_deleted_user_is_not_replayed_unowned(self):
+        user = self.owned_schedule('departed')
         self.cross_over()
         user.delete()
 
         counts, warnings = references.recreate_schedules(self.migration)
 
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('no longer exists' in warning for warning in warnings))
+        # Permanent: nothing a later run could do brings the account back.
+        self.assertEqual(counts['outstanding'], 0)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_schedule_whose_owner_is_deactivated_is_not_replayed_and_does_not_hold_the_step_open(self):
+        user = self.owned_schedule('deactivated')
+        # Granted, so the grant is not what refuses it.
+        self.grant_run(user)
+        self.cross_over()
+        user.is_active = False
+        user.save()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 0)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('deactivated' in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_schedule_whose_owner_cannot_run_the_script_holds_the_step_open(self):
+        self.owned_schedule()
+        self.cross_over()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['outstanding'], 1)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('can no longer run' in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_the_owner_being_granted_lets_the_next_pass_replay_it(self):
+        user = self.owned_schedule()
+        self.cross_over()
+        references.recreate_schedules(self.migration)
+        self.migration.refresh_from_db()
+        # Refused and still open, which is what the grant below clears.
+        self.assertFalse(self.new_jobs().exists())
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+        self.grant_run(user)
+        with self.captureOnCommitCallbacks(execute=True):
+            counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(self.new_jobs().get().user, user)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_schedule_that_never_had_an_owner_is_replayed_as_it_was(self):
+        # Unowned before the migration and unowned after, so no permission stands in the way.
+        self.legacy_schedule()
+        self.cross_over()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            counts, _warnings = references.recreate_schedules(self.migration)
+
         self.assertEqual(counts['recreated'], 1)
         self.assertIsNone(self.new_jobs().get().user)
-        self.assertTrue(any('no longer exists' in warning for warning in warnings))
 
     def test_a_second_pass_creates_no_duplicate(self):
         # The one step in the phase that is not naturally idempotent, so the journal is the guard.

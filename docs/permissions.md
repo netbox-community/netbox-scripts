@@ -15,8 +15,8 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 | Action | What it allows |
 |---|---|
 | `view` | See Projects, their Modules and their state, including the revision in force |
-| `add` | Create a Project, including the Upload form that creates one from a file |
-| `change` | Edit a Project's own fields, and upload a further script into one |
+| `add` | Create a Project, including the Upload form that creates one from a file. The Upload form also needs Custom Script Module `add` |
+| `change` | Edit a Project's own fields, and upload a further script into one. Adding a script also needs Custom Script Module `add` |
 | `delete` | Delete a Project, which cascades its Revisions and Custom Scripts |
 | `activate` | Put a Revision into service, stand a Project down from one, and repair its Custom Scripts |
 | `migrate` | Move this installation off the built-in Custom Scripts feature |
@@ -85,6 +85,29 @@ run form without **Schedule at** and **Recurs every**, exactly as a script whose
 author disabled scheduling does, so there is one path to those fields being
 absent rather than two. Over REST there is no form to leave them out of, so
 `schedule_at` and `interval` are refused with a 403 instead.
+
+## An Event Rule authorizes a run without the run permission
+
+An Event Rule that names a Custom Script runs it whenever the rule fires, and the
+run is attributed to the user whose action triggered the event, not to whoever
+wrote the rule. Nothing checks that the rule's author holds `run_customscript`,
+and nothing checks it for the triggering user either.
+
+**So `extras.add_eventrule` and `extras.change_eventrule` are both privileged
+grants here.** Anyone who can create an Event Rule, or repoint an existing one,
+can arrange for a Custom Script to run without holding the permission that
+governs running one directly. An existing rule's action type and action object
+are editable on the form and over REST, so the two permissions carry the same
+escalation. Grant either to the same people you would grant `run_customscript`.
+
+This is not a gap this plugin introduced. NetBox's own built-in script action
+behaves the same way. **No hook a plugin can implement has the rule's author in
+scope**, so the author cannot be checked at all: `validate()` receives only the
+action object and its data, and runs on every save including ones with no user
+behind them. Refusing the triggering user instead would be possible, and is
+deliberately not done, because they did not write the rule and denying them a run
+they never asked for is the wrong answer. It is recorded here because an
+administrator sizing up `run_customscript` should know the second route exists.
 
 ## Two privileges with no codename of their own
 

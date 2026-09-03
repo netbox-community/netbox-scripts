@@ -7,11 +7,12 @@ as they do for a request, and anything the script raises has to reach the run lo
 reaches the Job. This module owns all of that, so the Job layer decides only what to run and
 what to record.
 
-NetBox exposes none of it to plugins as a documented API. Five symbols here are internal:
-registry['request_processors'], event_tracking, current_request, clear_events, and the router
-probe that finds the database change-logged writes go to. They are confined to this module on
-purpose, so the generic execution context requested from NetBox replaces one file rather than
-a scattering.
+NetBox exposes none of it to plugins as a documented API. Six symbols here are internal:
+registry['request_processors'], event_tracking, current_request, clear_events, the router
+probe that finds the database change-logged writes go to, and the abort a script carried over
+from the built-in feature raises. They are confined to this module on purpose, so the generic
+execution context requested from NetBox replaces one file rather than a scattering, and the
+last of them belongs to the feature NetBox retires at v5.0.
 """
 
 import logging

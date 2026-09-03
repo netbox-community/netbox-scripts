@@ -23,6 +23,12 @@ _REPORT_MODULE = 'extras.reports'
 # The bare package counts: "import extras" reaches the authoring API without naming it.
 _LEGACY_NAMES = frozenset({'extras', *LEGACY_MODULES})
 
+# An unseen base may carry run, which keeps a class out of the report verdict. Not these two: a
+# subclass of Report is a report whatever it inherits, and object carries nothing.
+_BASES_WITHOUT_RUN = frozenset({'Report', 'object'})
+# A subclass of either could publish without declaring run of its own.
+_SCRIPT_BASES = frozenset({'BaseScript', 'Script'})
+
 
 def classify(source):
     """Return one module's authoring dialect: NATIVE, LEGACY_IMPORT, REPORT_STYLE or UNPARSABLE."""
@@ -49,19 +55,55 @@ def publishes(scripts, source):
 
 def defines_a_script(source):
     """Return whether the source defines a class that could publish, refusing nothing."""
-    # Shape rather than base name, because a class can subclass a base this file never names.
-    # Unparsable counts as yes, so the file is declared and a verdict names it rather than it
-    # being migrated as a helper in silence.
+    # Shape first, because a class can subclass a base this file never names, then the two base
+    # names that publish with no run method of their own. Unparsable counts as yes, so the file is
+    # declared and a verdict names it rather than it being migrated as a helper in silence.
     try:
         tree = ast.parse(source)
     except (SyntaxError, ValueError):
         return True
-    return any(isinstance(node, ast.ClassDef) and 'run' in _method_names(node) for node in ast.walk(tree))
+    # A local base carrying run is enumerated here itself, so the bases need no walk.
+    return any(
+        'run' in _method_names(node) or not _SCRIPT_BASES.isdisjoint(_base_names(node)) for node in _classes(tree)
+    )
+
+
+def _classes(tree):
+    """Return every class the module declares, nested ones included."""
+    return [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+
+
+def _class_map(tree):
+    """Return the module's classes by name for resolving a base, the last declaration of a name winning."""
+    return {node.name: (_method_names(node), _base_names(node)) for node in _classes(tree)}
 
 
 def _method_names(node):
     """Return the names of the methods one class declares."""
     return {child.name for child in node.body if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
+def _base_names(node):
+    """Return the bare name of each base one class declares, dropping any dotted prefix."""
+    return [
+        base.id if isinstance(base, ast.Name) else base.attr
+        for base in node.bases
+        if isinstance(base, (ast.Name, ast.Attribute))
+    ]
+
+
+def _bases_supply_run(bases, classes, seen=()):
+    """Return whether a class's bases leave room for an inherited run method."""
+    for name in bases:
+        if name in seen:
+            continue
+        if name in classes:
+            methods, inherited = classes[name]
+            if 'run' in methods or _bases_supply_run(inherited, classes, (*seen, name)):
+                return True
+        elif name not in _BASES_WITHOUT_RUN:
+            return True
+    return False
 
 
 def _imported_names(tree):
@@ -78,11 +120,12 @@ def _imported_names(tree):
 
 
 def _has_report_shape(tree):
-    """Return whether any class declares test methods and no run method."""
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
+    """Return whether any class declares test methods and could not have inherited a run method."""
+    classes = _class_map(tree)
+    for node in _classes(tree):
         methods = _method_names(node)
-        if 'run' not in methods and any(name.startswith('test_') for name in methods):
+        if 'run' in methods or not any(name.startswith('test_') for name in methods):
+            continue
+        if not _bases_supply_run(_base_names(node), classes):
             return True
     return False

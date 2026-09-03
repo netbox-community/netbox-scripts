@@ -137,7 +137,7 @@ confirms the copied content arrived intact.
 
 **`max_project_size` bounds what is accepted, not what is held.** Staging assembles the
 whole candidate tree in memory as a mapping of path to bytes and sums it only once it is
-built, so an oversize tree is fully resident before it is rejected. Three things follow
+built, so an oversize tree is fully resident before it is rejected. Two things follow
 that are worth sizing for.
 
 An upload holds the project's existing tree plus the new file, so one call can reach this
@@ -145,10 +145,9 @@ limit plus `max_file_size` before the check fires. Both upload routes run in the
 process: the create and Add Script forms defer to a commit hook, and the REST upload action
 stages inline in the request.
 
-A Data Source staging is not bounded by this limit at all. It reads every `DataFile` on the
-source, bytes included, and filters by `data_path` afterwards, so the resident figure is the
-whole repository rather than the project's directory, once per project on that source per
-synchronization. That runs in an RQ worker, as migration staging does.
+A Data Source staging reads the paths on the source first and fetches bytes only for the
+files under the project's `data_path`, so a repository holding several projects does not put
+all of them in one worker. That runs in an RQ worker, as migration staging does.
 
 Verification and the entrypoint refresh are not affected. Both read one file at a time.
 

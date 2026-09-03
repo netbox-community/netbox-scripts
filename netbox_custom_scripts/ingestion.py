@@ -197,8 +197,11 @@ def _data_source_tree(project):
     it rather than this function hiding it. Keys need no canonicalization of their own, because
     the store canonicalizes on the way in.
     """
-    files = {}
-    for path, content in project.data_source.datafiles.values_list('path', 'data'):
+    # Two queries on purpose. The scope is decided from paths alone, so the bytes fetched are
+    # the project's directory rather than every file on the source, which for a repository
+    # holding more than this one project is the difference that matters.
+    wanted = {}
+    for pk, path in project.data_source.datafiles.values_list('pk', 'path'):
         relative = data_source_relative_path(path, project.data_path)
         if relative is None:
             continue
@@ -210,8 +213,11 @@ def _data_source_tree(project):
         except UnsafePathError as error:
             if error.code == 'compiled_artifact':
                 continue
-        files[relative] = content
-    return files
+        wanted[pk] = relative
+    if not wanted:
+        return {}
+    rows = project.data_source.datafiles.filter(pk__in=wanted).values_list('pk', 'data')
+    return {wanted[pk]: content for pk, content in rows}
 
 
 def declare_entrypoint(project, path, using):

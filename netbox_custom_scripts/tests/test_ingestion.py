@@ -6,7 +6,9 @@ from pathlib import Path
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from core.models import DataFile, DataSource, Job
@@ -18,6 +20,7 @@ from netbox_custom_scripts.choices import (
     RevisionStatusChoices,
 )
 from netbox_custom_scripts.ingestion import (
+    _data_source_tree,
     check_upload_conflicts,
     current_source_tree,
     ingest_data_source,
@@ -423,6 +426,22 @@ class IngestDataSourceTestCase(TestCase):
         staged = ingest_data_source(self.project)
         self.assertEqual([entry['source_path'] for entry in staged.revision.entrypoint_snapshot], ['deploy.py'])
         self.assertNotIn('deploy.py', self.staged_paths(staged))
+
+    def test_the_bytes_of_a_file_outside_the_directory_are_never_fetched(self):
+        # The scope is decided from paths, so a repository holding other projects does not put
+        # their content in this worker's memory.
+        self.populate()
+        outsider = data_file(self.source, 'unrelated/huge.py', b'z' * 4096)
+
+        with CaptureQueriesContext(connection) as queries:
+            tree = _data_source_tree(self.project)
+
+        self.assertNotIn('huge.py', ' '.join(tree))
+        fetching = [q['sql'] for q in queries.captured_queries if '"data"' in q['sql']]
+        self.assertEqual(len(fetching), 1)
+        # The one query that reads bytes is restricted to the in-scope rows by primary key.
+        self.assertIn('IN (', fetching[0])
+        self.assertNotIn(str(outsider.pk), fetching[0])
 
     def test_validation_is_enqueued_once_for_the_staged_revision(self):
         self.populate()

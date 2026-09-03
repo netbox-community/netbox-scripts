@@ -194,4 +194,8 @@ class Migration(migrations.Migration):
             model_name='customscriptproject',
             constraint=models.UniqueConstraint(condition=models.Q(('source_type', 'data_source')), fields=('data_source', 'data_path'), name='unique_data_source_path'),
         ),
+        migrations.AddConstraint(
+            model_name='migrationrun',
+            constraint=models.UniqueConstraint(models.Value(1), condition=models.Q(('state', 'migrated'), _negated=True), name='unique_open_migration_run'),
+        ),
     ]

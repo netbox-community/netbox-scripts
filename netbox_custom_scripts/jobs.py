@@ -775,7 +775,8 @@ class MigrationStagingJob(JobRunner):
             raise JobFailed()
 
         with migration_lock():
-            # Nothing in the schema stops a second run, so the check and the open share a lock.
+            # The schema refuses a second open run. The lock is what lets a concurrent job find the
+            # first one and reuse it instead of being refused.
             run = MigrationRun.current() or MigrationRun.start(user=self.job.user)
         # The state moves before the work, not after, because a pass that fails partway has still
         # copied source into Projects, which is what the staging state means.

@@ -25,8 +25,9 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertFalse(CustomScriptProject.objects.filter(active_revision__isnull=False).exists())
 
     def test_it_refuses_before_the_fence_has_been_recorded(self):
-        fresh = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
+        # Only one run may be open, so the fenced one goes before the fresh one is created.
         MigrationRun.objects.filter(pk=self.migration.pk).delete()
+        fresh = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
 
         with self.assertRaises(cutover.CutoverRefused):
             cutover.activate_staged(fresh)

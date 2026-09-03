@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
@@ -98,6 +98,19 @@ class MigrationRunTestCase(TestCase):
         run = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
 
         run.full_clean()
+
+    def test_a_second_open_run_is_refused_by_the_database(self):
+        # create() skips clean(), so the constraint is the only thing that can refuse this.
+        MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            MigrationRun.objects.create()
+
+    def test_two_closed_runs_may_coexist(self):
+        MigrationRun.objects.create(state=MigrationStateChoices.MIGRATED)
+        MigrationRun.objects.create(state=MigrationStateChoices.MIGRATED)
+
+        self.assertEqual(MigrationRun.objects.count(), 2)
 
     def test_current_finds_the_open_run_and_ignores_a_finished_one(self):
         self.assertIsNone(MigrationRun.current())

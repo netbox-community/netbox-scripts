@@ -117,6 +117,15 @@ class MigrationRun(ChangeLoggedModel):
 
     class Meta:
         app_label = 'netbox_custom_scripts'
+        constraints = [
+            # The rule clean() states, made structural: a second open run is refused by the
+            # database rather than only by a caller that remembered migration_lock().
+            models.UniqueConstraint(
+                models.Value(1),
+                name='unique_open_migration_run',
+                condition=~models.Q(state=MigrationStateChoices.MIGRATED),
+            ),
+        ]
         ordering = ('-created',)
         verbose_name = _('Custom Script migration')
         verbose_name_plural = _('Custom Script migrations')

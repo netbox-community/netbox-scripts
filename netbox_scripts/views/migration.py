@@ -22,7 +22,7 @@ from ..jobs import (
     MigrationVerificationJob,
 )
 from ..migration import cleanup, cutover, mapping, plan
-from ..models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
+from ..models import CustomScriptProject, MigrationRun, ScriptProjectRevision
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
 __all__ = (
@@ -97,7 +97,7 @@ def _newest_stored_revisions(projects):
     # One query for every row. CustomScriptProject.current_revision answers this per instance,
     # so reading it from the template would cost one query per Project the page lists.
     newest = {}
-    stored = CustomScriptProjectRevision.objects.filter(
+    stored = ScriptProjectRevision.objects.filter(
         project__in=[project.pk for project in projects], digest__isnull=False
     ).order_by('project_id', '-created')
     for revision in stored:

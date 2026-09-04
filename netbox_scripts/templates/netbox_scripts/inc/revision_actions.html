@@ -17,12 +17,12 @@ when they would work.
 {% endcomment %}
 {% if perms.netbox_scripts.activate_customscriptproject %}
   {% if record.is_active %}
-    <a href="{% url 'plugins:netbox_scripts:customscriptprojectrevision_deactivate' pk=record.pk %}"
+    <a href="{% url 'plugins:netbox_scripts:scriptprojectrevision_deactivate' pk=record.pk %}"
        class="btn btn-sm btn-outline-warning">
       <i class="mdi mdi-stop-circle-outline" aria-hidden="true"></i> {% trans "Deactivate" %}
     </a>
   {% elif record.is_activatable %}
-    <a href="{% url 'plugins:netbox_scripts:customscriptprojectrevision_activate' pk=record.pk %}"
+    <a href="{% url 'plugins:netbox_scripts:scriptprojectrevision_activate' pk=record.pk %}"
        class="btn btn-sm btn-outline-primary">
       <i class="mdi mdi-play-circle-outline" aria-hidden="true"></i> {% trans "Activate" %}
     </a>

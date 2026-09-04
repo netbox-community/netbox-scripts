@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from core.models import DataFile, DataSource
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
 
 DIGEST = 'd' * 64
 
@@ -109,13 +109,13 @@ class RevisionManifestCandidatesTestCase(TestCase):
         self.assertEqual(self.project.entrypoint_candidates(), [])
 
     def test_reads_the_newest_stored_revision(self):
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=self.project,
             digest='a' * 64,
             manifest=manifest('old.py'),
             status=RevisionStatusChoices.RETIRED,
         )
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=self.project,
             digest='b' * 64,
             entrypoint_digest='b' * 64,
@@ -125,7 +125,7 @@ class RevisionManifestCandidatesTestCase(TestCase):
         self.assertEqual(self.project.entrypoint_candidates(), ['deploy.py', 'tools/audit.py'])
 
     def test_the_active_revision_wins(self):
-        active = CustomScriptProjectRevision.objects.create(
+        active = ScriptProjectRevision.objects.create(
             project=self.project,
             digest='c' * 64,
             manifest=manifest('active.py'),
@@ -133,7 +133,7 @@ class RevisionManifestCandidatesTestCase(TestCase):
         )
         self.project.active_revision = active
         self.project.save()
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=self.project,
             digest='e' * 64,
             entrypoint_digest='e' * 64,
@@ -143,7 +143,7 @@ class RevisionManifestCandidatesTestCase(TestCase):
         self.assertEqual(self.project.entrypoint_candidates(), ['active.py'])
 
     def test_a_revision_without_a_digest_is_ignored(self):
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=self.project,
             manifest=manifest('rejected.py'),
             status=RevisionStatusChoices.INVALID,

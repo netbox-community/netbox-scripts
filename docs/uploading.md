@@ -156,7 +156,7 @@ resolves to the revision that already exists.
 Uploaded content is stored through the `netbox_scripts` entry of NetBox's `STORAGES`
 setting, never on the local filesystem, under a prefix naming the Project's storage key and the
 revision digest. See [Project storage](configuration.md#project-storage) for the backend
-choice and [Storage layout](models/customscriptprojectrevision.md#storage-layout) for the key
+choice and [Storage layout](models/scriptprojectrevision.md#storage-layout) for the key
 layout.
 
 Identical content uploaded twice resolves to the existing revision rather than storing a second

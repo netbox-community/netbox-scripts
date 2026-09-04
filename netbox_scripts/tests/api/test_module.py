@@ -1,7 +1,7 @@
 from rest_framework import status
 
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCases
 
 DIGEST = 'c' * 64
@@ -41,7 +41,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
     def test_discovery_fields_are_read_only(self):
         self.add_permissions('netbox_scripts.change_customscriptmodule')
         module = CustomScriptModule.objects.create(project=self.project, source_path='tools/system.py')
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST,
             status=RevisionStatusChoices.MATERIALIZED,

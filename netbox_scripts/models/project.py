@@ -89,7 +89,7 @@ class CustomScriptProject(PrimaryModel):
     # by clearing instead, because a project stops serving through enabled, not through this
     # pointer.
     active_revision = models.ForeignKey(
-        to='netbox_scripts.CustomScriptProjectRevision',
+        to='netbox_scripts.ScriptProjectRevision',
         verbose_name=_('active revision'),
         on_delete=models.SET_NULL,
         blank=True,
@@ -400,7 +400,7 @@ class CustomScriptProject(PrimaryModel):
         return None
 
 
-class CustomScriptProjectRevision(ChangeLoggedModel):
+class ScriptProjectRevision(ChangeLoggedModel):
     """
     One immutable snapshot of a Custom Script Project's complete source tree.
 
@@ -528,8 +528,8 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
     class Meta:
         app_label = 'netbox_scripts'
         ordering = ('-created',)
-        verbose_name = _('custom script project revision')
-        verbose_name_plural = _('custom script project revisions')
+        verbose_name = _('script project revision')
+        verbose_name_plural = _('script project revisions')
         constraints = [
             # Partial, so invalid revisions (digest NULL) coexist while valid content dedupes.
             # One source tree under a changed entrypoint configuration is a separate,
@@ -561,7 +561,7 @@ class CustomScriptProjectRevision(ChangeLoggedModel):
     def get_absolute_url(self):
         """Return the revision's own detail route."""
         # ChangeLoggedModel supplies none, unlike the base the other three models here use.
-        return reverse('plugins:netbox_scripts:customscriptprojectrevision', args=[self.pk])
+        return reverse('plugins:netbox_scripts:scriptprojectrevision', args=[self.pk])
 
     def save(self, *args, **kwargs):
         """Persist the revision, refusing any change to a content field after creation."""

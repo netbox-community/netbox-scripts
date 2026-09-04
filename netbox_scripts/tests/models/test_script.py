@@ -7,7 +7,7 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 
 DIGEST_A = 'a' * 64
@@ -19,12 +19,12 @@ class CustomScriptTestCase(TestCase):
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Script Project 1', key='script-project-1')
         cls.other_project = CustomScriptProject.objects.create(name='Script Project 2', key='script-project-2')
-        cls.revision = CustomScriptProjectRevision.objects.create(
+        cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=DIGEST_A,
             status=RevisionStatusChoices.ACTIVE,
         )
-        cls.other_revision = CustomScriptProjectRevision.objects.create(
+        cls.other_revision = ScriptProjectRevision.objects.create(
             project=cls.other_project,
             digest=DIGEST_B,
             status=RevisionStatusChoices.ACTIVE,
@@ -169,7 +169,7 @@ class CustomScriptTestCase(TestCase):
         # SET_NULL rather than CASCADE, so pruning old revisions never takes the scripts with
         # them. The revision carries no digest because the deletion receiver skips storage
         # cleanup only for one that was never written, and a bare fixture has no real manifest.
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=None,
             status=RevisionStatusChoices.INVALID,

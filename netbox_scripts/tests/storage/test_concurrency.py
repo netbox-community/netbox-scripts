@@ -24,7 +24,7 @@ from django.test import TransactionTestCase, override_settings
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.locks import advisory_key
@@ -134,7 +134,7 @@ class ProjectLockHeldTestCase(SerializationTestCase):
 
     def test_activation_holds_the_lock_across_the_verification(self):
         revision = self.materialize()
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
         revision.refresh_from_db()
         self.assert_locked_during(
             'verify_revision_tree',
@@ -191,7 +191,7 @@ class DuplicateStagingTestCase(SerializationTestCase):
         first = self.materialize()
         second = self.materialize()
         self.assertEqual(first.pk, second.pk)
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
         self.assertEqual(self.keys_present(first.digest), {'hello.py'})
 
     def test_a_row_another_stager_already_created_is_adopted(self):
@@ -199,7 +199,7 @@ class DuplicateStagingTestCase(SerializationTestCase):
         # the existing row and verifies its tree instead of writing a second one.
         entries = manifest_for(SOURCE)
         digest = compute_digest(entries)
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=self.project,
             digest=digest,
             status=RevisionStatusChoices.MATERIALIZED,
@@ -211,7 +211,7 @@ class DuplicateStagingTestCase(SerializationTestCase):
 
         staged = service.stage_revision(self.project, SOURCE)
         self.assertFalse(staged.created)
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
 
 
 class SlowStagerTestCase(SerializationTestCase):
@@ -219,14 +219,14 @@ class SlowStagerTestCase(SerializationTestCase):
 
     def test_a_stager_cannot_demote_a_validating_revision(self):
         revision = self.materialize()
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALIDATING)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALIDATING)
         # VALIDATING is neither stored nor retryable, so staging returns the row untouched.
         staged = service.stage_revision(self.project, SOURCE)
         self.assertEqual(staged.revision.status, RevisionStatusChoices.VALIDATING)
 
     def test_a_stager_cannot_pull_a_revision_back_from_active(self):
         revision = self.materialize()
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
         revision.refresh_from_db()
         service.promote_revision(revision, on_promote=lambda **kwargs: None)
 
@@ -242,9 +242,7 @@ class SlowStagerTestCase(SerializationTestCase):
 
         def write_then_advance(*args, **kwargs):
             result = real_write(*args, **kwargs)
-            CustomScriptProjectRevision.objects.filter(project=self.project).update(
-                status=RevisionStatusChoices.VALIDATING
-            )
+            ScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALIDATING)
             return result
 
         with mock.patch.object(store, 'write_revision', side_effect=write_then_advance):
@@ -279,7 +277,7 @@ class DeletionVersusStagingTestCase(SerializationTestCase):
         ):
             service.stage_revision(self.project, SOURCE)
         self.assertIn('deleted while', str(ctx.exception))
-        self.assertFalse(CustomScriptProjectRevision.objects.exists())
+        self.assertFalse(ScriptProjectRevision.objects.exists())
 
     def test_the_content_a_vanished_revision_wrote_is_reclaimable(self):
         # Nothing leaks permanently. The cleanup the delete recorded finds no referencing row

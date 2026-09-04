@@ -16,7 +16,7 @@ from netbox.registry import registry
 from netbox_scripts import jobs
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, store
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.storage.manifest import compute_digest
@@ -178,7 +178,7 @@ class SharedDigestJobTestCase(TestCase):
             key='cleanup-reference-project',
             storage_key=STORAGE_KEY,
         )
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=project,
             digest=DIGEST,
             status=RevisionStatusChoices.VALID,
@@ -264,7 +264,7 @@ class ProjectStorageSweepJobTestCase(TestCase):
 
     def test_content_a_revision_names_again_is_referenced_rather_than_stranded(self):
         job = self.cleanup_job(status=JobStatusChoices.STATUS_PENDING, age_hours=4)
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST,
             status=RevisionStatusChoices.VALID,

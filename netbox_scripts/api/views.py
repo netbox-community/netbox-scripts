@@ -21,7 +21,7 @@ from ..filtersets import (
     CustomScriptFilterSet,
     CustomScriptModuleFilterSet,
     CustomScriptProjectFilterSet,
-    CustomScriptProjectRevisionFilterSet,
+    ScriptProjectRevisionFilterSet,
 )
 from ..ingestion import (
     check_upload_conflicts,
@@ -30,15 +30,15 @@ from ..ingestion import (
     uploaded_source_path,
 )
 from ..jobs import CustomScriptJob, ProjectEntrypointRefreshJob
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from ..storage import config
 from .serializers import (
     CustomScriptModuleSerializer,
-    CustomScriptProjectRevisionSerializer,
     CustomScriptProjectSerializer,
     CustomScriptProjectUploadSerializer,
     CustomScriptRunInputSerializer,
     CustomScriptSerializer,
+    ScriptProjectRevisionSerializer,
 )
 
 
@@ -110,7 +110,7 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
             raise APIValidationError({'file': error.messages}) from error
 
         return Response(
-            CustomScriptProjectRevisionSerializer(staged.revision, context={'request': request}).data,
+            ScriptProjectRevisionSerializer(staged.revision, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -157,18 +157,18 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
         }
 
 
-class CustomScriptProjectRevisionViewSet(NetBoxReadOnlyModelViewSet):
+class ScriptProjectRevisionViewSet(NetBoxReadOnlyModelViewSet):
     """
-    Read-only REST API viewset for Custom Script Project Revisions.
+    Read-only REST API viewset for Script Project Revisions.
 
     Revisions are produced by ingestion and moved through their lifecycle by the storage and
     validation services, so no write route is registered at all. Activation stays an action on
     the project rather than a writable status field.
     """
 
-    queryset = CustomScriptProjectRevision.objects.select_related('project')
-    serializer_class = CustomScriptProjectRevisionSerializer
-    filterset_class = CustomScriptProjectRevisionFilterSet
+    queryset = ScriptProjectRevision.objects.select_related('project')
+    serializer_class = ScriptProjectRevisionSerializer
+    filterset_class = ScriptProjectRevisionFilterSet
 
 
 class CustomScriptViewSet(NetBoxModelViewSet):

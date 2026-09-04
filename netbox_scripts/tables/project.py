@@ -3,7 +3,7 @@ from django.utils.translation import gettext_lazy as _
 
 from netbox.tables import BaseTable, PrimaryModelTable, columns
 
-from ..models import CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptProject, ScriptProjectRevision
 
 
 class CustomScriptProjectTable(PrimaryModelTable):
@@ -46,7 +46,7 @@ class CustomScriptProjectTable(PrimaryModelTable):
         default_columns = ('name', 'key', 'source_type', 'data_source', 'enabled')
 
 
-class CustomScriptProjectRevisionTable(BaseTable):
+class ScriptProjectRevisionTable(BaseTable):
     """
     One project's revision history, for the project detail view.
 
@@ -93,7 +93,7 @@ class CustomScriptProjectRevisionTable(BaseTable):
     exempt_columns = ('actions',)
 
     class Meta(BaseTable.Meta):
-        model = CustomScriptProjectRevision
+        model = ScriptProjectRevision
         fields = ('created', 'short_digest', 'status', 'entrypoint_count', 'file_count', 'total_size', 'activated')
         default_columns = fields
         order_by = ('-created',)
@@ -133,7 +133,7 @@ class CustomScriptProjectFileTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         # ObjectChildrenView scopes saved table configurations by Meta.model, so the rows' source model stands in.
-        model = CustomScriptProjectRevision
+        model = ScriptProjectRevision
         empty_text = _('This project has no stored revision yet.')
         fields = ('path', 'size', 'sha256', 'entrypoint')
         default_columns = ('path', 'size', 'sha256', 'entrypoint')
@@ -151,7 +151,7 @@ class CustomScriptProjectFileTable(BaseTable):
         return value[:12]
 
 
-class CustomScriptProjectRevisionEntrypointTable(BaseTable):
+class ScriptProjectRevisionEntrypointTable(BaseTable):
     """
     The entrypoints one revision froze, for its detail view.
 
@@ -170,7 +170,7 @@ class CustomScriptProjectRevisionEntrypointTable(BaseTable):
         default_columns = fields
 
 
-class CustomScriptProjectRevisionProblemTable(BaseTable):
+class ScriptProjectRevisionProblemTable(BaseTable):
     """
     The problems one revision recorded, for its detail view.
 

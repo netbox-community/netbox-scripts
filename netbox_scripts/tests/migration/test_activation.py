@@ -5,7 +5,7 @@ from extras.models import ScriptModule
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
-from netbox_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
+from netbox_scripts.models import CustomScript, CustomScriptProject, MigrationRun, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
 
@@ -61,7 +61,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.stage_and_validate()
         # An operator fixes content and stages again, so this is reported rather than raised.
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
-        CustomScriptProjectRevision.objects.filter(project=project).update(status=RevisionStatusChoices.INVALID)
+        ScriptProjectRevision.objects.filter(project=project).update(status=RevisionStatusChoices.INVALID)
 
         results = cutover.activate_staged(self.migration)
 
@@ -75,7 +75,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
     def test_a_project_holding_no_revision_is_recorded_and_skipped(self):
         self.stage_and_validate()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
-        CustomScriptProjectRevision.objects.filter(project=project).delete()
+        ScriptProjectRevision.objects.filter(project=project).delete()
 
         results = cutover.activate_staged(self.migration)
 

@@ -30,7 +30,7 @@ from django.utils import timezone
 from .branching import require_safe_routing
 from .choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from .constants import MAX_VALIDATION_ERROR_LENGTH, VALIDATION_LEASE_SECONDS
-from .models import CustomScriptModule, CustomScriptProjectRevision
+from .models import CustomScriptModule, ScriptProjectRevision
 from .runtime.cache import local_revision_dir
 from .runtime.discovery import discover_scripts, zero_publication_reason
 from .runtime.exceptions import DiscoveryError, EntrypointImportError, InvalidModulePathError, ScriptMetadataError
@@ -76,7 +76,7 @@ def validate_revision(revision, *, job, passthrough=()):
     require_default_database(revision)
     now = timezone.now()
     lease_horizon = now - timedelta(seconds=VALIDATION_LEASE_SECONDS)
-    claimed = CustomScriptProjectRevision.objects.filter(
+    claimed = ScriptProjectRevision.objects.filter(
         Q(status=RevisionStatusChoices.MATERIALIZED)
         | Q(status=RevisionStatusChoices.VALIDATING, validation_started__lt=lease_horizon),
         pk=revision.pk,
@@ -330,7 +330,7 @@ def _finalize(revision, job, status, validation_errors, discovered_scripts):
     """Commit one verdict under the ownership fence, reporting whether this run still owned it."""
     # The published set lands in the same statement as the verdict, so a run that lost its
     # lease publishes nothing, and no reader ever sees a valid revision without its scripts.
-    updated = CustomScriptProjectRevision.objects.filter(
+    updated = ScriptProjectRevision.objects.filter(
         pk=revision.pk,
         status=RevisionStatusChoices.VALIDATING,
         validation_job=job,
@@ -349,7 +349,7 @@ def _failure_reason(error):
 
 def _revert_to_materialized(revision, job, reason=''):
     """Give the claim back after environment trouble, recording why, under the ownership fence."""
-    CustomScriptProjectRevision.objects.filter(
+    ScriptProjectRevision.objects.filter(
         pk=revision.pk,
         status=RevisionStatusChoices.VALIDATING,
         validation_job=job,

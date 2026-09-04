@@ -1,6 +1,6 @@
-# Custom Script Project Revision
+# Script Project Revision
 
-A Custom Script Project Revision is one immutable snapshot of a Custom Script
+A Script Project Revision is one immutable snapshot of a Custom Script
 Project's complete source tree together with the entrypoint configuration it
 was staged under. A revision records what was staged, not how it is served, so
 a job can be replayed against exactly the tree it ran on.
@@ -60,7 +60,7 @@ itself, and no project with an active revision could ever be deleted.
 | Surface | Endpoint or field |
 |---|---|
 | REST | `/api/plugins/netbox-scripts/project-revisions/` |
-| GraphQL | `custom_script_project_revision` / `custom_script_project_revision_list` |
+| GraphQL | `netbox_script_project_revision` / `netbox_script_project_revision_list` |
 
 Both surfaces are read-only. A revision is produced by ingestion and moved
 through its lifecycle by the storage and validation services, so every write

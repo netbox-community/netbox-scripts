@@ -5,9 +5,9 @@ from netbox.object_actions import BulkExport
 from netbox.tables.columns import ActionsColumn
 from netbox_scripts.tables import (
     CustomScriptModuleTable,
-    CustomScriptProjectRevisionTable,
     CustomScriptProjectTable,
     CustomScriptTable,
+    ScriptProjectRevisionTable,
 )
 from netbox_scripts.views import (
     CustomScriptListView,
@@ -32,7 +32,7 @@ DETAIL_VIEWS = (
 
 TABLES = (
     CustomScriptProjectTable,
-    CustomScriptProjectRevisionTable,
+    ScriptProjectRevisionTable,
     CustomScriptModuleTable,
     CustomScriptTable,
 )

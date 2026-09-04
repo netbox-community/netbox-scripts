@@ -29,14 +29,14 @@ from .project import (
     CustomScriptProjectListView,
     CustomScriptProjectReconcileView,
     CustomScriptProjectRepairView,
-    CustomScriptProjectRevisionsView,
     CustomScriptProjectUploadView,
     CustomScriptProjectView,
+    ScriptProjectRevisionsView,
 )
 from .revision import (
-    CustomScriptProjectRevisionActivateView,
-    CustomScriptProjectRevisionDeactivateView,
-    CustomScriptProjectRevisionView,
+    ScriptProjectRevisionActivateView,
+    ScriptProjectRevisionDeactivateView,
+    ScriptProjectRevisionView,
 )
 from .script import (
     CustomScriptBulkEditView,
@@ -68,10 +68,6 @@ __all__ = (
     'CustomScriptProjectListView',
     'CustomScriptProjectReconcileView',
     'CustomScriptProjectRepairView',
-    'CustomScriptProjectRevisionActivateView',
-    'CustomScriptProjectRevisionDeactivateView',
-    'CustomScriptProjectRevisionView',
-    'CustomScriptProjectRevisionsView',
     'CustomScriptProjectUploadView',
     'CustomScriptProjectView',
     'CustomScriptResultView',
@@ -86,4 +82,8 @@ __all__ = (
     'MigrationStagingView',
     'MigrationVerificationView',
     'MigrationView',
+    'ScriptProjectRevisionActivateView',
+    'ScriptProjectRevisionDeactivateView',
+    'ScriptProjectRevisionView',
+    'ScriptProjectRevisionsView',
 )

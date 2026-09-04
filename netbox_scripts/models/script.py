@@ -93,7 +93,7 @@ class CustomScript(JobsMixin, PrimaryModel):
         help_text=_('Set when the active revision no longer publishes this Custom Script.'),
     )
     last_seen_revision = models.ForeignKey(
-        to='netbox_scripts.CustomScriptProjectRevision',
+        to='netbox_scripts.ScriptProjectRevision',
         verbose_name=_('last seen revision'),
         on_delete=models.SET_NULL,
         blank=True,

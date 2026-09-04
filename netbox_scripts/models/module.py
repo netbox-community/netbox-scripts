@@ -53,7 +53,7 @@ class CustomScriptModule(PrimaryModel):
         editable=False,
     )
     last_discovered_revision = models.ForeignKey(
-        to='netbox_scripts.CustomScriptProjectRevision',
+        to='netbox_scripts.ScriptProjectRevision',
         verbose_name=_('last discovered revision'),
         on_delete=models.SET_NULL,
         blank=True,

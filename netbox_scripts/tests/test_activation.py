@@ -12,7 +12,7 @@ from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 from netbox_scripts.runtime import loader
 from netbox_scripts.storage import service, store
@@ -48,7 +48,7 @@ def record(module_path='deploy', class_name='DeployDevices', position=0, **overr
 class SynchronizeScriptsTestCase(TestCase):
     def setUp(self):
         self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
-        self.revision = CustomScriptProjectRevision.objects.create(
+        self.revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST_A,
             status=RevisionStatusChoices.MATERIALIZED,
@@ -75,7 +75,7 @@ class SynchronizeScriptsTestCase(TestCase):
 
     def test_an_existing_row_refreshes_every_recorded_field(self):
         self.sync([record()])
-        later = CustomScriptProjectRevision.objects.create(
+        later = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST_B,
             status=RevisionStatusChoices.MATERIALIZED,
@@ -169,7 +169,7 @@ class SynchronizeScriptsTestCase(TestCase):
 
     def test_another_project_is_left_alone(self):
         other = CustomScriptProject.objects.create(name='Audit', key='audit')
-        other_revision = CustomScriptProjectRevision.objects.create(
+        other_revision = ScriptProjectRevision.objects.create(
             project=other,
             digest=DIGEST_B,
             status=RevisionStatusChoices.MATERIALIZED,
@@ -241,7 +241,7 @@ class ActivationMixin(StorageServiceMixin):
 
     def published(self, revision, records):
         """Record a discovery snapshot the only way anything reaches that field."""
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(discovered_scripts=records)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(discovered_scripts=records)
         revision.refresh_from_db()
         return revision
 
@@ -303,7 +303,7 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
 
         def verify_then_damage(*args, **kwargs):
             result = real_verify(*args, **kwargs)
-            CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(discovered_scripts=[record(position=7)])
+            ScriptProjectRevision.objects.filter(pk=revision.pk).update(discovered_scripts=[record(position=7)])
             return result
 
         with (
@@ -323,7 +323,7 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
 
         def verify_then_swap(*args, **kwargs):
             result = real_verify(*args, **kwargs)
-            CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            ScriptProjectRevision.objects.filter(pk=revision.pk).update(
                 discovered_scripts=[record(class_name='Swapped')]
             )
             return result

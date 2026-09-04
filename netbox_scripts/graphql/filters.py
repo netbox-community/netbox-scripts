@@ -7,7 +7,7 @@ from strawberry_django import BaseFilterLookup, FilterLookup, StrFilterLookup
 
 from netbox.graphql.filters import ChangeLoggedModelFilter, PrimaryModelFilter
 
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 
 if TYPE_CHECKING:
     from core.graphql.filters import DataSourceFilter
@@ -18,7 +18,7 @@ __all__ = (
     'CustomScriptFilter',
     'CustomScriptModuleFilter',
     'CustomScriptProjectFilter',
-    'CustomScriptProjectRevisionFilter',
+    'ScriptProjectRevisionFilter',
 )
 
 
@@ -48,9 +48,9 @@ class CustomScriptProjectFilter(PrimaryModelFilter):
 
 # The manifest and the entrypoint snapshot are not filterable: both are stored documents rather
 # than lookup keys, and the diagnostics surface is where their contents belong.
-@strawberry_django.filter_type(CustomScriptProjectRevision, lookups=True)
-class CustomScriptProjectRevisionFilter(ChangeLoggedModelFilter):
-    """GraphQL filter for the Custom Script Project Revision model."""
+@strawberry_django.filter_type(ScriptProjectRevision, lookups=True, name='NetBoxScriptProjectRevisionFilter')
+class ScriptProjectRevisionFilter(ChangeLoggedModelFilter):
+    """GraphQL filter for the Script Project Revision model."""
 
     project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
@@ -72,7 +72,7 @@ class CustomScriptModuleFilter(PrimaryModelFilter):
     discovery_status: (
         BaseFilterLookup[Annotated['ModuleDiscoveryStatusEnum', strawberry.lazy('netbox_scripts.graphql.enums')]] | None
     ) = strawberry_django.filter_field()
-    last_discovered_revision: CustomScriptProjectRevisionFilter | None = strawberry_django.filter_field()
+    last_discovered_revision: ScriptProjectRevisionFilter | None = strawberry_django.filter_field()
     last_discovered_revision_id: ID | None = strawberry_django.filter_field()
 
 
@@ -89,5 +89,5 @@ class CustomScriptFilter(PrimaryModelFilter):
     display_name: StrFilterLookup | None = strawberry_django.filter_field()
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
     is_retired: FilterLookup[bool] | None = strawberry_django.filter_field()
-    last_seen_revision: CustomScriptProjectRevisionFilter | None = strawberry_django.filter_field()
+    last_seen_revision: ScriptProjectRevisionFilter | None = strawberry_django.filter_field()
     last_seen_revision_id: ID | None = strawberry_django.filter_field()

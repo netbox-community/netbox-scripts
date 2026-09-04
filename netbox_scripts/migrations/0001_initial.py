@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
         migrations.CreateModel(
-            name='CustomScriptProjectRevision',
+            name='ScriptProjectRevision',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
                 ('created', models.DateTimeField(auto_now_add=True, null=True)),
@@ -74,8 +74,8 @@ class Migration(migrations.Migration):
                 ('validation_job', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='core.job')),
             ],
             options={
-                'verbose_name': 'custom script project revision',
-                'verbose_name_plural': 'custom script project revisions',
+                'verbose_name': 'script project revision',
+                'verbose_name_plural': 'script project revisions',
                 'ordering': ('-created',),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
@@ -83,7 +83,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='customscriptproject',
             name='active_revision',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='active_revision_for', to='netbox_scripts.customscriptprojectrevision'),
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='active_revision_for', to='netbox_scripts.scriptprojectrevision'),
         ),
         migrations.CreateModel(
             name='CustomScriptModule',
@@ -98,7 +98,7 @@ class Migration(migrations.Migration):
                 ('enabled', models.BooleanField(default=True)),
                 ('discovery_status', models.CharField(default='pending', editable=False, max_length=50)),
                 ('discovery_error', models.TextField(blank=True, editable=False)),
-                ('last_discovered_revision', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.customscriptprojectrevision')),
+                ('last_discovered_revision', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.scriptprojectrevision')),
                 ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='users.owner')),
                 ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='modules', to='netbox_scripts.customscriptproject')),
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
@@ -128,7 +128,7 @@ class Migration(migrations.Migration):
                 ('notifications_default_override', models.CharField(blank=True, max_length=30)),
                 ('is_retired', models.BooleanField(default=False, editable=False)),
                 ('metadata', models.JSONField(blank=True, default=dict, editable=False)),
-                ('last_seen_revision', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.customscriptprojectrevision')),
+                ('last_seen_revision', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.scriptprojectrevision')),
                 ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='users.owner')),
                 ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='scripts', to='netbox_scripts.customscriptproject')),
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
@@ -175,15 +175,15 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(fields=('project', 'module_path', 'class_name'), name='unique_project_module_class'),
         ),
         migrations.AddConstraint(
-            model_name='customscriptprojectrevision',
+            model_name='scriptprojectrevision',
             constraint=models.UniqueConstraint(condition=models.Q(('digest__isnull', False)), fields=('project', 'digest', 'entrypoint_digest'), name='unique_project_digest_entrypoints'),
         ),
         migrations.AddConstraint(
-            model_name='customscriptprojectrevision',
+            model_name='scriptprojectrevision',
             constraint=models.CheckConstraint(condition=models.Q(('status', 'invalid'), ('digest__isnull', False), _connector='OR'), name='revision_requires_digest_unless_invalid'),
         ),
         migrations.AddConstraint(
-            model_name='customscriptprojectrevision',
+            model_name='scriptprojectrevision',
             constraint=models.UniqueConstraint(condition=models.Q(('status', 'active')), fields=('project',), name='unique_active_revision_per_project'),
         ),
         migrations.AddConstraint(

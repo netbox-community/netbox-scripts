@@ -15,8 +15,8 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
     MigrationRun,
+    ScriptProjectRevision,
 )
 
 PACKAGE = 'netbox_branching'
@@ -29,15 +29,15 @@ GLOBAL_MODELS = (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
     MigrationRun,
+    ScriptProjectRevision,
 )
 GLOBAL_LABELS = [
     'netbox_scripts.customscript',
     'netbox_scripts.customscriptmodule',
     'netbox_scripts.customscriptproject',
-    'netbox_scripts.customscriptprojectrevision',
     'netbox_scripts.migrationrun',
+    'netbox_scripts.scriptprojectrevision',
 ]
 
 try:  # The real package, when a developer has it installed alongside this plugin.
@@ -170,7 +170,7 @@ class RoutingReasonTestCase(TestCase):
         with routing(customscriptproject=True):
             reason = branching.unsafe_routing_reason()
         self.assertIn('netbox_scripts.customscriptproject', reason)
-        self.assertNotIn('customscriptprojectrevision', reason)
+        self.assertNotIn('scriptprojectrevision', reason)
         self.assertNotIn('customscriptmodule', reason)
 
     def test_a_reason_when_the_routing_api_is_unavailable(self):
@@ -267,7 +267,7 @@ class RequireSafeRoutingTestCase(TestCase):
         self.assertIsNone(branching.require_safe_routing())
 
     def test_refused_when_routing_is_unsafe(self):
-        with routing(customscriptprojectrevision=True), self.assertRaises(ImproperlyConfigured) as raised:
+        with routing(scriptprojectrevision=True), self.assertRaises(ImproperlyConfigured) as raised:
             branching.require_safe_routing()
         self.assertIn('exempt_models', str(raised.exception))
 

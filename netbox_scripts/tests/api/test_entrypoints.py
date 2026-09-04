@@ -5,7 +5,7 @@ from rest_framework import status
 
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectEntrypointRefreshJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from utilities.testing import APITestCase
 
 
@@ -15,7 +15,7 @@ class EntrypointsAPITestCase(APITestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='API Tab Project', key='api-tab-project')
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             manifest=[

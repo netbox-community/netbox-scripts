@@ -32,7 +32,7 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 from netbox_scripts.storage import service, store
 from netbox_scripts.storage.exceptions import StorageError
@@ -158,7 +158,7 @@ class IngestUploadTestCase(TestCase):
         with self.assertRaises(ValidationError):
             ingest_upload(self.project, filename='notes.txt', content=b'hello\n')
         self.assertFalse(CustomScriptModule.objects.exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.exists())
+        self.assertFalse(ScriptProjectRevision.objects.exists())
         self.enqueued.assert_not_called()
 
     def test_a_data_source_project_refuses_an_upload(self):
@@ -180,7 +180,7 @@ class IngestUploadTestCase(TestCase):
             self.assertRaises(StorageError),
         ):
             ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
         # The declaration survives, so the retry stages the same entrypoint configuration.
         self.assertTrue(CustomScriptModule.objects.filter(project=self.project, enabled=True).exists())
@@ -217,7 +217,7 @@ class IngestUploadTestCase(TestCase):
             RevisionStatusChoices.RETIRED,
         ):
             with self.subTest(status=status):
-                CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=status)
+                ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=status)
                 self.enqueued.reset_mock()
 
                 second = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
@@ -274,7 +274,7 @@ class IngestUploadTestCase(TestCase):
         # A project on the manual policy serves one revision while a newer one waits, and the
         # next upload has to carry that newer tree rather than the one still in force.
         first = ingest_upload(self.project, filename='alpha.py', content=SCRIPT)
-        CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
+        ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
         self.project.active_revision_id = first.revision.pk
         self.project.save(update_fields=('active_revision',))
 
@@ -292,7 +292,7 @@ class IngestUploadTestCase(TestCase):
         # The conflict check and the tree the upload builds on have to read one revision, or
         # the confirmation is skipped for exactly the content it guards.
         first = ingest_upload(self.project, filename='alpha.py', content=SCRIPT)
-        CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
+        ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
         self.project.active_revision_id = first.revision.pk
         self.project.save(update_fields=('active_revision',))
         ingest_upload(self.project, filename='beta.py', content=SCRIPT, base_files=current_source_tree(self.project))
@@ -457,13 +457,13 @@ class IngestDataSourceTestCase(TestCase):
         # enqueueing it again would fail a job over a synchronization that changed nothing.
         self.populate()
         first = ingest_data_source(self.project)
-        CustomScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.VALID)
         self.enqueued.reset_mock()
 
         second = ingest_data_source(self.project)
         self.assertEqual(second.revision.pk, first.revision.pk)
         self.assertFalse(second.created)
-        self.assertEqual(CustomScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)
         self.enqueued.assert_not_called()
 
     def test_an_empty_directory_stages_an_empty_revision(self):
@@ -479,7 +479,7 @@ class IngestDataSourceTestCase(TestCase):
         with self.assertRaises(ValidationError) as ctx:
             ingest_data_source(upload)
         self.assertIn('uploaded', str(ctx.exception))
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(project=upload).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(project=upload).exists())
         self.enqueued.assert_not_called()
 
 
@@ -494,7 +494,7 @@ class ValidationJobActivationTestCase(TestCase):
         CustomScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=policy)
         self.project.refresh_from_db()
         revision = service.stage_revision(self.project, {'deploy.py': SCRIPT}).revision
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
         revision.refresh_from_db()
         return revision
 
@@ -534,7 +534,7 @@ class ValidationJobActivationTestCase(TestCase):
 
     def test_a_one_shot_does_not_activate_an_invalid_revision(self):
         revision = self.valid_revision(ActivationPolicyChoices.MANUAL)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.INVALID, validation_errors=[{'path': 'deploy.py', 'message': 'bad'}]
         )
         revision.refresh_from_db()
@@ -544,7 +544,7 @@ class ValidationJobActivationTestCase(TestCase):
 
     def test_an_invalid_revision_is_never_activated(self):
         revision = self.valid_revision(ActivationPolicyChoices.AUTOMATIC_IF_VALID)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.INVALID, validation_errors=[{'path': 'deploy.py', 'message': 'bad'}]
         )
         revision.refresh_from_db()

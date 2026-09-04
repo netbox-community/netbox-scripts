@@ -33,10 +33,10 @@ from ..forms import (
     CustomScriptProjectUploadForm,
 )
 from ..jobs import ProjectReconciliationJob
-from ..models import CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptProject, ScriptProjectRevision
 from ..object_actions import ActivateRevision, AddScript, ReconcileSource, RepairScripts
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from ..tables import CustomScriptProjectFileTable, CustomScriptProjectRevisionTable, CustomScriptProjectTable
+from ..tables import CustomScriptProjectFileTable, CustomScriptProjectTable, ScriptProjectRevisionTable
 from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
 from .revision import activation_message
 
@@ -245,7 +245,7 @@ class CustomScriptProjectReconcileView(generic.ObjectView):
 
 
 @register_model_view(CustomScriptProject, 'revisions', path='revisions')
-class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
+class ScriptProjectRevisionsView(generic.ObjectChildrenView):
     """
     A Custom Script Project's revision history.
 
@@ -256,15 +256,15 @@ class CustomScriptProjectRevisionsView(generic.ObjectChildrenView):
     """
 
     queryset = CustomScriptProject.objects.select_related('data_source')
-    child_model = CustomScriptProjectRevision
-    table = CustomScriptProjectRevisionTable
+    child_model = ScriptProjectRevision
+    table = ScriptProjectRevisionTable
     actions = ()
     tab = ViewTab(
         label=_('Revisions'),
         badge=lambda obj: obj.revisions.count(),
         # The badge callable never receives the request, so the tab carries the permission and
         # core skips rendering it entirely rather than showing a count over an empty table.
-        permission='netbox_scripts.view_customscriptprojectrevision',
+        permission='netbox_scripts.view_scriptprojectrevision',
         weight=600,
     )
 
@@ -304,7 +304,7 @@ class CustomScriptProjectFilesView(generic.ObjectChildrenView):
     tab = ViewTab(
         label=_('Files'),
         badge=lambda obj: obj.current_revision.file_count if obj.current_revision else 0,
-        permission='netbox_scripts.view_customscriptprojectrevision',
+        permission='netbox_scripts.view_scriptprojectrevision',
         weight=550,
     )
 
@@ -315,7 +315,7 @@ class CustomScriptProjectFilesView(generic.ObjectChildrenView):
         # revision they came from instead of restricting what get_children returns.
         if (
             revision is None
-            or not CustomScriptProjectRevision.objects.restrict(request.user, 'view').filter(pk=revision.pk).exists()
+            or not ScriptProjectRevision.objects.restrict(request.user, 'view').filter(pk=revision.pk).exists()
         ):
             return []
         declared = {module.source_path: module.enabled for module in parent.modules.all()}

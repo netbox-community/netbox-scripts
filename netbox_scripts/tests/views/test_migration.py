@@ -29,7 +29,7 @@ from netbox_scripts.jobs import (
     MigrationVerificationJob,
 )
 from netbox_scripts.migration import cutover, mapping
-from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision, MigrationRun
+from netbox_scripts.models import CustomScriptProject, MigrationRun, ScriptProjectRevision
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -162,7 +162,7 @@ class MigrationTriggerTestCase(TestCase):
         """Create one Project per key, serving a revision unless activate is False."""
         for key in keys:
             project = CustomScriptProject.objects.create(name=key, key=key)
-            revision = CustomScriptProjectRevision.objects.create(
+            revision = ScriptProjectRevision.objects.create(
                 project=project, digest='a' * 64, status=RevisionStatusChoices.ACTIVE
             )
             if not activate:
@@ -208,7 +208,7 @@ class MigrationTriggerTestCase(TestCase):
     def staged(self, status, recorded_status=None, scripts=()):
         """Create a Project with a revision, and the staging Job that reports having made it."""
         project = CustomScriptProject.objects.create(name='Staged Project', key='staged-project')
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=project, digest='f' * 64, status=status, discovered_scripts=list(scripts)
         )
         job = self.record(MigrationStagingJob)

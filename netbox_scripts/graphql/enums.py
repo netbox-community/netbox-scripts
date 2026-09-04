@@ -17,4 +17,6 @@ __all__ = (
 ActivationPolicyEnum = strawberry.enum(ActivationPolicyChoices.as_enum(prefix='activation_policy'))
 ModuleDiscoveryStatusEnum = strawberry.enum(ModuleDiscoveryStatusChoices.as_enum(prefix='discovery_status'))
 ProjectSourceTypeEnum = strawberry.enum(ProjectSourceTypeChoices.as_enum(prefix='source_type'))
-RevisionStatusEnum = strawberry.enum(RevisionStatusChoices.as_enum(prefix='status'))
+RevisionStatusEnum = strawberry.enum(
+    RevisionStatusChoices.as_enum(prefix='status'), name='NetBoxScriptRevisionStatusEnum'
+)

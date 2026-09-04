@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from .. import branching, constants
 from ..choices import RevisionStatusChoices
-from ..models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from . import config, store
 from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
 from .exceptions import (
@@ -47,7 +47,7 @@ __all__ = (
 class StagedRevision(NamedTuple):
     """The result of one staging call: the revision and whether this call created it."""
 
-    revision: CustomScriptProjectRevision
+    revision: ScriptProjectRevision
     created: bool
 
 
@@ -87,7 +87,7 @@ def stage_revision(project, files):
     }
 
     if errors:
-        revision = CustomScriptProjectRevision.objects.using(using).create(
+        revision = ScriptProjectRevision.objects.using(using).create(
             project=project,
             digest=None,
             status=RevisionStatusChoices.INVALID,
@@ -109,7 +109,7 @@ def stage_revision(project, files):
     with project_lock(storage_key, using=using):
         # get_or_create wraps its insert in a savepoint and re-runs the get on IntegrityError,
         # which is exactly the race the partial unique on the identity triple can lose.
-        revision, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
+        revision, created = ScriptProjectRevision.objects.using(using).get_or_create(
             project=project,
             digest=compute_digest(entries),
             entrypoint_digest=entrypoint_digest,
@@ -129,7 +129,7 @@ def stage_revision(project, files):
             # conditional, so re-entering the window cannot demote a row another worker advanced
             # between the read above and this write.
             claimed = (
-                CustomScriptProjectRevision.objects.using(using)
+                ScriptProjectRevision.objects.using(using)
                 .filter(pk=revision.pk, status__in=constants.RETRYABLE_REVISION_STATUSES)
                 .update(status=RevisionStatusChoices.STAGING, last_updated=timezone.now())
             )
@@ -141,7 +141,7 @@ def stage_revision(project, files):
         except (OSError, StorageError) as error:
             # Only a row still inside its write window takes the failure. One a concurrent owner
             # has advanced keeps that owner's word, and the error still propagates either way.
-            CustomScriptProjectRevision.objects.using(using).filter(
+            ScriptProjectRevision.objects.using(using).filter(
                 pk=revision.pk, status=RevisionStatusChoices.STAGING
             ).update(
                 status=RevisionStatusChoices.STORAGE_FAILED,
@@ -154,9 +154,9 @@ def stage_revision(project, files):
         # The same conditional write settles success, so a slow writer cannot pull a revision
         # back from VALID or ACTIVE. A write that lost its window self-heals on the next call,
         # which re-verifies the stored tree.
-        CustomScriptProjectRevision.objects.using(using).filter(
-            pk=revision.pk, status=RevisionStatusChoices.STAGING
-        ).update(status=RevisionStatusChoices.MATERIALIZED, validation_errors=[], last_updated=timezone.now())
+        ScriptProjectRevision.objects.using(using).filter(pk=revision.pk, status=RevisionStatusChoices.STAGING).update(
+            status=RevisionStatusChoices.MATERIALIZED, validation_errors=[], last_updated=timezone.now()
+        )
         _refresh_surviving(revision, using)
         return StagedRevision(revision, created)
 
@@ -184,7 +184,7 @@ def refresh_revision_entrypoints(revision):
     storage = config.get_storage()
     using = require_default_database(revision)
 
-    source = revision_or_vanished(CustomScriptProjectRevision.objects.using(using), revision.pk)
+    source = revision_or_vanished(ScriptProjectRevision.objects.using(using), revision.pk)
     if not source.digest:
         raise ValueError(f'Revision {source.pk} has no digest, so there is no stored content to refresh.')
     manifest = _validated_manifest(source)
@@ -200,7 +200,7 @@ def refresh_revision_entrypoints(revision):
     with project_lock(storage_key, using=using):
         store.verify_revision_tree(storage, storage_key, source.digest, manifest)
 
-        candidate, created = CustomScriptProjectRevision.objects.using(using).get_or_create(
+        candidate, created = ScriptProjectRevision.objects.using(using).get_or_create(
             project_id=source.project_id,
             digest=source.digest,
             entrypoint_digest=entrypoint_digest,
@@ -241,7 +241,7 @@ def promote_revision(revision, *, on_promote):
     revision_pk = revision.pk
     using = require_default_database(revision)
 
-    snapshot = revision_or_vanished(CustomScriptProjectRevision.objects.using(using), revision_pk)
+    snapshot = revision_or_vanished(ScriptProjectRevision.objects.using(using), revision_pk)
     project_state = project_or_vanished(
         CustomScriptProject.objects.using(using).values('storage_key', 'active_revision_id'), snapshot.project_id
     )
@@ -274,7 +274,7 @@ def _promote(snapshot, revision_pk, using, on_promote):
         # activations serialize rather than deadlock.
         project = project_or_vanished(CustomScriptProject.objects.using(using).select_for_update(), snapshot.project_id)
         locked = revision_or_vanished(
-            CustomScriptProjectRevision.objects.using(using).select_for_update(),
+            ScriptProjectRevision.objects.using(using).select_for_update(),
             revision_pk,
             project_id=project.pk,
         )
@@ -299,7 +299,7 @@ def _promote(snapshot, revision_pk, using, on_promote):
 
         if project.active_revision_id is not None:
             previous = revision_or_vanished(
-                CustomScriptProjectRevision.objects.using(using).select_for_update(),
+                ScriptProjectRevision.objects.using(using).select_for_update(),
                 project.active_revision_id,
                 project_id=project.pk,
             )
@@ -328,7 +328,7 @@ def revision_or_vanished(query, revision_pk, **filters):
     """Return one shaped revision read, reporting a concurrent deletion as such."""
     try:
         return query.get(pk=revision_pk, **filters)
-    except CustomScriptProjectRevision.DoesNotExist as error:
+    except ScriptProjectRevision.DoesNotExist as error:
         raise RevisionVanishedError(
             f'Revision {revision_pk} was deleted while its content was being changed.'
         ) from error
@@ -345,7 +345,7 @@ def _refresh_surviving(revision, using):
     """
     try:
         revision.refresh_from_db(using=using)
-    except CustomScriptProjectRevision.DoesNotExist as error:
+    except ScriptProjectRevision.DoesNotExist as error:
         raise RevisionVanishedError(
             f'Revision {revision.pk} was deleted while its content was being staged.'
         ) from error
@@ -370,7 +370,7 @@ def require_default_database(instance):
     refresh, activation, and validation refuse every other alias up front. Content
     created elsewhere could never be reclaimed, because its deletion would be refused.
     """
-    using = instance._state.db or router.db_for_write(CustomScriptProjectRevision, instance=instance)
+    using = instance._state.db or router.db_for_write(ScriptProjectRevision, instance=instance)
     if using != DEFAULT_DB_ALIAS:
         raise ImproperlyConfigured(
             f'Custom Script Project storage operations run on the "{DEFAULT_DB_ALIAS}" database only. '

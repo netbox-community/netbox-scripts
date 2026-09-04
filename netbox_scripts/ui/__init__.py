@@ -3,13 +3,13 @@ from .panels import (
     CustomScriptModulePanel,
     CustomScriptPanel,
     CustomScriptProjectPanel,
-    CustomScriptProjectRevisionPanel,
-    CustomScriptProjectRevisionStatePanel,
     CustomScriptProjectSourcePanel,
     CustomScriptProjectStatePanel,
     CustomScriptStatePanel,
     MigrationRunPanel,
     MigrationRunVersionPanel,
+    ScriptProjectRevisionPanel,
+    ScriptProjectRevisionStatePanel,
 )
 
 __all__ = (
@@ -17,11 +17,11 @@ __all__ = (
     'CustomScriptModulePanel',
     'CustomScriptPanel',
     'CustomScriptProjectPanel',
-    'CustomScriptProjectRevisionPanel',
-    'CustomScriptProjectRevisionStatePanel',
     'CustomScriptProjectSourcePanel',
     'CustomScriptProjectStatePanel',
     'CustomScriptStatePanel',
     'MigrationRunPanel',
     'MigrationRunVersionPanel',
+    'ScriptProjectRevisionPanel',
+    'ScriptProjectRevisionStatePanel',
 )

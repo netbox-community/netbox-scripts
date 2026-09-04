@@ -13,7 +13,7 @@ from django.utils import timezone
 from core.models import DataSource
 from netbox_scripts import constants
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from netbox_scripts.storage.manifest import compute_digest
 
@@ -412,7 +412,7 @@ class CustomScriptProjectTestCase(TestCase):
     def test_active_revision_must_belong_to_project(self):
         owner = CustomScriptProject.objects.create(name='AR Owner', key='ar-owner')
         other = CustomScriptProject.objects.create(name='AR Other', key='ar-other')
-        revision = CustomScriptProjectRevision.objects.create(project=owner, digest='e' * 64)
+        revision = ScriptProjectRevision.objects.create(project=owner, digest='e' * 64)
         other.active_revision = revision
         with self.assertRaises(ValidationError) as cm:
             other.full_clean()
@@ -420,7 +420,7 @@ class CustomScriptProjectTestCase(TestCase):
 
     def test_active_revision_accepts_an_active_revision(self):
         project = CustomScriptProject.objects.create(name='AR Own', key='ar-own')
-        project.active_revision = CustomScriptProjectRevision.objects.create(
+        project.active_revision = ScriptProjectRevision.objects.create(
             project=project, digest='f' * 64, status=RevisionStatusChoices.ACTIVE
         )
         project.full_clean()
@@ -439,7 +439,7 @@ class CustomScriptProjectTestCase(TestCase):
             ('d' * 64, RevisionStatusChoices.INVALID),
         ):
             with self.subTest(status=status):
-                project.active_revision = CustomScriptProjectRevision.objects.create(
+                project.active_revision = ScriptProjectRevision.objects.create(
                     project=project, digest=digest, status=status
                 )
                 with self.assertRaises(ValidationError) as cm:
@@ -450,7 +450,7 @@ class CustomScriptProjectTestCase(TestCase):
         # clean() is the form and REST path. This is the backstop for an ORM write, so it
         # names the same field and reason rather than raising something generic.
         project = CustomScriptProject.objects.create(name='AR Save', key='ar-save')
-        project.active_revision = CustomScriptProjectRevision.objects.create(
+        project.active_revision = ScriptProjectRevision.objects.create(
             project=project, digest='9' * 64, status=RevisionStatusChoices.STAGING
         )
         with self.assertRaises(ValidationError) as cm:
@@ -460,7 +460,7 @@ class CustomScriptProjectTestCase(TestCase):
     def test_save_refuses_a_revision_belonging_to_another_project(self):
         owner = CustomScriptProject.objects.create(name='AR Own2', key='ar-own2')
         other = CustomScriptProject.objects.create(name='AR Other2', key='ar-other2')
-        other.active_revision = CustomScriptProjectRevision.objects.create(
+        other.active_revision = ScriptProjectRevision.objects.create(
             project=owner, digest='8' * 64, status=RevisionStatusChoices.ACTIVE
         )
         with self.assertRaises(ValidationError) as cm:
@@ -471,7 +471,7 @@ class CustomScriptProjectTestCase(TestCase):
         # Django accepts a foreign key's attname there, so a gate testing only the field name
         # would let an ORM writer past the very check it exists for.
         project = CustomScriptProject.objects.create(name='AR Attname', key='ar-attname')
-        project.active_revision = CustomScriptProjectRevision.objects.create(
+        project.active_revision = ScriptProjectRevision.objects.create(
             project=project, digest='7' * 64, status=RevisionStatusChoices.STAGING
         )
         with self.assertRaises(ValidationError) as cm:
@@ -480,7 +480,7 @@ class CustomScriptProjectTestCase(TestCase):
 
     def test_active_revision_for_reverse_accessor(self):
         project = CustomScriptProject.objects.create(name='AR Reverse', key='ar-reverse')
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=project, digest='1' * 64, status=RevisionStatusChoices.ACTIVE
         )
         self.assertFalse(revision.active_revision_for.exists())
@@ -493,20 +493,20 @@ class CustomScriptProjectTestCase(TestCase):
         # The deletion signal validates a captured manifest against its digest, so a
         # deletable fixture must carry a pair that actually matches.
         digest = compute_digest([])
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=project, digest=digest, status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
         project.save()
         project.delete()
         self.assertFalse(CustomScriptProject.objects.filter(key='ar-delete').exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=digest).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(digest=digest).exists())
 
     def test_deleting_the_active_revision_clears_the_pointer(self):
         # SET_NULL rather than PROTECT. A project that loses its active revision serves nothing
         # until another is activated, which is the same state it starts life in.
         project = CustomScriptProject.objects.create(name='AR Clear', key='ar-clear')
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
@@ -519,21 +519,21 @@ class CustomScriptProjectTestCase(TestCase):
         # The regression test for the pointer that protected its own project. PROTECT fired
         # here even though the protecting row was the project being deleted.
         project = CustomScriptProject.objects.create(name='AR Bulk', key='ar-bulk')
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
         project.save()
         CustomScriptProject.objects.filter(pk=project.pk).delete()
         self.assertFalse(CustomScriptProject.objects.filter(key='ar-bulk').exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=revision.pk).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(pk=revision.pk).exists())
 
     def test_collecting_dependents_of_an_active_project_does_not_raise(self):
         # What the delete confirmation page does before any deletion happens. It ran the
         # collector, PROTECT fired, and the page refused with the project named as its own
         # dependent object.
         project = CustomScriptProject.objects.create(name='AR Collect', key='ar-collect')
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
@@ -541,10 +541,10 @@ class CustomScriptProjectTestCase(TestCase):
         collector = Collector(using=DEFAULT_DB_ALIAS)
         collector.collect([project])
         collected = {model for model, _instances in collector.instances_with_model()}
-        self.assertIn(CustomScriptProjectRevision, collected)
+        self.assertIn(ScriptProjectRevision, collected)
 
 
-class CustomScriptProjectRevisionTestCase(TestCase):
+class ScriptProjectRevisionTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Revision Project', key='revision-project')
@@ -559,7 +559,7 @@ class CustomScriptProjectRevisionTestCase(TestCase):
             'total_size': 3,
         }
         values.update(overrides)
-        return CustomScriptProjectRevision.objects.create(**values)
+        return ScriptProjectRevision.objects.create(**values)
 
     def test_create_revision(self):
         instance = self.make_revision()
@@ -572,7 +572,7 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         self.assertIsNotNone(instance.created)
 
     def test_default_status_is_staging(self):
-        instance = CustomScriptProjectRevision.objects.create(project=self.project, digest=DIGEST_A)
+        instance = ScriptProjectRevision.objects.create(project=self.project, digest=DIGEST_A)
         self.assertEqual(instance.status, RevisionStatusChoices.STAGING)
 
     def test_revisions_are_reachable_from_the_project(self):
@@ -588,13 +588,13 @@ class CustomScriptProjectRevisionTestCase(TestCase):
         self.assertEqual(str(instance), f'{self.project} @ invalid')
 
     def test_digest_field_validates_hex_format(self):
-        instance = CustomScriptProjectRevision(project=self.project, digest='NOT-A-DIGEST')
+        instance = ScriptProjectRevision(project=self.project, digest='NOT-A-DIGEST')
         with self.assertRaises(ValidationError) as cm:
             instance.full_clean()
         self.assertIn('digest', cm.exception.message_dict)
 
     def test_digest_field_rejects_uppercase_hex(self):
-        instance = CustomScriptProjectRevision(project=self.project, digest='A' * 64)
+        instance = ScriptProjectRevision(project=self.project, digest='A' * 64)
         with self.assertRaises(ValidationError) as cm:
             instance.full_clean()
         self.assertIn('digest', cm.exception.message_dict)
@@ -607,14 +607,14 @@ class CustomScriptProjectRevisionTestCase(TestCase):
     def test_same_digest_allowed_on_a_different_project(self):
         other = CustomScriptProject.objects.create(name='Other Project', key='other-project')
         self.make_revision()
-        instance = CustomScriptProjectRevision.objects.create(project=other, digest=DIGEST_A)
+        instance = ScriptProjectRevision.objects.create(project=other, digest=DIGEST_A)
         self.assertIsNotNone(instance.pk)
 
     def test_multiple_invalid_revisions_allowed_with_null_digest(self):
         first = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
         second = self.make_revision(digest=None, status=RevisionStatusChoices.INVALID)
         self.assertNotEqual(first.pk, second.pk)
-        self.assertEqual(CustomScriptProjectRevision.objects.filter(digest__isnull=True).count(), 2)
+        self.assertEqual(ScriptProjectRevision.objects.filter(digest__isnull=True).count(), 2)
 
     def test_entrypoint_fields_default_to_the_empty_snapshot(self):
         instance = self.make_revision()
@@ -672,7 +672,7 @@ class CustomScriptProjectRevisionTestCase(TestCase):
     def test_two_projects_may_each_have_an_active_revision(self):
         other = CustomScriptProject.objects.create(name='Other Active', key='other-active')
         self.make_revision(digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE)
-        sibling = CustomScriptProjectRevision.objects.create(
+        sibling = ScriptProjectRevision.objects.create(
             project=other, digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE
         )
         self.assertIsNotNone(sibling.pk)
@@ -723,15 +723,15 @@ class CustomScriptProjectRevisionTestCase(TestCase):
     def test_deleting_the_project_cascades_to_its_revisions(self):
         project = CustomScriptProject.objects.create(name='Doomed Project', key='doomed-project')
         digest = compute_digest([])
-        CustomScriptProjectRevision.objects.create(project=project, digest=digest)
+        ScriptProjectRevision.objects.create(project=project, digest=digest)
         project.delete()
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(digest=digest).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(digest=digest).exists())
 
     def test_ordering_is_newest_first(self):
         older = self.make_revision(digest=DIGEST_A)
         newer = self.make_revision(digest=DIGEST_B)
-        CustomScriptProjectRevision.objects.filter(pk=older.pk).update(created=timezone.now() - timedelta(days=1))
-        self.assertEqual(list(CustomScriptProjectRevision.objects.all()), [newer, older])
+        ScriptProjectRevision.objects.filter(pk=older.pk).update(created=timezone.now() - timedelta(days=1))
+        self.assertEqual(list(ScriptProjectRevision.objects.all()), [newer, older])
 
     def test_lifecycle_groupings_match_the_choice_set(self):
         # The groupings are spelled out in constants.py so that module keeps no imports, so
@@ -775,7 +775,7 @@ class CustomScriptProjectSourceStateTestCase(TestCase):
         cls.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
 
     def revision(self, status, digest=DIGEST_A, **kwargs):
-        return CustomScriptProjectRevision.objects.create(
+        return ScriptProjectRevision.objects.create(
             project=self.project,
             digest=digest,
             status=status,
@@ -833,7 +833,7 @@ class CustomScriptProjectSourceStateTestCase(TestCase):
                 # Moved with update() rather than recreated, because this fixture's manifest is
                 # not a real one, and the deletion signal refuses a revision whose manifest it
                 # cannot validate. Status is not a frozen field, so the move is legitimate.
-                CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=status)
+                ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=status)
                 self.assertNotIn('A newer revision exists', str(self.project.source_state))
 
     def test_a_short_digest_is_the_prefix_a_revision_is_named_by(self):

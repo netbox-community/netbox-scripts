@@ -8,7 +8,7 @@ from extras.models import EventRule, Script, ScriptModule, Webhook
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationReferencesJob, RevisionValidationJob
 from netbox_scripts.migration import cutover, references
-from netbox_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
+from netbox_scripts.models import CustomScript, CustomScriptProject, MigrationRun, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import Group, ObjectPermission
 
@@ -26,7 +26,7 @@ class ReferenceMigrationMixin(LegacySourceMixin):
     def cross_over(self):
         """Stage, validate, cross the fence and activate, which is the state a repoint starts from."""
         for result in self.stage_all():
-            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            revision = ScriptProjectRevision.objects.get(pk=result['revision_pk'])
             RevisionValidationJob.enqueue_validation(revision, immediate=True)
         cutover.enter_cutover(self.migration)
         self.migration.refresh_from_db()
@@ -371,7 +371,7 @@ class ReferencePassOrderingTestCase(ReferenceMigrationMixin, TestCase):
 
     def test_it_refuses_after_the_fence_but_before_activation(self):
         for result in self.stage_all():
-            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            revision = ScriptProjectRevision.objects.get(pk=result['revision_pk'])
             RevisionValidationJob.enqueue_validation(revision, immediate=True)
         cutover.enter_cutover(self.migration)
         self.migration.refresh_from_db()
@@ -445,14 +445,14 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
     def cross_without_activating(self):
         """Cross the fence, then leave one Project unable to serve so activation skips it."""
         for result in self.stage_all():
-            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            revision = ScriptProjectRevision.objects.get(pk=result['revision_pk'])
             RevisionValidationJob.enqueue_validation(revision, immediate=True)
         # Invalidated after the fence, because the cutover itself refuses a Project that cannot
         # serve, which is the state this leaves behind rather than the one it starts from.
         cutover.enter_cutover(self.migration)
         self.migration.refresh_from_db()
         self.broken = CustomScriptProject.objects.get(source_type=ProjectSourceTypeChoices.UPLOAD)
-        CustomScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.INVALID)
+        ScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.INVALID)
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
 
@@ -483,7 +483,7 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
 
     def test_it_proceeds_once_the_project_is_repaired(self):
         self.cross_without_activating()
-        CustomScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.VALID)
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
 

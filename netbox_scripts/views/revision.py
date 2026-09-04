@@ -11,10 +11,10 @@ from utilities.views import register_model_view
 
 from .. import activation
 from ..constants import ACTIVATABLE_REVISION_STATUSES
-from ..models import CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from ..tables import CustomScriptProjectRevisionEntrypointTable, CustomScriptProjectRevisionProblemTable
-from ..ui import CustomScriptProjectRevisionPanel, CustomScriptProjectRevisionStatePanel
+from ..tables import ScriptProjectRevisionEntrypointTable, ScriptProjectRevisionProblemTable
+from ..ui import ScriptProjectRevisionPanel, ScriptProjectRevisionStatePanel
 
 
 def activation_message(revision, scripts):
@@ -42,14 +42,14 @@ def activation_message(revision, scripts):
     return f'{published} {retired}'
 
 
-@register_model_view(CustomScriptProjectRevision)
-class CustomScriptProjectRevisionView(generic.ObjectView):
+@register_model_view(ScriptProjectRevision)
+class ScriptProjectRevisionView(generic.ObjectView):
     """Detail view for a single revision, reached from the project's Revisions tab."""
 
-    queryset = CustomScriptProjectRevision.objects.select_related('project')
+    queryset = ScriptProjectRevision.objects.select_related('project')
     layout = layout.SimpleLayout(
-        left_panels=[CustomScriptProjectRevisionPanel()],
-        right_panels=[CustomScriptProjectRevisionStatePanel()],
+        left_panels=[ScriptProjectRevisionPanel()],
+        right_panels=[ScriptProjectRevisionStatePanel()],
         bottom_panels=[
             ContextTablePanel('entrypoints_table', title=_('Entrypoints')),
             ContextTablePanel('problems_table', title=_('Recorded problems')),
@@ -59,7 +59,7 @@ class CustomScriptProjectRevisionView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         """Supply the entrypoint and problem tables, withholding the problems key when there are none."""
         # The snapshot is already sorted by source path, so there is no other order to offer.
-        entrypoints = CustomScriptProjectRevisionEntrypointTable(instance.entrypoint_snapshot, orderable=False)
+        entrypoints = ScriptProjectRevisionEntrypointTable(instance.entrypoint_snapshot, orderable=False)
         entrypoints.configure(request)
         # This one always renders: an empty snapshot is why a revision publishes nothing, which is
         # worth saying rather than leaving as a missing card.
@@ -67,7 +67,7 @@ class CustomScriptProjectRevisionView(generic.ObjectView):
         # ContextTablePanel renders nothing for an unresolved key, which is how a revision with
         # no problems avoids an empty card.
         if problems := instance.problems:
-            problems_table = CustomScriptProjectRevisionProblemTable(problems, orderable=False)
+            problems_table = ScriptProjectRevisionProblemTable(problems, orderable=False)
             problems_table.configure(request)
             context['problems_table'] = problems_table
         return context
@@ -91,7 +91,7 @@ class RevisionServiceView(generic.ObjectView):
 
     # return_url() reaches the project after an operation that may have found it deleted, so a
     # lazy fetch here would raise past the handler that just caught it.
-    queryset = CustomScriptProjectRevision.objects.select_related('project')
+    queryset = ScriptProjectRevision.objects.select_related('project')
 
     def get_required_permission(self):
         """Require the owning project's activate permission, not the revision's own."""
@@ -124,8 +124,8 @@ class RevisionServiceView(generic.ObjectView):
         )
 
 
-@register_model_view(CustomScriptProjectRevision, 'activate', path='activate')
-class CustomScriptProjectRevisionActivateView(RevisionServiceView):
+@register_model_view(ScriptProjectRevision, 'activate', path='activate')
+class ScriptProjectRevisionActivateView(RevisionServiceView):
     """
     Put one specific revision of a project into service.
 
@@ -136,10 +136,8 @@ class CustomScriptProjectRevisionActivateView(RevisionServiceView):
     retirement that cannot happen. Repair Scripts on the Project is the route for that.
     """
 
-    queryset = CustomScriptProjectRevision.objects.select_related('project').filter(
-        status__in=ACTIVATABLE_REVISION_STATUSES
-    )
-    template_name = 'netbox_scripts/customscriptprojectrevision_activate.html'
+    queryset = ScriptProjectRevision.objects.select_related('project').filter(status__in=ACTIVATABLE_REVISION_STATUSES)
+    template_name = 'netbox_scripts/scriptprojectrevision_activate.html'
 
     def post(self, request, **kwargs):
         """Activate the revision, reporting a refusal rather than raising at the user."""
@@ -154,11 +152,11 @@ class CustomScriptProjectRevisionActivateView(RevisionServiceView):
         return redirect(self.return_url(revision))
 
 
-@register_model_view(CustomScriptProjectRevision, 'deactivate', path='deactivate')
-class CustomScriptProjectRevisionDeactivateView(RevisionServiceView):
+@register_model_view(ScriptProjectRevision, 'deactivate', path='deactivate')
+class ScriptProjectRevisionDeactivateView(RevisionServiceView):
     """Stand a project down from the revision it is serving."""
 
-    template_name = 'netbox_scripts/customscriptprojectrevision_deactivate.html'
+    template_name = 'netbox_scripts/scriptprojectrevision_deactivate.html'
 
     def post(self, request, **kwargs):
         """Retire the revision and clear the project's pointer, reporting a refusal."""

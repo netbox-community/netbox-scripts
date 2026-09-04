@@ -4,12 +4,12 @@ from django.urls import reverse
 from core.models import ObjectType
 from netbox_scripts import activation
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tables import (
-    CustomScriptProjectRevisionEntrypointTable,
-    CustomScriptProjectRevisionProblemTable,
+    ScriptProjectRevisionEntrypointTable,
+    ScriptProjectRevisionProblemTable,
 )
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
@@ -57,7 +57,7 @@ class RevisionServiceViewTestCase(TestCase):
         """Stage distinct content, mark it valid, and record what it publishes."""
         type(self).counter += 1
         revision = service.stage_revision(self.project, {'deploy.py': f'V = {self.counter}\n'.encode()}).revision
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALID,
             discovered_scripts=[record()] if records is None else records,
         )
@@ -66,7 +66,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     @staticmethod
     def url(revision, action):
-        return reverse(f'plugins:netbox_scripts:customscriptprojectrevision_{action}', args=[revision.pk])
+        return reverse(f'plugins:netbox_scripts:scriptprojectrevision_{action}', args=[revision.pk])
 
     def tab_url(self):
         return f'{self.project.get_absolute_url()}revisions/'
@@ -130,7 +130,7 @@ class RevisionServiceViewTestCase(TestCase):
     def test_the_route_refuses_a_revision_that_never_validated(self):
         self.grant(CustomScriptProject, 'view', 'activate')
         materialized = self.valid_revision()
-        CustomScriptProjectRevision.objects.filter(pk=materialized.pk).update(status=RevisionStatusChoices.MATERIALIZED)
+        ScriptProjectRevision.objects.filter(pk=materialized.pk).update(status=RevisionStatusChoices.MATERIALIZED)
 
         self.assertHttpStatus(self.client.post(self.url(materialized, 'activate')), 404)
 
@@ -208,7 +208,7 @@ class RevisionServiceViewTestCase(TestCase):
         # invalid HTML that browsers discard, so a button inside one submits the OUTER form to
         # the tab URL. That is exactly what happened: POST to the tab, 405. Links cannot.
         self.grant(CustomScriptProject, 'view', 'activate')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         target = self.url(revision, 'activate')
@@ -240,7 +240,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     def test_the_tab_offers_activate_for_a_valid_revision_and_nothing_else(self):
         self.grant(CustomScriptProject, 'view', 'activate')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         self.assertIn(self.url(revision, 'activate'), body)
@@ -248,7 +248,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     def test_the_tab_offers_deactivate_for_the_active_revision(self):
         self.grant(CustomScriptProject, 'view', 'activate')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         body = self.client.get(self.tab_url()).content.decode()
@@ -279,7 +279,7 @@ class DeactivateRevisionTestCase(TestCase):
 
     def activated(self):
         revision = service.stage_revision(self.project, {'deploy.py': b'V = 1\n'}).revision
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALID, discovered_scripts=[record()]
         )
         revision.refresh_from_db()
@@ -305,13 +305,13 @@ class DeactivateRevisionTestCase(TestCase):
         self.assertFalse(revision.is_active)
 
 
-class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
+class ScriptProjectRevisionProblemPanelTestCase(TestCase):
     """The revision detail view reports the problems its record carries, whichever tier wrote them."""
 
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Problem Project', key='problem-project')
-        cls.invalid = CustomScriptProjectRevision.objects.create(
+        cls.invalid = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             status=RevisionStatusChoices.INVALID,
@@ -326,7 +326,7 @@ class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
             ],
         )
         # No digest, the shape the storage tier persists when a manifest rejects a file.
-        cls.rejected = CustomScriptProjectRevision.objects.create(
+        cls.rejected = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=None,
             status=RevisionStatusChoices.INVALID,
@@ -335,7 +335,7 @@ class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
                 {'path': None, 'code': 'too_many_files', 'message': 'The project has 900 files.'},
             ],
         )
-        cls.clean = CustomScriptProjectRevision.objects.create(
+        cls.clean = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='b' * 64,
             status=RevisionStatusChoices.VALID,
@@ -352,13 +352,13 @@ class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def body(self, revision):
-        url = reverse('plugins:netbox_scripts:customscriptprojectrevision', args=[revision.pk])
+        url = reverse('plugins:netbox_scripts:scriptprojectrevision', args=[revision.pk])
         response = self.client.get(url)
         self.assertHttpStatus(response, 200)
         return response.content.decode()
 
     def test_a_validation_record_reports_its_path_code_and_message(self):
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.body(self.invalid)
         self.assertIn('Recorded problems', body)
         self.assertIn('broken.py', body)
@@ -366,23 +366,23 @@ class CustomScriptProjectRevisionProblemPanelTestCase(TestCase):
         self.assertIn('is not a number of seconds', body)
 
     def test_a_storage_record_reports_its_path_under_the_same_column(self):
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.body(self.rejected)
         self.assertIn('notes.txt', body)
         self.assertIn('not_a_python_file', body)
 
     def test_a_record_naming_no_file_is_marked_project_wide(self):
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         self.assertIn('The whole project', self.body(self.rejected))
 
     def test_the_traceback_is_available_but_not_shown_by_default(self):
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         # Behaviour first, then that the column exists at all, so deleting it fails this too.
         self.assertNotIn('most recent call last', self.body(self.invalid))
-        self.assertIn('traceback', CustomScriptProjectRevisionProblemTable.Meta.fields)
+        self.assertIn('traceback', ScriptProjectRevisionProblemTable.Meta.fields)
 
     def test_a_revision_with_no_problems_renders_no_panel(self):
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         self.assertNotIn('Recorded problems', self.body(self.clean))
 
     def test_both_shapes_normalize_to_one_row_shape(self):
@@ -398,7 +398,7 @@ class RevisionEntrypointPanelTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Entrypoint Project', key='entrypoint-project')
-        cls.declared = CustomScriptProjectRevision.objects.create(
+        cls.declared = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             entrypoint_digest='b' * 64,
@@ -409,15 +409,13 @@ class RevisionEntrypointPanelTestCase(TestCase):
         )
         # Same source tree, different selection: the pair the Revisions tab cannot otherwise
         # tell apart.
-        cls.narrowed = CustomScriptProjectRevision.objects.create(
+        cls.narrowed = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             entrypoint_digest='c' * 64,
             entrypoint_snapshot=[{'module': 1, 'source_path': 'audit.py'}],
         )
-        cls.empty = CustomScriptProjectRevision.objects.create(
-            project=cls.project, digest='d' * 64, entrypoint_snapshot=[]
-        )
+        cls.empty = ScriptProjectRevision.objects.create(project=cls.project, digest='d' * 64, entrypoint_snapshot=[])
 
     def setUp(self):
         self.user = create_test_user()
@@ -425,10 +423,10 @@ class RevisionEntrypointPanelTestCase(TestCase):
         obj_perm = ObjectPermission(name='revision view', actions=['view'])
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProjectRevision))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProjectRevision))
 
     def body(self, revision):
-        url = reverse('plugins:netbox_scripts:customscriptprojectrevision', args=[revision.pk])
+        url = reverse('plugins:netbox_scripts:scriptprojectrevision', args=[revision.pk])
         response = self.client.get(url)
         self.assertHttpStatus(response, 200)
         return response.content.decode()
@@ -454,4 +452,4 @@ class RevisionEntrypointPanelTestCase(TestCase):
     def test_the_panel_offers_no_column_but_the_path(self):
         # The snapshot also carries Module primary keys, which are provenance rather than
         # something an operator reads, and the row they name may since have been deleted.
-        self.assertEqual(CustomScriptProjectRevisionEntrypointTable.Meta.fields, ('source_path',))
+        self.assertEqual(ScriptProjectRevisionEntrypointTable.Meta.fields, ('source_path',))

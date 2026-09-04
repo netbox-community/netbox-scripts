@@ -17,10 +17,10 @@ logging, global search, REST, and GraphQL.
 | Storage key | Immutable internal storage and runtime identity (UUID), not a public identifier. | [Custom Script Project](models/customscriptproject.md) |
 | Source type | Where project content comes from: `upload` or `data_source`, never mixed. | [Custom Script Project](models/customscriptproject.md) |
 | Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Custom Script Project](models/customscriptproject.md) |
-| Project revision | One immutable snapshot of a project's source tree and entrypoint configuration, addressed by a content digest and an entrypoint digest. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
-| Active revision | The single revision of a project that is currently active. Activating another retires it. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
+| Project revision | One immutable snapshot of a project's source tree and entrypoint configuration, addressed by a content digest and an entrypoint digest. | [Script Project Revision](models/scriptprojectrevision.md) |
+| Active revision | The single revision of a project that is currently active. Activating another retires it. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Custom Script Module | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Custom Script Module](models/customscriptmodule.md) |
-| Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Custom Script Project Revision](models/customscriptprojectrevision.md) |
+| Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Custom Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Custom Script](models/customscript.md) |
 | Run | One execution of a Custom Script, recorded as a Job and pinned to the revision that was being served when it was requested. | [Running Custom Scripts](execution.md) |
 | Commit and dry run | Whether a run's database changes are kept or rolled back when it finishes. | [Running Custom Scripts](execution.md) |

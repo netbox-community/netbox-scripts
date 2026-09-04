@@ -8,7 +8,7 @@ the project's explicit statement of what runs rather than an inventory of every
 file.
 
 Enabled module declarations are frozen into each revision at staging time as
-that revision's [entrypoint snapshot](customscriptprojectrevision.md). Editing,
+that revision's [entrypoint snapshot](scriptprojectrevision.md). Editing,
 disabling, or deleting a module therefore changes future revisions and never
 what an existing revision was validated against.
 
@@ -55,7 +55,7 @@ was a mistake that never validated.
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
 | `project` | `CustomScriptProject` | yes | `on_delete=CASCADE`, reverse name `modules` |
-| `last_discovered_revision` | `CustomScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
+| `last_discovered_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
 ## API
 

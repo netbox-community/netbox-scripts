@@ -53,7 +53,7 @@ class ModuleDiscoveryStatusChoices(ChoiceSet):
 
 class RevisionStatusChoices(ChoiceSet):
     """
-    Lifecycle states of one Custom Script Project Revision.
+    Lifecycle states of one Script Project Revision.
 
     Storing a source tree and judging it fit to execute are separate steps. The storage
     layer takes a revision as far as MATERIALIZED, meaning the tree is stored and matches

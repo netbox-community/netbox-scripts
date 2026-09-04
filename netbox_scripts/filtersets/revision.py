@@ -6,12 +6,12 @@ from netbox.filtersets import ChangeLoggedModelFilterSet
 from utilities.filtersets import register_filterset
 
 from ..choices import RevisionStatusChoices
-from ..models import CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptProject, ScriptProjectRevision
 
 
 @register_filterset
-class CustomScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet):
-    """Filter set for the Custom Script Project Revision model."""
+class ScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet):
+    """Filter set for the Script Project Revision model."""
 
     project_id = django_filters.ModelMultipleChoiceFilter(
         field_name='project',
@@ -31,7 +31,7 @@ class CustomScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet):
     )
 
     class Meta:
-        model = CustomScriptProjectRevision
+        model = ScriptProjectRevision
         fields = (
             'id',
             'digest',

@@ -8,7 +8,7 @@ from core.models import ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.ingestion import ingest_upload
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config
 from netbox_scripts.storage.paths import STORAGE_PREFIX
 from netbox_scripts.tests.storage.test_store import stored_paths
@@ -88,7 +88,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         module = CustomScriptModule.objects.get(project=project)
         self.assertEqual(module.source_path, 'deploy.py')
         self.assertTrue(module.enabled)
-        revision = CustomScriptProjectRevision.objects.get(project=project)
+        revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
         self.enqueued.assert_called_once()
@@ -237,7 +237,7 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
         response = self.post(upload_file=self.upload())
         self.assertHttpStatus(response, 302)
 
-        revision = CustomScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
+        revision = ScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['audit.py', 'deploy.py'])
         # Both are entrypoints, since an uploaded file always is.
         self.assertEqual(
@@ -259,14 +259,14 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
         response = self.post(upload_file=self.upload('deploy.py'))
         self.assertHttpStatus(response, 200)
         self.assertIn('already holds', response.content.decode())
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
         self.enqueued.assert_not_called()
 
     def test_the_confirmation_allows_the_replacement_as_a_new_revision(self):
         self.grant_both()
         response = self.post(upload_file=self.upload('deploy.py'), confirm_replace='on')
         self.assertHttpStatus(response, 302)
-        revision = CustomScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
+        revision = ScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
         self.assertNotEqual(revision.digest, self.first.digest)
         # The old revision is untouched, so the replaced content stays recoverable.
@@ -280,14 +280,14 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
         response = self.post(upload_file=self.upload('archive/deploy.py'))
         self.assertHttpStatus(response, 200)
         self.assertIn('already holds', response.content.decode())
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
 
     def test_a_case_variant_is_refused_on_the_upload_field(self):
         self.grant_both()
         response = self.post(upload_file=self.upload('Deploy.py'))
         self.assertHttpStatus(response, 200)
         self.assertIn('collides', response.content.decode())
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
 
     def test_a_non_python_upload_is_refused(self):
         self.grant_both()

@@ -25,11 +25,11 @@ package boundary used when loading and executing scripts.
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
 | `data_source` | `core.DataSource` | conditional | `on_delete=PROTECT`, no reverse relation, set only when `source_type` is `data_source` |
-| `revisions` | `CustomScriptProjectRevision` | no | Reverse of the revision's `project`, `on_delete=CASCADE`. Every snapshot ever staged for this project |
-| `active_revision` | `CustomScriptProjectRevision` | no | `on_delete=SET_NULL`, reverse name `active_revision_for`. Set only by the storage activation service |
+| `revisions` | `ScriptProjectRevision` | no | Reverse of the revision's `project`, `on_delete=CASCADE`. Every snapshot ever staged for this project |
+| `active_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, reverse name `active_revision_for`. Set only by the storage activation service |
 
 Each project owns a history of immutable source snapshots, documented on the
-[Custom Script Project Revision](customscriptprojectrevision.md) page. Its
+[Script Project Revision](scriptprojectrevision.md) page. Its
 declared entrypoints are [Custom Script Modules](customscriptmodule.md) and the
 classes an activated revision publishes are [Custom Scripts](customscript.md).
 
@@ -127,7 +127,7 @@ PLUGINS_CONFIG = {
     'netbox_branching': {
         'exempt_models': [
             'netbox_scripts.customscriptproject',
-            'netbox_scripts.customscriptprojectrevision',
+            'netbox_scripts.scriptprojectrevision',
         ],
     },
 }

@@ -2,13 +2,13 @@ from netbox.api.fields import ChoiceField
 from netbox.api.serializers import ValidatedModelSerializer
 
 from ...choices import RevisionStatusChoices
-from ...models import CustomScriptProjectRevision
+from ...models import ScriptProjectRevision
 from .project import CustomScriptProjectSerializer
 
 
-class CustomScriptProjectRevisionSerializer(ValidatedModelSerializer):
+class ScriptProjectRevisionSerializer(ValidatedModelSerializer):
     """
-    Serializer for the Custom Script Project Revision model.
+    Serializer for the Script Project Revision model.
 
     Carries a revision's identity, its position in the lifecycle, and the outcome of the
     validation that judged it. It also serves the caller that resolves a serializer by model
@@ -19,7 +19,7 @@ class CustomScriptProjectRevisionSerializer(ValidatedModelSerializer):
     status = ChoiceField(choices=RevisionStatusChoices, read_only=True)
 
     class Meta:
-        model = CustomScriptProjectRevision
+        model = ScriptProjectRevision
         fields = (
             'id',
             'url',

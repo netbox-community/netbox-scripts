@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from core.models import Job
 from netbox_scripts import signals
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, store
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.storage.manifest import compute_digest
@@ -62,9 +62,7 @@ class CleanupFixtureMixin:
             source, entries = STORED[digest]
             store.write_revision(self.storage, project.storage_key, digest, source, entries)
         status = RevisionStatusChoices.VALID if digest else RevisionStatusChoices.INVALID
-        return CustomScriptProjectRevision.objects.create(
-            project=project, digest=digest, status=status, manifest=entries
-        )
+        return ScriptProjectRevision.objects.create(project=project, digest=digest, status=status, manifest=entries)
 
     def capture_enqueues(self):
         """Patch the cleanup job's durable enqueue, so a test asserts the handoff without RQ."""
@@ -96,7 +94,7 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
 
     def test_a_revision_with_no_manifest_entries_schedules_no_cleanup(self):
         # A manifest with no entries stored no keys, so a cleanup job would have nothing to do.
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=self.project, digest=compute_digest([]), status=RevisionStatusChoices.VALID, manifest=[]
         )
         with self.capture_enqueues() as enqueue:
@@ -107,20 +105,20 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         # The captured manifest is the only inventory of the stored keys, so a shape this
         # receiver cannot trust aborts the delete rather than crashing or guessing.
         revision = self.make_revision(DIGEST_A)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=[{'path': 'hello.py'}])
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=[{'path': 'hello.py'}])
         with self.capture_enqueues() as enqueue, self.assertRaises(RevisionCorruptError), transaction.atomic():
             revision.delete()
         enqueue.assert_not_called()
-        self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=revision.pk).exists())
+        self.assertTrue(ScriptProjectRevision.objects.filter(pk=revision.pk).exists())
         self.assertTrue(self.revision_stored(DIGEST_A))
 
     def test_a_manifest_that_does_not_address_its_digest_fails_the_delete_closed(self):
         revision = self.make_revision(DIGEST_A)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=MANIFEST_B)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=MANIFEST_B)
         with self.capture_enqueues() as enqueue, self.assertRaises(RevisionCorruptError), transaction.atomic():
             revision.delete()
         enqueue.assert_not_called()
-        self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=revision.pk).exists())
+        self.assertTrue(ScriptProjectRevision.objects.filter(pk=revision.pk).exists())
 
     def test_unsafe_branching_routing_leaves_the_source_in_the_store(self):
         # The row deleted here may not be the only row naming this source, so removing it could
@@ -141,9 +139,9 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         # The core Job API binds the row and its queue callback to the default connection,
         # so recording cleanup for another alias could commit it independently.
         revision = self.make_revision(DIGEST_A)
-        signals.capture_revision_storage(CustomScriptProjectRevision, revision, using=DEFAULT_DB_ALIAS)
+        signals.capture_revision_storage(ScriptProjectRevision, revision, using=DEFAULT_DB_ALIAS)
         with self.assertRaises(ImproperlyConfigured) as ctx:
-            signals.cleanup_revision_storage(CustomScriptProjectRevision, revision, using='replica')
+            signals.cleanup_revision_storage(ScriptProjectRevision, revision, using='replica')
         self.assertIn('replica', str(ctx.exception))
         self.assertEqual(Job.objects.count(), 0)
         self.assertTrue(self.revision_stored(DIGEST_A))
@@ -152,12 +150,12 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         # A branch alias under broken routing hits the settled skip-and-log path, the
         # alias contract only refuses deletes that branching would have allowed.
         revision = self.make_revision(DIGEST_A)
-        signals.capture_revision_storage(CustomScriptProjectRevision, revision, using=DEFAULT_DB_ALIAS)
+        signals.capture_revision_storage(ScriptProjectRevision, revision, using=DEFAULT_DB_ALIAS)
         with (
             mock.patch.object(signals.branching, 'unsafe_routing_reason', return_value='Routing is unsafe.'),
             self.assertLogs(signals.logger, 'ERROR'),
         ):
-            signals.cleanup_revision_storage(CustomScriptProjectRevision, revision, using='replica')
+            signals.cleanup_revision_storage(ScriptProjectRevision, revision, using='replica')
         self.assertEqual(Job.objects.count(), 0)
         self.assertTrue(self.revision_stored(DIGEST_A))
 
@@ -178,7 +176,7 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         self.assertEqual(callbacks, [])
         self.assertEqual(Job.objects.count(), 0)
         self.assertTrue(self.revision_stored(DIGEST_A))
-        self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=revision_pk).exists())
+        self.assertTrue(ScriptProjectRevision.objects.filter(pk=revision_pk).exists())
 
     def test_a_failed_cleanup_enqueue_rolls_back_the_deletion(self):
         # Recording cleanup intent is part of the deletion now. A Job that cannot be created
@@ -189,7 +187,7 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
             enqueue.side_effect = RuntimeError('the Job row could not be created')
             with self.assertRaises(RuntimeError), transaction.atomic():
                 self.project.delete()
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 2)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 2)
         self.assertTrue(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
         self.assertTrue(self.revision_stored(DIGEST_A))
         self.assertTrue(self.revision_stored(DIGEST_B))
@@ -200,7 +198,7 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         revision = self.make_revision(DIGEST_A)
         with self.captureOnCommitCallbacks() as callbacks:
             revision.delete()
-            self.assertFalse(CustomScriptProjectRevision.objects.exists())
+            self.assertFalse(ScriptProjectRevision.objects.exists())
             job = Job.objects.get()
             self.assertEqual(
                 job.data,
@@ -212,12 +210,12 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         # post_delete without its pre_delete partner has no trustworthy identity to act on,
         # so it warns and records nothing rather than guessing from the instance.
         revision = self.make_revision(DIGEST_A)
-        bare = CustomScriptProjectRevision(pk=revision.pk)
+        bare = ScriptProjectRevision(pk=revision.pk)
         with (
             self.assertLogs(LOGGER, level='WARNING') as logs,
             self.capture_enqueues() as enqueue,
         ):
-            signals.cleanup_revision_storage(CustomScriptProjectRevision, bare, using=DEFAULT_DB_ALIAS)
+            signals.cleanup_revision_storage(ScriptProjectRevision, bare, using=DEFAULT_DB_ALIAS)
         enqueue.assert_not_called()
         self.assertTrue(any('was not captured' in message for message in logs.output))
 
@@ -273,7 +271,7 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
         with self.capture_enqueues() as enqueue:
             target.delete()
         enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_B, paths=['hello.py'])
-        self.assertTrue(CustomScriptProjectRevision.objects.filter(pk=keep.pk).exists())
+        self.assertTrue(ScriptProjectRevision.objects.filter(pk=keep.pk).exists())
 
     def test_a_mutated_project_cannot_remove_another_projects_revision(self):
         other = self.other_project()
@@ -299,7 +297,7 @@ class SharedDigestCleanupTestCase(CleanupFixtureMixin, TestCase):
 
     def sibling(self):
         """Return a second row referencing DIGEST_A under another entrypoint configuration."""
-        return CustomScriptProjectRevision.objects.create(
+        return ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST_A,
             status=RevisionStatusChoices.VALID,

@@ -12,7 +12,7 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import PluginTestCases
@@ -107,7 +107,7 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Tab Project', key='tab-project')
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             manifest=[{'path': path, 'size': 1, 'sha256': 'a' * 64} for path in ('deploy.py', 'tools/audit.py')],
@@ -196,7 +196,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='State Project', key='state-project')
-        cls.revision = CustomScriptProjectRevision.objects.create(
+        cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='d' * 64,
             status=RevisionStatusChoices.VALID,
@@ -259,7 +259,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_revision_history_moved_to_its_own_tab(self):
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
         # Linked from the detail page as a tab, and rendering the history itself.
         self.assertIn(url, self.body())
@@ -270,7 +270,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
     def test_the_history_tab_leads_with_created_then_the_linked_digest(self):
         # The linked column is a table's way into the detail page, so it follows the timestamp.
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
         table = self.client.get(url).context['table']
         self.assertEqual([column.name for column in table.columns][:3], ['created', 'short_digest', 'status'])
@@ -279,7 +279,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         # Asserted on the configured table, because a declared column survives being dropped
         # from the displayed set and would still answer get_cell().
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
         response = self.client.get(url)
         visible = [name for name, _label in response.context['table'].selected_columns]
@@ -288,7 +288,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_history_tab_links_each_revision(self):
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
         self.assertIn(self.revision.get_absolute_url(), body)
@@ -296,8 +296,8 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
     def test_a_staging_with_no_digest_is_named_and_still_linked(self):
         # The row a reader most wants to open, since a rejected staging stored nothing.
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
-        rejected = CustomScriptProjectRevision.objects.create(
+        self.grant(ScriptProjectRevision, 'view')
+        rejected = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=None,
             status=RevisionStatusChoices.INVALID,
@@ -319,13 +319,13 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_history_tab_hides_a_revision_the_grant_excludes(self):
         # Core restricts every ObjectChildrenView's children, and this tab did not.
-        other = CustomScriptProjectRevision.objects.create(
+        other = ScriptProjectRevision.objects.create(
             project=self.project,
             digest='c' * 64,
             status=RevisionStatusChoices.VALID,
         )
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view', constraints={'pk': self.revision.pk})
+        self.grant(ScriptProjectRevision, 'view', constraints={'pk': self.revision.pk})
         url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
 
         body = self.client.get(url).content.decode()
@@ -337,10 +337,10 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
     def test_the_history_tab_offers_no_actions_on_a_revision(self):
         # A revision is never created or edited by hand, so the tab carries no action buttons.
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
-        for absent in ('customscriptprojectrevision_add', 'customscriptprojectrevision_edit'):
+        for absent in ('scriptprojectrevision_add', 'scriptprojectrevision_edit'):
             self.assertNotIn(absent, body)
 
     def test_a_project_with_no_source_renders(self):
@@ -405,7 +405,7 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         response = self.client.post(url, {'upload_file': SimpleUploadedFile('deploy.py', b'X = 1\n')})
         self.assertHttpStatus(response, 200)
         self.assertIn('reconciled from its Data Source rather than uploaded', response.content.decode())
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(project=synced).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(project=synced).exists())
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)
@@ -417,7 +417,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.client.force_login(self.user)
         self.project = CustomScriptProject.objects.create(name='Manual Project', key='manual-project')
         self.revision = service.stage_revision(self.project, {'deploy.py': b'VALUE = 1\n'}).revision
-        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.VALID)
         self.revision.refresh_from_db()
 
     def url(self):
@@ -463,9 +463,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
 
     def test_a_project_with_nothing_valid_is_refused_rather_than_erroring(self):
         self.grant('view', 'activate')
-        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
-            status=RevisionStatusChoices.MATERIALIZED
-        )
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.MATERIALIZED)
         response = self.client.post(self.url())
         self.assertHttpStatus(response, 302)
         self.project.refresh_from_db()
@@ -505,7 +503,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         response = self.client.post(self.delete_project_url(), {'confirm': True})
         self.assertHttpStatus(response, 302)
         self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
         self.assertFalse(CustomScript.objects.exists())
 
     def test_bulk_deleting_an_active_project_succeeds(self):
@@ -519,7 +517,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
 
     def publish(self):
         """Record one Custom Script on the revision, so activation has something to publish."""
-        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
             discovered_scripts=[
                 {
                     'module_path': 'deploy',
@@ -638,7 +636,7 @@ class CustomScriptProjectRepairViewTestCase(TestCase):
         self.client.force_login(self.user)
         self.project = CustomScriptProject.objects.create(name='Repair Project', key='repair-project')
         self.revision = service.stage_revision(self.project, {'deploy.py': b'VALUE = 1\n'}).revision
-        CustomScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
             status=RevisionStatusChoices.VALID,
             discovered_scripts=[
                 {

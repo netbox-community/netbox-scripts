@@ -5,12 +5,12 @@ import strawberry_django
 
 from netbox.graphql.types import ObjectType, PrimaryObjectType
 
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from .filters import (
     CustomScriptFilter,
     CustomScriptModuleFilter,
     CustomScriptProjectFilter,
-    CustomScriptProjectRevisionFilter,
+    ScriptProjectRevisionFilter,
 )
 
 if TYPE_CHECKING:
@@ -36,15 +36,16 @@ class CustomScriptProjectType(PrimaryObjectType):
 
 
 @strawberry_django.type(
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
+    name='NetBoxScriptProjectRevisionType',
     # The manifest and the entrypoint snapshot are stored documents, served by the
     # diagnostics surface rather than by a general-purpose query.
     exclude=('manifest', 'entrypoint_snapshot', 'validation_job', 'validation_started'),
-    filters=CustomScriptProjectRevisionFilter,
+    filters=ScriptProjectRevisionFilter,
     pagination=True,
 )
-class CustomScriptProjectRevisionType(ObjectType):
-    """GraphQL object type for the Custom Script Project Revision model."""
+class ScriptProjectRevisionType(ObjectType):
+    """GraphQL object type for the Script Project Revision model."""
 
     project: CustomScriptProjectType
 
@@ -64,7 +65,7 @@ class CustomScriptModuleType(PrimaryObjectType):
     """GraphQL object type for the Custom Script Module model."""
 
     project: CustomScriptProjectType
-    last_discovered_revision: CustomScriptProjectRevisionType | None
+    last_discovered_revision: ScriptProjectRevisionType | None
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
@@ -82,7 +83,7 @@ class CustomScriptType(PrimaryObjectType):
     """GraphQL object type for the Custom Script model."""
 
     project: CustomScriptProjectType
-    last_seen_revision: CustomScriptProjectRevisionType | None
+    last_seen_revision: ScriptProjectRevisionType | None
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):

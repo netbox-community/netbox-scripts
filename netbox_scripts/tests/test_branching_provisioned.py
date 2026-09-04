@@ -26,7 +26,7 @@ from netbox.context_managers import event_tracking
 from netbox_scripts import signals
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.execution import run_script
-from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.scripts import Script
 from netbox_scripts.storage import config, store
 from netbox_scripts.storage.manifest import compute_digest
@@ -123,7 +123,7 @@ class BranchingTestCase(_TestBase):
     def staged_revision(self, project, entrypoint_digest=''):
         """Return one VALID revision of a project, with its single source file really stored."""
         store.write_revision(config.get_storage(), project.storage_key, DIGEST, SOURCE, MANIFEST)
-        return CustomScriptProjectRevision.objects.create(
+        return ScriptProjectRevision.objects.create(
             project=project,
             digest=DIGEST,
             status=RevisionStatusChoices.VALID,
@@ -239,7 +239,7 @@ class BranchDeletionTestCase(BranchingTestCase):
         branch = self.branch('Delete')
         with activate_branch(branch):
             revision.delete()
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=pk).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(pk=pk).exists())
 
     def test_reverting_a_merge_does_not_resurrect_a_deleted_revision(self):
         # A resurrected row would name bytes the cleanup job already reclaimed, which is the
@@ -259,7 +259,7 @@ class BranchDeletionTestCase(BranchingTestCase):
         self.assertTrue(sites.exists(), 'the merge applied nothing, so the revert proves nothing')
         branch.revert(user=self.user)
         self.assertFalse(sites.exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=pk).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(pk=pk).exists())
 
     def test_a_branch_delete_hands_off_cleanup_for_unreferenced_content(self):
         # Asserted on the handoff, not on the bytes: only the job removes content, and it never
@@ -279,7 +279,7 @@ class BranchDeletionTestCase(BranchingTestCase):
         with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
             project.delete()
         self.assertFalse(CustomScriptProject.objects.filter(pk=project_pk).exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=revision_pk).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(pk=revision_pk).exists())
         enqueue.assert_called_once_with(storage_key=storage_key, digest=DIGEST, paths=['hello.py'])
 
     def test_a_branch_delete_withholds_cleanup_for_content_a_sibling_names(self):

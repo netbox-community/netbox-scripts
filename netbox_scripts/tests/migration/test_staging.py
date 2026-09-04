@@ -23,8 +23,8 @@ from netbox_scripts.migration import plan, source, staging
 from netbox_scripts.models import (
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
     MigrationRun,
+    ScriptProjectRevision,
 )
 from netbox_scripts.tests.runtime.test_cache import discard_tree
 from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
@@ -114,7 +114,7 @@ class LegacySourceMixin:
     def stage_and_validate(self):
         """Stage every legacy module and drive each revision to a verdict, activating none."""
         for result in self.stage_all():
-            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            revision = ScriptProjectRevision.objects.get(pk=result['revision_pk'])
             RevisionValidationJob.enqueue_validation(revision, immediate=True)
 
     def project_for(self, source_type):
@@ -157,7 +157,7 @@ class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
         for result in results:
             if result.get('revision_pk'):
                 RevisionValidationJob.enqueue_validation(
-                    CustomScriptProjectRevision.objects.get(pk=result['revision_pk']), immediate=True
+                    ScriptProjectRevision.objects.get(pk=result['revision_pk']), immediate=True
                 )
         self.assertIsNone(CustomScriptProject.objects.get(data_path='automation').active_revision_id)
 
@@ -184,7 +184,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
         project = self.project_for(ProjectSourceTypeChoices.DATA_SOURCE)
         self.assertEqual(project.data_path, 'automation')
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
-        revision = CustomScriptProjectRevision.objects.get(project=project)
+        revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['deploy.py', 'helpers.py'])
         declared = CustomScriptModule.objects.get(project=project)
         self.assertEqual(declared.source_path, 'deploy.py')
@@ -195,7 +195,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         self.assertEqual(project.data_path, '')
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
-        revision = CustomScriptProjectRevision.objects.get(project=project)
+        revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['provision.py'])
         self.assertEqual(CustomScriptModule.objects.get(project=project).source_path, 'provision.py')
 
@@ -203,13 +203,13 @@ class StageTestCase(LegacySourceMixin, TestCase):
         # Deterministic identity plus content addressing, so the second pass creates no rows.
         self.stage_all()
         projects = CustomScriptProject.objects.count()
-        revision_pks = set(CustomScriptProjectRevision.objects.values_list('pk', flat=True))
+        revision_pks = set(ScriptProjectRevision.objects.values_list('pk', flat=True))
         declarations = CustomScriptModule.objects.count()
 
         results = self.stage_all()
 
         self.assertEqual(CustomScriptProject.objects.count(), projects)
-        self.assertEqual(set(CustomScriptProjectRevision.objects.values_list('pk', flat=True)), revision_pks)
+        self.assertEqual(set(ScriptProjectRevision.objects.values_list('pk', flat=True)), revision_pks)
         self.assertEqual(CustomScriptModule.objects.count(), declarations)
         self.assertTrue(all(result['created'] is False for result in results))
 
@@ -219,7 +219,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(len(results), 2)
         for result in results:
             with self.subTest(project=result['key']):
-                revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+                revision = ScriptProjectRevision.objects.get(pk=result['revision_pk'])
                 RevisionValidationJob.enqueue_validation(revision, immediate=True)
                 revision.refresh_from_db()
                 self.assertEqual(revision.status, RevisionStatusChoices.VALID)
@@ -245,7 +245,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
     def test_the_job_reports_a_revision_that_needs_no_validation(self):
         # A second pass resolves to the revision already holding that content, verdict included.
         for result in self.stage_all():
-            revision = CustomScriptProjectRevision.objects.get(pk=result['revision_pk'])
+            revision = ScriptProjectRevision.objects.get(pk=result['revision_pk'])
             RevisionValidationJob.enqueue_validation(revision, immediate=True)
 
         job = MigrationStagingJob.enqueue(immediate=True)

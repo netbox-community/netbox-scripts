@@ -18,7 +18,7 @@ from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, STALLED_CLEANUP_GRACE_SECONDS, VALIDATION_JOB_TIMEOUT
 from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
-from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision, MigrationRun
+from .models import CustomScript, CustomScriptProject, MigrationRun, ScriptProjectRevision
 from .models.migration import migration_lock
 from .runtime.exceptions import EntrypointImportError
 from .runtime.loader import revision_import_session, unload_revision
@@ -79,7 +79,7 @@ class ProjectStorageCleanupJob(JobRunner):
             # The digest can be re-staged under a new entrypoint configuration between the
             # delete that recorded this job and this run. Content a current revision references
             # is left in place and the run succeeds, since there is nothing left to reclaim.
-            if CustomScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
+            if ScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
                 self.logger.info(
                     f'Leaving stored content in place, a current revision references it again: {storage_key} {digest}'
                 )
@@ -166,7 +166,7 @@ class ProjectStorageSweepJob(JobRunner):
         try:
             # The recheck the cleanup job makes, needing the same lock for the same reason.
             with project_lock(storage_key):
-                if CustomScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
+                if ScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
                     report['referenced'].append(entry)
                     return
                 present = store.present_keys(config.get_storage(), storage_key, digest, candidate['paths'])
@@ -379,7 +379,7 @@ class RevisionValidationJob(JobRunner):
             detail = f'Refusing revision validation, because {reason}'
             self.logger.error(detail)
             raise JobFailed()
-        revision = CustomScriptProjectRevision.objects.filter(pk=revision_pk).first()
+        revision = ScriptProjectRevision.objects.filter(pk=revision_pk).first()
         if revision is None:
             self.logger.info(f'Revision {revision_pk} no longer exists, nothing to validate.')
             return
@@ -635,7 +635,7 @@ class CustomScriptJob(JobRunner):
                 )
                 raise JobFailed()
             return revision
-        revision = CustomScriptProjectRevision.objects.filter(pk=revision_id).first()
+        revision = ScriptProjectRevision.objects.filter(pk=revision_id).first()
         if revision is None:
             self.logger.error(
                 f'The revision this run was pinned to no longer exists, so {module_path}.{class_name} '

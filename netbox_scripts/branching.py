@@ -45,8 +45,8 @@ GLOBAL_MODELS = (
     'customscript',
     'customscriptmodule',
     'customscriptproject',
-    'customscriptprojectrevision',
     'migrationrun',
+    'scriptprojectrevision',
 )
 
 # The two things unsafe routing can need, in one hint because there is one error path. Which one
@@ -61,7 +61,7 @@ ROUTING_HINT = (
     '"netbox_scripts.customscript", '
     '"netbox_scripts.customscriptmodule", '
     '"netbox_scripts.customscriptproject", '
-    '"netbox_scripts.customscriptprojectrevision", '
+    '"netbox_scripts.scriptprojectrevision", '
     '"netbox_scripts.migrationrun".'
 )
 

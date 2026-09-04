@@ -23,7 +23,7 @@ files have no module row, because module rows are entrypoint declarations only.
 Deriving identity from the defining module keeps one class one script no matter
 how many entrypoints re-export it, and there would be no module row to point at
 in the helper case. Which entrypoint published a class is recorded as provenance
-inside the [revision's](customscriptprojectrevision.md) snapshot, not as a
+inside the [revision's](scriptprojectrevision.md) snapshot, not as a
 relational parent.
 
 A class that moves to a different file becomes a new identity, and the row for
@@ -82,7 +82,7 @@ undo an administrator's decision.
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
 | `project` | `CustomScriptProject` | yes | `on_delete=CASCADE`, reverse name `scripts` |
-| `last_seen_revision` | `CustomScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
+| `last_seen_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
 Deleting a Custom Script Module leaves its scripts alone, since the publishing
 entrypoint is provenance rather than a parent. Deleting the project takes its

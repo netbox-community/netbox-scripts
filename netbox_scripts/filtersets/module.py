@@ -6,7 +6,7 @@ from netbox.filtersets import PrimaryModelFilterSet
 from utilities.filtersets import register_filterset
 
 from ..choices import ModuleDiscoveryStatusChoices
-from ..models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 
 
 @register_filterset
@@ -31,7 +31,7 @@ class CustomScriptModuleFilterSet(PrimaryModelFilterSet):
     )
     last_discovered_revision_id = django_filters.ModelMultipleChoiceFilter(
         field_name='last_discovered_revision',
-        queryset=CustomScriptProjectRevision.objects.all(),
+        queryset=ScriptProjectRevision.objects.all(),
         label=_('Last discovered revision (ID)'),
     )
 

@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
 from ..constants import PENDING_VERDICT_REVISION_STATUSES
-from ..models import CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from . import mapping
 from . import source as legacy_source
@@ -100,7 +100,7 @@ def unservable_projects(run):
     keys = mapping.project_keys(mapping.build_map())
     projects = {project.key: project for project in CustomScriptProject.objects.filter(key__in=keys)}
     by_project = {}
-    columns = CustomScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created', 'validation_error')
+    columns = ScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created', 'validation_error')
     for revision in columns.filter(project__key__in=keys).order_by('-created', '-pk'):
         by_project.setdefault(revision.project_id, []).append(revision)
     blocked = []

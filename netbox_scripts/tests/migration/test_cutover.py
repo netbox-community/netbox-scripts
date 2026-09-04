@@ -18,7 +18,7 @@ from netbox_scripts import activation
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.migration import cutover, mapping, plan, staging
 from netbox_scripts.migration import source as legacy_source
-from netbox_scripts.models import CustomScriptProjectRevision, MigrationRun
+from netbox_scripts.models import MigrationRun, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LEGACY_SCRIPT as SYNCED_SCRIPT
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import ObjectPermission
@@ -80,7 +80,7 @@ class CutoverTestCase(TestCase):
         # than validated, because this suite covers what the crossing captures and closes.
         modules = legacy_source.legacy_modules()
         staged = staging.stage(plan.group(modules), modules)
-        CustomScriptProjectRevision.objects.filter(pk__in=[item['revision_pk'] for item in staged]).update(
+        ScriptProjectRevision.objects.filter(pk__in=[item['revision_pk'] for item in staged]).update(
             status=RevisionStatusChoices.VALID
         )
 
@@ -510,7 +510,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
     def refuse_project(self, status):
         """Put one staged Project's revisions into a status activation would not accept."""
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
-        CustomScriptProjectRevision.objects.filter(project=project).update(status=status)
+        ScriptProjectRevision.objects.filter(project=project).update(status=status)
         return project
 
     def crash_after_closing(self, state):
@@ -559,7 +559,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         self.stage_all()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         revision = project.revisions.order_by('-created').first()
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             validation_error='ModuleNotFoundError: No module named "vendor_sdk"'
         )
 
@@ -582,9 +582,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         self.stage_and_validate()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         activation.activate_revision(project.revisions.get())
-        CustomScriptProjectRevision.objects.create(
-            project=project, digest='b' * 64, status=RevisionStatusChoices.INVALID
-        )
+        ScriptProjectRevision.objects.create(project=project, digest='b' * 64, status=RevisionStatusChoices.INVALID)
 
         project.refresh_from_db()
         self.assertNotEqual(project.active_revision_id, project.revisions.order_by('-created').first().pk)

@@ -1,7 +1,7 @@
 """
 Cross-model side effects for the Custom Scripts plugin.
 
-Deleting a Custom Script Project Revision reclaims its content from project storage through a
+Deleting a Script Project Revision reclaims its content from project storage through a
 background cleanup job. The revision's identity and manifest paths are read from the database
 while the row still exists, in a pre_delete receiver, and the post_delete receiver records the
 cleanup Job with that payload inside the transaction that deletes the row. Deletion and
@@ -36,7 +36,7 @@ from core.signals import post_sync
 from . import branching
 from .choices import ProjectSourceTypeChoices
 from .jobs import ProjectReconciliationJob, ProjectStorageCleanupJob
-from .models import CustomScriptProject, CustomScriptProjectRevision
+from .models import CustomScriptProject, ScriptProjectRevision
 from .storage.exceptions import RevisionCorruptError
 from .storage.manifest import validate_manifest
 
@@ -57,7 +57,7 @@ def _captured(instance, sender):
     return captured
 
 
-@receiver(pre_delete, sender=CustomScriptProjectRevision, dispatch_uid='netbox_scripts.capture_revision')
+@receiver(pre_delete, sender=ScriptProjectRevision, dispatch_uid='netbox_scripts.capture_revision')
 def capture_revision_storage(sender, instance, using, **kwargs):
     """
     Record the identity and manifest paths a deleted revision's cleanup will need.
@@ -71,14 +71,14 @@ def capture_revision_storage(sender, instance, using, **kwargs):
     setattr(
         instance,
         CLEANUP_ATTRIBUTE,
-        CustomScriptProjectRevision.objects.using(using)
+        ScriptProjectRevision.objects.using(using)
         .filter(pk=instance.pk)
         .values_list('digest', 'project__storage_key', 'manifest')
         .first(),
     )
 
 
-@receiver(post_delete, sender=CustomScriptProjectRevision, dispatch_uid='netbox_scripts.cleanup_revision')
+@receiver(post_delete, sender=ScriptProjectRevision, dispatch_uid='netbox_scripts.cleanup_revision')
 def cleanup_revision_storage(sender, instance, using, **kwargs):
     """Record a deleted revision's cleanup Job inside the transaction deleting the row."""
     captured = _captured(instance, sender)
@@ -130,7 +130,7 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
     # one pass enqueues per row, which the job's exact-key, already-gone-tolerant deletion
     # absorbs.
     if (
-        CustomScriptProjectRevision.objects.using(using)
+        ScriptProjectRevision.objects.using(using)
         .filter(project__storage_key=storage_key, digest=digest)
         .exclude(pk=instance.pk)
         .exists()

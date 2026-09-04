@@ -17,7 +17,7 @@ from django.db import transaction
 
 from . import branching
 from .choices import RevisionStatusChoices
-from .models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
+from .models import CustomScript, CustomScriptProject, ScriptProjectRevision
 from .runtime.exceptions import ScriptMetadataError
 from .runtime.introspection import validate_discovered_scripts
 from .storage import service
@@ -50,7 +50,7 @@ class ScriptSyncResult(NamedTuple):
 class ActivationResult(NamedTuple):
     """One activation's outcome: the revision now in force, and what its synchronization did."""
 
-    revision: CustomScriptProjectRevision
+    revision: ScriptProjectRevision
     scripts: ScriptSyncResult
 
 
@@ -101,7 +101,7 @@ def deactivate_revision(revision):
     with transaction.atomic(using=using):
         project = project_or_vanished(CustomScriptProject.objects.using(using).select_for_update(), revision.project_id)
         locked = revision_or_vanished(
-            CustomScriptProjectRevision.objects.using(using).select_for_update(),
+            ScriptProjectRevision.objects.using(using).select_for_update(),
             revision.pk,
             project_id=project.pk,
         )

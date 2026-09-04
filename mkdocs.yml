@@ -54,7 +54,7 @@ nav:
   - Permissions: permissions.md
   - Models:
       - Custom Script Project: models/customscriptproject.md
-      - Custom Script Project Revision: models/customscriptprojectrevision.md
+      - Script Project Revision: models/scriptprojectrevision.md
       - Custom Script Module: models/customscriptmodule.md
       - Custom Script: models/customscript.md
   - Releases: releases.md

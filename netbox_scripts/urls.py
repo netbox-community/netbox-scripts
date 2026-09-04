@@ -40,7 +40,7 @@ urlpatterns: tuple = (
     # Revisions tab and carry no list, edit, or delete route of their own.
     path(
         'revisions/<int:pk>/',
-        include(get_model_urls('netbox_scripts', 'customscriptprojectrevision')),
+        include(get_model_urls('netbox_scripts', 'scriptprojectrevision')),
     ),
     path(
         'scripts/',

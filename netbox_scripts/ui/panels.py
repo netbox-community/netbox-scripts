@@ -32,7 +32,7 @@ class CustomScriptStatePanel(ObjectAttributesPanel):
     scheduling_enabled = attrs.BooleanAttr('scheduling_enabled', label=_('Scheduling allowed'))
 
 
-class CustomScriptProjectRevisionPanel(ObjectAttributesPanel):
+class ScriptProjectRevisionPanel(ObjectAttributesPanel):
     """Identity attributes of a revision (detail view, left column)."""
 
     title = _('Revision')
@@ -44,7 +44,7 @@ class CustomScriptProjectRevisionPanel(ObjectAttributesPanel):
     total_size = attrs.NumericAttr('total_size', label=_('Size'))
 
 
-class CustomScriptProjectRevisionStatePanel(ObjectAttributesPanel):
+class ScriptProjectRevisionStatePanel(ObjectAttributesPanel):
     """Lifecycle state of a revision (detail view, right column)."""
 
     title = _('State')

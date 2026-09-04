@@ -15,7 +15,7 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 from netbox_scripts.storage import service, store
 from netbox_scripts.storage.exceptions import StorageError
@@ -92,7 +92,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         self.project = two_entrypoint_project()
         # An operator edits entrypoints on a project whose source already reached a verdict, so
         # the fixture gives it one. A revision still awaiting one is a separate case below.
-        CustomScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
             status=RevisionStatusChoices.VALID
         )
         self.project = CustomScriptProject.objects.get(pk=self.project.pk)
@@ -133,7 +133,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         # The selection can change while a newer revision is still waiting for activation.
         # Restaging what the project serves would drop that revision's content silently.
         active = self.project.revisions.order_by('created').first()
-        CustomScriptProjectRevision.objects.filter(pk=active.pk).update(status=RevisionStatusChoices.ACTIVE)
+        ScriptProjectRevision.objects.filter(pk=active.pk).update(status=RevisionStatusChoices.ACTIVE)
         CustomScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active)
         self.project = CustomScriptProject.objects.get(pk=self.project.pk)
         self.assertEqual([entry['path'] for entry in active.manifest], ['alpha.py'])
@@ -166,7 +166,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         # The other half of the claimable rule, and the same shape ingestion has: a revision
         # that never reached a verdict is still claimable, so the refresh re-drives it rather
         # than leaving it stranded.
-        CustomScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
             status=RevisionStatusChoices.MATERIALIZED
         )
         self.run_job()

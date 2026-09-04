@@ -7,7 +7,7 @@ from core.models import DataSource, ObjectType
 from netbox.registry import registry
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
-from netbox_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from users.models import ObjectPermission
 from utilities.permissions import get_permission_for_model
@@ -72,7 +72,7 @@ class SourceManagementPermissionTestCase(TestCase):
     def valid_revision(self):
         """Stage content on the upload project and mark it valid, so it can be activated."""
         revision = service.stage_revision(self.project, {'deploy.py': b'V = 1\n'}).revision
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALID,
             discovered_scripts=[RECORD],
         )
@@ -97,7 +97,7 @@ class SourceManagementPermissionTestCase(TestCase):
         )
 
     def revision_url(self, action):
-        return reverse(f'plugins:netbox_scripts:customscriptprojectrevision_{action}', args=[self.revision.pk])
+        return reverse(f'plugins:netbox_scripts:scriptprojectrevision_{action}', args=[self.revision.pk])
 
     def test_change_alone_cannot_activate_a_project(self):
         # The regression this task exists to prevent: renaming is not activating.

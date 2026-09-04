@@ -16,7 +16,7 @@ from netbox_scripts import jobs, validation
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.runtime.exceptions import DiscoveryError, EntrypointImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.storage import service
@@ -70,7 +70,7 @@ class ValidationTestMixin:
         return revision
 
     def backdate_lease(self, revision):
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS)
         )
 
@@ -96,7 +96,7 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
         ):
             with self.subTest(status=status):
                 revision = self.stage({'deploy.py': script_source(f'S{status.title()}')})
-                CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=status)
+                ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=status)
                 revision.refresh_from_db()
                 with self.assertRaises(ValidationStateError):
                     validate_revision(revision, job=self.job)
@@ -104,7 +104,7 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
     def test_a_live_lease_refuses_a_second_claim(self):
         revision = self.stage(SCRIPT_FILES)
         other = self.make_job()
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALIDATING, validation_job=other, validation_started=timezone.now()
         )
         revision.refresh_from_db()
@@ -116,7 +116,7 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
         revision = self.stage(SCRIPT_FILES)
         old = self.make_job()
         Job.objects.filter(pk=old.pk).update(status=JobStatusChoices.STATUS_RUNNING)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALIDATING,
             validation_job=old,
             validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
@@ -142,7 +142,7 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
             # worker reclaims, validates VALID, and commits. The first run resumes into
             # a planted content failure, so any fence break would flip the verdict.
             self.backdate_lease(revision)
-            validate_revision(CustomScriptProjectRevision.objects.get(pk=revision.pk), job=new_job)
+            validate_revision(ScriptProjectRevision.objects.get(pk=revision.pk), job=new_job)
             raise DiscoveryError('planted failure for the stale run', code='not_a_script')
 
         with mock.patch.object(validation, 'discover_scripts', side_effect=interleave):
@@ -160,7 +160,7 @@ class SnapshotTestCase(ValidationTestMixin, TestCase):
     def test_a_tampered_snapshot_fails_closed_and_releases_the_claim(self):
         self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             entrypoint_snapshot=[{'module': 1, 'source_path': 'deploy.py', 'extra': 'field'}]
         )
         revision.refresh_from_db()
@@ -481,7 +481,7 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
         original = validation._finalize
 
         def steal_then_finalize(target, job, status, validation_errors, discovered_scripts):
-            CustomScriptProjectRevision.objects.filter(pk=target.pk).update(validation_job=self.make_job())
+            ScriptProjectRevision.objects.filter(pk=target.pk).update(validation_job=self.make_job())
             return original(target, job, status, validation_errors, discovered_scripts)
 
         with mock.patch.object(validation, '_finalize', steal_then_finalize):
@@ -722,7 +722,7 @@ class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
         module_row.refresh_from_db()
         self.assertEqual(module_row.last_discovered_revision_id, revision.pk)
         # Simulate the terminal write being lost to a crash: back to a stale claim.
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALIDATING,
             validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
         )

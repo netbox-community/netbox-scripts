@@ -7,7 +7,7 @@ from netbox.filtersets import PrimaryModelFilterSet
 from utilities.filters import MultiValueCharFilter
 from utilities.filtersets import register_filterset
 
-from ..models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
+from ..models import CustomScript, CustomScriptProject, ScriptProjectRevision
 
 
 @register_filterset
@@ -28,7 +28,7 @@ class CustomScriptFilterSet(PrimaryModelFilterSet):
     )
     last_seen_revision_id = django_filters.ModelMultipleChoiceFilter(
         field_name='last_seen_revision',
-        queryset=CustomScriptProjectRevision.objects.all(),
+        queryset=ScriptProjectRevision.objects.all(),
         label=_('Last seen revision (ID)'),
     )
     notifications_default_override = django_filters.MultipleChoiceFilter(

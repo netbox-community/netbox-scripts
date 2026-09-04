@@ -4,14 +4,14 @@ from netbox.api.serializers import PrimaryModelSerializer
 from ...choices import ModuleDiscoveryStatusChoices
 from ...models import CustomScriptModule
 from .project import CustomScriptProjectSerializer
-from .revision import CustomScriptProjectRevisionSerializer
+from .revision import ScriptProjectRevisionSerializer
 
 
 class CustomScriptModuleSerializer(PrimaryModelSerializer):
     """Serializer for the Custom Script Module model."""
 
     project = CustomScriptProjectSerializer(nested=True)
-    last_discovered_revision = CustomScriptProjectRevisionSerializer(nested=True, read_only=True)
+    last_discovered_revision = ScriptProjectRevisionSerializer(nested=True, read_only=True)
 
     discovery_status = ChoiceField(choices=ModuleDiscoveryStatusChoices, read_only=True)
 

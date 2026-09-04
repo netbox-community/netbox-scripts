@@ -4,7 +4,7 @@ from rest_framework import status
 from extras.events import serialize_for_event
 from netbox_scripts.api.serializers import CustomScriptSerializer
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from utilities.api import get_serializer_for_model
 from utilities.testing import APITestCase
@@ -20,7 +20,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='API Script Project', key='api-script-project')
-        cls.revision = CustomScriptProjectRevision.objects.create(
+        cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=DIGEST,
             status=RevisionStatusChoices.MATERIALIZED,

@@ -11,7 +11,7 @@ from rest_framework import status
 from core.models import DataSource, Job
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 from utilities.testing import APITestCase
 
@@ -70,7 +70,7 @@ class UploadAPITestCase(APITestCase):
         response = self.upload()
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(response.data['id'], revision.pk)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
         self.assertTrue(CustomScriptModule.objects.filter(project=self.project, source_path='deploy.py').exists())
@@ -82,7 +82,7 @@ class UploadAPITestCase(APITestCase):
         response = self.upload(name='automation/nested/deploy.py')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
 
     def test_a_repeated_path_needs_confirmation(self):
@@ -110,7 +110,7 @@ class UploadAPITestCase(APITestCase):
             response = self.upload(content=b'# ' + b'x' * limit + b'\n')
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(CustomScriptProjectRevision.objects.filter(project=self.project).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(project=self.project).exists())
 
     def test_a_file_that_is_not_python_is_refused(self):
         self.allow_uploads()
@@ -135,7 +135,7 @@ class UploadAPITestCase(APITestCase):
     def test_the_manual_policy_leaves_the_revision_inactive(self):
         self.allow_uploads()
         self.upload()
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
 
         self.run_validation(revision)
 
@@ -150,7 +150,7 @@ class UploadAPITestCase(APITestCase):
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
         )
         self.upload()
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
 
         self.run_validation(revision)
 

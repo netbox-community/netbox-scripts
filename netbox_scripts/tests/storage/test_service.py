@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST, build_entrypoint_snapshot
 from netbox_scripts.storage.exceptions import (
@@ -243,7 +243,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         # Project validation can promote the row while a duplicate stager is still writing
         # bytes. Promotion belongs to that owner, so the stager returns the row as found.
         def promote(*args, **kwargs):
-            CustomScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALID)
+            ScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALID)
 
         with mock.patch(WRITE_TARGET, side_effect=promote):
             revision, created = service.stage_revision(self.project, GOOD_FILES)
@@ -255,7 +255,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         # Only STAGING may become STORAGE_FAILED. A row that advanced while this writer was
         # failing keeps the concurrent owner's word, and the error still reaches the caller.
         def promote_then_fail(*args, **kwargs):
-            CustomScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALID)
+            ScriptProjectRevision.objects.filter(project=self.project).update(status=RevisionStatusChoices.VALID)
             raise OSError('no space left on device')
 
         with mock.patch(WRITE_TARGET, side_effect=promote_then_fail), self.assertRaises(OSError):
@@ -357,7 +357,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
                 # colliding on one digest.
                 files = content(marker + 40)
                 revision = self.materialize(files)
-                CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(**{field: value})
+                ScriptProjectRevision.objects.filter(pk=revision.pk).update(**{field: value})
                 with self.assertRaises(RevisionCorruptError) as ctx:
                     service.stage_revision(self.project, files)
                 self.assertIn(reason, ctx.exception.reasons)
@@ -369,13 +369,13 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         with self.assertRaises(ImproperlyConfigured) as ctx:
             service.stage_revision(self.project, GOOD_FILES)
         self.assertIn('"default"', str(ctx.exception))
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 0)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 0)
         self.assertEqual(self.project_keys(), set())
 
     def test_stage_revision_rejects_a_manifest_that_leaves_the_revision_directory(self):
         revision = self.materialize()
         poisoned = [{'path': '../escape.py', 'size': 1, 'sha256': 'a' * 64}]
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=poisoned, file_count=1, total_size=1)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(manifest=poisoned, file_count=1, total_size=1)
         with self.assertRaises(RevisionCorruptError) as ctx:
             service.stage_revision(self.project, GOOD_FILES)
         self.assertEqual(ctx.exception.reasons, ('path_traversal:../escape.py',))
@@ -495,9 +495,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         # promote_revision still guards against a null digest, but the check constraint now
         # makes that row impossible to create, so this covers the invariant at its source.
         with self.assertRaises(IntegrityError), transaction.atomic():
-            CustomScriptProjectRevision.objects.create(
-                project=self.project, digest=None, status=RevisionStatusChoices.VALID
-            )
+            ScriptProjectRevision.objects.create(project=self.project, digest=None, status=RevisionStatusChoices.VALID)
 
     def test_promote_revision_fails_when_the_stored_tree_is_missing(self):
         revision = self.validated()
@@ -538,7 +536,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         locking = [entry['sql'] for entry in queries if 'FOR UPDATE' in entry['sql']]
         self.assertEqual(len(locking), 2)
         self.assertIn('"netbox_scripts_customscriptproject"', locking[0])
-        self.assertIn('"netbox_scripts_customscriptprojectrevision"', locking[1])
+        self.assertIn('"netbox_scripts_scriptprojectrevision"', locking[1])
 
     def test_promote_revision_refuses_a_revision_from_another_database(self):
         # Same contract as staging. A revision loaded from another alias is refused
@@ -550,7 +548,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertIn('"default"', str(ctx.exception))
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
-        fresh = CustomScriptProjectRevision.objects.get(pk=revision.pk)
+        fresh = ScriptProjectRevision.objects.get(pk=revision.pk)
         self.assertEqual(fresh.status, RevisionStatusChoices.VALID)
 
     def test_promote_revision_falls_back_to_the_router_without_an_alias(self):
@@ -561,7 +559,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         with mock.patch.object(router, 'db_for_write', return_value=DEFAULT_DB_ALIAS) as db_for_write:
             activated = service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)
-        self.assertIn(CustomScriptProjectRevision, [call.args[0] for call in db_for_write.call_args_list])
+        self.assertIn(ScriptProjectRevision, [call.args[0] for call in db_for_write.call_args_list])
 
     def test_activation_verifies_content_before_taking_the_row_locks(self):
         # Verification downloads and hashes every file, so it must not run inside the
@@ -588,7 +586,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
 
         def verify_then_swap(*args, **kwargs):
             result = real_verify(*args, **kwargs)
-            CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(digest='0' * 64)
+            ScriptProjectRevision.objects.filter(pk=revision.pk).update(digest='0' * 64)
             return result
 
         with (
@@ -620,12 +618,12 @@ class SourceMappingContractTestCase(StorageServiceMixin, TestCase):
         with self.assertRaises(TypeError) as ctx:
             service.stage_revision(self.project, {'hello.py': 'not bytes'})
         self.assertIn('hello.py', str(ctx.exception))
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 0)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 0)
 
     def test_a_non_string_key_is_rejected(self):
         with self.assertRaises(TypeError):
             service.stage_revision(self.project, {0: b'x'})
-        self.assertEqual(CustomScriptProjectRevision.objects.count(), 0)
+        self.assertEqual(ScriptProjectRevision.objects.count(), 0)
 
     def test_a_memoryview_value_is_accepted_and_copied(self):
         buffer = bytearray(b'viewed')
@@ -712,7 +710,7 @@ class RefreshEntrypointsTestCase(StorageServiceMixin, TestCase):
         # An INVALID verdict binds to the old configuration. The fix-a-typo path creates a
         # fresh candidate for the same content rather than resurrecting the judged row.
         first = self.materialize()
-        CustomScriptProjectRevision.objects.filter(pk=first.pk).update(status=RevisionStatusChoices.INVALID)
+        ScriptProjectRevision.objects.filter(pk=first.pk).update(status=RevisionStatusChoices.INVALID)
         CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
         refreshed, created = service.refresh_revision_entrypoints(first)
         self.assertTrue(created)
@@ -726,7 +724,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
 
     def test_activation_rejects_a_tampered_snapshot(self):
         revision = self.validated()
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             entrypoint_snapshot=[{'module': 1, 'source_path': '../outside.py'}]
         )
         with self.assertRaises(RevisionCorruptError):
@@ -746,7 +744,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
 
         def verify_then_swap_snapshot(*args, **kwargs):
             result = real_verify(*args, **kwargs)
-            CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            ScriptProjectRevision.objects.filter(pk=revision.pk).update(
                 entrypoint_snapshot=[{'module': module.pk, 'source_path': 'swapped.py'}]
             )
             return result

@@ -3,7 +3,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from netbox_scripts.utils import source_path_to_dotted_name
 
 DIGEST_A = 'a' * 64
@@ -212,7 +212,7 @@ class CustomScriptModuleTestCase(TestCase):
             CustomScriptModule.objects.bulk_create([CustomScriptModule(project=self.project, source_path='deploy.py')])
 
     def test_last_discovered_revision_must_belong_to_the_project(self):
-        foreign = CustomScriptProjectRevision.objects.create(
+        foreign = ScriptProjectRevision.objects.create(
             project=self.other_project,
             digest=DIGEST_A,
             status=RevisionStatusChoices.MATERIALIZED,
@@ -224,7 +224,7 @@ class CustomScriptModuleTestCase(TestCase):
         self.assertIn('last_discovered_revision', cm.exception.message_dict)
 
     def test_last_discovered_revision_of_the_same_project_is_accepted(self):
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST_A,
             status=RevisionStatusChoices.MATERIALIZED,

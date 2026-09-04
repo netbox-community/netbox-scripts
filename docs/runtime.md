@@ -156,10 +156,10 @@ cannot turn into a field, a variable whose name the run form reserves, a fieldse
 naming something that is not a variable, and a display name too long to record all
 make the revision `invalid` instead of failing at the first attempt to run it.
 What it learns is recorded on the revision as its [published Custom
-Scripts](models/customscriptprojectrevision.md).
+Scripts](models/scriptprojectrevision.md).
 
 Ownership, the validation lease, and why a crashed validation recovers by
-itself are described on the [revision page](models/customscriptprojectrevision.md).
+itself are described on the [revision page](models/scriptprojectrevision.md).
 
 ## What activation does
 

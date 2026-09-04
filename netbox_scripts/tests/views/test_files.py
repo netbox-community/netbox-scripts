@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from core.models import ObjectType
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -16,7 +16,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Files Project', key='files-project')
-        cls.revision = CustomScriptProjectRevision.objects.create(
+        cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             status=RevisionStatusChoices.VALID,
@@ -50,7 +50,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
 
     def test_the_tab_lists_the_manifest(self):
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         response = self.client.get(self.url(self.project))
         self.assertHttpStatus(response, 200)
         body = response.content.decode()
@@ -63,14 +63,14 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
 
     def test_a_declared_path_missing_from_the_source_is_marked(self):
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.url(self.project)).content.decode()
         self.assertIn('removed.py (missing from the source)', body)
 
     def test_a_declared_path_only_a_newer_revision_holds_reads_as_not_yet_active(self):
         project, _newer = self.project_serving_an_older_revision()
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.url(project)).content.decode()
         self.assertIn('added.py (not in the active revision yet)', body)
         self.assertNotIn('added.py (missing from the source)', body)
@@ -80,14 +80,14 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
         # lie than the wording this replaced.
         project, _newer = self.project_serving_an_older_revision(RevisionStatusChoices.INVALID)
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.url(project)).content.decode()
         self.assertIn('added.py (missing from the source)', body)
         self.assertNotIn('added.py (not in the active revision yet)', body)
 
     def test_an_invalid_newest_revision_does_not_mask_an_activatable_one_behind_it(self):
         project, _newer = self.project_serving_an_older_revision()
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=project,
             digest='2' * 64,
             status=RevisionStatusChoices.INVALID,
@@ -96,7 +96,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
             total_size=10,
         )
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.url(project)).content.decode()
         self.assertIn('added.py (not in the active revision yet)', body)
 
@@ -104,7 +104,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
         project, _newer = self.project_serving_an_older_revision()
         CustomScriptModule.objects.create(project=project, source_path='gone.py', enabled=True)
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.url(project)).content.decode()
         self.assertIn('added.py (not in the active revision yet)', body)
         self.assertIn('gone.py (missing from the source)', body)
@@ -113,7 +113,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
     def project_serving_an_older_revision(newer_status=RevisionStatusChoices.VALID):
         """Return a project whose active revision is older than its newest stored one."""
         project = CustomScriptProject.objects.create(name='Staged Project', key='staged-project')
-        active = CustomScriptProjectRevision.objects.create(
+        active = ScriptProjectRevision.objects.create(
             project=project,
             digest='d' * 64,
             status=RevisionStatusChoices.ACTIVE,
@@ -121,7 +121,7 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
             file_count=1,
             total_size=10,
         )
-        newer = CustomScriptProjectRevision.objects.create(
+        newer = ScriptProjectRevision.objects.create(
             project=project,
             digest='f' * 64,
             status=newer_status,
@@ -134,15 +134,15 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
         )
         # created is auto_now_add, so the ordering latest_stored_revision() reads is set here
         # rather than left to two writes landing in the same microsecond.
-        CustomScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
-        CustomScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
+        ScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
+        ScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
         CustomScriptProject.objects.filter(pk=project.pk).update(active_revision=active)
         CustomScriptModule.objects.create(project=project, source_path='added.py', enabled=True)
         return CustomScriptProject.objects.get(pk=project.pk), newer
 
     def test_the_entrypoint_column_reads_the_live_declaration(self):
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         table = self.client.get(self.url(self.project)).context['table']
         state = {row.record['path']: row.record['entrypoint'] for row in table.rows}
         self.assertTrue(state['deploy.py'])
@@ -170,6 +170,6 @@ class CustomScriptProjectFilesViewTestCase(TestCase):
 
     def test_the_tab_is_linked_from_the_detail_page(self):
         self.grant(CustomScriptProject, 'view')
-        self.grant(CustomScriptProjectRevision, 'view')
+        self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(self.url(self.project), body)

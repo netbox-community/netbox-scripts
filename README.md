@@ -14,7 +14,7 @@ works end to end.
 Implemented:
 
 - four models with full UI, REST API, GraphQL, and global-search surfaces:
-  `CustomScriptProject`, `CustomScriptProjectRevision`, `CustomScriptModule`,
+  `CustomScriptProject`, `ScriptProjectRevision`, `CustomScriptModule`,
   and `CustomScript`
 - the plugin-owned script authoring API: `Script` base classes, variable
   types, dynamic form generation, structured logging, and `AbortScript`

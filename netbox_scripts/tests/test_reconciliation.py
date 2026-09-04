@@ -21,7 +21,7 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 from netbox_scripts.storage import service, store
 from netbox_scripts.storage.exceptions import StorageError
@@ -114,7 +114,7 @@ class ReconciliationEnqueueTestCase(TestCase):
             post_sync.send(sender=DataSource, instance=self.source)
         staged.assert_not_called()
         self.assertTrue(Job.objects.filter(name=ProjectReconciliationJob.name).exists())
-        self.assertFalse(CustomScriptProjectRevision.objects.exists())
+        self.assertFalse(ScriptProjectRevision.objects.exists())
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
@@ -139,7 +139,7 @@ class ProjectReconciliationJobTestCase(TestCase):
     def test_the_directory_is_staged_and_handed_to_validation(self):
         job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
         self.validated.assert_called_once_with(revision)
@@ -148,20 +148,20 @@ class ProjectReconciliationJobTestCase(TestCase):
         # The inventory is read when the job runs, not when it was enqueued.
         data_file(self.source, 'scripts/audit.py', SCRIPT)
         self.run_job()
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['audit.py', 'deploy.py'])
 
     def test_a_second_job_over_an_unchanged_directory_does_nothing(self):
         # Two synchronizations in quick succession enqueue two jobs. The second resolves to the
         # revision the first created, so a duplicate is a cheap no-op rather than a problem.
         self.run_job()
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
         self.validated.reset_mock()
 
         job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
-        self.assertEqual(CustomScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)
         self.validated.assert_not_called()
         # This project activates manually and has never activated anything, so the revision the
         # second job resolves to is the one an operator has yet to act on.
@@ -183,14 +183,14 @@ class ProjectReconciliationJobTestCase(TestCase):
         ):
             runner.run(project_id=self.project.pk, job_id='later')
         self.assertIn('Routing is unsafe.', str(runner.job.log_entries))
-        self.assertFalse(CustomScriptProjectRevision.objects.exists())
+        self.assertFalse(ScriptProjectRevision.objects.exists())
 
     def test_a_storage_failure_fails_the_job_and_leaves_a_retryable_revision(self):
         with mock.patch.object(store, 'write_revision', side_effect=StorageError('the backend refused')):
             job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.assertIn('needs another run', str(job.log_entries))
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
         self.validated.assert_not_called()
 
@@ -200,7 +200,7 @@ class ProjectReconciliationJobTestCase(TestCase):
         data_file(self.source, 'scripts/{}.py'.format('x' * 300), SCRIPT)
         job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
-        revision = CustomScriptProjectRevision.objects.get(project=self.project)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.INVALID)
         self.assertIn('problem(s) recorded', str(job.log_entries))
         self.validated.assert_not_called()
@@ -292,7 +292,7 @@ class ReconciliationPolicyTestCase(TestCase):
         first.refresh_from_db()
         self.assertEqual(first.status, RevisionStatusChoices.ACTIVE)
         # The tree was staged once, so the revert reuses the row rather than adding a third.
-        self.assertEqual(CustomScriptProjectRevision.objects.filter(project=self.project).count(), 2)
+        self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 2)
 
     def test_a_revert_on_a_manual_project_waits_for_an_operator(self):
         first = self.reconcile()
@@ -315,4 +315,4 @@ class ReconciliationPolicyTestCase(TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertIn('has not changed', str(job.log_entries))
         self.assertEqual(self.project.active_revision_id, active.pk)
-        self.assertEqual(CustomScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)

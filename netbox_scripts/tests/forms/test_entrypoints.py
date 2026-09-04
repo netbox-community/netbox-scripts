@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.forms import CustomScriptProjectEntrypointsForm
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
 
 
 def manifest(*paths):
@@ -19,7 +19,7 @@ class EntrypointSelectionTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = CustomScriptProject.objects.create(name='Selection Project', key='selection-project')
-        CustomScriptProjectRevision.objects.create(
+        ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
             manifest=manifest('deploy.py', 'tools/audit.py', 'tools/helpers.py', 'notes.md'),
@@ -90,17 +90,17 @@ class EntrypointSelectionTestCase(TestCase):
 
     def test_a_path_only_a_newer_revision_holds_is_labelled_not_yet_active(self):
         project = CustomScriptProject.objects.create(name='Staged Selection', key='staged-selection')
-        active = CustomScriptProjectRevision.objects.create(
+        active = ScriptProjectRevision.objects.create(
             project=project, digest='b' * 64, manifest=manifest('deploy.py'), status=RevisionStatusChoices.ACTIVE
         )
-        newer = CustomScriptProjectRevision.objects.create(
+        newer = ScriptProjectRevision.objects.create(
             project=project,
             digest='c' * 64,
             manifest=manifest('deploy.py', 'added.py'),
             status=RevisionStatusChoices.VALID,
         )
-        CustomScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
-        CustomScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
+        ScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
+        ScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
         CustomScriptProject.objects.filter(pk=project.pk).update(active_revision=active)
         project = CustomScriptProject.objects.get(pk=project.pk)
         CustomScriptModule.objects.create(project=project, source_path='added.py')

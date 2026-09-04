@@ -11,10 +11,10 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 
-EVERY_MODEL = (CustomScriptProject, CustomScriptProjectRevision, CustomScriptModule, CustomScript)
+EVERY_MODEL = (CustomScriptProject, ScriptProjectRevision, CustomScriptModule, CustomScript)
 
 
 class EventSourceFeatureTestCase(TestCase):
@@ -61,7 +61,7 @@ class EventBodyTestCase(TestCase):
         self.assertEqual(body['source_type'], {'value': self.project.source_type, 'label': 'Upload'})
 
     def test_the_body_omits_a_revision_stored_document(self):
-        revision = CustomScriptProjectRevision.objects.create(
+        revision = ScriptProjectRevision.objects.create(
             project=self.project, digest='a' * 64, manifest={'files': {'deploy.py': {'sha256': 'b' * 64}}}
         )
 
@@ -74,7 +74,7 @@ class EventBodyTestCase(TestCase):
         self.assertNotIn('entrypoints', body)
 
     def test_every_model_serializes(self):
-        revision = CustomScriptProjectRevision.objects.create(project=self.project, digest='c' * 64)
+        revision = ScriptProjectRevision.objects.create(project=self.project, digest='c' * 64)
         module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
         script = CustomScript.objects.create(project=self.project, module_path='deploy', class_name='Deploy')
 

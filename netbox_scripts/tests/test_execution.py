@@ -27,7 +27,7 @@ from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
     CustomScriptProject,
-    CustomScriptProjectRevision,
+    ScriptProjectRevision,
 )
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptResolutionError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
@@ -826,7 +826,7 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
         revision = self.publish({'deploy.py': MAKES_A_TAG})
         job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
         payload = dict(job.data)
-        CustomScriptProjectRevision.objects.filter(pk=revision.pk).delete()
+        ScriptProjectRevision.objects.filter(pk=revision.pk).delete()
 
         CustomScriptJob.handle(job, **payload, data={}, request=None)
         job.refresh_from_db()

@@ -75,7 +75,7 @@ exactly as it would to a Device or an IP address.
 | Object | A rule can react to |
 |---|---|
 | Custom Script Project | A project created, changed, or deleted |
-| Custom Script Project Revision | A revision appearing, or its validation status changing |
+| Script Project Revision | A revision appearing, or its validation status changing |
 | Custom Script Module | An entrypoint declaration added, changed, or removed |
 | Custom Script | A script appearing, retiring, or being enabled or disabled |
 

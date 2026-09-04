@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST, build_entrypoint_snapshot
 from netbox_scripts.storage.exceptions import (
@@ -635,7 +635,7 @@ class EntrypointIdentityTestCase(StorageServiceMixin, TestCase):
     """Staging freezes the enabled Module declarations into the revision's identity."""
 
     def module(self, path, **kwargs):
-        return CustomScriptModule.objects.create(project=self.project, source_path=path, **kwargs)
+        return ScriptFile.objects.create(project=self.project, source_path=path, **kwargs)
 
     def test_stage_revision_freezes_the_enabled_declarations(self):
         enabled = self.module('hello.py')
@@ -679,7 +679,7 @@ class RefreshEntrypointsTestCase(StorageServiceMixin, TestCase):
 
     def test_refresh_stages_the_content_under_the_current_configuration(self):
         first = self.materialize()
-        module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='hello.py')
         refreshed, created = service.refresh_revision_entrypoints(first)
         self.assertTrue(created)
         self.assertNotEqual(refreshed.pk, first.pk)
@@ -701,7 +701,7 @@ class RefreshEntrypointsTestCase(StorageServiceMixin, TestCase):
 
     def test_refresh_verifies_the_stored_tree(self):
         first = self.materialize()
-        CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        ScriptFile.objects.create(project=self.project, source_path='hello.py')
         self.overwrite(first.digest, 'hello.py', b'tampered')
         with self.assertRaises(RevisionCorruptError):
             service.refresh_revision_entrypoints(first)
@@ -711,7 +711,7 @@ class RefreshEntrypointsTestCase(StorageServiceMixin, TestCase):
         # fresh candidate for the same content rather than resurrecting the judged row.
         first = self.materialize()
         ScriptProjectRevision.objects.filter(pk=first.pk).update(status=RevisionStatusChoices.INVALID)
-        CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        ScriptFile.objects.create(project=self.project, source_path='hello.py')
         refreshed, created = service.refresh_revision_entrypoints(first)
         self.assertTrue(created)
         first.refresh_from_db()
@@ -738,7 +738,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
         # The pre-lock check proves the snapshot matched its digest when it was read. Only
         # the locked comparison can prove it still does, so the swap goes in that window
         # and leaves entrypoint_digest untouched.
-        module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='hello.py')
         revision = self.validated()
         real_verify = store.verify_revision_tree
 
@@ -761,7 +761,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
         self.assertIsNone(self.project.active_revision_id)
 
     def test_activation_accepts_a_revision_with_a_sound_snapshot(self):
-        module = CustomScriptModule.objects.create(project=self.project, source_path='hello.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='hello.py')
         revision = self.validated()
         activated = service.promote_revision(revision, on_promote=promote_without_synchronizing)
         self.assertEqual(activated.status, RevisionStatusChoices.ACTIVE)

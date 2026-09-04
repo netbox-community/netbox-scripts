@@ -13,10 +13,10 @@ from core.choices import JobStatusChoices
 from core.exceptions import JobFailed
 from core.models import Job
 from netbox_scripts import jobs, validation
-from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
+from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.runtime.exceptions import DiscoveryError, EntrypointImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.storage import service
@@ -63,7 +63,7 @@ class ValidationTestMixin:
         return Job.objects.create(name='validation-test', job_id=uuid.uuid4())
 
     def declare(self, source_path, enabled=True):
-        return CustomScriptModule.objects.create(project=self.project, source_path=source_path, enabled=enabled)
+        return ScriptFile.objects.create(project=self.project, source_path=source_path, enabled=enabled)
 
     def stage(self, files):
         revision, _ = service.stage_revision(self.project, files)
@@ -152,7 +152,7 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(stale_result.validation_errors, [])
         self.assertEqual(stale_result.validation_job, new_job)
         module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
         self.assertEqual(module_row.discovery_error, '')
 
 
@@ -194,7 +194,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
         for module_row in (first, second):
             module_row.refresh_from_db()
-            self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+            self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
             self.assertEqual(module_row.discovery_error, '')
             self.assertEqual(module_row.last_discovered_revision, result)
 
@@ -210,8 +210,8 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(record['exception_type'], 'SyntaxError')
         good.refresh_from_db()
         bad.refresh_from_db()
-        self.assertEqual(good.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
-        self.assertEqual(bad.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+        self.assertEqual(good.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(bad.discovery_status, FileDiscoveryStatusChoices.FAILED)
         # The sanitizer reduced the cache path in the message to the bare relative path.
         self.assertEqual(bad.discovery_error, 'invalid syntax (broken.py, line 1)')
 
@@ -256,7 +256,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertIsNone(revision.validation_job)
         self.assertIsNone(revision.validation_started)
         module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.PENDING)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.PENDING)
 
     def test_the_reason_a_verdict_could_not_be_reached_is_recorded(self):
         # The lease fields are given back, so this is the only thing that survives to say why a
@@ -463,8 +463,8 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual({record['source_path'] for record in result.validation_errors}, {'broken.py'})
         good.refresh_from_db()
         bad.refresh_from_db()
-        self.assertEqual(good.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
-        self.assertEqual(bad.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+        self.assertEqual(good.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(bad.discovery_status, FileDiscoveryStatusChoices.FAILED)
 
     def test_an_environment_failure_leaves_the_publication_set_alone(self):
         self.declare('deploy.py')
@@ -514,7 +514,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertIsNone(record['traceback'])
         self.assertEqual(result.discovered_scripts, [])
         module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
         self.assertEqual(module_row.discovery_error, 'The module imports cleanly and defines no Custom Script.')
 
     def test_an_entrypoint_publishing_nothing_beside_a_working_one_stays_valid(self):
@@ -529,9 +529,9 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual([record['class_name'] for record in result.discovered_scripts], ['Deploy'])
         working.refresh_from_db()
         empty.refresh_from_db()
-        self.assertEqual(working.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(working.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
         self.assertEqual(working.discovery_error, '')
-        self.assertEqual(empty.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(empty.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
         self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Custom Script.')
 
     def test_an_empty_module_beside_a_failing_one_keeps_its_own_message(self):
@@ -547,9 +547,9 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual({record['code'] for record in result.validation_errors}, {'entrypoint_import_failed'})
         empty.refresh_from_db()
         broken.refresh_from_db()
-        self.assertEqual(empty.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(empty.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
         self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Custom Script.')
-        self.assertEqual(broken.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+        self.assertEqual(broken.discovery_status, FileDiscoveryStatusChoices.FAILED)
         self.assertEqual(broken.discovery_error, 'invalid syntax (broken.py, line 1)')
 
     def test_a_host_based_class_is_named_in_the_verdict(self):
@@ -572,7 +572,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertIn('"NewIP" subclasses extras.scripts.Script', record['message'])
         self.assertIn('netbox_scripts.scripts', record['message'])
         module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
 
     def test_a_snapshot_with_no_enabled_entrypoint_is_still_valid(self):
         # The boundary the ruling drew: a revision with nothing enabled publishes nothing by
@@ -684,12 +684,12 @@ class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
         # persistence guard has to hold on that route too.
         module_row = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
-        CustomScriptModule.objects.filter(pk=module_row.pk).update(source_path='moved.py')
+        ScriptFile.objects.filter(pk=module_row.pk).update(source_path='moved.py')
         module_row.refresh_from_db()
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
         module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.PENDING)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.PENDING)
         self.assertIsNone(module_row.last_discovered_revision)
 
     def test_an_older_run_finishing_late_cannot_overwrite_a_newer_outcome(self):
@@ -731,7 +731,7 @@ class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
         module_row.refresh_from_db()
         self.assertEqual(module_row.last_discovered_revision_id, revision.pk)
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
 
 
 class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
@@ -744,7 +744,7 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
         module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
 
     def test_enqueue_persists_the_revision_pk_on_the_job_row(self):
         revision = self.stage(SCRIPT_FILES)

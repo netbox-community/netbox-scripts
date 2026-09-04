@@ -5,7 +5,7 @@ from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MODULE_PATH_LENGTH
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -138,7 +138,7 @@ class CustomScriptTestCase(TestCase):
 
     def test_deleting_a_module_leaves_the_scripts_intact(self):
         # A script's publishing entrypoint is provenance, not a relational parent.
-        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         instance = self._script()
         module.delete()
         instance.refresh_from_db()

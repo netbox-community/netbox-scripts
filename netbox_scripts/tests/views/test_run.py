@@ -13,7 +13,7 @@ from core.models import Job, ObjectType
 from extras.models import Tag
 from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.jobs import CustomScriptJob
-from netbox_scripts.models import CustomScript, CustomScriptModule, ScriptProject
+from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_scripts.scripts.logging import LogLevelChoices
@@ -59,9 +59,7 @@ class RunViewTestMixin:
 
     def publish(self, source=TAKES_A_NAME):
         """Stage, validate and activate one tree, so the project is serving a runnable script."""
-        CustomScriptModule.objects.get_or_create(
-            project=self.project, source_path='deploy.py', defaults={'enabled': True}
-        )
+        ScriptFile.objects.get_or_create(project=self.project, source_path='deploy.py', defaults={'enabled': True})
         revision, _ = service.stage_revision(self.project, {'deploy.py': source})
         revision = validate_revision(revision, job=Job.objects.create(name='validation', job_id=uuid.uuid4()))
         activate_revision(revision)

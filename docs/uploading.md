@@ -22,7 +22,7 @@ plugin derives all of it. What happens when the form is submitted:
 1. The Project is created with source type `upload`.
 2. The uploaded file's name becomes its path within the Project, canonicalized under the
    [source path policy](configuration.md#source-path-policy).
-3. A Custom Script Module is created for that path and enabled, so the file is an entrypoint.
+3. A Script File is created for that path and enabled, so the file is an entrypoint.
 4. A revision is staged: the content is written to project storage, verified against its
    manifest, and reaches `materialized`.
 5. Validation is enqueued. It runs in a worker, imports the entrypoint, and discovers the
@@ -100,7 +100,7 @@ a second one.
 
 Authorization is the same pair the **Add Script** page needs: the change permission on the
 Project, because the Project exists and its source is being changed, and the add permission on
-Custom Script Modules, because the upload declares its own entrypoint. The Project's add
+Script Files, because the upload declares its own entrypoint. The Project's add
 permission is not what authorizes this.
 
 ## Putting a revision in service

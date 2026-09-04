@@ -1,6 +1,6 @@
-# Custom Script Module
+# Script File
 
-A Custom Script Module declares one executable entrypoint within a Script
+A Script File declares one executable entrypoint within a Script
 Project: a Python file of the project's source tree that discovery
 imports and publishes Custom Scripts from. Helper files need no module row,
 they stay importable by the entrypoints without being one, so a module list is
@@ -61,8 +61,8 @@ was a mistake that never validated.
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | `/api/plugins/netbox-scripts/modules/` |
-| GraphQL | `custom_script_module` / `custom_script_module_list` |
+| REST | `/api/plugins/netbox-scripts/script-files/` |
+| GraphQL | `netbox_script_file` / `netbox_script_file_list` |
 
 Entrypoints are selected on the owning Project's **Entrypoints** tab, which
 lists the importable modules of its source at any depth and never asks for a

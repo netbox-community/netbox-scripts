@@ -9,12 +9,12 @@ from extras.models import EventRule, Webhook
 from netbox.models.features import has_feature
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
 
-EVERY_MODEL = (ScriptProject, ScriptProjectRevision, CustomScriptModule, CustomScript)
+EVERY_MODEL = (ScriptProject, ScriptProjectRevision, ScriptFile, CustomScript)
 
 
 class EventSourceFeatureTestCase(TestCase):
@@ -75,7 +75,7 @@ class EventBodyTestCase(TestCase):
 
     def test_every_model_serializes(self):
         revision = ScriptProjectRevision.objects.create(project=self.project, digest='c' * 64)
-        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         script = CustomScript.objects.create(project=self.project, module_path='deploy', class_name='Deploy')
 
         for instance in (self.project, revision, module, script):

@@ -2,14 +2,14 @@ import strawberry
 
 from ..choices import (
     ActivationPolicyChoices,
-    ModuleDiscoveryStatusChoices,
+    FileDiscoveryStatusChoices,
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
 
 __all__ = (
     'ActivationPolicyEnum',
-    'ModuleDiscoveryStatusEnum',
+    'FileDiscoveryStatusEnum',
     'ProjectSourceTypeEnum',
     'RevisionStatusEnum',
 )
@@ -17,7 +17,9 @@ __all__ = (
 ActivationPolicyEnum = strawberry.enum(
     ActivationPolicyChoices.as_enum(prefix='activation_policy'), name='NetBoxScriptActivationPolicyEnum'
 )
-ModuleDiscoveryStatusEnum = strawberry.enum(ModuleDiscoveryStatusChoices.as_enum(prefix='discovery_status'))
+FileDiscoveryStatusEnum = strawberry.enum(
+    FileDiscoveryStatusChoices.as_enum(prefix='discovery_status'), name='NetBoxScriptFileDiscoveryStatusEnum'
+)
 ProjectSourceTypeEnum = strawberry.enum(
     ProjectSourceTypeChoices.as_enum(prefix='source_type'), name='NetBoxScriptProjectSourceTypeEnum'
 )

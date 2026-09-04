@@ -15,7 +15,7 @@ from core.models import DataFile, DataSource, Job
 from netbox_scripts import activation
 from netbox_scripts.choices import (
     ActivationPolicyChoices,
-    ModuleDiscoveryStatusChoices,
+    FileDiscoveryStatusChoices,
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
@@ -30,7 +30,7 @@ from netbox_scripts.ingestion import (
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -129,7 +129,7 @@ class IngestUploadTestCase(TestCase):
 
     def test_the_entrypoint_is_declared_and_enabled(self):
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        module = CustomScriptModule.objects.get(project=self.project)
+        module = ScriptFile.objects.get(project=self.project)
         self.assertEqual(module.source_path, 'deploy.py')
         self.assertTrue(module.enabled)
 
@@ -152,12 +152,12 @@ class IngestUploadTestCase(TestCase):
     def test_a_name_needing_canonicalization_is_stored_canonical(self):
         staged = ingest_upload(self.project, filename='./deploy.py', content=SCRIPT)
         self.assertEqual([entry['path'] for entry in staged.revision.manifest], ['deploy.py'])
-        self.assertEqual(CustomScriptModule.objects.get(project=self.project).source_path, 'deploy.py')
+        self.assertEqual(ScriptFile.objects.get(project=self.project).source_path, 'deploy.py')
 
     def test_a_refused_name_creates_nothing(self):
         with self.assertRaises(ValidationError):
             ingest_upload(self.project, filename='notes.txt', content=b'hello\n')
-        self.assertFalse(CustomScriptModule.objects.exists())
+        self.assertFalse(ScriptFile.objects.exists())
         self.assertFalse(ScriptProjectRevision.objects.exists())
         self.enqueued.assert_not_called()
 
@@ -183,22 +183,22 @@ class IngestUploadTestCase(TestCase):
         revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
         # The declaration survives, so the retry stages the same entrypoint configuration.
-        self.assertTrue(CustomScriptModule.objects.filter(project=self.project, enabled=True).exists())
+        self.assertTrue(ScriptFile.objects.filter(project=self.project, enabled=True).exists())
         self.enqueued.assert_not_called()
 
     def test_re_uploading_a_disabled_path_turns_it_back_on(self):
         # An uploaded file is always an entrypoint, and the row is reused rather than replaced,
         # because Custom Script rows and Job history will reference the declaration.
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        module = CustomScriptModule.objects.get(project=self.project)
-        CustomScriptModule.objects.filter(pk=module.pk).update(
-            enabled=False, discovery_status=ModuleDiscoveryStatusChoices.DISCOVERED
+        module = ScriptFile.objects.get(project=self.project)
+        ScriptFile.objects.filter(pk=module.pk).update(
+            enabled=False, discovery_status=FileDiscoveryStatusChoices.DISCOVERED
         )
 
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT + b'# changed\n')
         module.refresh_from_db()
         self.assertTrue(module.enabled)
-        self.assertEqual(CustomScriptModule.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 1)
 
     def test_identical_content_resolves_to_the_existing_revision(self):
         first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
@@ -248,7 +248,7 @@ class IngestUploadTestCase(TestCase):
         # HTTP form only. This layer keeps whatever path it is handed.
         staged = ingest_upload(self.project, filename='automation/deploy.py', content=SCRIPT)
         self.assertEqual([entry['path'] for entry in staged.revision.manifest], ['automation/deploy.py'])
-        self.assertEqual(CustomScriptModule.objects.get(project=self.project).source_path, 'automation/deploy.py')
+        self.assertEqual(ScriptFile.objects.get(project=self.project).source_path, 'automation/deploy.py')
 
     def test_a_repeated_path_replaces_its_content_under_one_declaration(self):
         # Two uploads whose names share a basename both arrive here as that basename, so this is
@@ -261,14 +261,14 @@ class IngestUploadTestCase(TestCase):
 
         self.assertEqual([entry['path'] for entry in second.revision.manifest], ['deploy.py'])
         self.assertNotEqual(second.revision.digest, first.revision.digest)
-        self.assertEqual(CustomScriptModule.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 1)
 
     def test_a_case_variant_basename_is_refused_as_a_sibling_collision(self):
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         with self.assertRaises(ValidationError) as ctx:
             ingest_upload(self.project, filename='Deploy.py', content=SCRIPT, base_files={'deploy.py': SCRIPT})
         self.assertIn('collides', str(ctx.exception))
-        self.assertEqual(CustomScriptModule.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 1)
 
     def test_a_second_upload_builds_on_the_un_activated_first(self):
         # A project on the manual policy serves one revision while a newer one waits, and the
@@ -301,9 +301,9 @@ class IngestUploadTestCase(TestCase):
             check_upload_conflicts(self.project, 'beta.py', confirm_replace=False)
 
     def test_an_upload_declares_nothing_when_routing_is_unsafe(self):
-        with routing(customscriptmodule=True), self.assertRaises(ImproperlyConfigured):
+        with routing(scriptfile=True), self.assertRaises(ImproperlyConfigured):
             ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        self.assertFalse(CustomScriptModule.objects.filter(project=self.project).exists())
+        self.assertFalse(ScriptFile.objects.filter(project=self.project).exists())
 
     def test_base_files_are_carried_into_the_new_revision(self):
         base = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
@@ -407,7 +407,7 @@ class IngestDataSourceTestCase(TestCase):
         # arrival, which is what makes the selection survive a synchronization.
         self.populate()
         staged = ingest_data_source(self.project)
-        self.assertFalse(CustomScriptModule.objects.filter(project=self.project).exists())
+        self.assertFalse(ScriptFile.objects.filter(project=self.project).exists())
         self.assertEqual(staged.revision.entrypoint_snapshot, [])
 
     def test_an_enabled_declaration_is_frozen_into_the_snapshot(self):
@@ -587,19 +587,19 @@ class UploadToActiveTestCase(TestCase):
         staged = ingest_upload(project, filename='hello_world.py', content=DISCOVERABLE_SCRIPT)
         self.assertEqual(staged.revision.status, RevisionStatusChoices.MATERIALIZED)
         self.assertEqual(
-            CustomScriptModule.objects.get(project=project).discovery_status,
-            ModuleDiscoveryStatusChoices.PENDING,
+            ScriptFile.objects.get(project=project).discovery_status,
+            FileDiscoveryStatusChoices.PENDING,
         )
 
         self.run_validation(staged.revision)
 
         staged.revision.refresh_from_db()
         project.refresh_from_db()
-        module = CustomScriptModule.objects.get(project=project)
+        module = ScriptFile.objects.get(project=project)
         self.assertEqual(staged.revision.validation_errors, [])
         self.assertEqual(staged.revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(project.active_revision_id, staged.revision.pk)
-        self.assertEqual(module.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
         self.assertEqual(module.discovery_error, '')
 
         # The point of the whole slice: the uploaded class is a first-class object now.
@@ -663,8 +663,8 @@ class UploadToActiveTestCase(TestCase):
         self.assertIsNone(project.active_revision_id)
         # Discovery is a property of validation, not of activation.
         self.assertEqual(
-            CustomScriptModule.objects.get(project=project).discovery_status,
-            ModuleDiscoveryStatusChoices.DISCOVERED,
+            ScriptFile.objects.get(project=project).discovery_status,
+            FileDiscoveryStatusChoices.DISCOVERED,
         )
 
     def test_a_script_that_cannot_import_is_an_invalid_verdict(self):
@@ -673,10 +673,10 @@ class UploadToActiveTestCase(TestCase):
         self.run_validation(staged.revision)
 
         staged.revision.refresh_from_db()
-        module = CustomScriptModule.objects.get(project=project)
+        module = ScriptFile.objects.get(project=project)
         self.assertEqual(staged.revision.status, RevisionStatusChoices.INVALID)
         self.assertTrue(staged.revision.validation_errors)
-        self.assertEqual(module.discovery_status, ModuleDiscoveryStatusChoices.FAILED)
+        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.FAILED)
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)

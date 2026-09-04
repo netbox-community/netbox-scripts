@@ -21,14 +21,6 @@ urlpatterns: tuple = (
         include(get_model_urls('netbox_scripts', 'migrationrun')),
     ),
     path(
-        'modules/',
-        include(get_model_urls('netbox_scripts', 'customscriptmodule', detail=False)),
-    ),
-    path(
-        'modules/<int:pk>/',
-        include(get_model_urls('netbox_scripts', 'customscriptmodule')),
-    ),
-    path(
         'projects/',
         include(get_model_urls('netbox_scripts', 'scriptproject', detail=False)),
     ),
@@ -41,6 +33,14 @@ urlpatterns: tuple = (
     path(
         'revisions/<int:pk>/',
         include(get_model_urls('netbox_scripts', 'scriptprojectrevision')),
+    ),
+    path(
+        'script-files/',
+        include(get_model_urls('netbox_scripts', 'scriptfile', detail=False)),
+    ),
+    path(
+        'script-files/<int:pk>/',
+        include(get_model_urls('netbox_scripts', 'scriptfile')),
     ),
     path(
         'scripts/',

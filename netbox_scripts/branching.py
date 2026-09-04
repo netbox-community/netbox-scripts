@@ -43,8 +43,8 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 # everything outside that branch.
 GLOBAL_MODELS = (
     'customscript',
-    'customscriptmodule',
     'migrationrun',
+    'scriptfile',
     'scriptproject',
     'scriptprojectrevision',
 )
@@ -59,7 +59,7 @@ ROUTING_HINT = (
     'cannot confirm the routing without it. If these models are still routed to a branch, add the '
     "labels to PLUGINS_CONFIG['netbox_branching']['exempt_models']: "
     '"netbox_scripts.customscript", '
-    '"netbox_scripts.customscriptmodule", '
+    '"netbox_scripts.scriptfile", '
     '"netbox_scripts.scriptproject", '
     '"netbox_scripts.scriptprojectrevision", '
     '"netbox_scripts.migrationrun".'

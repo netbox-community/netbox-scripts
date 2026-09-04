@@ -25,7 +25,7 @@ from netbox_scripts.execution import ScriptNotExecutableError, load_script_class
 from netbox_scripts.jobs import CustomScriptJob
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -378,7 +378,7 @@ class ScriptJobTestMixin:
     def publish(self, files, entrypoints=('deploy.py',), activate=True):
         """Stage, validate and optionally activate one tree, returning the revision."""
         for path in entrypoints:
-            CustomScriptModule.objects.get_or_create(project=self.project, source_path=path, defaults={'enabled': True})
+            ScriptFile.objects.get_or_create(project=self.project, source_path=path, defaults={'enabled': True})
         revision, _ = service.stage_revision(self.project, files)
         revision = validate_revision(revision, job=Job.objects.create(name='validation', job_id=uuid.uuid4()))
         if activate:

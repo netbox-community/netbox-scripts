@@ -1,10 +1,10 @@
-from netbox_scripts.models import CustomScriptModule, ScriptProject
+from netbox_scripts.models import ScriptFile, ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginTestCases
 from utilities.testing import create_tags
 
 
-class CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase):
-    model = CustomScriptModule
+class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):
+    model = ScriptFile
 
     @classmethod
     def setUpTestData(cls):
@@ -16,9 +16,9 @@ class CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase):
             project.save()
 
         objs = (
-            CustomScriptModule(project=projects[0], source_path='tools/first.py', description='First'),
-            CustomScriptModule(project=projects[0], source_path='tools/second.py', description='Second'),
-            CustomScriptModule(
+            ScriptFile(project=projects[0], source_path='tools/first.py', description='First'),
+            ScriptFile(project=projects[0], source_path='tools/second.py', description='Second'),
+            ScriptFile(
                 project=projects[1],
                 source_path='tools/third.py',
                 description='Third',

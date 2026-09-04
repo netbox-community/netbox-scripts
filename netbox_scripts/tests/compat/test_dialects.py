@@ -12,13 +12,13 @@ from core.models import DataFile, DataSource, Job
 from netbox_scripts import compat
 from netbox_scripts.choices import (
     ActivationPolicyChoices,
-    ModuleDiscoveryStatusChoices,
+    FileDiscoveryStatusChoices,
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
 from netbox_scripts.ingestion import ingest_data_source
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScript, CustomScriptModule, ScriptProject
+from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
 
 FORMS = {
     'named.py': 'from extras.scripts import Script, StringVar\n\n\nclass Named(Script):\n    name = StringVar()\n',
@@ -72,7 +72,7 @@ class DialectTestCase(TestCase):
         # Declarations are committed before staging, because staging freezes the enabled ones
         # into the revision's entrypoint snapshot.
         for path in files if entrypoints is None else entrypoints:
-            CustomScriptModule.objects.create(project=project, source_path=path, enabled=True)
+            ScriptFile.objects.create(project=project, source_path=path, enabled=True)
         for path, source_text in files.items():
             content = source_text.encode()
             DataFile.objects.create(
@@ -144,8 +144,8 @@ class DialectTestCase(TestCase):
         self.assertEqual(failure['source_path'], 'dynamic.py')
         self.assertEqual(failure['code'], 'no_scripts_published')
         self.assertIn('"Dynamic" subclasses extras.scripts.Script', failure['message'])
-        (module_row,) = CustomScriptModule.objects.filter(project=revision.project)
-        self.assertEqual(module_row.discovery_status, ModuleDiscoveryStatusChoices.NO_SCRIPTS)
+        (module_row,) = ScriptFile.objects.filter(project=revision.project)
+        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
 
     def test_a_legacy_import_becomes_an_invalid_revision_once_the_host_drops_the_module(self):
         with mock.patch.object(compat, '_host_provides', return_value=False):

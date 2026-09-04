@@ -28,9 +28,9 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .branching import require_safe_routing
-from .choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
+from .choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from .constants import MAX_VALIDATION_ERROR_LENGTH, VALIDATION_LEASE_SECONDS
-from .models import CustomScriptModule, ScriptProjectRevision
+from .models import ScriptFile, ScriptProjectRevision
 from .runtime.cache import local_revision_dir
 from .runtime.discovery import discover_scripts, zero_publication_reason
 from .runtime.exceptions import DiscoveryError, EntrypointImportError, InvalidModulePathError, ScriptMetadataError
@@ -146,7 +146,7 @@ def validate_revision(revision, *, job, passthrough=()):
                         continue
                     if not found:
                         notes[source_path] = sanitize(zero_publication_reason(module))
-                        outcomes[source_path] = ModuleDiscoveryStatusChoices.NO_SCRIPTS
+                        outcomes[source_path] = FileDiscoveryStatusChoices.NO_SCRIPTS
                         continue
                     outcomes[source_path] = _collect_publications(failures, identities, records, sanitize, entry, found)
             finally:
@@ -281,7 +281,7 @@ def _content_failure(failures, sanitize, source_path, error):
             'traceback': None,
         }
     failures.append(record)
-    return ModuleDiscoveryStatusChoices.FAILED
+    return FileDiscoveryStatusChoices.FAILED
 
 
 def _collect_publications(failures, identities, records, sanitize, entry, found):
@@ -294,7 +294,7 @@ def _collect_publications(failures, identities, records, sanitize, entry, found)
     collision, as is a class whose run form cannot be built.
     """
     source_path = entry['source_path']
-    outcome = ModuleDiscoveryStatusChoices.DISCOVERED
+    outcome = FileDiscoveryStatusChoices.DISCOVERED
     for item in found:
         identity = (item.logical_module, item.name)
         existing = identities.get(identity)
@@ -309,7 +309,7 @@ def _collect_publications(failures, identities, records, sanitize, entry, found)
                         'traceback': None,
                     }
                 )
-                outcome = ModuleDiscoveryStatusChoices.FAILED
+                outcome = FileDiscoveryStatusChoices.FAILED
             continue
         try:
             record = describe_script(
@@ -379,13 +379,13 @@ def _persist_module_results(revision, entries, outcomes, failures, notes):
         outcome = outcomes.get(source_path)
         if outcome is None:
             continue
-        if outcome == ModuleDiscoveryStatusChoices.FAILED:
+        if outcome == FileDiscoveryStatusChoices.FAILED:
             message = messages.get(source_path, '')
-        elif outcome == ModuleDiscoveryStatusChoices.NO_SCRIPTS:
+        elif outcome == FileDiscoveryStatusChoices.NO_SCRIPTS:
             message = notes.get(source_path, '')
         else:
             message = ''
-        CustomScriptModule.objects.filter(
+        ScriptFile.objects.filter(
             Q(last_discovered_revision__isnull=True)
             | Q(last_discovered_revision=revision)
             | Q(last_discovered_revision__validation_started__lt=revision.validation_started),

@@ -54,8 +54,8 @@ class ScriptProjectRevisionStatePanel(ObjectAttributesPanel):
     activated = attrs.DateTimeAttr('activated', label=_('Activated'))
 
 
-class CustomScriptModulePanel(ObjectAttributesPanel):
-    """Declaration attributes of a Custom Script Module (detail view, left column)."""
+class ScriptFilePanel(ObjectAttributesPanel):
+    """Declaration attributes of a Script File (detail view, left column)."""
 
     title = _('Module')
 
@@ -65,8 +65,8 @@ class CustomScriptModulePanel(ObjectAttributesPanel):
     description = attrs.TextAttr('description', label=_('Description'))
 
 
-class CustomScriptModuleDiscoveryPanel(ObjectAttributesPanel):
-    """System-managed discovery results of a Custom Script Module (detail view, right column)."""
+class ScriptFileDiscoveryPanel(ObjectAttributesPanel):
+    """System-managed discovery results of a Script File (detail view, right column)."""
 
     title = _('Discovery')
 

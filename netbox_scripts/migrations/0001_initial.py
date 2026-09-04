@@ -86,7 +86,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='active_revision_for', to='netbox_scripts.scriptprojectrevision'),
         ),
         migrations.CreateModel(
-            name='CustomScriptModule',
+            name='ScriptFile',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
                 ('created', models.DateTimeField(auto_now_add=True, null=True)),
@@ -104,8 +104,8 @@ class Migration(migrations.Migration):
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
             ],
             options={
-                'verbose_name': 'custom script module',
-                'verbose_name_plural': 'custom script modules',
+                'verbose_name': 'script file',
+                'verbose_name_plural': 'script files',
                 'ordering': ('project', 'source_path'),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
@@ -167,7 +167,7 @@ class Migration(migrations.Migration):
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
         migrations.AddConstraint(
-            model_name='customscriptmodule',
+            model_name='scriptfile',
             constraint=models.UniqueConstraint(fields=('project', 'source_path'), name='unique_project_source_path'),
         ),
         migrations.AddConstraint(

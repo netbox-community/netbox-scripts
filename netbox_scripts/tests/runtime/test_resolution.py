@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, ScriptProject
+from netbox_scripts.models import ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import ScriptMetadataError, ScriptResolutionError
 from netbox_scripts.runtime.loader import revision_import_session, unload_revision
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
@@ -43,7 +43,7 @@ class ResolutionTestMixin:
     def validated(self, files, entrypoints):
         """Stage one tree, drive it to a verdict, and return the refreshed revision."""
         for source_path in entrypoints:
-            CustomScriptModule.objects.create(project=self.project, source_path=source_path, enabled=True)
+            ScriptFile.objects.create(project=self.project, source_path=source_path, enabled=True)
         revision, _ = service.stage_revision(self.project, files)
         job = Job.objects.create(name='resolution-test', job_id=uuid.uuid4())
         return validate_revision(revision, job=job)

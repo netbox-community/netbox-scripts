@@ -1,10 +1,10 @@
 from .panels import (
-    CustomScriptModuleDiscoveryPanel,
-    CustomScriptModulePanel,
     CustomScriptPanel,
     CustomScriptStatePanel,
     MigrationRunPanel,
     MigrationRunVersionPanel,
+    ScriptFileDiscoveryPanel,
+    ScriptFilePanel,
     ScriptProjectPanel,
     ScriptProjectRevisionPanel,
     ScriptProjectRevisionStatePanel,
@@ -13,12 +13,12 @@ from .panels import (
 )
 
 __all__ = (
-    'CustomScriptModuleDiscoveryPanel',
-    'CustomScriptModulePanel',
     'CustomScriptPanel',
     'CustomScriptStatePanel',
     'MigrationRunPanel',
     'MigrationRunVersionPanel',
+    'ScriptFileDiscoveryPanel',
+    'ScriptFilePanel',
     'ScriptProjectPanel',
     'ScriptProjectRevisionPanel',
     'ScriptProjectRevisionStatePanel',

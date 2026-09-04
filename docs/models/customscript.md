@@ -15,8 +15,8 @@ revision with its old scripts or the new revision with its new ones.
 A Custom Script is identified by its project and by the dotted module path and
 class name of the module that **defines** it.
 
-The parent is the Project rather than the [Custom Script
-Module](customscriptmodule.md), which may look surprising, because a module is
+The parent is the Project rather than the [Script
+File](scriptfile.md), which may look surprising, because a module is
 what discovery imports. The reason is `script_order`: a class defined in a
 helper file can be published by an entrypoint that re-exports it, and helper
 files have no module row, because module rows are entrypoint declarations only.
@@ -84,7 +84,7 @@ undo an administrator's decision.
 | `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `scripts` |
 | `last_seen_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
-Deleting a Custom Script Module leaves its scripts alone, since the publishing
+Deleting a Script File leaves its scripts alone, since the publishing
 entrypoint is provenance rather than a parent. Deleting the project takes its
 scripts with it. Pruning an old revision never takes scripts with it, so
 `last_seen_revision` simply becomes empty.

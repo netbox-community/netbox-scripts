@@ -4,22 +4,22 @@ from django.urls import NoReverseMatch, reverse
 from netbox.object_actions import BulkExport
 from netbox.tables.columns import ActionsColumn
 from netbox_scripts.tables import (
-    CustomScriptModuleTable,
     CustomScriptTable,
+    ScriptFileTable,
     ScriptProjectRevisionTable,
     ScriptProjectTable,
 )
 from netbox_scripts.views import (
     CustomScriptListView,
-    CustomScriptModuleListView,
     CustomScriptView,
+    ScriptFileListView,
     ScriptProjectListView,
     ScriptProjectView,
 )
 
 LIST_VIEWS = (
     ScriptProjectListView,
-    CustomScriptModuleListView,
+    ScriptFileListView,
     CustomScriptListView,
 )
 
@@ -33,7 +33,7 @@ DETAIL_VIEWS = (
 TABLES = (
     ScriptProjectTable,
     ScriptProjectRevisionTable,
-    CustomScriptModuleTable,
+    ScriptFileTable,
     CustomScriptTable,
 )
 

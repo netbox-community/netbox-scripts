@@ -16,10 +16,10 @@
   lifecycle, and content-addressed deduplication of identical source trees
 * Revision staging and activation, with one active revision per project and
   storage reclaimed when a project or revision is deleted
-* `CustomScriptModule` model declaring project entrypoints, with enabled
+* `ScriptFile` model declaring project entrypoints, with enabled
   declarations frozen into each revision as its entrypoint snapshot and the
   snapshot digest joining the revision identity
-* `CustomScriptModule` UI, REST API, GraphQL, and global-search surfaces, with
+* `ScriptFile` UI, REST API, GraphQL, and global-search surfaces, with
   the discovery fields readable and filterable but writable only by project
   validation, and each project's modules listed on its detail page
 * Entrypoint selection as a Project setting: an Entrypoints tab and a
@@ -27,7 +27,7 @@
   project's source, at any depth, so a path is chosen rather than typed.
   Selection is expressed as `enabled`, so deselecting keeps a declaration's
   discovery history and its reserved path
-* A Custom Script Module's project and source path are frozen after creation, so
+* A Script File's project and source path are frozen after creation, so
   a declaration can never be repointed at a file it did not name
 * Manifest-verified runtime cache: revisions materialize to disposable local
   trees that are verified before every use, purged of compiled files, staged
@@ -172,7 +172,7 @@
   author's own setting: the run form withholds the two scheduling fields unless
   both allow them, and REST refuses the values because it has no form to leave
   them out of. Changing entrypoints and reading run results deliberately get no
-  new codename, because the Custom Script Module `change` permission and NetBox's
+  new codename, because the Script File `change` permission and NetBox's
   own Job permission already name those privileges exactly
 * A script written for NetBox's built-in runner works unmodified. Its
   `extras.scripts` import resolves to this plugin's authoring API in every form

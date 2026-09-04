@@ -19,7 +19,7 @@ logging, global search, REST, and GraphQL.
 | Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Script Project](models/scriptproject.md) |
 | Project revision | One immutable snapshot of a project's source tree and entrypoint configuration, addressed by a content digest and an entrypoint digest. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Active revision | The single revision of a project that is currently active. Activating another retires it. | [Script Project Revision](models/scriptprojectrevision.md) |
-| Custom Script Module | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Custom Script Module](models/customscriptmodule.md) |
+| Script File | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Script File](models/scriptfile.md) |
 | Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Custom Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Custom Script](models/customscript.md) |
 | Run | One execution of a Custom Script, recorded as a Job and pinned to the revision that was being served when it was requested. | [Running Custom Scripts](execution.md) |

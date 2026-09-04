@@ -265,7 +265,7 @@ class ScriptProject(PrimaryModel):
 
         Raises ValidationError for a path this project cannot declare.
         """
-        from .module import CustomScriptModule
+        from .script_file import ScriptFile
 
         selected = set(paths)
         if unknown := selected.difference(self.declarable_entrypoints()):
@@ -281,7 +281,7 @@ class ScriptProject(PrimaryModel):
         with transaction.atomic(using=using):
             existing = {module.source_path: module for module in self.modules.using(using).select_for_update().all()}
             for path in sorted(selected.difference(existing)):
-                module = CustomScriptModule(project=self, source_path=path, enabled=True)
+                module = ScriptFile(project=self, source_path=path, enabled=True)
                 module.full_clean()
                 module.save(using=using)
             for path, module in existing.items():

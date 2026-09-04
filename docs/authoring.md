@@ -144,7 +144,7 @@ def run(self, data, commit):
 ## Publishing scripts from a project
 
 A project offers scripts through its declared entrypoints, the
-[Custom Script Modules](models/customscriptmodule.md). An entrypoint is one
+[Script Files](models/scriptfile.md). An entrypoint is one
 Python file of the project tree, and project validation imports it and
 publishes the `Script` subclasses its own body defines, alphabetically:
 

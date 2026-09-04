@@ -19,7 +19,7 @@ from netbox_scripts.choices import (
 from netbox_scripts.jobs import ProjectReconciliationJob, RevisionValidationJob
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -235,7 +235,7 @@ class ReconciliationPolicyTestCase(TestCase):
             'scripts',
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
         )
-        CustomScriptModule.objects.create(project=self.project, source_path='deploy.py', enabled=True)
+        ScriptFile.objects.create(project=self.project, source_path='deploy.py', enabled=True)
         data_file(self.source, 'scripts/deploy.py', SCRIPT)
 
     def run_reconciliation(self):

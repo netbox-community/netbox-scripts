@@ -5,7 +5,7 @@ from rest_framework import status
 
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectEntrypointRefreshJob
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from utilities.testing import APITestCase
 
 
@@ -30,7 +30,7 @@ class EntrypointsAPITestCase(APITestCase):
         self.add_permissions(
             'netbox_scripts.view_scriptproject',
             'netbox_scripts.change_scriptproject',
-            'netbox_scripts.change_customscriptmodule',
+            'netbox_scripts.change_scriptfile',
         )
 
     def url(self):
@@ -61,7 +61,7 @@ class EntrypointsAPITestCase(APITestCase):
 
     def test_put_disables_rather_than_deletes(self):
         self.allow_writes()
-        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         response = self.client.put(self.url(), {'paths': []}, format='json', **self.header)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         module.refresh_from_db()
@@ -104,7 +104,7 @@ class EntrypointsAPITestCase(APITestCase):
 
     def test_a_declared_path_missing_from_the_source_is_reported_unavailable(self):
         self.add_permissions('netbox_scripts.view_scriptproject')
-        CustomScriptModule.objects.create(project=self.project, source_path='removed.py')
+        ScriptFile.objects.create(project=self.project, source_path='removed.py')
         response = self.client.get(self.url(), **self.header)
         entry = next(item for item in response.data['candidates'] if item['path'] == 'removed.py')
         self.assertFalse(entry['available'])

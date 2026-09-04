@@ -13,7 +13,7 @@ from netbox_scripts.ingestion import current_source_tree, ingest_upload
 from netbox_scripts.jobs import ProjectEntrypointRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -236,11 +236,11 @@ class EntrypointsFormTestCase(TestCase):
 
     def test_the_declarations_are_still_reconciled(self):
         self.save(['alpha.py'])
-        enabled = CustomScriptModule.objects.filter(project=self.project, enabled=True)
+        enabled = ScriptFile.objects.filter(project=self.project, enabled=True)
         self.assertEqual(set(enabled.values_list('source_path', flat=True)), {'alpha.py'})
         # Deselection is `enabled`, never a row delete, because Custom Script rows and Job
         # history reference the declaration.
-        self.assertEqual(CustomScriptModule.objects.filter(project=self.project).count(), 2)
+        self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 2)
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)

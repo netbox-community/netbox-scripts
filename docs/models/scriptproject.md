@@ -30,7 +30,7 @@ package boundary used when loading and executing scripts.
 
 Each project owns a history of immutable source snapshots, documented on the
 [Script Project Revision](scriptprojectrevision.md) page. Its
-declared entrypoints are [Custom Script Modules](customscriptmodule.md) and the
+declared entrypoints are [Script Files](scriptfile.md) and the
 classes an activated revision publishes are [Custom Scripts](customscript.md).
 
 ## API
@@ -41,8 +41,8 @@ classes an activated revision publishes are [Custom Scripts](customscript.md).
 | GraphQL | `netbox_script_project` / `netbox_script_project_list` |
 
 A project's **Entrypoints** tab selects which of its source modules discovery
-imports, and its detail page lists the [Custom Script
-Modules](customscriptmodule.md) it has declared. The selection is also a REST
+imports, and its detail page lists the [Script
+Files](scriptfile.md) it has declared. The selection is also a REST
 operation at `projects/<id>/entrypoints/`.
 
 A project's **Files** tab lists the files of its current revision, one row per

@@ -1,14 +1,16 @@
 from rest_framework import status
 
-from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCases
 
 DIGEST = 'c' * 64
 
 
-class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
-    model = CustomScriptModule
+class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
+    model = ScriptFile
+    # The root fields carry the plugin prefix, which the verbose name the mixin derives from does not.
+    graphql_base_name = 'netbox_script_file'
     brief_fields = ['description', 'display', 'id', 'source_path', 'url']
     graphql_filter = {'source_path': {'lookup': 'i_contains', 'value': 'tools'}}
     # The default update_data falls back to create_data[0], which carries the frozen
@@ -26,11 +28,9 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
     def setUpTestData(cls):
         cls.project = ScriptProject.objects.create(name='API Module Project', key='api-module-project')
 
-        CustomScriptModule.objects.create(project=cls.project, source_path='tools/first.py', description='First module')
-        CustomScriptModule.objects.create(
-            project=cls.project, source_path='tools/second.py', description='Second module'
-        )
-        CustomScriptModule.objects.create(project=cls.project, source_path='tools/third.py', enabled=False)
+        ScriptFile.objects.create(project=cls.project, source_path='tools/first.py', description='First module')
+        ScriptFile.objects.create(project=cls.project, source_path='tools/second.py', description='Second module')
+        ScriptFile.objects.create(project=cls.project, source_path='tools/third.py', enabled=False)
 
         cls.create_data = [
             {'project': cls.project.pk, 'source_path': 'tools/fourth.py', 'description': 'Fourth module'},
@@ -39,8 +39,8 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         ]
 
     def test_discovery_fields_are_read_only(self):
-        self.add_permissions('netbox_scripts.change_customscriptmodule')
-        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/system.py')
+        self.add_permissions('netbox_scripts.change_scriptfile')
+        module = ScriptFile.objects.create(project=self.project, source_path='tools/system.py')
         revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST,
@@ -49,7 +49,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         response = self.client.patch(
             self._get_detail_url(module),
             {
-                'discovery_status': ModuleDiscoveryStatusChoices.DISCOVERED,
+                'discovery_status': FileDiscoveryStatusChoices.DISCOVERED,
                 'discovery_error': 'Injected error',
                 'last_discovered_revision': revision.pk,
             },
@@ -58,13 +58,13 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         module.refresh_from_db()
-        self.assertEqual(module.discovery_status, ModuleDiscoveryStatusChoices.PENDING)
+        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.PENDING)
         self.assertEqual(module.discovery_error, '')
         self.assertIsNone(module.last_discovered_revision)
 
     def test_source_path_is_immutable(self):
-        self.add_permissions('netbox_scripts.change_customscriptmodule')
-        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/frozen.py')
+        self.add_permissions('netbox_scripts.change_scriptfile')
+        module = ScriptFile.objects.create(project=self.project, source_path='tools/frozen.py')
         response = self.client.patch(
             self._get_detail_url(module), {'source_path': 'tools/renamed.py'}, format='json', **self.header
         )
@@ -74,15 +74,15 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         self.assertEqual(module.source_path, 'tools/frozen.py')
 
     def test_project_is_immutable(self):
-        self.add_permissions('netbox_scripts.change_customscriptmodule')
+        self.add_permissions('netbox_scripts.change_scriptfile')
         other = ScriptProject.objects.create(name='API Other Project', key='api-other-project')
-        module = CustomScriptModule.objects.create(project=self.project, source_path='tools/owned.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='tools/owned.py')
         response = self.client.patch(self._get_detail_url(module), {'project': other.pk}, format='json', **self.header)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('project', response.data)
 
     def test_source_path_is_canonicalized_on_creation(self):
-        self.add_permissions('netbox_scripts.add_customscriptmodule')
+        self.add_permissions('netbox_scripts.add_scriptfile')
         response = self.client.post(
             self._get_list_url(),
             {'project': self.project.pk, 'source_path': './tools//created.py'},
@@ -93,7 +93,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         self.assertEqual(response.data['source_path'], 'tools/created.py')
 
     def test_creation_rejects_an_unimportable_path(self):
-        self.add_permissions('netbox_scripts.add_customscriptmodule')
+        self.add_permissions('netbox_scripts.add_scriptfile')
         response = self.client.post(
             self._get_list_url(),
             {'project': self.project.pk, 'source_path': 'tools/deploy.txt'},
@@ -104,7 +104,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         self.assertIn('source_path', response.data)
 
     def test_creation_rejects_traversal(self):
-        self.add_permissions('netbox_scripts.add_customscriptmodule')
+        self.add_permissions('netbox_scripts.add_scriptfile')
         response = self.client.post(
             self._get_list_url(),
             {'project': self.project.pk, 'source_path': '../outside.py'},
@@ -115,7 +115,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         self.assertIn('source_path', response.data)
 
     def test_case_folded_sibling_is_rejected(self):
-        self.add_permissions('netbox_scripts.add_customscriptmodule')
+        self.add_permissions('netbox_scripts.add_scriptfile')
         response = self.client.post(
             self._get_list_url(),
             {'project': self.project.pk, 'source_path': 'Tools/First.py'},

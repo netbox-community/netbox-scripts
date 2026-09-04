@@ -7,16 +7,16 @@ from strawberry_django import BaseFilterLookup, FilterLookup, StrFilterLookup
 
 from netbox.graphql.filters import ChangeLoggedModelFilter, PrimaryModelFilter
 
-from ..models import CustomScript, CustomScriptModule, ScriptProject, ScriptProjectRevision
+from ..models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
 
 if TYPE_CHECKING:
     from core.graphql.filters import DataSourceFilter
 
-    from .enums import ActivationPolicyEnum, ModuleDiscoveryStatusEnum, ProjectSourceTypeEnum, RevisionStatusEnum
+    from .enums import ActivationPolicyEnum, FileDiscoveryStatusEnum, ProjectSourceTypeEnum, RevisionStatusEnum
 
 __all__ = (
     'CustomScriptFilter',
-    'CustomScriptModuleFilter',
+    'ScriptFileFilter',
     'ScriptProjectFilter',
     'ScriptProjectRevisionFilter',
 )
@@ -61,16 +61,16 @@ class ScriptProjectRevisionFilter(ChangeLoggedModelFilter):
     ) = strawberry_django.filter_field()
 
 
-@strawberry_django.filter_type(CustomScriptModule, lookups=True)
-class CustomScriptModuleFilter(PrimaryModelFilter):
-    """GraphQL filter for the Custom Script Module model."""
+@strawberry_django.filter_type(ScriptFile, lookups=True, name='NetBoxScriptFileFilter')
+class ScriptFileFilter(PrimaryModelFilter):
+    """GraphQL filter for the Script File model."""
 
     project: ScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
     source_path: StrFilterLookup | None = strawberry_django.filter_field()
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
     discovery_status: (
-        BaseFilterLookup[Annotated['ModuleDiscoveryStatusEnum', strawberry.lazy('netbox_scripts.graphql.enums')]] | None
+        BaseFilterLookup[Annotated['FileDiscoveryStatusEnum', strawberry.lazy('netbox_scripts.graphql.enums')]] | None
     ) = strawberry_django.filter_field()
     last_discovered_revision: ScriptProjectRevisionFilter | None = strawberry_django.filter_field()
     last_discovered_revision_id: ID | None = strawberry_django.filter_field()

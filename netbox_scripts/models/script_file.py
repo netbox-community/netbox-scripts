@@ -4,13 +4,13 @@ from django.utils.translation import gettext_lazy as _
 
 from netbox.models import PrimaryModel
 
-from ..choices import ModuleDiscoveryStatusChoices
+from ..choices import FileDiscoveryStatusChoices
 from ..storage.exceptions import UnsafePathError
 from ..storage.paths import case_insensitive_nodes, normalize_source_path
 from ..utils import source_path_to_dotted_name
 
 
-class CustomScriptModule(PrimaryModel):
+class ScriptFile(PrimaryModel):
     """
     One executable entrypoint within a Script Project.
 
@@ -43,8 +43,8 @@ class CustomScriptModule(PrimaryModel):
     discovery_status = models.CharField(
         verbose_name=_('discovery status'),
         max_length=50,
-        choices=ModuleDiscoveryStatusChoices,
-        default=ModuleDiscoveryStatusChoices.PENDING,
+        choices=FileDiscoveryStatusChoices,
+        default=FileDiscoveryStatusChoices.PENDING,
         editable=False,
     )
     discovery_error = models.TextField(
@@ -65,8 +65,8 @@ class CustomScriptModule(PrimaryModel):
     class Meta:
         app_label = 'netbox_scripts'
         ordering = ('project', 'source_path')
-        verbose_name = _('custom script module')
-        verbose_name_plural = _('custom script modules')
+        verbose_name = _('script file')
+        verbose_name_plural = _('script files')
         constraints = [
             models.UniqueConstraint(
                 fields=('project', 'source_path'),
@@ -160,7 +160,7 @@ class CustomScriptModule(PrimaryModel):
 
     def get_discovery_status_color(self):
         """Return the badge color configured for this module's discovery status."""
-        return ModuleDiscoveryStatusChoices.colors.get(self.discovery_status)
+        return FileDiscoveryStatusChoices.colors.get(self.discovery_status)
 
     def _read_alias(self):
         """Return the alias this instance's persisted state should be read from."""

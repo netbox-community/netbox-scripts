@@ -31,7 +31,7 @@ reverse holds too. Scheduling is a second permission again, `schedule`. See
 An operator who runs the same two or three Custom Scripts repeatedly can bookmark
 them, using NetBox's own bookmarks rather than anything this plugin adds. A
 bookmarked Custom Script appears on your dashboard, one click from any page.
-Script Projects and Custom Script Modules can be bookmarked the same way.
+Script Projects and Script Files can be bookmarked the same way.
 Revisions cannot, since they are history rather than something you return to.
 
 Bookmarks are per user. Each person curates their own, and nothing an

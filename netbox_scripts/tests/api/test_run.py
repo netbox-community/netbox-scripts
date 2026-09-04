@@ -9,7 +9,7 @@ from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from netbox_scripts.activation import activate_revision
 from netbox_scripts.jobs import CustomScriptJob
-from netbox_scripts.models import CustomScript, CustomScriptModule, ScriptProject
+from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
@@ -56,7 +56,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
     def publish_elsewhere(self, source):
         """Serve one script from a second project, so the fixture's own script is undisturbed."""
         project = ScriptProject.objects.create(name='Other', key='other')
-        CustomScriptModule.objects.create(project=project, source_path='now.py', enabled=True)
+        ScriptFile.objects.create(project=project, source_path='now.py', enabled=True)
         revision, _ = service.stage_revision(project, {'now.py': source})
         revision = validate_revision(revision, job=Job.objects.create(name='validation', job_id=uuid.uuid4()))
         activate_revision(revision)

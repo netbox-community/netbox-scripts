@@ -29,7 +29,7 @@ from django.utils.translation import gettext as _
 from . import branching
 from .choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from .jobs import RevisionValidationJob
-from .models import CustomScriptModule
+from .models import ScriptFile
 from .storage import config, service, store
 from .storage.exceptions import UnsafePathError
 from .storage.paths import normalize_source_path
@@ -89,8 +89,8 @@ def check_upload_conflicts(project, path, *, confirm_replace):
         raise ValidationError(
             _('This Project already holds "{path}". Confirm replacement to overwrite its content.').format(path=path)
         )
-    if not CustomScriptModule.objects.filter(project=project, source_path=path).exists():
-        candidate = CustomScriptModule(project=project, source_path=path, enabled=True)
+    if not ScriptFile.objects.filter(project=project, source_path=path).exists():
+        candidate = ScriptFile(project=project, source_path=path, enabled=True)
         # A case variant or a name colliding with a sibling module, for example "Deploy.py"
         # against an existing "deploy.py".
         candidate.full_clean()
@@ -227,9 +227,9 @@ def declare_entrypoint(project, path, using):
     A path that was turned off is turned back on. The row is reused rather than replaced,
     because Custom Script rows and Job history reference the declaration.
     """
-    module = CustomScriptModule.objects.using(using).filter(project=project, source_path=path).first()
+    module = ScriptFile.objects.using(using).filter(project=project, source_path=path).first()
     if module is None:
-        module = CustomScriptModule(project=project, source_path=path, enabled=True)
+        module = ScriptFile(project=project, source_path=path, enabled=True)
         module.full_clean()
         module.save(using=using)
         return module

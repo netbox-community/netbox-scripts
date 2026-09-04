@@ -6,16 +6,16 @@ from utilities.forms.constants import BOOLEAN_WITH_BLANK_CHOICES
 from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterField
 from utilities.forms.rendering import FieldSet
 
-from ...choices import ModuleDiscoveryStatusChoices
-from ...models import CustomScriptModule, ScriptProject
+from ...choices import FileDiscoveryStatusChoices
+from ...models import ScriptFile, ScriptProject
 
-__all__ = ('CustomScriptModuleFilterForm',)
+__all__ = ('ScriptFileFilterForm',)
 
 
-class CustomScriptModuleFilterForm(PrimaryModelFilterSetForm):
-    """Filter form for the Custom Script Module list view."""
+class ScriptFileFilterForm(PrimaryModelFilterSetForm):
+    """Filter form for the Script File list view."""
 
-    model = CustomScriptModule
+    model = ScriptFile
     project_id = DynamicModelMultipleChoiceField(
         queryset=ScriptProject.objects.all(),
         required=False,
@@ -31,12 +31,12 @@ class CustomScriptModuleFilterForm(PrimaryModelFilterSetForm):
         label=_('Enabled'),
     )
     discovery_status = forms.MultipleChoiceField(
-        choices=ModuleDiscoveryStatusChoices,
+        choices=FileDiscoveryStatusChoices,
         required=False,
         label=_('Discovery status'),
     )
     tag = TagFilterField(
-        CustomScriptModule,
+        ScriptFile,
     )
 
     fieldsets = (

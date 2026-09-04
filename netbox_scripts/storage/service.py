@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from .. import branching, constants
 from ..choices import RevisionStatusChoices
-from ..models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from ..models import ScriptFile, ScriptProject, ScriptProjectRevision
 from . import config, store
 from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
 from .exceptions import (
@@ -77,7 +77,7 @@ def stage_revision(project, files):
     # The enabled Module declarations are frozen into the revision at staging time, so the
     # verdict validation later reaches keeps meaning when the live declarations change.
     snapshot, entrypoint_digest = build_entrypoint_snapshot(
-        CustomScriptModule.objects.using(using).filter(project=project.pk, enabled=True)
+        ScriptFile.objects.using(using).filter(project=project.pk, enabled=True)
     )
     totals = {
         'manifest': entries,
@@ -189,7 +189,7 @@ def refresh_revision_entrypoints(revision):
         raise ValueError(f'Revision {source.pk} has no digest, so there is no stored content to refresh.')
     manifest = _validated_manifest(source)
     snapshot, entrypoint_digest = build_entrypoint_snapshot(
-        CustomScriptModule.objects.using(using).filter(project=source.project_id, enabled=True)
+        ScriptFile.objects.using(using).filter(project=source.project_id, enabled=True)
     )
     storage_key = project_or_vanished(
         ScriptProject.objects.using(using).values_list('storage_key', flat=True), source.project_id

@@ -4,9 +4,9 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
+from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.forms import ScriptProjectEntrypointsForm
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 
 
 def manifest(*paths):
@@ -46,17 +46,17 @@ class EntrypointSelectionTestCase(TestCase):
         )
 
     def test_deselecting_disables_without_deleting(self):
-        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
-        CustomScriptModule.objects.filter(pk=module.pk).update(discovery_status=ModuleDiscoveryStatusChoices.DISCOVERED)
+        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        ScriptFile.objects.filter(pk=module.pk).update(discovery_status=FileDiscoveryStatusChoices.DISCOVERED)
         form = self.form([])
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
         module.refresh_from_db()
         self.assertFalse(module.enabled)
-        self.assertEqual(module.discovery_status, ModuleDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
 
     def test_reselecting_reuses_the_same_row(self):
-        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py', enabled=False)
+        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py', enabled=False)
         form = self.form(['deploy.py'])
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
@@ -65,8 +65,8 @@ class EntrypointSelectionTestCase(TestCase):
         self.assertTrue(module.enabled)
 
     def test_the_initial_selection_is_the_enabled_declarations(self):
-        CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
-        CustomScriptModule.objects.create(project=self.project, source_path='tools/audit.py', enabled=False)
+        ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        ScriptFile.objects.create(project=self.project, source_path='tools/audit.py', enabled=False)
         form = ScriptProjectEntrypointsForm(instance=self.project)
         self.assertEqual(form.initial['entrypoints'], ['deploy.py'])
 
@@ -76,14 +76,14 @@ class EntrypointSelectionTestCase(TestCase):
 
     def test_a_declared_path_missing_from_the_source_stays_selectable(self):
         # Otherwise the form is unsubmittable until the operator drops the declaration.
-        CustomScriptModule.objects.create(project=self.project, source_path='removed.py')
+        ScriptFile.objects.create(project=self.project, source_path='removed.py')
         form = ScriptProjectEntrypointsForm(instance=self.project)
         self.assertIn('removed.py', [value for value, _label in form.fields['entrypoints'].choices])
         submitted = self.form(['removed.py'])
         self.assertTrue(submitted.is_valid(), submitted.errors)
 
     def test_a_missing_path_is_labelled(self):
-        CustomScriptModule.objects.create(project=self.project, source_path='removed.py')
+        ScriptFile.objects.create(project=self.project, source_path='removed.py')
         form = ScriptProjectEntrypointsForm(instance=self.project)
         labels = dict(form.fields['entrypoints'].choices)
         self.assertEqual(str(labels['removed.py']), 'removed.py (missing from the source)')
@@ -103,8 +103,8 @@ class EntrypointSelectionTestCase(TestCase):
         ScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
         ScriptProject.objects.filter(pk=project.pk).update(active_revision=active)
         project = ScriptProject.objects.get(pk=project.pk)
-        CustomScriptModule.objects.create(project=project, source_path='added.py')
-        CustomScriptModule.objects.create(project=project, source_path='gone.py')
+        ScriptFile.objects.create(project=project, source_path='added.py')
+        ScriptFile.objects.create(project=project, source_path='gone.py')
 
         labels = dict(ScriptProjectEntrypointsForm(instance=project).fields['entrypoints'].choices)
         self.assertEqual(str(labels['added.py']), 'added.py (not in the active revision yet)')

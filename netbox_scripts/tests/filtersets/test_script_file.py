@@ -1,16 +1,16 @@
 from django.test import TestCase
 
-from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.filtersets import CustomScriptModuleFilterSet
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
+from netbox_scripts.filtersets import ScriptFileFilterSet
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 DIGEST = 'b' * 64
 
 
-class CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
-    queryset = CustomScriptModule.objects.all()
-    filterset = CustomScriptModuleFilterSet
+class ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
+    queryset = ScriptFile.objects.all()
+    filterset = ScriptFileFilterSet
 
     @classmethod
     def setUpTestData(cls):
@@ -28,39 +28,39 @@ class CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMix
         )
 
         modules = (
-            CustomScriptModule(
+            ScriptFile(
                 project=cls.projects[0],
                 source_path='deploy.py',
                 description='Rolls out configuration',
             ),
-            CustomScriptModule(
+            ScriptFile(
                 project=cls.projects[0],
                 source_path='tools/audit.py',
                 description='Reads inventory',
-                discovery_status=ModuleDiscoveryStatusChoices.DISCOVERED,
+                discovery_status=FileDiscoveryStatusChoices.DISCOVERED,
                 last_discovered_revision=cls.revision,
             ),
-            CustomScriptModule(
+            ScriptFile(
                 project=cls.projects[0],
                 source_path='tools/report.py',
                 description='Summarizes results',
                 enabled=False,
-                discovery_status=ModuleDiscoveryStatusChoices.FAILED,
+                discovery_status=FileDiscoveryStatusChoices.FAILED,
                 discovery_error='The entrypoint could not be imported.',
             ),
-            CustomScriptModule(
+            ScriptFile(
                 project=cls.projects[1],
                 source_path='deploy.py',
                 description='Rolls out configuration',
-                discovery_status=ModuleDiscoveryStatusChoices.DISCOVERED,
+                discovery_status=FileDiscoveryStatusChoices.DISCOVERED,
             ),
-            CustomScriptModule(
+            ScriptFile(
                 project=cls.projects[1],
                 source_path='tools/audit.py',
                 description='Reads inventory',
                 enabled=False,
             ),
-            CustomScriptModule(
+            ScriptFile(
                 project=cls.projects[1],
                 source_path='sync.py',
                 description='Refreshes cached state',
@@ -96,12 +96,12 @@ class CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMix
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
 
     def test_discovery_status(self):
-        params = {'discovery_status': [ModuleDiscoveryStatusChoices.DISCOVERED]}
+        params = {'discovery_status': [FileDiscoveryStatusChoices.DISCOVERED]}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 2)
         params = {
             'discovery_status': [
-                ModuleDiscoveryStatusChoices.PENDING,
-                ModuleDiscoveryStatusChoices.FAILED,
+                FileDiscoveryStatusChoices.PENDING,
+                FileDiscoveryStatusChoices.FAILED,
             ]
         }
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)

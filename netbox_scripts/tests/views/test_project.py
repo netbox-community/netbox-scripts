@@ -10,7 +10,7 @@ from netbox_scripts import activation
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -134,7 +134,7 @@ class ScriptProjectEntrypointsViewTestCase(TestCase):
     def grant_both(self):
         # The tab restricts the project queryset and writes declarations, so it needs both.
         self.grant(ScriptProject, 'view', 'change')
-        self.grant(CustomScriptModule, 'view', 'change', 'add')
+        self.grant(ScriptFile, 'view', 'change', 'add')
 
     def test_the_tab_lists_the_candidates(self):
         self.grant_both()
@@ -153,7 +153,7 @@ class ScriptProjectEntrypointsViewTestCase(TestCase):
 
     def test_deselecting_disables_and_keeps_the_row(self):
         self.grant_both()
-        module = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')
+        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         self.assertHttpStatus(self.client.post(self.url(), {'entrypoints': []}), 302)
         module.refresh_from_db()
         self.assertFalse(module.enabled)
@@ -164,7 +164,7 @@ class ScriptProjectEntrypointsViewTestCase(TestCase):
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_module_permission_alone_is_not_enough(self):
-        self.grant(CustomScriptModule, 'view', 'change', 'add')
+        self.grant(ScriptFile, 'view', 'change', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_selection_renders_with_the_forms_own_markup(self):
@@ -353,7 +353,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
     def test_the_add_script_action_links_to_the_upload_route(self):
         # Both halves: an upload creates a Module, so the route needs that permission too.
         self.grant(ScriptProject, 'view', 'change')
-        self.grant(CustomScriptModule, 'add')
+        self.grant(ScriptFile, 'add')
         expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
         self.assertIn(expected, self.body())
 
@@ -366,12 +366,12 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
 
         self.assertIn('Add Script', body)
         self.assertNotIn(expected, body)
-        self.assertIn('Custom Script Module add permission', body)
+        self.assertIn('Script File add permission', body)
 
     def test_the_add_script_action_is_hidden_without_the_change_permission(self):
         # The Module half is granted so the inert branch cannot satisfy the assertion for us.
         self.grant(ScriptProject, 'view')
-        self.grant(CustomScriptModule, 'add')
+        self.grant(ScriptFile, 'add')
         expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
         self.assertNotIn(expected, self.body())
 
@@ -390,7 +390,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         # put a user on a path that can only fail. The Module half is granted for the same reason
         # as the test above.
         self.grant(ScriptProject, 'view', 'change')
-        self.grant(CustomScriptModule, 'add')
+        self.grant(ScriptFile, 'add')
         synced = self.synchronized_project()
         expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[synced.pk])
         self.assertNotIn(expected, self.client.get(synced.get_absolute_url()).content.decode())
@@ -399,7 +399,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         # A hand-typed URL still reaches the view, and the refusal has to be a form error. Left to
         # ingestion it surfaces out of form.save(), which ObjectEditView does not catch.
         self.grant(ScriptProject, 'view', 'change')
-        self.grant(CustomScriptModule, 'add')
+        self.grant(ScriptFile, 'add')
         synced = self.synchronized_project()
         url = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[synced.pk])
         response = self.client.post(url, {'upload_file': SimpleUploadedFile('deploy.py', b'X = 1\n')})

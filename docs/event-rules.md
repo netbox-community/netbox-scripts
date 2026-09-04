@@ -76,7 +76,7 @@ exactly as it would to a Device or an IP address.
 |---|---|
 | Script Project | A project created, changed, or deleted |
 | Script Project Revision | A revision appearing, or its validation status changing |
-| Custom Script Module | An entrypoint declaration added, changed, or removed |
+| Script File | An entrypoint declaration added, changed, or removed |
 | Custom Script | A script appearing, retiring, or being enabled or disabled |
 
 A webhook fired by one of these carries the same body the REST API returns for that object,

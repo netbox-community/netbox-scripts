@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from core.models import ObjectType
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -27,8 +27,8 @@ class ScriptProjectFilesViewTestCase(TestCase):
             file_count=2,
             total_size=160,
         )
-        CustomScriptModule.objects.create(project=cls.project, source_path='deploy.py', enabled=True)
-        CustomScriptModule.objects.create(project=cls.project, source_path='removed.py', enabled=True)
+        ScriptFile.objects.create(project=cls.project, source_path='deploy.py', enabled=True)
+        ScriptFile.objects.create(project=cls.project, source_path='removed.py', enabled=True)
         cls.empty = ScriptProject.objects.create(name='Empty Project', key='empty-project')
 
     def setUp(self):
@@ -102,7 +102,7 @@ class ScriptProjectFilesViewTestCase(TestCase):
 
     def test_the_two_absences_are_distinguished_on_one_project(self):
         project, _newer = self.project_serving_an_older_revision()
-        CustomScriptModule.objects.create(project=project, source_path='gone.py', enabled=True)
+        ScriptFile.objects.create(project=project, source_path='gone.py', enabled=True)
         self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.url(project)).content.decode()
@@ -137,7 +137,7 @@ class ScriptProjectFilesViewTestCase(TestCase):
         ScriptProjectRevision.objects.filter(pk=active.pk).update(created=timezone.now() - timedelta(hours=2))
         ScriptProjectRevision.objects.filter(pk=newer.pk).update(created=timezone.now() - timedelta(hours=1))
         ScriptProject.objects.filter(pk=project.pk).update(active_revision=active)
-        CustomScriptModule.objects.create(project=project, source_path='added.py', enabled=True)
+        ScriptFile.objects.create(project=project, source_path='added.py', enabled=True)
         return ScriptProject.objects.get(pk=project.pk), newer
 
     def test_the_entrypoint_column_reads_the_live_declaration(self):

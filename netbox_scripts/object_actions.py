@@ -60,7 +60,7 @@ class AddScript(ObjectAction):
         """Tell the template whether this project takes uploads, and whether the user may declare one."""
         return {
             'uploadable': obj.source_type == ProjectSourceTypeChoices.UPLOAD,
-            'may_declare': context['request'].user.has_perm('netbox_scripts.add_customscriptmodule'),
+            'may_declare': context['request'].user.has_perm('netbox_scripts.add_scriptfile'),
         }
 
 

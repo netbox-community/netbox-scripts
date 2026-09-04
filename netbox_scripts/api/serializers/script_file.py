@@ -1,22 +1,22 @@
 from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
-from ...choices import ModuleDiscoveryStatusChoices
-from ...models import CustomScriptModule
+from ...choices import FileDiscoveryStatusChoices
+from ...models import ScriptFile
 from .project import ScriptProjectSerializer
 from .revision import ScriptProjectRevisionSerializer
 
 
-class CustomScriptModuleSerializer(PrimaryModelSerializer):
-    """Serializer for the Custom Script Module model."""
+class ScriptFileSerializer(PrimaryModelSerializer):
+    """Serializer for the Script File model."""
 
     project = ScriptProjectSerializer(nested=True)
     last_discovered_revision = ScriptProjectRevisionSerializer(nested=True, read_only=True)
 
-    discovery_status = ChoiceField(choices=ModuleDiscoveryStatusChoices, read_only=True)
+    discovery_status = ChoiceField(choices=FileDiscoveryStatusChoices, read_only=True)
 
     class Meta:
-        model = CustomScriptModule
+        model = ScriptFile
         fields = (
             'id',
             'url',

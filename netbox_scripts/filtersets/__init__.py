@@ -1,11 +1,11 @@
-from .module import CustomScriptModuleFilterSet
 from .project import ScriptProjectFilterSet
 from .revision import ScriptProjectRevisionFilterSet
 from .script import CustomScriptFilterSet
+from .script_file import ScriptFileFilterSet
 
 __all__ = (
     'CustomScriptFilterSet',
-    'CustomScriptModuleFilterSet',
+    'ScriptFileFilterSet',
     'ScriptProjectFilterSet',
     'ScriptProjectRevisionFilterSet',
 )

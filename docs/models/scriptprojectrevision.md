@@ -7,7 +7,7 @@ a job can be replayed against exactly the tree it ran on.
 
 Revision identity is the project, the source digest, and the entrypoint
 digest. The same source tree staged under a changed set of enabled
-[Custom Script Modules](customscriptmodule.md) is a new, separately validatable
+[Script Files](scriptfile.md) is a new, separately validatable
 revision that reuses the stored content, which is what keeps a validation
 verdict meaningful: fixing a module declaration produces a fresh revision to
 validate instead of silently changing what an existing verdict was about.
@@ -128,7 +128,7 @@ means the row was changed outside that path.
 
 The snapshot freezes the project's enabled module declarations at staging time,
 so a verdict is always about a fixed set of entrypoints. Editing, disabling, or
-deleting a Custom Script Module never changes an existing revision. To validate
+deleting a Script File never changes an existing revision. To validate
 stored content under the declarations as they are now, the storage service
 offers a refresh operation that creates or returns the revision row for the
 same source digest and the current entrypoint digest, without the content being

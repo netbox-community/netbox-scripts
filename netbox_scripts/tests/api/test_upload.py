@@ -11,7 +11,7 @@ from rest_framework import status
 from core.models import DataSource, Job
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 from utilities.testing import APITestCase
 
@@ -57,7 +57,7 @@ class UploadAPITestCase(APITestCase):
         self.add_permissions(
             'netbox_scripts.view_scriptproject',
             'netbox_scripts.change_scriptproject',
-            'netbox_scripts.add_customscriptmodule',
+            'netbox_scripts.add_scriptfile',
         )
 
     def upload(self, name='deploy.py', content=SOURCE, **extra):
@@ -73,7 +73,7 @@ class UploadAPITestCase(APITestCase):
         revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(response.data['id'], revision.pk)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
-        self.assertTrue(CustomScriptModule.objects.filter(project=self.project, source_path='deploy.py').exists())
+        self.assertTrue(ScriptFile.objects.filter(project=self.project, source_path='deploy.py').exists())
 
     def test_a_nested_client_name_lands_at_the_basename(self):
         # No destination comes from the request. A path is client-local structure, so it is
@@ -161,7 +161,7 @@ class UploadAPITestCase(APITestCase):
         self.add_permissions(
             'netbox_scripts.view_scriptproject',
             'netbox_scripts.add_scriptproject',
-            'netbox_scripts.add_customscriptmodule',
+            'netbox_scripts.add_scriptfile',
         )
         response = self.upload()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

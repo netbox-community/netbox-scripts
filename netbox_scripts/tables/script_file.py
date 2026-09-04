@@ -2,11 +2,11 @@ import django_tables2 as tables
 
 from netbox.tables import PrimaryModelTable, columns
 
-from ..models import CustomScriptModule
+from ..models import ScriptFile
 
 
-class CustomScriptModuleTable(PrimaryModelTable):
-    """Table for the Custom Script Module list view."""
+class ScriptFileTable(PrimaryModelTable):
+    """Table for the Script File list view."""
 
     source_path = tables.Column(
         linkify=True,
@@ -18,11 +18,11 @@ class CustomScriptModuleTable(PrimaryModelTable):
     discovery_status = columns.ChoiceFieldColumn()
     last_discovered_revision = tables.Column(linkify=True)
     tags = columns.TagColumn(
-        url_name='plugins:netbox_scripts:customscriptmodule_list',
+        url_name='plugins:netbox_scripts:scriptfile_list',
     )
 
     class Meta(PrimaryModelTable.Meta):
-        model = CustomScriptModule
+        model = ScriptFile
         fields = (
             'pk',
             'id',

@@ -24,7 +24,7 @@ from django.test import TransactionTestCase, override_settings
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.locks import advisory_key
@@ -143,7 +143,7 @@ class ProjectLockHeldTestCase(SerializationTestCase):
 
     def test_entrypoint_refresh_holds_the_lock_across_the_verification(self):
         revision = self.materialize()
-        CustomScriptModule.objects.create(project=self.project, source_path='hello.py', enabled=True)
+        ScriptFile.objects.create(project=self.project, source_path='hello.py', enabled=True)
         self.assert_locked_during('verify_revision_tree', lambda: service.refresh_revision_entrypoints(revision))
 
     def test_cleanup_holds_the_lock_across_the_removal(self):
@@ -174,7 +174,7 @@ class CleanupVersusRestageTestCase(SerializationTestCase):
         # Entrypoint configuration is part of revision identity, so one tree can carry several
         # rows. Reclaiming on the first delete would take content the survivor still names.
         revision = self.materialize()
-        CustomScriptModule.objects.create(project=self.project, source_path='hello.py', enabled=True)
+        ScriptFile.objects.create(project=self.project, source_path='hello.py', enabled=True)
         sibling = service.refresh_revision_entrypoints(revision).revision
         self.assertNotEqual(sibling.pk, revision.pk)
 

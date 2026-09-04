@@ -1,8 +1,8 @@
 from netbox.search import SearchIndex, register_search
 
-from .models.module import CustomScriptModule
 from .models.project import ScriptProject
 from .models.script import CustomScript
+from .models.script_file import ScriptFile
 
 
 @register_search
@@ -21,10 +21,10 @@ class CustomScriptIndex(SearchIndex):
 
 
 @register_search
-class CustomScriptModuleIndex(SearchIndex):
-    """Global search index for the Custom Script Module model."""
+class ScriptFileIndex(SearchIndex):
+    """Global search index for the Script File model."""
 
-    model = CustomScriptModule
+    model = ScriptFile
     fields = (
         ('source_path', 100),
         ('description', 500),

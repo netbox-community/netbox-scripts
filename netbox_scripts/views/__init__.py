@@ -9,13 +9,6 @@ from .migration import (
     MigrationVerificationView,
     MigrationView,
 )
-from .module import (
-    CustomScriptModuleBulkDeleteView,
-    CustomScriptModuleDeleteView,
-    CustomScriptModuleEditView,
-    CustomScriptModuleListView,
-    CustomScriptModuleView,
-)
 from .project import (
     ScriptProjectActivateView,
     ScriptProjectAddScriptView,
@@ -46,16 +39,18 @@ from .script import (
     CustomScriptRunView,
     CustomScriptView,
 )
+from .script_file import (
+    ScriptFileBulkDeleteView,
+    ScriptFileDeleteView,
+    ScriptFileEditView,
+    ScriptFileListView,
+    ScriptFileView,
+)
 
 __all__ = (
     'CustomScriptBulkEditView',
     'CustomScriptEditView',
     'CustomScriptListView',
-    'CustomScriptModuleBulkDeleteView',
-    'CustomScriptModuleDeleteView',
-    'CustomScriptModuleEditView',
-    'CustomScriptModuleListView',
-    'CustomScriptModuleView',
     'CustomScriptResultView',
     'CustomScriptRunView',
     'CustomScriptView',
@@ -68,6 +63,11 @@ __all__ = (
     'MigrationStagingView',
     'MigrationVerificationView',
     'MigrationView',
+    'ScriptFileBulkDeleteView',
+    'ScriptFileDeleteView',
+    'ScriptFileEditView',
+    'ScriptFileListView',
+    'ScriptFileView',
     'ScriptProjectActivateView',
     'ScriptProjectAddScriptView',
     'ScriptProjectBulkDeleteView',

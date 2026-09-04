@@ -4,8 +4,8 @@ from utilities.choices import ChoiceSet
 
 __all__ = (
     'ActivationPolicyChoices',
+    'FileDiscoveryStatusChoices',
     'MigrationStateChoices',
-    'ModuleDiscoveryStatusChoices',
     'ProjectSourceTypeChoices',
     'RevisionStatusChoices',
 )
@@ -35,8 +35,8 @@ class ActivationPolicyChoices(ChoiceSet):
     )
 
 
-class ModuleDiscoveryStatusChoices(ChoiceSet):
-    """Discovery outcomes for one Custom Script Module's most recent validation."""
+class FileDiscoveryStatusChoices(ChoiceSet):
+    """Discovery outcomes for one Script File's most recent validation."""
 
     PENDING = 'pending'
     DISCOVERED = 'discovered'

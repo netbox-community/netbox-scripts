@@ -5,10 +5,10 @@ import strawberry_django
 
 from netbox.graphql.types import ObjectType, PrimaryObjectType
 
-from ..models import CustomScript, CustomScriptModule, ScriptProject, ScriptProjectRevision
+from ..models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from .filters import (
     CustomScriptFilter,
-    CustomScriptModuleFilter,
+    ScriptFileFilter,
     ScriptProjectFilter,
     ScriptProjectRevisionFilter,
 )
@@ -57,13 +57,14 @@ class ScriptProjectRevisionType(ObjectType):
 
 
 @strawberry_django.type(
-    CustomScriptModule,
+    ScriptFile,
+    name='NetBoxScriptFileType',
     fields='__all__',
-    filters=CustomScriptModuleFilter,
+    filters=ScriptFileFilter,
     pagination=True,
 )
-class CustomScriptModuleType(PrimaryObjectType):
-    """GraphQL object type for the Custom Script Module model."""
+class ScriptFileType(PrimaryObjectType):
+    """GraphQL object type for the Script File model."""
 
     project: ScriptProjectType
     last_discovered_revision: ScriptProjectRevisionType | None

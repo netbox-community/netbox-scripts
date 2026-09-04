@@ -55,7 +55,7 @@ nav:
   - Models:
       - Script Project: models/scriptproject.md
       - Script Project Revision: models/scriptprojectrevision.md
-      - Custom Script Module: models/customscriptmodule.md
+      - Script File: models/scriptfile.md
       - Custom Script: models/customscript.md
   - Releases: releases.md
   - Development:

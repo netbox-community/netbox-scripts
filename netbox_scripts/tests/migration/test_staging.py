@@ -21,8 +21,8 @@ from netbox_scripts.choices import (
 from netbox_scripts.jobs import MigrationStagingJob, RevisionValidationJob
 from netbox_scripts.migration import plan, source, staging
 from netbox_scripts.models import (
-    CustomScriptModule,
     MigrationRun,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -186,7 +186,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
         revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['deploy.py', 'helpers.py'])
-        declared = CustomScriptModule.objects.get(project=project)
+        declared = ScriptFile.objects.get(project=project)
         self.assertEqual(declared.source_path, 'deploy.py')
         self.assertTrue(declared.enabled)
 
@@ -197,20 +197,20 @@ class StageTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
         revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['provision.py'])
-        self.assertEqual(CustomScriptModule.objects.get(project=project).source_path, 'provision.py')
+        self.assertEqual(ScriptFile.objects.get(project=project).source_path, 'provision.py')
 
     def test_running_staging_twice_changes_nothing(self):
         # Deterministic identity plus content addressing, so the second pass creates no rows.
         self.stage_all()
         projects = ScriptProject.objects.count()
         revision_pks = set(ScriptProjectRevision.objects.values_list('pk', flat=True))
-        declarations = CustomScriptModule.objects.count()
+        declarations = ScriptFile.objects.count()
 
         results = self.stage_all()
 
         self.assertEqual(ScriptProject.objects.count(), projects)
         self.assertEqual(set(ScriptProjectRevision.objects.values_list('pk', flat=True)), revision_pks)
-        self.assertEqual(CustomScriptModule.objects.count(), declarations)
+        self.assertEqual(ScriptFile.objects.count(), declarations)
         self.assertTrue(all(result['created'] is False for result in results))
 
     def test_no_staged_revision_activates(self):
@@ -353,7 +353,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
         self.stage_all()
 
         project = ScriptProject.objects.get(data_path='shared')
-        self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
+        self.assertEqual(list(ScriptFile.objects.filter(project=project)), [])
 
     def test_the_helper_only_revision_reaches_a_valid_verdict(self):
         # An empty entrypoint set is vacuously valid, which is what lets the Project be activated.
@@ -373,7 +373,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
 
         # By name rather than key, because the key carries a digest of the identity tuple.
         project = ScriptProject.objects.get(name='shared_util')
-        self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
+        self.assertEqual(list(ScriptFile.objects.filter(project=project)), [])
         self.assertEqual(project.revisions.get().status, RevisionStatusChoices.VALID)
 
     def test_a_module_whose_class_left_the_file_is_not_declared(self):
@@ -385,7 +385,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
         self.stage_all()
 
         project = ScriptProject.objects.get(data_path='shared')
-        self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
+        self.assertEqual(list(ScriptFile.objects.filter(project=project)), [])
 
     def test_only_the_publishing_member_of_a_shared_folder_is_declared(self):
         # Both are members of one Project, and only one of them ever published anything.
@@ -394,5 +394,5 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
         self.stage_all()
 
         project = ScriptProject.objects.get(data_path='automation')
-        declared = sorted(CustomScriptModule.objects.filter(project=project).values_list('source_path', flat=True))
+        declared = sorted(ScriptFile.objects.filter(project=project).values_list('source_path', flat=True))
         self.assertEqual(declared, ['deploy.py'])

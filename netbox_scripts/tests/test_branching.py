@@ -13,8 +13,8 @@ from netbox_scripts import branching
 from netbox_scripts.execution import CHANGELOGGED_PROBE_MODEL
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptModule,
     MigrationRun,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -27,15 +27,15 @@ CONTEXTVARS = f'{PACKAGE}.contextvars'
 # rather than going unchecked.
 GLOBAL_MODELS = (
     CustomScript,
-    CustomScriptModule,
     MigrationRun,
+    ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
 GLOBAL_LABELS = [
     'netbox_scripts.customscript',
-    'netbox_scripts.customscriptmodule',
     'netbox_scripts.migrationrun',
+    'netbox_scripts.scriptfile',
     'netbox_scripts.scriptproject',
     'netbox_scripts.scriptprojectrevision',
 ]
@@ -171,7 +171,7 @@ class RoutingReasonTestCase(TestCase):
             reason = branching.unsafe_routing_reason()
         self.assertIn('netbox_scripts.scriptproject', reason)
         self.assertNotIn('scriptprojectrevision', reason)
-        self.assertNotIn('customscriptmodule', reason)
+        self.assertNotIn('scriptfile', reason)
 
     def test_a_reason_when_the_routing_api_is_unavailable(self):
         with routing_api_missing():

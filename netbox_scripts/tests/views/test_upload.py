@@ -8,7 +8,7 @@ from core.models import ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.ingestion import ingest_upload
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config
 from netbox_scripts.storage.paths import STORAGE_PREFIX
 from netbox_scripts.tests.storage.test_store import stored_paths
@@ -48,7 +48,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
     def grant_both(self):
         # The view creates a Project and declares its entrypoint, so it needs both.
         self.grant(ScriptProject, 'view', 'add')
-        self.grant(CustomScriptModule, 'view', 'add')
+        self.grant(ScriptFile, 'view', 'add')
 
     @staticmethod
     def upload(name='deploy.py', content=SCRIPT):
@@ -85,7 +85,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         # Straight to the Project, which is where the source state and the entrypoints are.
         self.assertEqual(response.url, project.get_absolute_url())
         self.assertEqual(project.source_type, ProjectSourceTypeChoices.UPLOAD)
-        module = CustomScriptModule.objects.get(project=project)
+        module = ScriptFile.objects.get(project=project)
         self.assertEqual(module.source_path, 'deploy.py')
         self.assertTrue(module.enabled)
         revision = ScriptProjectRevision.objects.get(project=project)
@@ -141,7 +141,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         # policy still guards ingest_upload, which Data Source sync will reach with real paths.
         self.grant_both()
         self.assertHttpStatus(self.post(upload_file=self.upload('../escape.py')), 302)
-        self.assertEqual(CustomScriptModule.objects.get().source_path, 'escape.py')
+        self.assertEqual(ScriptFile.objects.get().source_path, 'escape.py')
 
     def test_a_missing_file_is_refused(self):
         self.grant_both()
@@ -161,7 +161,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         # through its Data Source directory instead.
         self.grant_both()
         self.assertHttpStatus(self.post(upload_file=self.upload('automation/deploy.py')), 302)
-        self.assertEqual(CustomScriptModule.objects.get().source_path, 'deploy.py')
+        self.assertEqual(ScriptFile.objects.get().source_path, 'deploy.py')
 
     def test_a_rolled_back_upload_leaves_the_store_untouched(self):
         # A constraint the new project falls outside of makes the editing view raise
@@ -175,7 +175,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         constrained.save()
         constrained.users.add(self.user)
         constrained.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
-        self.grant(CustomScriptModule, 'view', 'add')
+        self.grant(ScriptFile, 'view', 'add')
 
         before = stored_paths(config.get_storage(), f'{STORAGE_PREFIX}/')
         response = self.post()
@@ -191,7 +191,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_module_permission_alone_is_not_enough(self):
-        self.grant(CustomScriptModule, 'view', 'add')
+        self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
 
@@ -222,7 +222,7 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
     def grant_both(self):
         # Registered on the detail route, so the base view asks for change, not add.
         self.grant(ScriptProject, 'view', 'change')
-        self.grant(CustomScriptModule, 'view', 'add')
+        self.grant(ScriptFile, 'view', 'add')
 
     @staticmethod
     def upload(name='audit.py', content=SCRIPT + b'# audit\n'):
@@ -298,11 +298,11 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
     def test_the_add_permission_is_not_what_this_route_needs(self):
         # ObjectEditView derives the action from the URL, so a detail route asks for change.
         self.grant(ScriptProject, 'view', 'add')
-        self.grant(CustomScriptModule, 'view', 'add')
+        self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_module_permission_alone_is_not_enough(self):
-        self.grant(CustomScriptModule, 'view', 'add')
+        self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_project_permission_alone_is_not_enough(self):

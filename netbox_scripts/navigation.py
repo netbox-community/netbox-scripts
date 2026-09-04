@@ -22,7 +22,7 @@ _scriptproject_item = PluginMenuItem(
             # half too. A menu button offers no inert state, so a missing half hides it.
             permissions=[
                 'netbox_scripts.add_scriptproject',
-                'netbox_scripts.add_customscriptmodule',
+                'netbox_scripts.add_scriptfile',
             ],
         ),
         PluginMenuButton(

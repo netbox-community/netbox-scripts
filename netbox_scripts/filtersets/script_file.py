@@ -5,13 +5,13 @@ from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import PrimaryModelFilterSet
 from utilities.filtersets import register_filterset
 
-from ..choices import ModuleDiscoveryStatusChoices
-from ..models import CustomScriptModule, ScriptProject, ScriptProjectRevision
+from ..choices import FileDiscoveryStatusChoices
+from ..models import ScriptFile, ScriptProject, ScriptProjectRevision
 
 
 @register_filterset
-class CustomScriptModuleFilterSet(PrimaryModelFilterSet):
-    """Filter set for the Custom Script Module model."""
+class ScriptFileFilterSet(PrimaryModelFilterSet):
+    """Filter set for the Script File model."""
 
     project_id = django_filters.ModelMultipleChoiceFilter(
         field_name='project',
@@ -26,7 +26,7 @@ class CustomScriptModuleFilterSet(PrimaryModelFilterSet):
         label=_('Script Project (key)'),
     )
     discovery_status = django_filters.MultipleChoiceFilter(
-        choices=ModuleDiscoveryStatusChoices,
+        choices=FileDiscoveryStatusChoices,
         label=_('Discovery status'),
     )
     last_discovered_revision_id = django_filters.ModelMultipleChoiceFilter(
@@ -36,7 +36,7 @@ class CustomScriptModuleFilterSet(PrimaryModelFilterSet):
     )
 
     class Meta:
-        model = CustomScriptModule
+        model = ScriptFile
         fields = (
             'id',
             'source_path',

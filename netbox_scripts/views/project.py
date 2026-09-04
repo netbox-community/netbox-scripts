@@ -75,7 +75,7 @@ class ScriptProjectView(generic.ObjectView):
         ],
         bottom_panels=[
             ObjectsTablePanel(
-                'netbox_scripts.customscriptmodule',
+                'netbox_scripts.scriptfile',
                 filters={'project_id': lambda context: context['object'].pk},
             ),
             # Unfiltered by retirement on purpose: hiding a retired script would make one that
@@ -286,7 +286,7 @@ class ScriptProjectEntrypointsView(generic.ObjectEditView):
     )
 
     # The project's change permission is what restrict() needs, and the selection writes Modules.
-    additional_permissions = ('netbox_scripts.change_customscriptmodule',)
+    additional_permissions = ('netbox_scripts.change_scriptfile',)
 
 
 @register_model_view(ScriptProject, 'files', path='files')
@@ -354,7 +354,7 @@ class ScriptProjectUploadView(generic.ObjectEditView):
     form = ScriptProjectUploadForm
 
     # The upload declares its own entrypoint, so it creates a Module.
-    additional_permissions = ('netbox_scripts.add_customscriptmodule',)
+    additional_permissions = ('netbox_scripts.add_scriptfile',)
 
 
 @register_model_view(ScriptProject, 'add_script', path='upload')
@@ -371,7 +371,7 @@ class ScriptProjectAddScriptView(generic.ObjectEditView):
     form = ScriptProjectAddScriptForm
 
     # The upload declares its own entrypoint, so it creates a Module.
-    additional_permissions = ('netbox_scripts.add_customscriptmodule',)
+    additional_permissions = ('netbox_scripts.add_scriptfile',)
 
 
 @register_model_view(ScriptProject, 'delete')

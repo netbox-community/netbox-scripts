@@ -5,11 +5,11 @@ from django.utils.translation import gettext_lazy as _
 from netbox.tables import BaseTable, PrimaryModelTable, columns
 from utilities.validators import url_scheme_is_allowed
 
-from ..models import CustomScript, ScriptFile
+from ..models import NetBoxScript, ScriptFile
 from ..scripts.logging import LogLevelChoices
 
 
-class CustomScriptTable(PrimaryModelTable):
+class NetBoxScriptTable(PrimaryModelTable):
     """Table for the Custom Script list view. Retirement is a default column, not a filter."""
 
     display_name = tables.Column(
@@ -22,7 +22,7 @@ class CustomScriptTable(PrimaryModelTable):
     is_retired = columns.BooleanColumn()
     last_seen_revision = tables.Column(linkify=True)
     tags = columns.TagColumn(
-        url_name='plugins:netbox_scripts:customscript_list',
+        url_name='plugins:netbox_scripts:netboxscript_list',
     )
     # Drops the default 'delete' item, which reverses a route this model does not register.
     # ActionsColumn resolves a URL for every action the viewer holds the permission for, so
@@ -35,7 +35,7 @@ class CustomScriptTable(PrimaryModelTable):
     )
 
     class Meta(PrimaryModelTable.Meta):
-        model = CustomScript
+        model = NetBoxScript
         fields = (
             'pk',
             'id',
@@ -57,7 +57,7 @@ class CustomScriptTable(PrimaryModelTable):
         default_columns = ('display_name', 'project', 'module_path', 'class_name', 'enabled', 'is_retired')
 
 
-class CustomScriptLogTable(BaseTable):
+class NetBoxScriptLogTable(BaseTable):
     """
     The log one run recorded, read back out of the Job rather than out of a model.
 

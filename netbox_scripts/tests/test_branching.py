@@ -12,8 +12,8 @@ from django.test import TestCase, override_settings
 from netbox_scripts import branching
 from netbox_scripts.execution import CHANGELOGGED_PROBE_MODEL
 from netbox_scripts.models import (
-    CustomScript,
     MigrationRun,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -26,15 +26,15 @@ CONTEXTVARS = f'{PACKAGE}.contextvars'
 # Every model in branching.GLOBAL_MODELS, so a model added there without being listed here fails
 # rather than going unchecked.
 GLOBAL_MODELS = (
-    CustomScript,
     MigrationRun,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
 )
 GLOBAL_LABELS = [
-    'netbox_scripts.customscript',
     'netbox_scripts.migrationrun',
+    'netbox_scripts.netboxscript',
     'netbox_scripts.scriptfile',
     'netbox_scripts.scriptproject',
     'netbox_scripts.scriptprojectrevision',

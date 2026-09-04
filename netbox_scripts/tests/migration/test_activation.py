@@ -5,7 +5,7 @@ from extras.models import ScriptModule
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
-from netbox_scripts.models import CustomScript, MigrationRun, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
 
@@ -36,16 +36,16 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         with self.assertRaises(cutover.CutoverRefused):
             cutover.activate_staged(None)
 
-    def test_activation_makes_the_custom_scripts_appear(self):
+    def test_activation_makes_the_netbox_scripts_appear(self):
         self.stage_and_validate()
-        self.assertFalse(CustomScript.objects.exists())
+        self.assertFalse(NetBoxScript.objects.exists())
 
         results = cutover.activate_staged(self.migration)
 
         self.assertEqual(sorted(result['outcome'] for result in results), ['activated', 'activated'])
         self.assertEqual(ScriptProject.objects.filter(active_revision__isnull=False).count(), 2)
         # The class each legacy module published, now published by the plugin instead.
-        self.assertEqual(sorted(CustomScript.objects.values_list('class_name', flat=True)), ['Deploy', 'Provision'])
+        self.assertEqual(sorted(NetBoxScript.objects.values_list('class_name', flat=True)), ['Deploy', 'Provision'])
 
     def test_the_step_is_recorded_with_every_outcome(self):
         self.stage_and_validate()
@@ -99,14 +99,14 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.stage_and_validate()
         cutover.activate_staged(self.migration)
         serving = dict(ScriptProject.objects.values_list('key', 'active_revision_id'))
-        script_pks = set(CustomScript.objects.values_list('pk', flat=True))
+        script_pks = set(NetBoxScript.objects.values_list('pk', flat=True))
 
         results = cutover.activate_staged(self.migration)
 
         self.assertEqual(sorted(result['outcome'] for result in results), ['was already serving this revision'] * 2)
         self.assertEqual(dict(ScriptProject.objects.values_list('key', 'active_revision_id')), serving)
         # Synchronization skips a row that already matches, so the same rows survive untouched.
-        self.assertEqual(set(CustomScript.objects.values_list('pk', flat=True)), script_pks)
+        self.assertEqual(set(NetBoxScript.objects.values_list('pk', flat=True)), script_pks)
 
     def test_a_second_run_over_fewer_modules_keeps_the_whole_record(self):
         # record_step assigns, so replacing the list would shrink what verification then checks.

@@ -8,6 +8,6 @@ router = NetBoxRouter()
 router.register('project-revisions', views.ScriptProjectRevisionViewSet)
 router.register('projects', views.ScriptProjectViewSet)
 router.register('script-files', views.ScriptFileViewSet)
-router.register('scripts', views.CustomScriptViewSet)
+router.register('scripts', views.NetBoxScriptViewSet)
 
 urlpatterns = router.urls

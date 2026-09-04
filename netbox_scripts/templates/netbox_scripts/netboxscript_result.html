@@ -9,7 +9,7 @@ The log and the output come from the Job's recorded data, so a run still in flig
 status and nothing else. The body is a partial the view also serves on its own, which is what
 the page polls while the run has not finished.
 
-Context: see CustomScriptResultView.
+Context: see NetBoxScriptResultView.
 {% endcomment %}
 {# Mirrors generic/object.html, which this page cannot extend because its object is a Job #}
 {% block page-header %}
@@ -17,7 +17,7 @@ Context: see CustomScriptResultView.
     <div class="d-flex justify-content-between align-items-center mt-2">
       <ol class="breadcrumb" aria-label="breadcrumbs">
         <li class="breadcrumb-item">
-          <a href="{% url 'plugins:netbox_scripts:customscript_list' %}">{% trans "Custom Scripts" %}</a>
+          <a href="{% url 'plugins:netbox_scripts:netboxscript_list' %}">{% trans "Custom Scripts" %}</a>
         </li>
         <li class="breadcrumb-item">
           <a href="{{ object.get_absolute_url }}">{{ object }}</a>
@@ -71,15 +71,15 @@ Context: see CustomScriptResultView.
     <div class="ms-auto">
       <button type="button"
               data-bs-toggle="modal"
-              data-bs-target="#CustomScriptLogTable_config"
+              data-bs-target="#NetBoxScriptLogTable_config"
               title="{% trans "Configure Table" %}"
               class="btn btn-outline-secondary">
         <i class="mdi mdi-cog" aria-hidden="true"></i> {% trans "Configure Table" %}
       </button>
     </div>
   </div>
-  {% include "netbox_scripts/inc/customscript_result_body.html" %}
+  {% include "netbox_scripts/inc/netboxscript_result_body.html" %}
 {% endblock content %}
 {% block modals %}
-  {% table_config_form table table_name="CustomScriptLogTable" %}
+  {% table_config_form table table_name="NetBoxScriptLogTable" %}
 {% endblock modals %}

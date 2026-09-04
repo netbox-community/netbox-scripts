@@ -15,7 +15,7 @@ Implemented:
 
 - four models with full UI, REST API, GraphQL, and global-search surfaces:
   `ScriptProject`, `ScriptProjectRevision`, `ScriptFile`,
-  and `CustomScript`
+  and `NetBoxScript`
 - the plugin-owned script authoring API: `Script` base classes, variable
   types, dynamic form generation, structured logging, and `AbortScript`
 - compatibility with the built-in authoring API, so a script importing from

@@ -22,9 +22,9 @@ from extras.models import Tag
 from netbox.context import current_request
 from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.execution import ScriptNotExecutableError, load_script_class, run_script
-from netbox_scripts.jobs import CustomScriptJob
+from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -387,11 +387,11 @@ class ScriptJobTestMixin:
         return revision
 
     def script(self):
-        return CustomScript.objects.get(project=self.project)
+        return NetBoxScript.objects.get(project=self.project)
 
     def run_job(self, script=None, *, data=None, commit=True, request=None, event=None):
         """Enqueue a run immediately and return the finished Job."""
-        return CustomScriptJob.enqueue_run(
+        return NetBoxScriptJob.enqueue_run(
             script or self.script(),
             data=data if data is not None else {},
             commit=commit,
@@ -470,7 +470,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         revision = self.publish({'deploy.py': MAKES_A_TAG})
         script = self.script()
 
-        job = CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
 
         self.assertEqual(job.object, script)
         self.assertEqual(job.data['revision_id'], revision.pk)
@@ -486,7 +486,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         script.save()
 
         with self.assertRaises(ScriptNotExecutableError) as caught:
-            CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+            NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
 
         self.assertIn('It is disabled.', str(caught.exception))
         self.assertFalse(Job.objects.filter(object_id=script.pk).exists())
@@ -498,7 +498,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         script.refresh_from_db()
 
         with self.assertRaises(ScriptNotExecutableError) as caught:
-            CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+            NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
 
         # Deactivation retires the script too, so retirement is the condition that holds first.
         self.assertIn('It is retired', str(caught.exception))
@@ -507,14 +507,14 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         self.publish({'deploy.py': MAKES_A_TAG})
         script = self.script()
 
-        job = CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
 
         self.assertEqual(job.notifications, script.notifications_default)
 
     def test_a_supplied_notification_policy_wins(self):
         self.publish({'deploy.py': MAKES_A_TAG})
 
-        job = CustomScriptJob.enqueue_run(
+        job = NetBoxScriptJob.enqueue_run(
             self.script(),
             data={},
             commit=True,
@@ -528,14 +528,14 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         self.publish({'deploy.py': MAKES_A_TAG})
         event = {'event_type': 'object_created', 'object_type': 'dcim.device', 'object_id': 7}
 
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, event=event)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, event=event)
 
         self.assertEqual(job.data['event'], event)
 
     def test_a_run_no_event_drove_records_none(self):
         self.publish({'deploy.py': MAKES_A_TAG})
 
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
 
         self.assertIsNone(job.data['event'])
 
@@ -565,7 +565,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
             seen['data'] = row.data or {}
             seen['status'] = row.status
 
-        with patch.object(CustomScriptJob, 'handle', side_effect=capture):
+        with patch.object(NetBoxScriptJob, 'handle', side_effect=capture):
             self.run_job()
 
         self.assertEqual(seen['data'].get('revision_id'), revision.pk)
@@ -577,8 +577,8 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
 
         # The immediate branch builds its own row, so parity with the queued construction is
         # pinned rather than trusted.
-        queued = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
-        with patch.object(CustomScriptJob, 'handle'):
+        queued = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        with patch.object(NetBoxScriptJob, 'handle'):
             immediate = self.run_job()
 
         own = {'id', 'job_id', 'created'}
@@ -594,7 +594,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
             job.start()
             raise KeyboardInterrupt
 
-        with patch.object(CustomScriptJob, 'handle', side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
+        with patch.object(NetBoxScriptJob, 'handle', side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
             self.run_job()
 
         (job,) = Job.objects.filter(object_id=self.script().pk)
@@ -608,7 +608,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
 
         for deferral in ({'interval': 60}, {'schedule_at': local_now() + timedelta(hours=1)}):
             with self.subTest(**deferral), self.assertRaises(ValueError):
-                CustomScriptJob.enqueue_run(
+                NetBoxScriptJob.enqueue_run(
                     self.script(), data={}, commit=True, user=self.user, immediate=True, **deferral
                 )
 
@@ -620,8 +620,8 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         script.job_timeout_override = 300
         script.save()
 
-        with patch.object(CustomScriptJob, 'enqueue', wraps=CustomScriptJob.enqueue) as enqueue:
-            CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+        with patch.object(NetBoxScriptJob, 'enqueue', wraps=NetBoxScriptJob.enqueue) as enqueue:
+            NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
 
         self.assertEqual(enqueue.call_args.kwargs['job_timeout'], 300)
 
@@ -632,8 +632,8 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         script.save()
         seen = {}
 
-        with patch.object(CustomScriptJob, 'run', lambda runner, **kwargs: seen.update(kwargs)):
-            CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user, immediate=True)
+        with patch.object(NetBoxScriptJob, 'run', lambda runner, **kwargs: seen.update(kwargs)):
+            NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user, immediate=True)
 
         self.assertEqual(seen['module_path'], 'deploy')
         self.assertNotIn('job_timeout', seen)
@@ -642,7 +642,7 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
         self.publish({'deploy.py': MAKES_A_TAG})
 
         with self.assertRaises(RuntimeError), transaction.atomic():
-            CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, immediate=True)
+            NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, immediate=True)
 
         self.assertFalse(Job.objects.filter(object_id=self.script().pk).exists())
 
@@ -671,8 +671,8 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
         def observe(runner, **kwargs):
             observed['visible'] = self.visible_to_another_session(runner.job.pk)
 
-        with patch.object(CustomScriptJob, 'run', observe):
-            job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=False, user=self.user, immediate=True)
+        with patch.object(NetBoxScriptJob, 'run', observe):
+            job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=False, user=self.user, immediate=True)
 
         self.assertTrue(observed['visible'])
         self.assertTrue(self.visible_to_another_session(job.pk))
@@ -691,7 +691,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
         self.publish({'deploy.py': MAKES_A_TAG})
         when = local_now() + timedelta(hours=1)
 
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, schedule_at=when)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, schedule_at=when)
 
         self.assertEqual(job.scheduled, when)
         self.assertEqual(job.status, JobStatusChoices.STATUS_SCHEDULED)
@@ -699,7 +699,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
     def test_a_deferred_run_still_pins_its_revision(self):
         revision = self.publish({'deploy.py': MAKES_A_TAG})
 
-        job = CustomScriptJob.enqueue_run(
+        job = NetBoxScriptJob.enqueue_run(
             self.script(), data={}, commit=True, user=self.user, schedule_at=local_now() + timedelta(hours=1)
         )
 
@@ -708,7 +708,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
     def test_a_recurring_run_records_its_interval(self):
         self.publish({'deploy.py': MAKES_A_TAG})
 
-        job = CustomScriptJob.enqueue_run(
+        job = NetBoxScriptJob.enqueue_run(
             self.script(),
             data={},
             commit=True,
@@ -722,7 +722,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
     def test_a_recurring_run_pins_no_revision(self):
         self.publish({'deploy.py': MAKES_A_TAG})
 
-        job = CustomScriptJob.enqueue_run(
+        job = NetBoxScriptJob.enqueue_run(
             self.script(),
             data={},
             commit=True,
@@ -738,7 +738,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
         """Run one occurrence of a recurring job's body and return the runner."""
         # The runner records its result on self.job without saving, because JobRunner.handle()
         # is what terminates and persists. Calling run() directly means reading it in memory.
-        runner = CustomScriptJob(job)
+        runner = NetBoxScriptJob(job)
         runner.run(
             revision_id=None,
             revision_digest=None,
@@ -753,7 +753,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
         # The behaviour the absent pin exists to produce: a project that activates new source
         # between occurrences runs the new source on the next one.
         self.publish({'deploy.py': MAKES_A_TAG})
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
         replacement = self.publish({'deploy.py': MAKES_A_TAG.replace(b'From Revision', b'From Replacement')})
 
         runner = self.occurrence(job)
@@ -764,7 +764,7 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
     def test_a_recurring_occurrence_fails_when_the_project_serves_nothing(self):
         # Failing loudly beats silently running whatever was last active.
         revision = self.publish({'deploy.py': MAKES_A_TAG})
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
         deactivate_revision(revision)
 
         with self.assertRaises(JobFailed):
@@ -810,13 +810,13 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
 
     def test_the_pinned_revision_runs_even_when_a_newer_one_is_active(self):
         first = self.publish({'deploy.py': MAKES_A_TAG})
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
         # A second revision replaces the first between the enqueue and the run.
         second = self.publish({'deploy.py': MAKES_A_TAG + b'\n# a later revision\n'})
         self.assertNotEqual(first.digest, second.digest)
         self.assertEqual(self.project.active_revision_id, second.pk)
 
-        CustomScriptJob.handle(job, **job.data, data={}, request=None)
+        NetBoxScriptJob.handle(job, **job.data, data={}, request=None)
         job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
@@ -824,21 +824,21 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
 
     def test_a_run_whose_revision_was_deleted_fails_the_job(self):
         revision = self.publish({'deploy.py': MAKES_A_TAG})
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
         payload = dict(job.data)
         ScriptProjectRevision.objects.filter(pk=revision.pk).delete()
 
-        CustomScriptJob.handle(job, **payload, data={}, request=None)
+        NetBoxScriptJob.handle(job, **payload, data={}, request=None)
         job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
 
     def test_a_run_whose_class_is_no_longer_published_fails_the_job(self):
         self.publish({'deploy.py': MAKES_A_TAG})
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
         payload = dict(job.data, class_name='Vanished')
 
-        CustomScriptJob.handle(job, **payload, data={}, request=None)
+        NetBoxScriptJob.handle(job, **payload, data={}, request=None)
         job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
@@ -899,11 +899,11 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
     def test_a_script_disabled_after_the_enqueue_does_not_run(self):
         self.publish({'deploy.py': MAKES_A_TAG})
         script = self.script()
-        job = CustomScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(script, data={}, commit=True, user=self.user)
         # Enabled is the administrator's field, so it has to reach a run already in the queue.
-        CustomScript.objects.filter(pk=script.pk).update(enabled=False)
+        NetBoxScript.objects.filter(pk=script.pk).update(enabled=False)
 
-        CustomScriptJob.handle(job, **job.data, data={}, request=None)
+        NetBoxScriptJob.handle(job, **job.data, data={}, request=None)
         job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
@@ -911,11 +911,11 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
 
     def test_a_deactivated_project_still_runs_a_pinned_revision(self):
         revision = self.publish({'deploy.py': MAKES_A_TAG})
-        job = CustomScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
+        job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user)
         # Pinning means the run executes what was requested, so deactivation does not undo it.
         deactivate_revision(revision)
 
-        CustomScriptJob.handle(job, **job.data, data={}, request=None)
+        NetBoxScriptJob.handle(job, **job.data, data={}, request=None)
         job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)

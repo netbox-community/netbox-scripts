@@ -42,10 +42,10 @@ _migration_item = PluginMenuItem(
 )
 
 # No add button: rows are derived from an activated revision, never authored.
-_customscript_item = PluginMenuItem(
-    link='plugins:netbox_scripts:customscript_list',
+_netboxscript_item = PluginMenuItem(
+    link='plugins:netbox_scripts:netboxscript_list',
     link_text=_('Scripts'),
-    permissions=['netbox_scripts.view_customscript'],
+    permissions=['netbox_scripts.view_netboxscript'],
 )
 
 menu = PluginMenu(
@@ -60,7 +60,7 @@ menu = PluginMenu(
         ),
         (
             _('Scripts'),
-            (_customscript_item,),
+            (_netboxscript_item,),
         ),
     ),
     icon_class='mdi mdi-script-text',

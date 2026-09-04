@@ -7,7 +7,7 @@ from strawberry_django import BaseFilterLookup, FilterLookup, StrFilterLookup
 
 from netbox.graphql.filters import ChangeLoggedModelFilter, PrimaryModelFilter
 
-from ..models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
+from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 
 if TYPE_CHECKING:
     from core.graphql.filters import DataSourceFilter
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .enums import ActivationPolicyEnum, FileDiscoveryStatusEnum, ProjectSourceTypeEnum, RevisionStatusEnum
 
 __all__ = (
-    'CustomScriptFilter',
+    'NetBoxScriptFilter',
     'ScriptFileFilter',
     'ScriptProjectFilter',
     'ScriptProjectRevisionFilter',
@@ -78,8 +78,8 @@ class ScriptFileFilter(PrimaryModelFilter):
 
 # The three execution overrides are readable on the type but deliberately not filterable here,
 # which would need a JobNotificationChoices enum core does not export.
-@strawberry_django.filter_type(CustomScript, lookups=True)
-class CustomScriptFilter(PrimaryModelFilter):
+@strawberry_django.filter_type(NetBoxScript, lookups=True, name='NetBoxScriptFilter')
+class NetBoxScriptFilter(PrimaryModelFilter):
     """GraphQL filter for the Custom Script model."""
 
     project: ScriptProjectFilter | None = strawberry_django.filter_field()

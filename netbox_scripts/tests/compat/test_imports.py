@@ -79,7 +79,7 @@ class CompatImportTestCase(SimpleTestCase):
     def test_the_legacy_reports_name_resolves_to_the_refused_marker(self):
         module = compat_import('extras.reports', fromlist=('Report',))
         self.assertTrue(issubclass(module.Report, netbox_scripts.scripts.Script))
-        self.assertTrue(module.Report._custom_script_report)
+        self.assertTrue(module.Report._netbox_script_report)
 
     def test_a_relative_import_is_never_intercepted(self):
         # A revision shipping its own extras.py reaches it with "from . import extras", and the

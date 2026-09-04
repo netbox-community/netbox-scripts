@@ -7,7 +7,7 @@ The live part of one run's result page.
 Served on its own to an htmx poll, so it is the whole swap target and carries the polling
 attributes itself. A run that has reached a terminal state polls no further.
 
-Context: see CustomScriptResultView.
+Context: see NetBoxScriptResultView.
 {% endcomment %}
 <div id="run-result"
      {% if in_flight %}hx-get="{{ poll_url }}" hx-trigger="every {{ poll_interval }}" hx-swap="outerHTML"{% endif %}>

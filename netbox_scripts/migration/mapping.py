@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 
 from ..choices import ProjectSourceTypeChoices
 from ..ingestion import uploaded_source_path
-from ..models import CustomScript
+from ..models import NetBoxScript
 from ..utils import data_source_relative_path, source_path_to_dotted_name
 from . import plan
 from . import source as legacy_source
@@ -35,7 +35,7 @@ def build_map(modules=None):
             source_path = _source_path(module, project_plan)
             if source_path is None:
                 raise ValidationError('The module sits outside the proposed project directory.')
-            # The dotted name, not the source path: a CustomScript records the module a class was
+            # The dotted name, not the source path: a NetBoxScript records the module a class was
             # defined in, which discovery reads off cls.__module__.
             module_path = source_path_to_dotted_name(source_path)
         except ValidationError as error:
@@ -85,7 +85,7 @@ def resolve_scripts(mapping):
     for key, entries in grouped.items():
         rows = {
             (row.module_path, row.class_name): row
-            for row in CustomScript.objects.filter(project__key=key).select_related('project')
+            for row in NetBoxScript.objects.filter(project__key=key).select_related('project')
         }
         for entry in entries:
             row = rows.get((entry['module_path'], entry['class_name']))

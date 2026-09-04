@@ -4,7 +4,7 @@ from netbox.ui import attrs
 from netbox.ui.panels import ObjectAttributesPanel
 
 
-class CustomScriptPanel(ObjectAttributesPanel):
+class NetBoxScriptPanel(ObjectAttributesPanel):
     """Identity attributes of a Custom Script (detail view, left column)."""
 
     title = _('Script')
@@ -17,7 +17,7 @@ class CustomScriptPanel(ObjectAttributesPanel):
     enabled = attrs.BooleanAttr('enabled', label=_('Enabled'))
 
 
-class CustomScriptStatePanel(ObjectAttributesPanel):
+class NetBoxScriptStatePanel(ObjectAttributesPanel):
     """System-managed publication state of a Custom Script (detail view, right column)."""
 
     title = _('Publication')

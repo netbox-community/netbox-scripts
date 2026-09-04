@@ -3,7 +3,7 @@ from django.test import SimpleTestCase, TestCase
 from netbox_scripts.choices import ProjectSourceTypeChoices
 from netbox_scripts.migration import mapping
 from netbox_scripts.migration.source import LegacyModule, LegacyScript
-from netbox_scripts.models import CustomScript, ScriptProject
+from netbox_scripts.models import NetBoxScript, ScriptProject
 
 
 def legacy(pk, file_path, data_source_id=None, data_path='', scripts=()):
@@ -116,7 +116,7 @@ class ResolveScriptsTestCase(TestCase):
 
     def test_an_entry_resolves_to_the_row_that_carries_its_identity(self):
         project = self.project()
-        row = CustomScript.objects.create(project=project, module_path='deploy', class_name='Deploy')
+        row = NetBoxScript.objects.create(project=project, module_path='deploy', class_name='Deploy')
 
         resolved, unresolved = mapping.resolve_scripts(self.mapping)
 
@@ -125,8 +125,8 @@ class ResolveScriptsTestCase(TestCase):
 
     def test_a_class_no_revision_publishes_is_reported(self):
         project = self.project()
-        CustomScript.objects.create(project=project, module_path='deploy', class_name='Deploy')
-        CustomScript.objects.create(project=project, module_path='other', class_name='Remove')
+        NetBoxScript.objects.create(project=project, module_path='deploy', class_name='Deploy')
+        NetBoxScript.objects.create(project=project, module_path='other', class_name='Remove')
 
         resolved, unresolved = mapping.resolve_scripts(self.mapping)
 
@@ -138,7 +138,7 @@ class ResolveScriptsTestCase(TestCase):
         # Documented: this answers which row an identity names, and the callers differ on whether a
         # retired one may be used.
         project = self.project()
-        row = CustomScript.objects.create(project=project, module_path='deploy', class_name='Deploy', is_retired=True)
+        row = NetBoxScript.objects.create(project=project, module_path='deploy', class_name='Deploy', is_retired=True)
 
         resolved, _unresolved = mapping.resolve_scripts(self.mapping)
 
@@ -150,7 +150,7 @@ class ResolveScriptsTestCase(TestCase):
             key='hand-made',
             source_type=ProjectSourceTypeChoices.UPLOAD,
         )
-        CustomScript.objects.create(project=other, module_path='deploy', class_name='Deploy')
+        NetBoxScript.objects.create(project=other, module_path='deploy', class_name='Deploy')
 
         resolved, unresolved = mapping.resolve_scripts(self.mapping)
 

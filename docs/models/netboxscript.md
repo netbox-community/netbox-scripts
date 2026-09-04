@@ -94,7 +94,7 @@ scripts with it. Pruning an old revision never takes scripts with it, so
 | Surface | Endpoint or field |
 |---|---|
 | REST | `/api/plugins/netbox-scripts/scripts/` |
-| GraphQL | `custom_script`, `custom_script_list` |
+| GraphQL | `netbox_script`, `netbox_script_list` |
 | UI | Custom Scripts > Scripts |
 
 Update only. Rows are derived from a validated revision, so the API offers list,

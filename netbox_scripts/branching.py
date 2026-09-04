@@ -42,8 +42,8 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 # cutover state invisible on the main schema, so the built-in feature would look un-fenced to
 # everything outside that branch.
 GLOBAL_MODELS = (
-    'customscript',
     'migrationrun',
+    'netboxscript',
     'scriptfile',
     'scriptproject',
     'scriptprojectrevision',
@@ -58,7 +58,7 @@ ROUTING_HINT = (
     'Use a NetBox Branching release that exposes the supports_branching API, since this plugin '
     'cannot confirm the routing without it. If these models are still routed to a branch, add the '
     "labels to PLUGINS_CONFIG['netbox_branching']['exempt_models']: "
-    '"netbox_scripts.customscript", '
+    '"netbox_scripts.netboxscript", '
     '"netbox_scripts.scriptfile", '
     '"netbox_scripts.scriptproject", '
     '"netbox_scripts.scriptprojectrevision", '

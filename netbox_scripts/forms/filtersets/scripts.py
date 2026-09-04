@@ -7,18 +7,18 @@ from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterFie
 from utilities.forms.rendering import FieldSet
 
 from ...choices import FileDiscoveryStatusChoices
-from ...models import CustomScript, ScriptFile, ScriptProject
+from ...models import NetBoxScript, ScriptFile, ScriptProject
 
 __all__ = (
-    'CustomScriptFilterForm',
+    'NetBoxScriptFilterForm',
     'ScriptFileFilterForm',
 )
 
 
-class CustomScriptFilterForm(PrimaryModelFilterSetForm):
+class NetBoxScriptFilterForm(PrimaryModelFilterSetForm):
     """Filter form for the Custom Script list view."""
 
-    model = CustomScript
+    model = NetBoxScript
     project_id = DynamicModelMultipleChoiceField(
         queryset=ScriptProject.objects.all(),
         required=False,
@@ -43,7 +43,7 @@ class CustomScriptFilterForm(PrimaryModelFilterSetForm):
         label=_('Retired'),
     )
     tag = TagFilterField(
-        CustomScript,
+        NetBoxScript,
     )
 
     fieldsets = (

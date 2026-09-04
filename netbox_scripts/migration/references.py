@@ -36,7 +36,7 @@ SCHEDULES_STEP = 'recreate_schedules'
 
 # Which plugin model each built-in one's references move to.
 _TYPE_MAP = {
-    'extras.script': 'customscript',
+    'extras.script': 'netboxscript',
     'extras.scriptmodule': 'scriptproject',
 }
 
@@ -320,7 +320,7 @@ def recreate_schedules(run):
             continue
         # Against the script, because a grant can name particular ones and the run view honours
         # that. A schedule that never had an owner keeps the standing it had before the migration.
-        if user is not None and not user.has_perm('netbox_scripts.run_customscript', script):
+        if user is not None and not user.has_perm('netbox_scripts.run_netboxscript', script):
             counts['skipped'] += 1
             counts['outstanding'] += 1
             warnings.append(
@@ -390,7 +390,7 @@ def _replay_schedule(entry):
 def _recreate(run, entry, script, schedule_at, user, recreated):
     """Validate one captured schedule's input and enqueue it, recording the new job with it."""
     # Locally, because jobs.py imports this tier.
-    from ..jobs import CustomScriptJob
+    from ..jobs import NetBoxScriptJob
 
     instance = load_script_class(script)()
     # Through the form, because that is what turns the journal's keys back into the model instances
@@ -405,7 +405,7 @@ def _recreate(run, entry, script, schedule_at, user, recreated):
     for name in ('_schedule_at', '_interval', '_notifications'):
         data.pop(name, None)
     with transaction.atomic():
-        job = CustomScriptJob.enqueue_run(
+        job = NetBoxScriptJob.enqueue_run(
             script,
             data=data,
             commit=commit,
@@ -471,9 +471,9 @@ def _plugin_types():
     """Return the plugin object type each built-in type's references move to, by its label."""
     from core.models import ObjectType
 
-    from ..models import CustomScript, ScriptProject
+    from ..models import NetBoxScript, ScriptProject
 
-    models = {'customscript': CustomScript, 'scriptproject': ScriptProject}
+    models = {'netboxscript': NetBoxScript, 'scriptproject': ScriptProject}
     return {label: ObjectType.objects.get_for_model(models[name]) for label, name in _TYPE_MAP.items()}
 
 

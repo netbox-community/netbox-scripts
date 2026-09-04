@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from core.choices import JobStatusChoices
 from core.models import Job
 
-from ..models import CustomScript, MigrationRun, ScriptProject
+from ..models import MigrationRun, NetBoxScript, ScriptProject
 from . import cleanup, cutover, mapping, plan
 from . import references as legacy_references
 from . import source as legacy_source
@@ -145,7 +145,7 @@ def _verify_scripts(run, live_modules):
         )
     # The built-in rows are gone, so what a Project publishes is the only remaining evidence.
     keys = _activated_keys(run)
-    published = CustomScript.objects.filter(project__key__in=keys)
+    published = NetBoxScript.objects.filter(project__key__in=keys)
     # Only the Projects the map recorded a script for. One holding nothing but helper files was
     # never expected to publish, and staging declared no entrypoint on it.
     expected = {entry['project_key'] for entry in (mapping.recorded(run) or {}).get('scripts') or []}

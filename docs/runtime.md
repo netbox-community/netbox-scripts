@@ -164,7 +164,7 @@ itself are described on the [revision page](models/scriptprojectrevision.md).
 ## What activation does
 
 Activation makes one validated revision the project's active revision and
-publishes its [Custom Scripts](models/customscript.md) as rows. Both happen in a
+publishes its [Custom Scripts](models/netboxscript.md) as rows. Both happen in a
 single database transaction, so a reader sees either the old revision with its old
 scripts or the new revision with its new ones, never a mix.
 

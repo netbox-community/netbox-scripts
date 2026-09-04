@@ -1,5 +1,5 @@
 """
-Project storage layer for the Custom Scripts plugin.
+Project storage layer for the NetBox Scripts plugin.
 
 This package is plugin-internal. The top-level netbox_scripts package surfaces only
 the authoring API. config owns settings resolution and picks the storage backend. paths owns

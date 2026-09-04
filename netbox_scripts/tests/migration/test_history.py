@@ -13,7 +13,7 @@ from core.models import Job, ObjectType
 from dcim.models import Site
 from extras.models import Script, ScriptModule
 from netbox_scripts.migration import cutover, references
-from netbox_scripts.models import CustomScript
+from netbox_scripts.models import NetBoxScript
 from netbox_scripts.runtime.exceptions import EntrypointImportError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from users.models import ObjectPermission
@@ -75,13 +75,13 @@ class LegacyJobMixin(ReferenceMigrationMixin):
         return job
 
     def plugin_script(self, class_name='Deploy'):
-        return CustomScript.objects.get(class_name=class_name)
+        return NetBoxScript.objects.get(class_name=class_name)
 
 
 class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
     """Job history moves onto the Custom Script before anything can delete it."""
 
-    def test_a_completed_job_is_reachable_from_the_custom_script(self):
+    def test_a_completed_job_is_reachable_from_the_netbox_script(self):
         job = self.legacy_job()
         self.cross_over()
 
@@ -90,7 +90,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         script = self.plugin_script()
         job.refresh_from_db()
         self.assertEqual(job.object_id, script.pk)
-        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(CustomScript).pk)
+        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
         # The Jobs tab reads this relation, so being reachable through it is the whole point.
         self.assertIn(job.pk, [item.pk for item in script.jobs.all()])
         self.assertEqual(counts['moved'], 1)
@@ -193,7 +193,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
     def new_jobs(self):
         """Return the plugin's own Jobs, which are the ones a recreation produced."""
-        return Job.objects.filter(object_type=ObjectType.objects.get_for_model(CustomScript))
+        return Job.objects.filter(object_type=ObjectType.objects.get_for_model(NetBoxScript))
 
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
@@ -316,7 +316,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
     def test_a_retired_script_is_reported_rather_than_scheduled(self):
         self.legacy_schedule()
         self.cross_over()
-        CustomScript.objects.filter(pk=self.plugin_script().pk).update(is_retired=True)
+        NetBoxScript.objects.filter(pk=self.plugin_script().pk).update(is_retired=True)
 
         counts, warnings = references.recreate_schedules(self.migration)
 
@@ -399,7 +399,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         permission = ObjectPermission(name='run custom scripts', actions=['run'])
         permission.save()
         permission.users.add(user)
-        permission.object_types.add(ObjectType.objects.get_for_model(CustomScript))
+        permission.object_types.add(ObjectType.objects.get_for_model(NetBoxScript))
 
     def test_a_schedule_belonging_to_a_deleted_user_is_not_replayed_unowned(self):
         user = self.owned_schedule('departed')

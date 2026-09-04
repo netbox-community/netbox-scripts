@@ -8,7 +8,7 @@ from extras.models import EventRule, Script, ScriptModule, Webhook
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationReferencesJob, RevisionValidationJob
 from netbox_scripts.migration import cutover, references
-from netbox_scripts.models import CustomScript, MigrationRun, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import Group, ObjectPermission
 
@@ -35,7 +35,7 @@ class ReferenceMigrationMixin(LegacySourceMixin):
 
     def plugin_script(self):
         """Return the Custom Script the built-in Deploy migrated to."""
-        return CustomScript.objects.get(class_name='Deploy')
+        return NetBoxScript.objects.get(class_name='Deploy')
 
     def action_rule(self, name='on device change'):
         """A rule that runs the built-in Script."""
@@ -78,7 +78,7 @@ class ReferenceMigrationMixin(LegacySourceMixin):
 class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
     """Moving an Event Rule's action and its event sources onto the plugin."""
 
-    def test_a_rule_that_runs_a_built_in_script_runs_the_custom_script_instead(self):
+    def test_a_rule_that_runs_a_built_in_script_runs_the_netbox_script_instead(self):
         rule = self.action_rule()
         self.cross_over()
 
@@ -89,7 +89,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(rule.action_object_id, self.plugin_script().pk)
         # By key, because ObjectType is multi-table inheritance rather than a proxy, so the
         # ContentType this field returns never compares equal to the ObjectType sharing its key.
-        self.assertEqual(rule.action_object_type_id, ObjectType.objects.get_for_model(CustomScript).pk)
+        self.assertEqual(rule.action_object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
         self.assertEqual(counts['actions'], 1)
         self.assertEqual(warnings, [])
 
@@ -103,14 +103,14 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         rule.refresh_from_db()
         self.assertTrue(rule.action_is_available)
 
-    def test_a_rule_watching_the_built_in_scripts_watches_the_custom_scripts_instead(self):
+    def test_a_rule_watching_the_built_in_scripts_watches_the_netbox_scripts_instead(self):
         rule = self.source_rule()
         self.cross_over()
 
         counts, _warnings = references.repoint_event_rules(self.migration)
 
         types = set(rule.object_types.values_list('pk', flat=True))
-        self.assertIn(ObjectType.objects.get_for_model(CustomScript).pk, types)
+        self.assertIn(ObjectType.objects.get_for_model(NetBoxScript).pk, types)
         self.assertNotIn(self.script_type.pk, types)
         # Its action was never legacy, so it is left exactly as it was.
         self.assertEqual(rule.action_type, 'webhook')
@@ -127,7 +127,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         rule.refresh_from_db()
         types = set(rule.object_types.values_list('pk', flat=True))
         self.assertEqual(rule.action_type, references.ACTION_SLUG)
-        self.assertIn(ObjectType.objects.get_for_model(CustomScript).pk, types)
+        self.assertIn(ObjectType.objects.get_for_model(NetBoxScript).pk, types)
         self.assertNotIn(self.script_type.pk, types)
         # The unrelated type it also watched is untouched.
         self.assertIn(self.site_type.pk, types)
@@ -168,7 +168,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         # The action refuses a retired script at save time, so writing it would raise instead.
         rule = self.action_rule()
         self.cross_over()
-        CustomScript.objects.filter(pk=self.plugin_script().pk).update(is_retired=True)
+        NetBoxScript.objects.filter(pk=self.plugin_script().pk).update(is_retired=True)
 
         counts, warnings = references.repoint_event_rules(self.migration)
 
@@ -227,7 +227,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         permission.refresh_from_db()
         self.assertEqual(
             set(permission.object_types.values_list('pk', flat=True)),
-            {ObjectType.objects.get_for_model(CustomScript).pk},
+            {ObjectType.objects.get_for_model(NetBoxScript).pk},
         )
         self.assertEqual(permission.actions, ['view', 'run'])
         self.assertTrue(permission.enabled)
@@ -266,7 +266,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         sibling = ObjectPermission.objects.get(name=f'built-in scripts{references._SIBLING_SUFFIX}')
         self.assertEqual(
             set(sibling.object_types.values_list('pk', flat=True)),
-            {ObjectType.objects.get_for_model(CustomScript).pk},
+            {ObjectType.objects.get_for_model(NetBoxScript).pk},
         )
         self.assertEqual(sibling.actions, ['view', 'run'])
         self.assertTrue(sibling.enabled)

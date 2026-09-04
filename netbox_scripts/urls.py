@@ -44,10 +44,10 @@ urlpatterns: tuple = (
     ),
     path(
         'scripts/',
-        include(get_model_urls('netbox_scripts', 'customscript', detail=False)),
+        include(get_model_urls('netbox_scripts', 'netboxscript', detail=False)),
     ),
     path(
         'scripts/<int:pk>/',
-        include(get_model_urls('netbox_scripts', 'customscript')),
+        include(get_model_urls('netbox_scripts', 'netboxscript')),
     ),
 )

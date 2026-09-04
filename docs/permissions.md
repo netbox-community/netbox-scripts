@@ -90,7 +90,7 @@ absent rather than two. Over REST there is no form to leave them out of, so
 
 An Event Rule that names a Custom Script runs it whenever the rule fires, and the
 run is attributed to the user whose action triggered the event, not to whoever
-wrote the rule. Nothing checks that the rule's author holds `run_customscript`,
+wrote the rule. Nothing checks that the rule's author holds `run_netboxscript`,
 and nothing checks it for the triggering user either.
 
 **So `extras.add_eventrule` and `extras.change_eventrule` are both privileged
@@ -98,7 +98,7 @@ grants here.** Anyone who can create an Event Rule, or repoint an existing one,
 can arrange for a Custom Script to run without holding the permission that
 governs running one directly. An existing rule's action type and action object
 are editable on the form and over REST, so the two permissions carry the same
-escalation. Grant either to the same people you would grant `run_customscript`.
+escalation. Grant either to the same people you would grant `run_netboxscript`.
 
 This is not a gap this plugin introduced. NetBox's own built-in script action
 behaves the same way. **No hook a plugin can implement has the rule's author in
@@ -107,7 +107,7 @@ action object and its data, and runs on every save including ones with no user
 behind them. Refusing the triggering user instead would be possible, and is
 deliberately not done, because they did not write the rule and denying them a run
 they never asked for is the wrong answer. It is recorded here because an
-administrator sizing up `run_customscript` should know the second route exists.
+administrator sizing up `run_netboxscript` should know the second route exists.
 
 ## Two privileges with no codename of their own
 

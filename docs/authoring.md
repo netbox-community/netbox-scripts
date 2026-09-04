@@ -182,7 +182,7 @@ script executes, so keep module bodies to imports and definitions and put work
 in `run()`. See [Runtime and Loading](runtime.md) for the loading model and
 what makes a revision invalid.
 
-Each published class becomes a [Custom Script](models/customscript.md) once the
+Each published class becomes a [Custom Script](models/netboxscript.md) once the
 revision is activated, identified by the module that defines it, so a class
 re-exported through `script_order` keeps the identity of its own file.
 

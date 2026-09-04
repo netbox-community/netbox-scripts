@@ -4,14 +4,14 @@ from django.urls import NoReverseMatch, reverse
 from netbox.object_actions import BulkExport
 from netbox.tables.columns import ActionsColumn
 from netbox_scripts.tables import (
-    CustomScriptTable,
+    NetBoxScriptTable,
     ScriptFileTable,
     ScriptProjectRevisionTable,
     ScriptProjectTable,
 )
 from netbox_scripts.views import (
-    CustomScriptListView,
-    CustomScriptView,
+    NetBoxScriptListView,
+    NetBoxScriptView,
     ScriptFileListView,
     ScriptProjectListView,
     ScriptProjectView,
@@ -20,21 +20,21 @@ from netbox_scripts.views import (
 LIST_VIEWS = (
     ScriptProjectListView,
     ScriptFileListView,
-    CustomScriptListView,
+    NetBoxScriptListView,
 )
 
 # Detail views declare their own action sets too, and an ObjectAction naming an unregistered
 # route fails exactly the same way a list button does.
 DETAIL_VIEWS = (
     ScriptProjectView,
-    CustomScriptView,
+    NetBoxScriptView,
 )
 
 TABLES = (
     ScriptProjectTable,
     ScriptProjectRevisionTable,
     ScriptFileTable,
-    CustomScriptTable,
+    NetBoxScriptTable,
 )
 
 # BulkExport posts query parameters back to the list route, so it is the one action that

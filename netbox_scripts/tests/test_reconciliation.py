@@ -18,7 +18,7 @@ from netbox_scripts.choices import (
 )
 from netbox_scripts.jobs import ProjectReconciliationJob, RevisionValidationJob
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -255,7 +255,7 @@ class ReconciliationPolicyTestCase(TestCase):
         revision = self.reconcile()
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, revision.pk)
-        self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
+        self.assertTrue(NetBoxScript.objects.filter(project=self.project, class_name='Deploy').exists())
 
     def test_a_manual_project_reaches_valid_and_keeps_serving_what_it_had(self):
         active = self.reconcile()

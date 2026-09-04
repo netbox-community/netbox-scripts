@@ -1,16 +1,16 @@
 from django.test import TestCase
 
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.filtersets import CustomScriptFilterSet, ScriptFileFilterSet
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
+from netbox_scripts.filtersets import NetBoxScriptFilterSet, ScriptFileFilterSet
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 DIGEST = 'c' * 64
 
 
-class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
-    queryset = CustomScript.objects.all()
-    filterset = CustomScriptFilterSet
+class NetBoxScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
+    queryset = NetBoxScript.objects.all()
+    filterset = NetBoxScriptFilterSet
     # metadata holds execution defaults read from the class, not a lookup key.
     ignore_fields = ('metadata',)
 
@@ -30,7 +30,7 @@ class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
         )
 
         scripts = (
-            CustomScript(
+            NetBoxScript(
                 project=cls.projects[0],
                 module_path='deploy',
                 class_name='DeployDevices',
@@ -40,7 +40,7 @@ class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
                 job_timeout_override=45,
                 notifications_default_override='never',
             ),
-            CustomScript(
+            NetBoxScript(
                 project=cls.projects[0],
                 module_path='tools.audit',
                 class_name='AuditInventory',
@@ -49,7 +49,7 @@ class CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
                 enabled=False,
                 commit_default_override=False,
             ),
-            CustomScript(
+            NetBoxScript(
                 project=cls.projects[1],
                 module_path='tools.report',
                 class_name='SummarizeResults',

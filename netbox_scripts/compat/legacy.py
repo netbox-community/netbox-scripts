@@ -8,4 +8,4 @@ __all__ = ('Report',)
 class Report(Script):
     """Legacy report base class. Discovery refuses every subclass of it."""
 
-    _custom_script_report = True
+    _netbox_script_report = True

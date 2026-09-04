@@ -19,7 +19,7 @@ entrypoint modules, a manifest-verified runtime cache, a name-isolating package
 loader, Custom Script discovery, and leased revision validation. Source reaches
 a Project two ways, both driven through staging, validation, discovery, and
 activation: one uploaded script at a time, or a directory of a Data Source
-rebuilt every time that source synchronizes. Published `CustomScript` objects and
+rebuilt every time that source synchronizes. Published `NetBoxScript` objects and
 execution complete the path, so a script can be run against the revision its
 Project is serving. See [Features](features.md) for the capability breakdown and
 current boundaries.

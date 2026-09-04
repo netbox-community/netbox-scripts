@@ -47,20 +47,20 @@ class DiscoverScriptsTestCase(TestCase):
     def test_markers_land_in_the_class_dict_with_project_identity(self):
         module = make_module(f'{PREFIX}.deploy', 'class Sync(Script):\n    pass\n', Script=Script)
         (found,) = discover(module)
-        self.assertEqual(found.cls.__dict__['_custom_script_module'], 'deploy')
+        self.assertEqual(found.cls.__dict__['_netbox_script_module'], 'deploy')
         self.assertEqual(
-            found.cls.__dict__['_custom_script_logger_name'],
+            found.cls.__dict__['_netbox_script_logger_name'],
             f'netbox.plugins.netbox_scripts.scripts.{PROJECT_KEY}.deploy.Sync',
         )
 
     def test_markers_carry_the_project_key_and_never_the_runtime_namespace(self):
         module = make_module(f'{PREFIX}.deploy', 'class Sync(Script):\n    pass\n', Script=Script)
         (found,) = discover(module)
-        for marker in (found.cls.__dict__['_custom_script_module'], found.cls.__dict__['_custom_script_logger_name']):
+        for marker in (found.cls.__dict__['_netbox_script_module'], found.cls.__dict__['_netbox_script_logger_name']):
             self.assertNotIn(DIGEST, marker)
             self.assertNotIn(STORAGE_KEY.hex, marker)
             self.assertNotIn('_netbox_scripts_runtime', marker)
-        self.assertIn(f'.{PROJECT_KEY}.', found.cls.__dict__['_custom_script_logger_name'])
+        self.assertIn(f'.{PROJECT_KEY}.', found.cls.__dict__['_netbox_script_logger_name'])
 
     def test_a_helper_module_class_publishes_only_through_script_order(self):
         helpers = make_module(f'{PREFIX}.helpers', 'class Shared(Script):\n    pass\n', Script=Script)
@@ -182,7 +182,7 @@ class DiscoverScriptsTestCase(TestCase):
         # independent of the compatibility layer.
         module = make_module(
             f'{PREFIX}.deploy',
-            'class Marked(Script):\n    _custom_script_report = True\n\n'
+            'class Marked(Script):\n    _netbox_script_report = True\n\n'
             '    def run(self, data, commit):\n        pass\n',
             Script=Script,
         )

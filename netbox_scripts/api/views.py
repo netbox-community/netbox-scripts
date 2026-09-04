@@ -18,7 +18,7 @@ from utilities.rqworker import any_workers_for_queue
 
 from ..execution import LOAD_FAILURES, load_script_class
 from ..filtersets import (
-    CustomScriptFilterSet,
+    NetBoxScriptFilterSet,
     ScriptFileFilterSet,
     ScriptProjectFilterSet,
     ScriptProjectRevisionFilterSet,
@@ -29,12 +29,12 @@ from ..ingestion import (
     ingest_upload,
     uploaded_source_path,
 )
-from ..jobs import CustomScriptJob, ProjectEntrypointRefreshJob
-from ..models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
+from ..jobs import NetBoxScriptJob, ProjectEntrypointRefreshJob
+from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from ..storage import config
 from .serializers import (
-    CustomScriptRunInputSerializer,
-    CustomScriptSerializer,
+    NetBoxScriptRunInputSerializer,
+    NetBoxScriptSerializer,
     ScriptFileSerializer,
     ScriptProjectRevisionSerializer,
     ScriptProjectSerializer,
@@ -171,7 +171,7 @@ class ScriptProjectRevisionViewSet(NetBoxReadOnlyModelViewSet):
     filterset_class = ScriptProjectRevisionFilterSet
 
 
-class CustomScriptViewSet(NetBoxModelViewSet):
+class NetBoxScriptViewSet(NetBoxModelViewSet):
     """
     REST API viewset for Custom Scripts.
 
@@ -180,9 +180,9 @@ class CustomScriptViewSet(NetBoxModelViewSet):
     a run is a POST to a detail route, which authors nothing.
     """
 
-    queryset = CustomScript.objects.select_related('project', 'last_seen_revision')
-    serializer_class = CustomScriptSerializer
-    filterset_class = CustomScriptFilterSet
+    queryset = NetBoxScript.objects.select_related('project', 'last_seen_revision')
+    serializer_class = NetBoxScriptSerializer
+    filterset_class = NetBoxScriptFilterSet
     # Refuses creation and deletion by method. Composing the mixins instead, the way a
     # read-only viewset does, would drop NetBoxModelViewSet.update(), and with it the
     # changelog's pre-change snapshot and the If-Match check. PATCH and PUT on the list route
@@ -223,13 +223,13 @@ class CustomScriptViewSet(NetBoxModelViewSet):
                 {'detail': f'The Custom Script could not be loaded from its source: {error}'}
             ) from error
 
-        input_serializer = CustomScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
+        input_serializer = NetBoxScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
         input_serializer.is_valid(raise_exception=True)
         parameters = input_serializer.validated_data
         # REST has no form to omit the fields from, so the value is refused instead. Read after
         # validation, where an interval with no start time is anchored.
         if (parameters.get('schedule_at') or parameters.get('interval')) and not request.user.has_perm(
-            get_permission_for_model(CustomScript, 'schedule'), script
+            get_permission_for_model(NetBoxScript, 'schedule'), script
         ):
             raise PermissionDenied('Scheduling a Custom Script requires the schedule permission.')
 
@@ -247,7 +247,7 @@ class CustomScriptViewSet(NetBoxModelViewSet):
         for name in ('_commit', '_schedule_at', '_interval', '_notifications'):
             values.pop(name, None)
 
-        job = CustomScriptJob.enqueue_run(
+        job = NetBoxScriptJob.enqueue_run(
             script,
             data=values,
             # An absent optional field is left out of validated_data, so the class default stands.

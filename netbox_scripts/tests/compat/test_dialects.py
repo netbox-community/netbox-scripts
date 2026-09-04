@@ -18,7 +18,7 @@ from netbox_scripts.choices import (
 )
 from netbox_scripts.ingestion import ingest_data_source
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 
 FORMS = {
     'named.py': 'from extras.scripts import Script, StringVar\n\n\nclass Named(Script):\n    name = StringVar()\n',
@@ -95,7 +95,7 @@ class DialectTestCase(TestCase):
         revision = self.stage_and_validate(FORMS)
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(revision.validation_errors, [])
-        published = sorted(CustomScript.objects.filter(project=self.project).values_list('class_name', flat=True))
+        published = sorted(NetBoxScript.objects.filter(project=self.project).values_list('class_name', flat=True))
         self.assertEqual(
             published,
             ['Aliased', 'Deferred', 'Dotted', 'DottedAlias', 'FromPackage', 'Named', 'PackageOnly', 'Wildcard'],

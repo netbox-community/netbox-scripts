@@ -16,28 +16,28 @@ from utilities.request import copy_safe_request
 from utilities.views import ViewTab, register_model_view
 
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
-from ..filtersets import CustomScriptFilterSet, ScriptFileFilterSet
+from ..filtersets import NetBoxScriptFilterSet, ScriptFileFilterSet
 from ..forms import (
-    CustomScriptBulkEditForm,
-    CustomScriptEditForm,
-    CustomScriptFilterForm,
+    NetBoxScriptBulkEditForm,
+    NetBoxScriptEditForm,
+    NetBoxScriptFilterForm,
     ScriptFileEditForm,
     ScriptFileFilterForm,
 )
-from ..jobs import CustomScriptJob
-from ..models import CustomScript, ScriptFile
+from ..jobs import NetBoxScriptJob
+from ..models import NetBoxScript, ScriptFile
 from ..object_actions import RunScript
 from ..scripts.logging import LogLevelChoices
-from ..tables import CustomScriptLogTable, CustomScriptTable, ScriptFileTable
-from ..ui import CustomScriptPanel, CustomScriptStatePanel, ScriptFileDiscoveryPanel, ScriptFilePanel
+from ..tables import NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
+from ..ui import NetBoxScriptPanel, NetBoxScriptStatePanel, ScriptFileDiscoveryPanel, ScriptFilePanel
 
 # A scheduled run can be days out, so it is not polled at the rate of one already moving.
 DEFAULT_POLL_INTERVAL = '5s'
 POLL_INTERVALS = {JobStatusChoices.STATUS_SCHEDULED: '60s'}
 
 
-@register_model_view(CustomScript, 'list', path='', detail=False)
-class CustomScriptListView(generic.ObjectListView):
+@register_model_view(NetBoxScript, 'list', path='', detail=False)
+class NetBoxScriptListView(generic.ObjectListView):
     """List view for Custom Scripts, retired ones included."""
 
     # ObjectListView defaults to add, import, export, bulk edit, rename, and delete, and
@@ -46,28 +46,28 @@ class CustomScriptListView(generic.ObjectListView):
     actions = (BulkExport, BulkEdit)
     # select_related is load bearing: the table linkifies project, so without it the list
     # issues one query per row.
-    queryset = CustomScript.objects.select_related('project', 'last_seen_revision')
-    table = CustomScriptTable
-    filterset = CustomScriptFilterSet
-    filterset_form = CustomScriptFilterForm
+    queryset = NetBoxScript.objects.select_related('project', 'last_seen_revision')
+    table = NetBoxScriptTable
+    filterset = NetBoxScriptFilterSet
+    filterset_form = NetBoxScriptFilterForm
 
 
-@register_model_view(CustomScript)
-class CustomScriptView(generic.ObjectView):
+@register_model_view(NetBoxScript)
+class NetBoxScriptView(generic.ObjectView):
     """Detail view for a single Custom Script."""
 
-    queryset = CustomScript.objects.all()
+    queryset = NetBoxScript.objects.all()
     # No clone or delete: rows are derived from an activated revision, so the only authored
     # fields are the administrator's.
     actions = (RunScript, EditObject)
     layout = layout.SimpleLayout(
         left_panels=[
-            CustomScriptPanel(),
+            NetBoxScriptPanel(),
             TagsPanel(),
             CommentsPanel(),
         ],
         right_panels=[
-            CustomScriptStatePanel(),
+            NetBoxScriptStatePanel(),
             CustomFieldsPanel(),
         ],
     )
@@ -76,26 +76,26 @@ class CustomScriptView(generic.ObjectView):
 # No 'add' route is registered, which keeps the surface honest and also settles the
 # add-versus-change permission question: an edit route always has a pk, so ObjectEditView
 # requires the change permission.
-@register_model_view(CustomScript, 'edit')
-class CustomScriptEditView(generic.ObjectEditView):
+@register_model_view(NetBoxScript, 'edit')
+class NetBoxScriptEditView(generic.ObjectEditView):
     """Edit view for the administrator-owned fields of a Custom Script."""
 
-    queryset = CustomScript.objects.all()
-    form = CustomScriptEditForm
+    queryset = NetBoxScript.objects.all()
+    form = NetBoxScriptEditForm
 
 
-@register_model_view(CustomScript, 'bulk_edit', path='edit', detail=False)
-class CustomScriptBulkEditView(generic.BulkEditView):
+@register_model_view(NetBoxScript, 'bulk_edit', path='edit', detail=False)
+class NetBoxScriptBulkEditView(generic.BulkEditView):
     """Bulk edit view for Custom Scripts, so enabled can be set across many rows."""
 
-    queryset = CustomScript.objects.select_related('project')
-    filterset = CustomScriptFilterSet
-    table = CustomScriptTable
-    form = CustomScriptBulkEditForm
+    queryset = NetBoxScript.objects.select_related('project')
+    filterset = NetBoxScriptFilterSet
+    table = NetBoxScriptTable
+    form = NetBoxScriptBulkEditForm
 
 
-@register_model_view(CustomScript, 'run', path='run')
-class CustomScriptRunView(generic.ObjectView):
+@register_model_view(NetBoxScript, 'run', path='run')
+class NetBoxScriptRunView(generic.ObjectView):
     """
     Collect one Custom Script's inputs and enqueue a run of them.
 
@@ -107,19 +107,19 @@ class CustomScriptRunView(generic.ObjectView):
     running a script and editing its administrative fields are different privileges.
     """
 
-    queryset = CustomScript.objects.all()
-    template_name = 'netbox_scripts/customscript_run.html'
+    queryset = NetBoxScript.objects.all()
+    template_name = 'netbox_scripts/netboxscript_run.html'
     # Visible for a script that cannot run, matching the button, which renders inert rather
     # than hidden so an operator sees the reason.
     tab = ViewTab(
         label=_('Run'),
-        permission='netbox_scripts.run_customscript',
+        permission='netbox_scripts.run_netboxscript',
         weight=1000,
     )
 
     def get_required_permission(self):
         """Require the run action rather than view, which is what this page actually does."""
-        return get_permission_for_model(CustomScript, 'run')
+        return get_permission_for_model(NetBoxScript, 'run')
 
     @staticmethod
     def _build_form(script, instance, *args, **kwargs):
@@ -156,7 +156,7 @@ class CustomScriptRunView(generic.ObjectView):
         interval = data.pop('_interval', None)
         notifications = data.pop('_notifications', None)
         try:
-            job = CustomScriptJob.enqueue_run(
+            job = NetBoxScriptJob.enqueue_run(
                 script,
                 data=data,
                 commit=commit,
@@ -172,7 +172,7 @@ class CustomScriptRunView(generic.ObjectView):
             # A race against an administrator, since the same condition was checked above.
             return self._render(request, script, form, instance, str(error))
         messages.success(request, _('{script} was queued to run.').format(script=script))
-        return redirect('plugins:netbox_scripts:customscript_result', pk=script.pk, job_pk=job.pk)
+        return redirect('plugins:netbox_scripts:netboxscript_result', pk=script.pk, job_pk=job.pk)
 
     def _load(self, script):
         """Return an instance of the script's class, or None and the reason there is not one."""
@@ -186,7 +186,7 @@ class CustomScriptRunView(generic.ObjectView):
         # Withheld by omission, so the POST needs no guard: a form without the fields cannot
         # receive them.
         instance.scheduling_permitted = self.request.user.has_perm(
-            get_permission_for_model(CustomScript, 'schedule'), script
+            get_permission_for_model(NetBoxScript, 'schedule'), script
         )
         return instance, None
 
@@ -206,8 +206,8 @@ class CustomScriptRunView(generic.ObjectView):
         )
 
 
-@register_model_view(CustomScript, 'result', path='results/<int:job_pk>')
-class CustomScriptResultView(generic.ObjectView):
+@register_model_view(NetBoxScript, 'result', path='results/<int:job_pk>')
+class NetBoxScriptResultView(generic.ObjectView):
     """
     Show what one run of a Custom Script recorded.
 
@@ -219,9 +219,9 @@ class CustomScriptResultView(generic.ObjectView):
     result body alone rather than re-rendering the page around it.
     """
 
-    queryset = CustomScript.objects.all()
-    template_name = 'netbox_scripts/customscript_result.html'
-    partial_template_name = 'netbox_scripts/inc/customscript_result_body.html'
+    queryset = NetBoxScript.objects.all()
+    template_name = 'netbox_scripts/netboxscript_result.html'
+    partial_template_name = 'netbox_scripts/inc/netboxscript_result_body.html'
 
     def get(self, request, pk, job_pk, **kwargs):
         """Render one run's log, or the body alone when the page is polling itself."""
@@ -229,14 +229,14 @@ class CustomScriptResultView(generic.ObjectView):
         job = get_object_or_404(
             Job.objects.restrict(request.user, 'view'),
             pk=job_pk,
-            object_type=ObjectType.objects.get_for_model(CustomScript),
+            object_type=ObjectType.objects.get_for_model(NetBoxScript),
             object_id=script.pk,
         )
         threshold = request.GET.get('log_threshold')
         # Normalized here as well as in log_rows, so the dropdown can mark the level in force.
         if threshold not in LogLevelChoices.SYSTEM_LEVELS:
             threshold = LogLevelChoices.LOG_INFO
-        table = CustomScriptLogTable(log_rows(job, threshold))
+        table = NetBoxScriptLogTable(log_rows(job, threshold))
         table.configure(request)
         context = {
             'object': script,

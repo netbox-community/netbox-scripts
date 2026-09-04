@@ -9,7 +9,7 @@ from netbox.context_managers import event_tracking
 from netbox_scripts import activation
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -433,7 +433,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         obj_perm = ObjectPermission(name=f'script {"/".join(actions)}', actions=list(actions))
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScript))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(NetBoxScript))
 
     def test_the_candidate_is_the_newest_validated_revision(self):
         self.assertEqual(self.project.activatable_revision(), self.revision)
@@ -504,7 +504,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.assertHttpStatus(response, 302)
         self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
-        self.assertFalse(CustomScript.objects.exists())
+        self.assertFalse(NetBoxScript.objects.exists())
 
     def test_bulk_deleting_an_active_project_succeeds(self):
         self.grant('view', 'activate', 'delete')
@@ -535,7 +535,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
 
     def script_changes(self):
         """Count the change-log entries recorded against Custom Scripts."""
-        return ObjectChange.objects.filter(changed_object_type=ObjectType.objects.get_for_model(CustomScript)).count()
+        return ObjectChange.objects.filter(changed_object_type=ObjectType.objects.get_for_model(NetBoxScript)).count()
 
     def test_the_success_message_reports_what_this_route_published(self):
         # The wording lives in one builder shared with the Revisions tab, but this route's
@@ -560,12 +560,12 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.publish()
         response = self.client.post(self.url())
         self.assertHttpStatus(response, 302)
-        self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
+        self.assertTrue(NetBoxScript.objects.filter(project=self.project, class_name='Deploy').exists())
         self.assertGreater(self.script_changes(), 0)
 
     def scripts_panel_url(self):
         """The list route the detail page's scripts panel fetches over HTMX, filtered to it."""
-        return f'{reverse("plugins:netbox_scripts:customscript_list")}?project_id={self.project.pk}'
+        return f'{reverse("plugins:netbox_scripts:netboxscript_list")}?project_id={self.project.pk}'
 
     def test_the_project_page_fetches_its_scripts_panel(self):
         # The panel renders a card and an hx-get rather than rows, so the page carries the
@@ -584,7 +584,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.grant_scripts('view')
         self.publish()
         self.client.post(self.url())
-        script = CustomScript.objects.get(project=self.project)
+        script = NetBoxScript.objects.get(project=self.project)
 
         response = self.client.get(self.scripts_panel_url())
         self.assertHttpStatus(response, 200)
@@ -689,10 +689,10 @@ class ScriptProjectRepairViewTestCase(TestCase):
 
     def test_posting_recreates_a_row_that_went_missing_and_reports_the_count(self):
         self.grant('view', 'activate')
-        CustomScript.objects.filter(project=self.project).delete()
+        NetBoxScript.objects.filter(project=self.project).delete()
         response = self.client.post(self.url(), follow=True)
 
-        self.assertTrue(CustomScript.objects.filter(project=self.project, class_name='Deploy').exists())
+        self.assertTrue(NetBoxScript.objects.filter(project=self.project, class_name='Deploy').exists())
         self.assertIn('Repaired 1 Custom Script', self.message(response))
 
     def test_posting_with_nothing_wrong_says_so_instead_of_claiming_a_repair(self):

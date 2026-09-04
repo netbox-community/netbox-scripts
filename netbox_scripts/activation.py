@@ -17,7 +17,7 @@ from django.db import transaction
 
 from . import branching
 from .choices import RevisionStatusChoices
-from .models import CustomScript, ScriptProject, ScriptProjectRevision
+from .models import NetBoxScript, ScriptProject, ScriptProjectRevision
 from .runtime.exceptions import ScriptMetadataError
 from .runtime.introspection import validate_discovered_scripts
 from .storage import service
@@ -152,7 +152,7 @@ def synchronize_scripts(*, project, revision, records, using):
         }
         row = rows.pop(identity, None)
         if row is None:
-            CustomScript.objects.using(using).create(
+            NetBoxScript.objects.using(using).create(
                 project=project,
                 module_path=identity[0],
                 class_name=identity[1],

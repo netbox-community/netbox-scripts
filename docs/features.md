@@ -21,7 +21,7 @@ logging, global search, REST, and GraphQL.
 | Active revision | The single revision of a project that is currently active. Activating another retires it. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Script File | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Script File](models/scriptfile.md) |
 | Entrypoint snapshot | The enabled module declarations frozen into a revision at staging time. | [Script Project Revision](models/scriptprojectrevision.md) |
-| Custom Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Custom Script](models/customscript.md) |
+| Custom Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Custom Script](models/netboxscript.md) |
 | Run | One execution of a Custom Script, recorded as a Job and pinned to the revision that was being served when it was requested. | [Running Custom Scripts](execution.md) |
 | Commit and dry run | Whether a run's database changes are kept or rolled back when it finishes. | [Running Custom Scripts](execution.md) |
 | Revision validation | The leased background step that imports a revision's entrypoints and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |

@@ -10,7 +10,7 @@ from netbox_scripts import activation
 from netbox_scripts.activation import activate_revision, deactivate_revision, synchronize_scripts
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptProject,
     ScriptProjectRevision,
 )
@@ -21,7 +21,7 @@ from netbox_scripts.tests.storage.test_service import StorageServiceMixin, conte
 
 DIGEST_A = 'a' * 64
 DIGEST_B = 'b' * 64
-SCRIPT_TABLE = CustomScript._meta.db_table
+SCRIPT_TABLE = NetBoxScript._meta.db_table
 
 
 def record(module_path='deploy', class_name='DeployDevices', position=0, **overrides):
@@ -65,7 +65,7 @@ class SynchronizeScriptsTestCase(TestCase):
 
     def test_a_new_identity_creates_an_enabled_row(self):
         self.sync([record()])
-        row = CustomScript.objects.get()
+        row = NetBoxScript.objects.get()
         self.assertEqual(row.module_path, 'deploy')
         self.assertEqual(row.class_name, 'DeployDevices')
         self.assertEqual(row.display_name, 'Deploy Devices')
@@ -90,7 +90,7 @@ class SynchronizeScriptsTestCase(TestCase):
             ],
             revision=later,
         )
-        row = CustomScript.objects.get()
+        row = NetBoxScript.objects.get()
         self.assertEqual(row.display_name, 'Deploy Devices Everywhere')
         self.assertEqual(row.description, 'Deploy devices at every site.')
         self.assertEqual(row.metadata, {'commit_default': False})
@@ -99,20 +99,20 @@ class SynchronizeScriptsTestCase(TestCase):
     def test_a_missing_identity_retires_its_row_rather_than_deleting_it(self):
         self.sync([record()])
         self.sync([])
-        self.assertEqual(CustomScript.objects.count(), 1)
-        self.assertTrue(CustomScript.objects.get().is_retired)
+        self.assertEqual(NetBoxScript.objects.count(), 1)
+        self.assertTrue(NetBoxScript.objects.get().is_retired)
 
     def test_a_retired_row_keeps_the_revision_that_last_published_it(self):
         self.sync([record()])
         self.sync([])
-        self.assertEqual(CustomScript.objects.get().last_seen_revision, self.revision)
+        self.assertEqual(NetBoxScript.objects.get().last_seen_revision, self.revision)
 
     def test_a_reappearing_identity_reuses_the_same_row(self):
         self.sync([record()])
-        original_pk = CustomScript.objects.get().pk
+        original_pk = NetBoxScript.objects.get().pk
         self.sync([])
         self.sync([record()])
-        row = CustomScript.objects.get()
+        row = NetBoxScript.objects.get()
         self.assertEqual(row.pk, original_pk)
         self.assertFalse(row.is_retired)
 
@@ -120,26 +120,26 @@ class SynchronizeScriptsTestCase(TestCase):
         # enabled is the administrator's field. A disabled script stays disabled through a
         # refresh, a retirement, and a return.
         self.sync([record()])
-        CustomScript.objects.update(enabled=False)
+        NetBoxScript.objects.update(enabled=False)
         self.sync([record(display_name='Renamed')])
-        self.assertFalse(CustomScript.objects.get().enabled)
+        self.assertFalse(NetBoxScript.objects.get().enabled)
         self.sync([])
-        self.assertFalse(CustomScript.objects.get().enabled)
+        self.assertFalse(NetBoxScript.objects.get().enabled)
         self.sync([record()])
-        self.assertFalse(CustomScript.objects.get().enabled)
+        self.assertFalse(NetBoxScript.objects.get().enabled)
 
     def test_synchronization_never_touches_the_execution_overrides(self):
         # The operator's fields, like enabled. Each survives a refresh, a retirement and a return,
         # which is the whole reason they are columns rather than metadata keys.
         self.sync([record()])
-        CustomScript.objects.update(
+        NetBoxScript.objects.update(
             commit_default_override=False,
             job_timeout_override=45,
             notifications_default_override='never',
         )
         for records in ([record(display_name='Renamed')], [], [record()]):
             self.sync(records)
-            row = CustomScript.objects.get()
+            row = NetBoxScript.objects.get()
             self.assertIs(row.commit_default_override, False)
             self.assertEqual(row.job_timeout_override, 45)
             self.assertEqual(row.notifications_default_override, 'never')
@@ -149,23 +149,23 @@ class SynchronizeScriptsTestCase(TestCase):
     def test_a_moved_class_becomes_a_new_identity_and_retires_the_old_one(self):
         self.sync([record()])
         self.sync([record(module_path='helpers')])
-        retired = CustomScript.objects.get(module_path='deploy')
-        current = CustomScript.objects.get(module_path='helpers')
+        retired = NetBoxScript.objects.get(module_path='deploy')
+        current = NetBoxScript.objects.get(module_path='helpers')
         self.assertTrue(retired.is_retired)
         self.assertFalse(current.is_retired)
 
     def test_a_renamed_class_becomes_a_new_identity_and_retires_the_old_one(self):
         self.sync([record()])
         self.sync([record(class_name='DeployEverything')])
-        self.assertTrue(CustomScript.objects.get(class_name='DeployDevices').is_retired)
-        self.assertFalse(CustomScript.objects.get(class_name='DeployEverything').is_retired)
+        self.assertTrue(NetBoxScript.objects.get(class_name='DeployDevices').is_retired)
+        self.assertFalse(NetBoxScript.objects.get(class_name='DeployEverything').is_retired)
 
     def test_a_description_longer_than_the_inherited_field_round_trips(self):
         # The model overrides the abstract base CharField with a TextField, so nothing
         # truncates an unbounded Meta.description.
         description = 'd' * 500
         self.sync([record(description=description)])
-        self.assertEqual(CustomScript.objects.get().description, description)
+        self.assertEqual(NetBoxScript.objects.get().description, description)
 
     def test_another_project_is_left_alone(self):
         other = ScriptProject.objects.create(name='Audit', key='audit')
@@ -177,8 +177,8 @@ class SynchronizeScriptsTestCase(TestCase):
         self.sync([record()])
         self.sync([record()], revision=other_revision, project=other)
         self.sync([], revision=other_revision, project=other)
-        self.assertFalse(CustomScript.objects.get(project=self.project).is_retired)
-        self.assertTrue(CustomScript.objects.get(project=other).is_retired)
+        self.assertFalse(NetBoxScript.objects.get(project=self.project).is_retired)
+        self.assertTrue(NetBoxScript.objects.get(project=other).is_retired)
 
     def test_an_unchanged_snapshot_issues_no_write(self):
         # Load bearing rather than an optimization. This runs again on every activation, so an
@@ -223,7 +223,7 @@ class SynchronizeScriptsTestCase(TestCase):
         # Retirement preserves the primary key, and JobsMixin resolves history by object id
         # with no database constraint behind it.
         self.sync([record()])
-        row = CustomScript.objects.get()
+        row = NetBoxScript.objects.get()
         Job.objects.create(
             name='deploy-devices',
             job_id=uuid.uuid4(),
@@ -233,7 +233,7 @@ class SynchronizeScriptsTestCase(TestCase):
         )
         self.sync([])
         self.sync([record()])
-        self.assertEqual(CustomScript.objects.get().jobs.count(), 1)
+        self.assertEqual(NetBoxScript.objects.get().jobs.count(), 1)
 
 
 class ActivationMixin(StorageServiceMixin):
@@ -257,23 +257,23 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.active_revision_id, revision.pk)
         self.assertEqual(
-            sorted(CustomScript.objects.values_list('class_name', flat=True)),
+            sorted(NetBoxScript.objects.values_list('class_name', flat=True)),
             ['AuditDevices', 'DeployDevices'],
         )
 
     def test_a_later_revision_retires_what_it_stops_publishing(self):
         activate_revision(self.valid_with([record(), record(class_name='AuditDevices', position=1)], marker=1))
         activate_revision(self.valid_with([record(class_name='AuditDevices')], marker=2))
-        self.assertTrue(CustomScript.objects.get(class_name='DeployDevices').is_retired)
-        self.assertFalse(CustomScript.objects.get(class_name='AuditDevices').is_retired)
+        self.assertTrue(NetBoxScript.objects.get(class_name='DeployDevices').is_retired)
+        self.assertFalse(NetBoxScript.objects.get(class_name='AuditDevices').is_retired)
 
     def test_reactivating_the_active_revision_repairs_a_lost_row(self):
         # The callback runs before the already-active early return, so activation is the repair.
         revision = self.valid_with([record()])
         activate_revision(revision)
-        CustomScript.objects.all().delete()
+        NetBoxScript.objects.all().delete()
         activate_revision(revision)
-        self.assertEqual(CustomScript.objects.get().class_name, 'DeployDevices')
+        self.assertEqual(NetBoxScript.objects.get().class_name, 'DeployDevices')
 
     def test_activation_imports_nothing(self):
         # Re-importing could disagree with the verdict the revision already carries.
@@ -313,7 +313,7 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
             activate_revision(revision)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
-        self.assertFalse(CustomScript.objects.exists())
+        self.assertFalse(NetBoxScript.objects.exists())
 
     def test_a_snapshot_swapped_after_its_return_trip_check_is_refused(self):
         # Covers the widened post-lock comparison. The swap is well formed, so only comparing
@@ -336,7 +336,7 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
         self.assertIn('changed while', str(captured.exception))
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
-        self.assertFalse(CustomScript.objects.exists())
+        self.assertFalse(NetBoxScript.objects.exists())
 
 
 class DeactivateRevisionTestCase(ActivationMixin, TestCase):
@@ -403,4 +403,4 @@ class PromotionCallbackTestCase(ActivationMixin, TestCase):
         self.assertEqual(self.project.active_revision_id, first.pk)
         self.assertEqual(first.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(second.status, RevisionStatusChoices.VALID)
-        self.assertFalse(CustomScript.objects.filter(class_name='Later').exists())
+        self.assertFalse(NetBoxScript.objects.filter(class_name='Later').exists())

@@ -5,7 +5,7 @@ from core.choices import JobNotificationChoices
 from utilities.datetime import local_now
 
 
-class CustomScriptRunInputSerializer(serializers.Serializer):
+class NetBoxScriptRunInputSerializer(serializers.Serializer):
     """
     One run request: the script's variable values, plus the parameters the run itself takes.
 

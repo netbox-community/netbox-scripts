@@ -4,7 +4,7 @@ from rest_framework import status
 from extras.events import serialize_for_event
 from netbox_scripts.api.serializers import ScriptProjectRevisionSerializer
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from utilities.api import get_serializer_for_model
@@ -155,7 +155,7 @@ class ProjectDeleteEventSerializationTestCase(APITestCase):
         )
         cls.project.active_revision = cls.revision
         cls.project.save()
-        CustomScript.objects.create(
+        NetBoxScript.objects.create(
             project=cls.project,
             module_path='deploy',
             class_name='Deploy',
@@ -170,4 +170,4 @@ class ProjectDeleteEventSerializationTestCase(APITestCase):
         self.assertHttpStatus(response, status.HTTP_204_NO_CONTENT)
         self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
-        self.assertFalse(CustomScript.objects.exists())
+        self.assertFalse(NetBoxScript.objects.exists())

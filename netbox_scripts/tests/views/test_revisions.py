@@ -4,7 +4,7 @@ from django.urls import reverse
 from core.models import ObjectType
 from netbox_scripts import activation
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tables import (
@@ -80,7 +80,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, revision.pk)
-        self.assertTrue(CustomScript.objects.get(project=self.project).is_executable)
+        self.assertTrue(NetBoxScript.objects.get(project=self.project).is_executable)
 
     def test_the_success_message_names_what_the_revision_published(self):
         self.grant(ScriptProject, 'view', 'activate')
@@ -144,7 +144,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.RETIRED)
         self.assertIsNone(self.project.active_revision_id)
-        self.assertTrue(CustomScript.objects.get(project=self.project).is_retired)
+        self.assertTrue(NetBoxScript.objects.get(project=self.project).is_retired)
 
     def test_reactivating_brings_the_same_rows_back(self):
         # The point of retiring rather than deleting: the primary key and the administrator's
@@ -152,13 +152,13 @@ class RevisionServiceViewTestCase(TestCase):
         self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
-        script = CustomScript.objects.get(project=self.project)
-        CustomScript.objects.filter(pk=script.pk).update(enabled=False)
+        script = NetBoxScript.objects.get(project=self.project)
+        NetBoxScript.objects.filter(pk=script.pk).update(enabled=False)
 
         self.client.post(self.url(revision, 'deactivate'))
         self.client.post(self.url(revision, 'activate'))
 
-        returned = CustomScript.objects.get(project=self.project)
+        returned = NetBoxScript.objects.get(project=self.project)
         self.assertEqual(returned.pk, script.pk)
         self.assertFalse(returned.is_retired)
         self.assertFalse(returned.enabled)

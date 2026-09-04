@@ -4,15 +4,15 @@ from netbox.forms import PrimaryModelForm
 from utilities.forms.fields import DynamicModelChoiceField
 from utilities.forms.rendering import FieldSet
 
-from ...models import CustomScript, ScriptFile, ScriptProject
+from ...models import NetBoxScript, ScriptFile, ScriptProject
 
 __all__ = (
-    'CustomScriptEditForm',
+    'NetBoxScriptEditForm',
     'ScriptFileEditForm',
 )
 
 
-class CustomScriptEditForm(PrimaryModelForm):
+class NetBoxScriptEditForm(PrimaryModelForm):
     """Edit form for the administrator-owned fields of a Custom Script."""
 
     fieldsets = (
@@ -26,7 +26,7 @@ class CustomScriptEditForm(PrimaryModelForm):
     )
 
     class Meta:
-        model = CustomScript
+        model = NetBoxScript
         fields = (
             'enabled',
             'commit_default_override',

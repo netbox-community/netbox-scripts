@@ -108,7 +108,7 @@ class ScriptProject(PrimaryModel):
         verbose_name = _('script project')
         verbose_name_plural = _('script projects')
         # Choosing what code a project runs is not a form of changing the row. Bare actions,
-        # because the permission picker offers the codename verbatim, see CustomScript.Meta.
+        # because the permission picker offers the codename verbatim, see NetBoxScript.Meta.
         permissions = (
             ('activate', 'Can activate a revision of a Script Project'),
             ('migrate', 'Can migrate off the built-in Custom Scripts feature'),

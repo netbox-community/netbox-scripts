@@ -8,12 +8,12 @@ from utilities.forms.rendering import FieldSet
 from utilities.forms.utils import add_blank_choice
 from utilities.forms.widgets import BulkEditNullBooleanSelect
 
-from ...models import CustomScript
+from ...models import NetBoxScript
 
-__all__ = ('CustomScriptBulkEditForm',)
+__all__ = ('NetBoxScriptBulkEditForm',)
 
 
-class CustomScriptBulkEditForm(PrimaryModelBulkEditForm):
+class NetBoxScriptBulkEditForm(PrimaryModelBulkEditForm):
     """Bulk edit form for the administrator-owned fields of a Custom Script."""
 
     enabled = forms.NullBooleanField(
@@ -41,7 +41,7 @@ class CustomScriptBulkEditForm(PrimaryModelBulkEditForm):
     # overwrite a synchronization-owned column, truncated to the base field's 100 characters.
     description = None
 
-    model = CustomScript
+    model = NetBoxScript
     fieldsets = (
         FieldSet('enabled', name=_('Custom Script')),
         FieldSet(

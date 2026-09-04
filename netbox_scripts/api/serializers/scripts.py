@@ -3,12 +3,12 @@ from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
 from ...choices import FileDiscoveryStatusChoices
-from ...models import CustomScript, ScriptFile
+from ...models import NetBoxScript, ScriptFile
 from .projects import ScriptProjectSerializer
 from .revisions import ScriptProjectRevisionSerializer
 
 
-class CustomScriptSerializer(PrimaryModelSerializer):
+class NetBoxScriptSerializer(PrimaryModelSerializer):
     """Serializer for the Custom Script model."""
 
     project = ScriptProjectSerializer(nested=True, read_only=True)
@@ -19,7 +19,7 @@ class CustomScriptSerializer(PrimaryModelSerializer):
     notifications_default_override = ChoiceField(choices=JobNotificationChoices, allow_blank=True, required=False)
 
     class Meta:
-        model = CustomScript
+        model = NetBoxScript
         fields = (
             'id',
             'url',

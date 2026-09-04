@@ -11,8 +11,8 @@ from core.choices import JobNotificationChoices, JobStatusChoices
 from utilities.request import NetBoxFakeRequest
 
 from ...execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
-from ...jobs import CustomScriptJob
-from ...models import CustomScript
+from ...jobs import NetBoxScriptJob
+from ...models import NetBoxScript
 from ...scripts.logging import LogLevelChoices
 
 EXECUTION_PARAMETERS = ('_commit', '_schedule_at', '_interval', '_notifications')
@@ -64,7 +64,7 @@ class Command(BaseCommand):
         user = self.user(options['user'])
         # In this process rather than a worker, so the caller waits and reads the exit status.
         try:
-            job = CustomScriptJob.enqueue_run(
+            job = NetBoxScriptJob.enqueue_run(
                 script,
                 data=values,
                 commit=options['commit'],
@@ -87,7 +87,7 @@ class Command(BaseCommand):
         module_path, _, class_name = full_name.rpartition('.')
         if not module_path or not class_name:
             raise CommandError(f'"{identifier}" is not a script name. Use project:module.ClassName.')
-        matches = CustomScript.objects.filter(module_path=module_path, class_name=class_name)
+        matches = NetBoxScript.objects.filter(module_path=module_path, class_name=class_name)
         if project_key:
             matches = matches.filter(project__key=project_key)
         found = list(matches.select_related('project', 'project__active_revision')[: LISTED_CANDIDATES + 1])

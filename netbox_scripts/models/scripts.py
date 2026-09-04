@@ -19,7 +19,7 @@ from ..storage.paths import case_insensitive_nodes, normalize_source_path
 from ..utils import source_path_to_dotted_name
 
 
-class CustomScript(JobsMixin, PrimaryModel):
+class NetBoxScript(JobsMixin, PrimaryModel):
     """
     One Custom Script class published by a validated revision.
 

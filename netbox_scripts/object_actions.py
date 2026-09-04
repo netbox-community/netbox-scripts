@@ -1,4 +1,4 @@
-"""Object-level action buttons for the Custom Scripts plugin."""
+"""Object-level action buttons for the NetBox Scripts plugin."""
 
 from django.utils.translation import gettext_lazy as _
 

@@ -21,7 +21,7 @@ from dcim.models import Device
 from extras.events import EventContext, process_event_rules
 from extras.models import EventRule
 from netbox.event_rules import get_event_rule_action
-from netbox_scripts.models import CustomScript
+from netbox_scripts.models import NetBoxScript
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from netbox_scripts.tests.test_execution import MAKES_A_TAG, ScriptJobTestMixin
 from netbox_scripts.tests.views.test_run import RunViewTestMixin
@@ -42,16 +42,16 @@ class ReadOnlyTokenTestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase
     the endpoint.
     """
 
-    model = CustomScript
+    model = NetBoxScript
 
     def setUp(self):
         super().setUp()
         # No queue worker runs under test, and the endpoint refuses a run nothing can pick up.
         self.enterContext(patch('netbox_scripts.api.views.any_workers_for_queue', return_value=True))
-        self.add_permissions('netbox_scripts.run_customscript')
+        self.add_permissions('netbox_scripts.run_netboxscript')
 
     def post_run(self):
-        viewname = f'{self._get_view_namespace()}:customscript-run'
+        viewname = f'{self._get_view_namespace()}:netboxscript-run'
         url = reverse(viewname, kwargs={'pk': self.script.pk})
         return self.client.post(url, {'data': {'label': 'made-by-a-token'}}, format='json', **self.header)
 
@@ -91,7 +91,7 @@ class RaisingActionIsolationTestCase(ScriptJobTestMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.publish({'deploy.py': MAKES_A_TAG})
-        self.custom_script = self.script()
+        self.netbox_script = self.script()
         self.object_type = ObjectType.objects.get_for_model(Device)
         self.rules = [self.rule('First'), self.rule('Second')]
 
@@ -100,7 +100,7 @@ class RaisingActionIsolationTestCase(ScriptJobTestMixin, TestCase):
             name=name,
             event_types=[OBJECT_CREATED],
             action_type=SLUG,
-            action_object=self.custom_script,
+            action_object=self.netbox_script,
         )
         rule.object_types.set([ObjectType.objects.get_for_model(Device)])
         return rule
@@ -136,7 +136,7 @@ class RaisingActionIsolationTestCase(ScriptJobTestMixin, TestCase):
             process_event_rules(self.rules, self.object_type, self.event())
 
         self.assertEqual(calls, ['First', 'Second'])
-        self.assertEqual(Job.objects.filter(object_id=self.custom_script.pk).count(), 1)
+        self.assertEqual(Job.objects.filter(object_id=self.netbox_script.pk).count(), 1)
 
     def test_the_action_is_registered_as_plugin_provided(self):
         # Behaviour first, then the flag the behaviour rests on, so switching it fails here too.

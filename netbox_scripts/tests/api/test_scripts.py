@@ -2,9 +2,9 @@ from django.urls import reverse
 from rest_framework import status
 
 from extras.events import serialize_for_event
-from netbox_scripts.api.serializers import CustomScriptSerializer
+from netbox_scripts.api.serializers import NetBoxScriptSerializer
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase, PluginAPIViewTestCases
 from utilities.api import get_serializer_for_model
 from utilities.testing import APITestCase
@@ -12,10 +12,10 @@ from utilities.testing import APITestCase
 DIGEST = 'e' * 64
 
 
-class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
+class NetBoxScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     """The update-only Custom Script endpoint and the identity fields NetBox reverses."""
 
-    model = CustomScript
+    model = NetBoxScript
 
     @classmethod
     def setUpTestData(cls):
@@ -25,7 +25,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
             digest=DIGEST,
             status=RevisionStatusChoices.MATERIALIZED,
         )
-        cls.script = CustomScript.objects.create(
+        cls.script = NetBoxScript.objects.create(
             project=cls.project,
             module_path='deploy',
             class_name='DeployDevices',
@@ -34,7 +34,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
             last_seen_revision=cls.revision,
             metadata={'commit_default': True, 'job_timeout': 300},
         )
-        CustomScript.objects.create(
+        NetBoxScript.objects.create(
             project=cls.project,
             module_path='helpers',
             class_name='Retired',
@@ -45,11 +45,11 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     def test_the_serializer_is_resolvable_from_the_package_path(self):
         # serialize_for_event() composes this path from the app label and model name, so a
         # package-layout refactor must not move the class out of it.
-        self.assertIs(get_serializer_for_model(CustomScript), CustomScriptSerializer)
+        self.assertIs(get_serializer_for_model(NetBoxScript), NetBoxScriptSerializer)
 
     def test_the_identity_fields_resolve_without_a_request(self):
         # url is a reversing field, so it fails outright if no API route is registered.
-        data = CustomScriptSerializer(self.script, context={'request': None}).data
+        data = NetBoxScriptSerializer(self.script, context={'request': None}).data
         self.assertEqual(data['url'], f'/api/plugins/netbox-scripts/scripts/{self.script.pk}/')
         self.assertEqual(data['display'], 'Deploy Devices')
         self.assertEqual(data['project']['id'], self.project.pk)
@@ -69,7 +69,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         # Delete events serialize eagerly, unlike create and update, so this path needs the
         # serializer even though activation never runs in this request.
         project = ScriptProject.objects.create(name='Cascade Project', key='cascade-project')
-        CustomScript.objects.create(
+        NetBoxScript.objects.create(
             project=project,
             module_path='deploy',
             class_name='Cascaded',
@@ -77,7 +77,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         )
         self.add_permissions(
             'netbox_scripts.delete_scriptproject',
-            'netbox_scripts.delete_customscript',
+            'netbox_scripts.delete_netboxscript',
             'netbox_scripts.view_scriptproject',
         )
         self.client.force_login(self.user)
@@ -86,11 +86,11 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         response = self.client.post(url, {'confirm': True}, follow=False)
 
         self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_302_FOUND))
-        self.assertFalse(CustomScript.objects.filter(project_id=project.pk).exists())
+        self.assertFalse(NetBoxScript.objects.filter(project_id=project.pk).exists())
         self.assertFalse(ScriptProject.objects.filter(pk=project.pk).exists())
 
     def test_list_and_detail_return_200_with_permission(self):
-        self.add_permissions('netbox_scripts.view_customscript')
+        self.add_permissions('netbox_scripts.view_netboxscript')
 
         response = self.client.get(self._get_list_url(), **self.header)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -107,10 +107,10 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     def test_authoring_and_deleting_are_refused(self):
         # Rows are derived from an activated revision, so no verb may author or destroy one.
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.add_customscript',
-            'netbox_scripts.change_customscript',
-            'netbox_scripts.delete_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.add_netboxscript',
+            'netbox_scripts.change_netboxscript',
+            'netbox_scripts.delete_netboxscript',
         )
         payload = {
             'project': self.project.pk,
@@ -125,12 +125,12 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
                 response = method(url, payload, format='json', **self.header)
                 self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-        self.assertEqual(CustomScript.objects.count(), 2)
+        self.assertEqual(NetBoxScript.objects.count(), 2)
 
     def test_enabled_is_patchable(self):
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.change_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.change_netboxscript',
         )
         response = self.client.patch(
             self._get_detail_url(self.script), {'enabled': False}, format='json', **self.header
@@ -142,8 +142,8 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
 
     def test_the_execution_overrides_are_patchable(self):
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.change_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.change_netboxscript',
         )
         response = self.client.patch(
             self._get_detail_url(self.script),
@@ -161,7 +161,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     def test_a_nested_revision_carries_the_choice_pair_too(self):
         # status is in the revision's brief_fields, so the nested payload changed shape with the
         # serializer. Pinned here because a nested representation is the easiest one to miss.
-        self.add_permissions('netbox_scripts.view_customscript')
+        self.add_permissions('netbox_scripts.view_netboxscript')
         response = self.client.get(self._get_detail_url(self.script), **self.header)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -174,10 +174,10 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         # Without a ChoiceField the CharField refuses null, so a client clearing all three
         # overrides would need two different sentinels.
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.change_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.change_netboxscript',
         )
-        CustomScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
+        NetBoxScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
         response = self.client.patch(
             self._get_detail_url(self.script),
             {'notifications_default_override': None},
@@ -190,7 +190,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertEqual(self.script.notifications_default_override, '')
 
     def test_an_unset_choice_override_reads_as_null(self):
-        self.add_permissions('netbox_scripts.view_customscript')
+        self.add_permissions('netbox_scripts.view_netboxscript')
         response = self.client.get(self._get_detail_url(self.script), **self.header)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -198,10 +198,10 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
 
     def test_an_override_is_clearable_over_rest(self):
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.change_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.change_netboxscript',
         )
-        CustomScript.objects.filter(pk=self.script.pk).update(job_timeout_override=45)
+        NetBoxScript.objects.filter(pk=self.script.pk).update(job_timeout_override=45)
         response = self.client.patch(
             self._get_detail_url(self.script), {'job_timeout_override': None}, format='json', **self.header
         )
@@ -214,8 +214,8 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         # A read-only field is silently dropped by DRF. Asserting it stops a future serializer
         # edit from quietly opening a write path to a synchronization-owned column.
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.change_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.change_netboxscript',
         )
         response = self.client.patch(
             self._get_detail_url(self.script),
@@ -235,8 +235,8 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         # plain change token could reparent a derived row and take its Job history with it.
         other = ScriptProject.objects.create(name='Other Project', key='other-project')
         self.add_permissions(
-            'netbox_scripts.view_customscript',
-            'netbox_scripts.change_customscript',
+            'netbox_scripts.view_netboxscript',
+            'netbox_scripts.change_netboxscript',
         )
 
         response = self.client.patch(
@@ -248,7 +248,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertEqual(self.script.project_id, self.project.pk)
 
     def test_patching_requires_the_change_permission(self):
-        self.add_permissions('netbox_scripts.view_customscript')
+        self.add_permissions('netbox_scripts.view_netboxscript')
         response = self.client.patch(
             self._get_detail_url(self.script), {'enabled': False}, format='json', **self.header
         )

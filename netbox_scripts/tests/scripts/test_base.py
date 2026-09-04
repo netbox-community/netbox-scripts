@@ -122,9 +122,9 @@ class ScriptMetaTestCase(TestCase):
             pass
 
         # The loader will import entrypoints beneath a generated namespace and assign
-        # the logical module name through _custom_script_module
+        # the logical module name through _netbox_script_module
         TestScript.__module__ = '_netbox_scripts_runtime.p_1234.r_abcd.deploy_devices'
-        TestScript._custom_script_module = 'deploy_devices'
+        TestScript._netbox_script_module = 'deploy_devices'
 
         self.assertEqual(TestScript.module, 'deploy_devices')
         self.assertEqual(TestScript.full_name, 'deploy_devices.TestScript')
@@ -141,7 +141,7 @@ class ScriptMetaTestCase(TestCase):
         # The loader marks each discovered class where it was found, so a marker
         # on a shared helper base must not become the identity of scripts built
         # on top of it
-        SharedHelperBase._custom_script_module = 'helpers.common'
+        SharedHelperBase._netbox_script_module = 'helpers.common'
 
         class TestScript(SharedHelperBase, Script):
             pass
@@ -158,7 +158,7 @@ class ScriptMetaTestCase(TestCase):
         class TestScript(Script):
             pass
 
-        TestScript._custom_script_logger_name = 'netbox.plugins.netbox_scripts.scripts.alpha.deploy.TestScript'
+        TestScript._netbox_script_logger_name = 'netbox.plugins.netbox_scripts.scripts.alpha.deploy.TestScript'
 
         self.assertEqual(
             TestScript().logger.name,
@@ -169,7 +169,7 @@ class ScriptMetaTestCase(TestCase):
         class Published(Script):
             pass
 
-        Published._custom_script_logger_name = 'netbox.plugins.netbox_scripts.scripts.alpha.deploy.Published'
+        Published._netbox_script_logger_name = 'netbox.plugins.netbox_scripts.scripts.alpha.deploy.Published'
 
         class Derived(Published):
             pass

@@ -111,7 +111,7 @@ class Migration(migrations.Migration):
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
         migrations.CreateModel(
-            name='CustomScript',
+            name='NetBoxScript',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
                 ('created', models.DateTimeField(auto_now_add=True, null=True)),
@@ -171,7 +171,7 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(fields=('project', 'source_path'), name='unique_project_source_path'),
         ),
         migrations.AddConstraint(
-            model_name='customscript',
+            model_name='netboxscript',
             constraint=models.UniqueConstraint(fields=('project', 'module_path', 'class_name'), name='unique_project_module_class'),
         ),
         migrations.AddConstraint(

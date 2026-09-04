@@ -9,24 +9,24 @@ from netbox.event_rules import EventRuleAction
 from utilities.request import copy_safe_request
 
 from .execution import ScriptNotExecutableError
-from .jobs import CustomScriptJob
-from .models import CustomScript
+from .jobs import NetBoxScriptJob
+from .models import NetBoxScript
 
 __all__ = (
-    'RunCustomScriptAction',
+    'RunNetBoxScriptAction',
     'event_rule_actions',
 )
 
 logger = logging.getLogger('netbox.plugins.netbox_scripts.event_rules')
 
 
-class RunCustomScriptAction(EventRuleAction):
+class RunNetBoxScriptAction(EventRuleAction):
     """Runs the selected Custom Script when an Event Rule fires."""
 
     slug = 'netbox_scripts.run'
     label = _('Run Custom Script')
     description = _('Run a Custom Script published by an activated project revision')
-    object_model = CustomScript
+    object_model = NetBoxScript
     object_required = True
 
     def validate(self, *, action_object, action_data):
@@ -41,7 +41,7 @@ class RunCustomScriptAction(EventRuleAction):
         """Queue one run of the Custom Script, reporting a script that cannot run."""
         request = event_context.get('request')
         try:
-            CustomScriptJob.enqueue_run(
+            NetBoxScriptJob.enqueue_run(
                 action_object,
                 data=action_data,
                 # An event-driven run is an automation, and a dry run would make the rule a no-op
@@ -62,7 +62,7 @@ class RunCustomScriptAction(EventRuleAction):
         # The dotted name alone is not unique, because two projects may publish the same one.
         project_key, _separator, full_name = value.partition(':')
         module_path, _dot, class_name = full_name.rpartition('.')
-        return CustomScript.objects.get(project__key=project_key, module_path=module_path, class_name=class_name)
+        return NetBoxScript.objects.get(project__key=project_key, module_path=module_path, class_name=class_name)
 
     @staticmethod
     def _event_payload(event_rule, event_context):
@@ -78,4 +78,4 @@ class RunCustomScriptAction(EventRuleAction):
         }
 
 
-event_rule_actions = [RunCustomScriptAction]
+event_rule_actions = [RunNetBoxScriptAction]

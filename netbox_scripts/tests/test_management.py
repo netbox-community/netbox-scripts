@@ -11,7 +11,7 @@ from core.choices import JobNotificationChoices, JobStatusChoices
 from core.models import Job, ObjectChange
 from extras.models import Tag
 from netbox_scripts.management.commands.runcustomscript import Command
-from netbox_scripts.models import CustomScript, ScriptProject
+from netbox_scripts.models import NetBoxScript, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.tests.test_execution import MAKES_A_TAG, RAISES, ScriptJobTestMixin
 
@@ -173,7 +173,7 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
         # Retirement never deletes the row, so without the executable check this name would
         # become permanently ambiguous the moment a second project was retired.
         retired = ScriptProject.objects.create(name='Old', key='old')
-        CustomScript.objects.create(
+        NetBoxScript.objects.create(
             project=retired,
             module_path='deploy',
             class_name='MakeTag',
@@ -238,7 +238,7 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
     def test_a_retired_script_is_refused_before_its_source_is_loaded(self):
         self.publish({'deploy.py': MAKES_A_TAG})
         script = self.script()
-        CustomScript.objects.filter(pk=script.pk).update(is_retired=True)
+        NetBoxScript.objects.filter(pk=script.pk).update(is_retired=True)
 
         with self.assertRaises(CommandError) as caught:
             self.run_command('deploy.MakeTag')

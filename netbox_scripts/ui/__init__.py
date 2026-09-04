@@ -1,8 +1,8 @@
 from .panels import (
-    CustomScriptPanel,
-    CustomScriptStatePanel,
     MigrationRunPanel,
     MigrationRunVersionPanel,
+    NetBoxScriptPanel,
+    NetBoxScriptStatePanel,
     ScriptFileDiscoveryPanel,
     ScriptFilePanel,
     ScriptProjectPanel,
@@ -13,10 +13,10 @@ from .panels import (
 )
 
 __all__ = (
-    'CustomScriptPanel',
-    'CustomScriptStatePanel',
     'MigrationRunPanel',
     'MigrationRunVersionPanel',
+    'NetBoxScriptPanel',
+    'NetBoxScriptStatePanel',
     'ScriptFileDiscoveryPanel',
     'ScriptFilePanel',
     'ScriptProjectPanel',

@@ -1,5 +1,5 @@
 """
-Cross-model side effects for the Custom Scripts plugin.
+Cross-model side effects for the NetBox Scripts plugin.
 
 Deleting a Script Project Revision reclaims its content from project storage through a
 background cleanup job. The revision's identity and manifest paths are read from the database

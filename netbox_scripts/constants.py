@@ -1,4 +1,4 @@
-"""Module-level constants for the Custom Scripts plugin."""
+"""Module-level constants for the NetBox Scripts plugin."""
 
 # Default storage limits applied to a project's source tree when a revision is staged.
 # A deployment can override any of these through the plugin's PLUGINS_CONFIG settings.

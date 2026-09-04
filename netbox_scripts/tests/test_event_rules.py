@@ -8,26 +8,26 @@ from dcim.models import Device
 from extras.events import EventContext
 from extras.models import EventRule
 from netbox.event_rules import get_event_rule_action
-from netbox_scripts.event_rules import RunCustomScriptAction
-from netbox_scripts.models import CustomScript
+from netbox_scripts.event_rules import RunNetBoxScriptAction
+from netbox_scripts.models import NetBoxScript
 from netbox_scripts.tests.test_execution import MAKES_A_TAG, ScriptJobTestMixin
 
 SLUG = 'netbox_scripts.run'
 
 
-class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
+class RunNetBoxScriptActionTestCase(ScriptJobTestMixin, TestCase):
     """The registered action: registration, validation, dispatch, and its refusals."""
 
     def setUp(self):
         super().setUp()
         self.publish({'deploy.py': MAKES_A_TAG})
-        self.custom_script = self.script()
+        self.netbox_script = self.script()
         self.action = get_event_rule_action(SLUG)
         self.rule = EventRule.objects.create(
             name='On a device change',
             event_types=[OBJECT_CREATED],
             action_type=SLUG,
-            action_object=self.custom_script,
+            action_object=self.netbox_script,
         )
         self.rule.object_types.set([ObjectType.objects.get_for_model(Device)])
 
@@ -49,27 +49,27 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
         self.action.enqueue(
             event_rule=self.rule,
             event_context=context or self.context(),
-            action_object=self.custom_script,
+            action_object=self.netbox_script,
             action_data=action_data if action_data is not None else {},
         )
 
     def runs(self):
-        return Job.objects.filter(object_id=self.custom_script.pk)
+        return Job.objects.filter(object_id=self.netbox_script.pk)
 
     def test_the_action_is_registered(self):
         self.assertIsNotNone(self.action)
-        self.assertIs(self.action.object_model, CustomScript)
+        self.assertIs(self.action.object_model, NetBoxScript)
         self.assertTrue(self.action.object_required)
 
     def test_the_registered_instance_is_ours(self):
-        self.assertIsInstance(self.action, RunCustomScriptAction)
+        self.assertIsInstance(self.action, RunNetBoxScriptAction)
 
     def test_a_firing_rule_enqueues_exactly_one_run(self):
         # The acceptance criterion is one run rather than zero or two.
         self.fire(action_data={'name': 'device-1'})
 
         self.assertEqual(self.runs().count(), 1)
-        self.assertEqual(self.runs().first().data['module_path'], self.custom_script.module_path)
+        self.assertEqual(self.runs().first().data['module_path'], self.netbox_script.module_path)
 
     def test_the_event_context_reaches_the_run(self):
         self.fire()
@@ -92,14 +92,14 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
 
     def test_the_snapshots_stay_off_an_immediate_job_row(self):
         # An immediate run builds its row in _run_now, by a different statement.
-        job = self.run_job(self.custom_script, event=self.action._event_payload(self.rule, self.context()))
+        job = self.run_job(self.netbox_script, event=self.action._event_payload(self.rule, self.context()))
 
         self.assertNotIn('snapshots', job.data['event'])
         self.assertEqual(job.data['event']['event_type'], OBJECT_CREATED)
 
     def test_a_disabled_script_is_reported_rather_than_queued(self):
-        self.custom_script.enabled = False
-        self.custom_script.save()
+        self.netbox_script.enabled = False
+        self.netbox_script.save()
 
         with self.assertLogs('netbox.plugins.netbox_scripts.event_rules', level='ERROR'):
             self.fire()
@@ -117,21 +117,21 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
 
     def test_a_retired_script_cannot_be_selected(self):
         # _validate() is the entry point EventRule.clean() uses, so it is what the test drives.
-        self.custom_script.is_retired = True
-        self.custom_script.save()
+        self.netbox_script.is_retired = True
+        self.netbox_script.save()
 
         with self.assertRaises(ValidationError):
-            self.action._validate(action_object=self.custom_script, action_data={})
+            self.action._validate(action_object=self.netbox_script, action_data={})
 
     def test_a_runnable_script_validates(self):
-        self.assertIsNone(self.action._validate(action_object=self.custom_script, action_data={}))
+        self.assertIsNone(self.action._validate(action_object=self.netbox_script, action_data={}))
 
     def test_a_disabled_script_still_validates(self):
         # Disabling is temporary state an administrator flips back, so it is caught at dispatch.
-        self.custom_script.enabled = False
-        self.custom_script.save()
+        self.netbox_script.enabled = False
+        self.netbox_script.save()
 
-        self.assertIsNone(self.action._validate(action_object=self.custom_script, action_data={}))
+        self.assertIsNone(self.action._validate(action_object=self.netbox_script, action_data={}))
 
     def test_the_action_requires_a_target_object(self):
         with self.assertRaises(ValidationError):
@@ -147,9 +147,9 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
         self.assertIsNone(self.runs().get().data['event']['object_type'])
 
     def test_an_import_value_resolves_to_a_script(self):
-        value = f'{self.custom_script.project.key}:{self.custom_script.full_name}'
+        value = f'{self.netbox_script.project.key}:{self.netbox_script.full_name}'
 
-        self.assertEqual(self.action.resolve_import_object(value), self.custom_script)
+        self.assertEqual(self.action.resolve_import_object(value), self.netbox_script)
 
     def test_an_unresolvable_import_value_raises(self):
         with self.assertRaises(ObjectDoesNotExist):
@@ -158,7 +158,7 @@ class RunCustomScriptActionTestCase(ScriptJobTestMixin, TestCase):
     def test_a_script_in_another_project_does_not_resolve(self):
         # full_name alone is not unique across projects, which is why the key is part of the value.
         with self.assertRaises(ObjectDoesNotExist):
-            self.action.resolve_import_object(f'other:{self.custom_script.full_name}')
+            self.action.resolve_import_object(f'other:{self.netbox_script.full_name}')
 
 
 class ActionInputTestCase(ScriptJobTestMixin, TestCase):
@@ -175,13 +175,13 @@ class ActionInputTestCase(ScriptJobTestMixin, TestCase):
         self.queue.empty()
         self.addCleanup(self.queue.empty)
         self.publish({'deploy.py': MAKES_A_TAG})
-        self.custom_script = self.script()
+        self.netbox_script = self.script()
         self.action = get_event_rule_action(SLUG)
         self.rule = EventRule.objects.create(
             name='On a device change',
             event_types=[OBJECT_CREATED],
             action_type=SLUG,
-            action_object=self.custom_script,
+            action_object=self.netbox_script,
         )
 
     def test_the_worker_still_receives_the_snapshots(self):
@@ -196,7 +196,7 @@ class ActionInputTestCase(ScriptJobTestMixin, TestCase):
             self.action.enqueue(
                 event_rule=self.rule,
                 event_context=context,
-                action_object=self.custom_script,
+                action_object=self.netbox_script,
                 action_data={},
             )
 
@@ -209,7 +209,7 @@ class ActionInputTestCase(ScriptJobTestMixin, TestCase):
             self.action.enqueue(
                 event_rule=self.rule,
                 event_context=EventContext(event_type=OBJECT_CREATED, data={}, user=self.user),
-                action_object=self.custom_script,
+                action_object=self.netbox_script,
                 action_data={'name': 'device-1', 'count': 2},
             )
 

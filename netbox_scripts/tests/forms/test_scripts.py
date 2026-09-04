@@ -1,15 +1,15 @@
 from django.test import TestCase
 
 from netbox_scripts.forms import (
-    CustomScriptBulkEditForm,
-    CustomScriptEditForm,
+    NetBoxScriptBulkEditForm,
+    NetBoxScriptEditForm,
     ScriptFileEditForm,
     ScriptFileFilterForm,
 )
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 
 
-class CustomScriptEditFormTestCase(TestCase):
+class NetBoxScriptEditFormTestCase(TestCase):
     """The writable set, and that a stale save cannot revert a derived field."""
 
     @classmethod
@@ -19,7 +19,7 @@ class CustomScriptEditFormTestCase(TestCase):
     def setUp(self):
         # Built per test, not in setUpTestData: the stale-save test mutates the row out from
         # under the bound form, and a shared class-level fixture would leak that.
-        self.script = CustomScript.objects.create(
+        self.script = NetBoxScript.objects.create(
             project=self.project,
             module_path='deploy',
             class_name='DeployDevices',
@@ -29,7 +29,7 @@ class CustomScriptEditFormTestCase(TestCase):
         )
 
     def test_the_administrator_fields_are_writable(self):
-        form = CustomScriptEditForm(
+        form = NetBoxScriptEditForm(
             data={'enabled': False, 'comments': 'Paused pending review.'},
             instance=self.script,
         )
@@ -41,13 +41,13 @@ class CustomScriptEditFormTestCase(TestCase):
         self.assertEqual(self.script.comments, 'Paused pending review.')
 
     def test_the_derived_fields_are_absent_from_the_form(self):
-        form = CustomScriptEditForm(instance=self.script)
+        form = NetBoxScriptEditForm(instance=self.script)
         for name in ('project', 'module_path', 'class_name', 'display_name', 'description', 'is_retired', 'metadata'):
             with self.subTest(field=name):
                 self.assertNotIn(name, form.fields)
 
     def test_the_execution_overrides_are_writable_and_clearable(self):
-        form = CustomScriptEditForm(
+        form = NetBoxScriptEditForm(
             data={
                 'enabled': True,
                 'commit_default_override': False,
@@ -65,7 +65,7 @@ class CustomScriptEditFormTestCase(TestCase):
         self.assertEqual(self.script.notifications_default_override, 'never')
 
         # Clearing has to reach the row as well, or an override could be set and never removed.
-        cleared = CustomScriptEditForm(data={'enabled': True}, instance=self.script)
+        cleared = NetBoxScriptEditForm(data={'enabled': True}, instance=self.script)
         self.assertTrue(cleared.is_valid(), cleared.errors)
         cleared.save()
 
@@ -75,11 +75,11 @@ class CustomScriptEditFormTestCase(TestCase):
         self.assertEqual(self.script.notifications_default_override, '')
 
 
-class CustomScriptBulkEditFormTestCase(TestCase):
+class NetBoxScriptBulkEditFormTestCase(TestCase):
     """The bulk form offers the administrator's field and nothing synchronization owns."""
 
     def test_the_administrator_fields_are_offered_and_nothing_derived_is(self):
-        form = CustomScriptBulkEditForm()
+        form = NetBoxScriptBulkEditForm()
         for name in (
             'enabled',
             'commit_default_override',
@@ -96,12 +96,12 @@ class CustomScriptBulkEditFormTestCase(TestCase):
         # otherwise means "leave alone".
         for name in ('commit_default_override', 'job_timeout_override', 'notifications_default_override'):
             with self.subTest(field=name):
-                self.assertIn(name, CustomScriptBulkEditForm.nullable_fields)
+                self.assertIn(name, NetBoxScriptBulkEditForm.nullable_fields)
 
     def test_description_is_not_nullable(self):
         # description is editable=False and synchronization owns it, so a bulk null would
         # fight the next activation.
-        self.assertNotIn('description', CustomScriptBulkEditForm.nullable_fields)
+        self.assertNotIn('description', NetBoxScriptBulkEditForm.nullable_fields)
 
 
 class ScriptFileEditFormTestCase(TestCase):

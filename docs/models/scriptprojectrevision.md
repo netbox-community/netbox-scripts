@@ -80,7 +80,7 @@ surface. A revision has a detail page, reached from the project's **Revisions**
 tab, which also renders two actions per row:
 
 - **Activate** on any revision whose status is `valid` or `retired`, which puts
-  it into service and publishes its [Custom Scripts](customscript.md).
+  it into service and publishes its [Custom Scripts](netboxscript.md).
 - **Deactivate** on the revision in force, which retires it, leaves the project
   serving nothing, and retires its Custom Scripts.
 
@@ -113,7 +113,7 @@ name, description, and execution defaults read from the class. It is written onc
 in the same statement as the verdict, so no reader ever sees a valid revision
 without it. An invalid verdict records an empty list.
 
-[Activation](../runtime.md) derives [Custom Script](customscript.md) rows from
+[Activation](../runtime.md) derives [Custom Script](netboxscript.md) rows from
 it, which is why a revision from before this field existed publishes nothing when
 re-activated: it has no record to derive from, and only re-validation writes one.
 

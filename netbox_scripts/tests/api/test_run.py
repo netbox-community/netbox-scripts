@@ -8,8 +8,8 @@ from rest_framework import status
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from netbox_scripts.activation import activate_revision
-from netbox_scripts.jobs import CustomScriptJob
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
+from netbox_scripts.jobs import NetBoxScriptJob
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
@@ -37,7 +37,7 @@ TAKES_A_NAME_AGAIN = b'# a second revision of the same script\n' + TAKES_A_NAME
 class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
     """The run action: what it enqueues, what it validates, and what it refuses."""
 
-    model = CustomScript
+    model = NetBoxScript
 
     def setUp(self):
         super().setUp()
@@ -46,7 +46,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
     def run_url(self, script=None):
         """Return the run route for one script, defaulting to the fixture's own."""
-        viewname = f'{self._get_view_namespace()}:customscript-run'
+        viewname = f'{self._get_view_namespace()}:netboxscript-run'
         return reverse(viewname, kwargs={'pk': (script or self.script).pk})
 
     def post_run(self, body=None, script=None):
@@ -60,13 +60,13 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         revision, _ = service.stage_revision(project, {'now.py': source})
         revision = validate_revision(revision, job=Job.objects.create(name='validation', job_id=uuid.uuid4()))
         activate_revision(revision)
-        return CustomScript.objects.get(project=project)
+        return NetBoxScript.objects.get(project=project)
 
     def test_an_omitted_commit_falls_back_to_the_scripts_effective_default(self):
         # The fallback has to read the row, so an operator's override applies to a caller that
         # does not state an intent. The class declares commit_default True by omission.
         self.grant('view', 'run')
-        CustomScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
+        NetBoxScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
 
         response = self.post_run({'data': {'label': 'made-over-rest'}})
 
@@ -95,13 +95,13 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         # The Job row records no input values, so this is observed at the call.
         self.grant('view', 'run')
         captured = {}
-        original = CustomScriptJob.enqueue_run
+        original = NetBoxScriptJob.enqueue_run
 
         def record(script, **kwargs):
             captured.update(kwargs)
             return original(script, **kwargs)
 
-        with patch.object(CustomScriptJob, 'enqueue_run', record):
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
             self.post_run({'data': {'label': 'made-over-rest'}, 'commit': False})
 
         self.assertEqual(captured['data'], {'label': 'made-over-rest'})
@@ -110,13 +110,13 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
     def test_an_execution_parameter_never_reaches_the_script_as_a_variable(self):
         self.grant('view', 'run', 'schedule')
         captured = {}
-        original = CustomScriptJob.enqueue_run
+        original = NetBoxScriptJob.enqueue_run
 
         def record(script, **kwargs):
             captured.update(kwargs)
             return original(script, **kwargs)
 
-        with patch.object(CustomScriptJob, 'enqueue_run', record):
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
             self.post_run({'data': {'label': 'made-over-rest'}, 'interval': 60})
 
         self.assertEqual(set(captured['data']), {'label'})
@@ -202,7 +202,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         permission = ObjectPermission(name='run elsewhere', actions=['run'], constraints={'project__key': 'other'})
         permission.save()
         permission.users.add(self.user)
-        permission.object_types.add(ObjectType.objects.get_for_model(CustomScript))
+        permission.object_types.add(ObjectType.objects.get_for_model(NetBoxScript))
 
         response = self.post_run({'data': {'label': 'made-over-rest'}})
 
@@ -338,7 +338,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         response = self.post_run({'data': {'label': 'made-over-rest'}})
         job = Job.objects.get(pk=response.data['id'])
         # The queue is not running under test, so the worker's side is driven directly.
-        CustomScriptJob.handle(job, **job.data, data={'label': 'made-over-rest'}, request=None)
+        NetBoxScriptJob.handle(job, **job.data, data={'label': 'made-over-rest'}, request=None)
         job.refresh_from_db()
 
         self.assertEqual(job.data['output'], 'made-over-rest')

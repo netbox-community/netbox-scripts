@@ -67,12 +67,12 @@
   check rejected the default cache root on any host with a group-writable umask
 * Fixed: activation compared a revision's entrypoint digest but not the snapshot
   itself, so a snapshot swapped after its return-trip check could be activated
-* `CustomScript` model recording one published Script class per row, parented on
+* `NetBoxScript` model recording one published Script class per row, parented on
   the Project because `script_order` lets a helper module publish a class.
   Activating a revision synchronizes the rows in the same transaction that moves
   the pointer, and a class the active revision stops publishing is retired
   rather than deleted, so its Job history survives
-* `CustomScript` UI, REST API, GraphQL, and global-search surfaces. Rows are
+* `NetBoxScript` UI, REST API, GraphQL, and global-search surfaces. Rows are
   derived rather than authored, so the surface offers list, detail, edit, and
   bulk edit, and refuses create, delete, and bulk import on every one of them
 * An administrator can set a Custom Script's `enabled` from its edit form, in

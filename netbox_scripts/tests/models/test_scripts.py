@@ -5,7 +5,7 @@ from django.test import TestCase
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MODULE_PATH_LENGTH
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -16,7 +16,7 @@ DIGEST_A = 'a' * 64
 DIGEST_B = 'b' * 64
 
 
-class CustomScriptTestCase(TestCase):
+class NetBoxScriptTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.project = ScriptProject.objects.create(name='Script Project 1', key='script-project-1')
@@ -39,7 +39,7 @@ class CustomScriptTestCase(TestCase):
         cls.other_project.refresh_from_db()
 
     def _script(self, project=None, module_path='deploy', class_name='DeployDevices', **kwargs):
-        return CustomScript.objects.create(
+        return NetBoxScript.objects.create(
             project=project or self.project,
             module_path=module_path,
             class_name=class_name,
@@ -47,7 +47,7 @@ class CustomScriptTestCase(TestCase):
             **kwargs,
         )
 
-    def test_create_customscript(self):
+    def test_create_netboxscript(self):
         instance = self._script()
         self.assertIsNotNone(instance.pk)
         self.assertTrue(instance.enabled)
@@ -57,28 +57,28 @@ class CustomScriptTestCase(TestCase):
         self.assertEqual(instance.description, '')
 
     def test_str(self):
-        instance = CustomScript(project=self.project, module_path='deploy', class_name='X', display_name='Deploy')
+        instance = NetBoxScript(project=self.project, module_path='deploy', class_name='X', display_name='Deploy')
         self.assertEqual(str(instance), 'Deploy')
 
     def test_full_name_joins_the_module_path_and_class_name(self):
-        instance = CustomScript(project=self.project, module_path='tools.deploy', class_name='DeployDevices')
+        instance = NetBoxScript(project=self.project, module_path='tools.deploy', class_name='DeployDevices')
         self.assertEqual(instance.full_name, 'tools.deploy.DeployDevices')
 
     def test_the_system_managed_fields_are_not_editable(self):
         # editable=False is what keeps them off every form and makes DRF render them read-only.
         for field in ('display_name', 'description', 'is_retired', 'last_seen_revision', 'metadata'):
             with self.subTest(field=field):
-                self.assertFalse(CustomScript._meta.get_field(field).editable)
+                self.assertFalse(NetBoxScript._meta.get_field(field).editable)
 
     def test_enabled_stays_editable(self):
         # The administrator owns it, so no synchronization may take it over.
-        self.assertTrue(CustomScript._meta.get_field('enabled').editable)
+        self.assertTrue(NetBoxScript._meta.get_field('enabled').editable)
 
     def test_the_identity_fields_declare_the_validated_bounds(self):
         # Validation rejects an over-long identity while it still owns a verdict, which only
         # holds while the model and the constants agree.
-        self.assertEqual(CustomScript._meta.get_field('class_name').max_length, MAX_SCRIPT_CLASS_NAME_LENGTH)
-        self.assertEqual(CustomScript._meta.get_field('module_path').max_length, MAX_SCRIPT_MODULE_PATH_LENGTH)
+        self.assertEqual(NetBoxScript._meta.get_field('class_name').max_length, MAX_SCRIPT_CLASS_NAME_LENGTH)
+        self.assertEqual(NetBoxScript._meta.get_field('module_path').max_length, MAX_SCRIPT_MODULE_PATH_LENGTH)
 
     def test_the_duplicate_identity_is_refused_by_the_database(self):
         self._script()
@@ -150,7 +150,7 @@ class CustomScriptTestCase(TestCase):
         project = ScriptProject.objects.create(name='Script Project 3', key='script-project-3')
         self._script(project=project)
         project.delete()
-        self.assertFalse(CustomScript.objects.filter(project_id=project.pk).exists())
+        self.assertFalse(NetBoxScript.objects.filter(project_id=project.pk).exists())
 
     def test_retirement_preserves_the_primary_key(self):
         # Retirement replaces deletion so the Job history attached to the row survives.
@@ -245,7 +245,7 @@ class CustomScriptTestCase(TestCase):
         self.assertEqual(instance.job_timeout, 600)
 
     def test_the_overrides_are_editable_like_enabled(self):
-        fields = {field.name: field for field in CustomScript._meta.get_fields()}
+        fields = {field.name: field for field in NetBoxScript._meta.get_fields()}
         for name in ('commit_default_override', 'job_timeout_override', 'notifications_default_override'):
             self.assertTrue(fields[name].editable, name)
 

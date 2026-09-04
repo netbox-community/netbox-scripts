@@ -31,7 +31,7 @@ package boundary used when loading and executing scripts.
 Each project owns a history of immutable source snapshots, documented on the
 [Script Project Revision](scriptprojectrevision.md) page. Its
 declared entrypoints are [Script Files](scriptfile.md) and the
-classes an activated revision publishes are [Custom Scripts](customscript.md).
+classes an activated revision publishes are [Custom Scripts](netboxscript.md).
 
 ## API
 

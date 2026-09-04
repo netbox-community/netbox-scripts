@@ -2,15 +2,15 @@ from django.test import SimpleTestCase
 
 from netbox_scripts.choices import FileDiscoveryStatusChoices
 from netbox_scripts.graphql.enums import FileDiscoveryStatusEnum
-from netbox_scripts.graphql.types import CustomScriptType, ScriptFileType
+from netbox_scripts.graphql.types import NetBoxScriptType, ScriptFileType
 
 
-class CustomScriptGraphQLTestCase(SimpleTestCase):
+class NetBoxScriptGraphQLTestCase(SimpleTestCase):
     """Pin the GraphQL contract: the revision stays absent, the rest is readable."""
 
     @staticmethod
     def _field_names():
-        return {field.name for field in CustomScriptType.__strawberry_definition__.fields}
+        return {field.name for field in NetBoxScriptType.__strawberry_definition__.fields}
 
     def test_last_seen_revision_is_exposed_on_object_type(self):
         self.assertIn('last_seen_revision', self._field_names())

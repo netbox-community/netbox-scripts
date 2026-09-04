@@ -12,8 +12,8 @@ from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.models import Tag
 from netbox_scripts.activation import activate_revision, deactivate_revision
-from netbox_scripts.jobs import CustomScriptJob
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
+from netbox_scripts.jobs import NetBoxScriptJob
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_scripts.scripts.logging import LogLevelChoices
@@ -51,7 +51,7 @@ class RunViewTestMixin:
         self.addCleanup(self._purge_namespace)
         self.project = ScriptProject.objects.create(name='Runnable', key='runnable')
         self.revision = self.publish()
-        self.script = CustomScript.objects.get(project=self.project)
+        self.script = NetBoxScript.objects.get(project=self.project)
 
     def _purge_namespace(self):
         for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
@@ -66,7 +66,7 @@ class RunViewTestMixin:
         self.project.refresh_from_db()
         return revision
 
-    def grant(self, *actions, model=CustomScript, constraints=None):
+    def grant(self, *actions, model=NetBoxScript, constraints=None):
         """Grant the named actions on one model to the test user, optionally constrained."""
         permission = ObjectPermission(
             name=f'{model._meta.model_name} {"/".join(actions)}',
@@ -78,7 +78,7 @@ class RunViewTestMixin:
         permission.object_types.add(ObjectType.objects.get_for_model(model))
 
     def url(self, name='run', **kwargs):
-        return reverse(f'plugins:netbox_scripts:customscript_{name}', kwargs={'pk': self.script.pk, **kwargs})
+        return reverse(f'plugins:netbox_scripts:netboxscript_{name}', kwargs={'pk': self.script.pk, **kwargs})
 
 
 class RunViewTestCase(RunViewTestMixin, TestCase):
@@ -135,7 +135,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
 
         identifier = ' '.join(content[content.find('<code class="d-block text-muted') :][:300].split())
         self.assertIn('deploy.MakeTag', identifier)
-        self.assertNotIn('netbox_scripts.customscript', identifier)
+        self.assertNotIn('netbox_scripts.netboxscript', identifier)
 
     def test_the_run_page_is_refused_without_the_run_action(self):
         # View alone is not enough, running is its own permission.
@@ -309,13 +309,13 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         # be observed at the call rather than read back off the row.
         self.grant('view', 'run', 'schedule')
         captured = {}
-        original = CustomScriptJob.enqueue_run
+        original = NetBoxScriptJob.enqueue_run
 
         def record(script, **kwargs):
             captured.update(kwargs)
             return original(script, **kwargs)
 
-        with patch.object(CustomScriptJob, 'enqueue_run', record):
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
             self.client.post(self.url(), {'label': 'Queued Tag', '_commit': 'on', '_interval': '60'})
 
         self.assertEqual(set(captured['data']), {'label'})
@@ -341,7 +341,7 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
         job = Job.objects.create(
             name='Run Custom Script',
             job_id=uuid.uuid4(),
-            object_type=ObjectType.objects.get_for_model(CustomScript),
+            object_type=ObjectType.objects.get_for_model(NetBoxScript),
             object_id=self.script.pk,
             user=self.user,
         )
@@ -540,8 +540,8 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
 
         content = self.client.get(self.url('result', job_pk=job.pk)).content.decode()
 
-        self.assertIn('id="CustomScriptLogTable_config"', content)
-        self.assertIn('data-bs-target="#CustomScriptLogTable_config"', content)
+        self.assertIn('id="NetBoxScriptLogTable_config"', content)
+        self.assertIn('data-bs-target="#NetBoxScriptLogTable_config"', content)
 
 
 class RunEndToEndTestCase(RunViewTestMixin, TestCase):
@@ -553,9 +553,9 @@ class RunEndToEndTestCase(RunViewTestMixin, TestCase):
         job = Job.objects.get(object_id=self.script.pk)
         # The queue is not running under test, so the worker's side is driven directly with the
         # payload the view recorded.
-        from netbox_scripts.jobs import CustomScriptJob
+        from netbox_scripts.jobs import NetBoxScriptJob
 
-        CustomScriptJob.handle(job, **job.data, data={'label': 'Queued Tag'}, request=None)
+        NetBoxScriptJob.handle(job, **job.data, data={'label': 'Queued Tag'}, request=None)
         job.refresh_from_db()
 
         self.assertTrue(Tag.objects.filter(slug='made-by-run').exists())
@@ -572,7 +572,7 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
     """
 
     def list_url(self):
-        return reverse('plugins:netbox_scripts:customscript_list')
+        return reverse('plugins:netbox_scripts:netboxscript_list')
 
     def test_the_list_offers_a_run_button_to_a_permitted_user(self):
         self.grant('view', 'run')
@@ -638,19 +638,19 @@ class OverriddenDefaultsTestCase(RunViewTestMixin, TestCase):
     def test_the_commit_toggle_follows_the_override_rather_than_the_class(self):
         # The class declares commit_default True by omission, so False can only come from
         # the operator's column.
-        CustomScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
+        NetBoxScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
 
         self.assertIs(self.rendered_form().fields['_commit'].initial, False)
 
     def test_the_notification_field_follows_the_override_rather_than_the_class(self):
-        CustomScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
+        NetBoxScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
 
         self.assertEqual(self.rendered_form().fields['_notifications'].initial, 'never')
 
     def test_a_run_submitted_from_the_rendered_page_carries_the_override(self):
         # The rendered initial is the whole contract for the toggle: an unchecked box submits
         # False whatever the default was, so what matters is what the operator is shown.
-        CustomScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
+        NetBoxScript.objects.filter(pk=self.script.pk).update(commit_default_override=False)
         form = self.rendered_form()
 
         self.assertIs(form.fields['_commit'].initial, False)
@@ -662,7 +662,7 @@ class ExecutionDefaultsPanelTestCase(RunViewTestMixin, TestCase):
 
     def test_the_defaults_render_as_labelled_rows_not_json(self):
         self.grant('view', 'run')
-        CustomScript.objects.filter(pk=self.script.pk).update(
+        NetBoxScript.objects.filter(pk=self.script.pk).update(
             metadata={
                 'commit_default': True,
                 'scheduling_enabled': True,

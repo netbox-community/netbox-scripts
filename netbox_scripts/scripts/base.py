@@ -48,7 +48,7 @@ class BaseScript:
         # Discovery stamps each published class with a project-qualified logger name.
         # The composed fallback serves classes that never went through discovery. Only
         # the class's own dictionary is consulted, a subclass composes its own name.
-        logger_name = type(self).__dict__.get('_custom_script_logger_name')
+        logger_name = type(self).__dict__.get('_netbox_script_logger_name')
         self.logger = logging.getLogger(
             logger_name or f'netbox.plugins.netbox_scripts.scripts.{self.module}.{self.class_name}'
         )
@@ -59,11 +59,11 @@ class BaseScript:
     @classproperty
     def module(cls):
         """Return the logical module name this script is published under."""
-        # The loader assigns _custom_script_module with the logical module name, so
+        # The loader assigns _netbox_script_module with the logical module name, so
         # generated runtime import namespaces never leak into user-facing identity.
         # Only the class's own dictionary is consulted. The marker records where a
         # discovered class was found, so subclasses must not inherit it.
-        return cls.__dict__.get('_custom_script_module') or cls.__module__
+        return cls.__dict__.get('_netbox_script_module') or cls.__module__
 
     @classproperty
     def class_name(cls):

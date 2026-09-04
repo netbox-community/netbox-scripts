@@ -10,7 +10,7 @@ from core.choices import JobStatusChoices
 from core.models import Job
 from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.migration import cleanup, mapping, plan, verification
-from netbox_scripts.models import CustomScript, MigrationRun, ScriptProject
+from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject
 from netbox_scripts.tests.migration.test_cleanup import CleanupMixin
 from users.models import ObjectPermission
 
@@ -130,11 +130,11 @@ class VerificationAfterAFullRunTestCase(VerificationMixin, TestCase):
             'jobs': Job.objects.count(),
             'rules': EventRule.objects.count(),
             'permissions': ObjectPermission.objects.count(),
-            'custom_scripts': CustomScript.objects.count(),
+            'netbox_scripts': NetBoxScript.objects.count(),
             'projects': ScriptProject.objects.count(),
             'runs': MigrationRun.objects.count(),
             'serving': sorted(ScriptProject.objects.values_list('key', 'active_revision_id')),
-            'retired': sorted(CustomScript.objects.values_list('class_name', 'is_retired')),
+            'retired': sorted(NetBoxScript.objects.values_list('class_name', 'is_retired')),
             'enabled_rules': sorted(EventRule.objects.values_list('pk', 'enabled')),
             'enabled_permissions': sorted(ObjectPermission.objects.values_list('pk', 'enabled')),
             'journal': MigrationRun.objects.first().journal,
@@ -169,7 +169,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         self.assertEqual(check['level'], plan.BLOCKING)
         self.assertIn('weird-name.py', str(check['message']))
 
-    def test_a_retired_custom_script_blocks_the_scripts_check(self):
+    def test_a_retired_netbox_script_blocks_the_scripts_check(self):
         run = self.repoint_all()
         script = self.plugin_script()
         script.is_retired = True
@@ -362,7 +362,7 @@ class VerificationAfterCleanupTestCase(VerificationMixin, TestCase):
         run = self.repoint_all()
         cleanup.retire_legacy(run)
         run.refresh_from_db()
-        CustomScript.objects.all().delete()
+        NetBoxScript.objects.all().delete()
 
         check = self.named(verification.verify(run), verification.SCRIPTS)
 

@@ -1,4 +1,4 @@
-"""Background jobs for the Custom Scripts plugin."""
+"""Background jobs for the NetBox Scripts plugin."""
 
 import uuid
 from datetime import timedelta
@@ -18,7 +18,7 @@ from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, STALLED_CLEANUP_GRACE_SECONDS, VALIDATION_JOB_TIMEOUT
 from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
-from .models import CustomScript, MigrationRun, ScriptProject, ScriptProjectRevision
+from .models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from .models.migration import migration_lock
 from .runtime.exceptions import EntrypointImportError
 from .runtime.loader import revision_import_session, unload_revision
@@ -425,7 +425,7 @@ class RevisionValidationJob(JobRunner):
         self.logger.info('The revision is now the active revision of its project.')
 
 
-class CustomScriptJob(JobRunner):
+class NetBoxScriptJob(JobRunner):
     """
     Run one Custom Script against the revision its enqueue pinned.
 
@@ -590,7 +590,7 @@ class CustomScriptJob(JobRunner):
         # Enabled is the administrator's field, so turning it off has to stop a run that was
         # already queued. A pinned revision is deliberately not rechecked: the point of
         # pinning is that a run executes the source it was requested against.
-        script = CustomScript.objects.filter(pk=self.job.object_id).first()
+        script = NetBoxScript.objects.filter(pk=self.job.object_id).first()
         if script is not None and not (script.enabled and script.project.enabled):
             self.logger.error(f'"{script}" was disabled after this run was requested, so it was not run.')
             raise JobFailed()
@@ -886,7 +886,7 @@ class MigrationActivationJob(JobRunner):
             self.logger.info(f'Project {result["project_key"]} {result["outcome"]}.')
         keys = [result['project_key'] for result in results]
         serving = ScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).count()
-        published = CustomScript.objects.filter(project__key__in=keys).count()
+        published = NetBoxScript.objects.filter(project__key__in=keys).count()
         self.logger.info(
             f'{serving} of {len(results)} Script Project(s) are serving a revision, '
             f'publishing {published} Custom Script(s). Repoint the references next.'

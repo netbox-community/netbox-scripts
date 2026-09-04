@@ -8,11 +8,11 @@ from utilities.filters import MultiValueCharFilter
 from utilities.filtersets import register_filterset
 
 from ..choices import FileDiscoveryStatusChoices
-from ..models import CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision
+from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 
 
 @register_filterset
-class CustomScriptFilterSet(PrimaryModelFilterSet):
+class NetBoxScriptFilterSet(PrimaryModelFilterSet):
     """Filter set for the Custom Script model. metadata is deliberately unfiltered."""
 
     project_id = django_filters.ModelMultipleChoiceFilter(
@@ -44,7 +44,7 @@ class CustomScriptFilterSet(PrimaryModelFilterSet):
     )
 
     class Meta:
-        model = CustomScript
+        model = NetBoxScript
         fields = (
             'id',
             'module_path',

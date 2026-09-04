@@ -1,12 +1,12 @@
 from .projects import ScriptProjectSerializer
 from .revisions import ScriptProjectRevisionSerializer
-from .run import CustomScriptRunInputSerializer
-from .scripts import CustomScriptSerializer, ScriptFileSerializer
+from .run import NetBoxScriptRunInputSerializer
+from .scripts import NetBoxScriptSerializer, ScriptFileSerializer
 from .upload import ScriptProjectUploadSerializer
 
 __all__ = (
-    'CustomScriptRunInputSerializer',
-    'CustomScriptSerializer',
+    'NetBoxScriptRunInputSerializer',
+    'NetBoxScriptSerializer',
     'ScriptFileSerializer',
     'ScriptProjectRevisionSerializer',
     'ScriptProjectSerializer',

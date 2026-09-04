@@ -29,7 +29,7 @@ from netbox_scripts.ingestion import (
 )
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -603,7 +603,7 @@ class UploadToActiveTestCase(TestCase):
         self.assertEqual(module.discovery_error, '')
 
         # The point of the whole slice: the uploaded class is a first-class object now.
-        script = CustomScript.objects.get(project=project)
+        script = NetBoxScript.objects.get(project=project)
         self.assertEqual(script.class_name, 'HelloWorld')
         self.assertEqual(script.display_name, 'Hello World')
         self.assertEqual(script.description, 'Smoke test for the upload path')
@@ -618,13 +618,13 @@ class UploadToActiveTestCase(TestCase):
         )
         first = ingest_upload(project, filename='hello_world.py', content=TWO_SCRIPTS)
         self.run_validation(first.revision)
-        self.assertEqual(CustomScript.objects.filter(project=project).count(), 2)
+        self.assertEqual(NetBoxScript.objects.filter(project=project).count(), 2)
 
         second = ingest_upload(project, filename='hello_world.py', content=DISCOVERABLE_SCRIPT)
         self.run_validation(second.revision)
 
-        self.assertTrue(CustomScript.objects.get(project=project, class_name='Farewell').is_retired)
-        self.assertFalse(CustomScript.objects.get(project=project, class_name='HelloWorld').is_retired)
+        self.assertTrue(NetBoxScript.objects.get(project=project, class_name='Farewell').is_retired)
+        self.assertFalse(NetBoxScript.objects.get(project=project, class_name='HelloWorld').is_retired)
 
     def test_a_retired_script_returns_when_its_revision_is_activated_again(self):
         # Reuse of the row rather than a replacement is what preserves the Job history. Driven
@@ -638,15 +638,15 @@ class UploadToActiveTestCase(TestCase):
         )
         first = ingest_upload(project, filename='hello_world.py', content=TWO_SCRIPTS)
         self.run_validation(first.revision)
-        original_pk = CustomScript.objects.get(project=project, class_name='Farewell').pk
+        original_pk = NetBoxScript.objects.get(project=project, class_name='Farewell').pk
 
         dropped = ingest_upload(project, filename='hello_world.py', content=DISCOVERABLE_SCRIPT)
         self.run_validation(dropped.revision)
-        self.assertTrue(CustomScript.objects.get(project=project, class_name='Farewell').is_retired)
+        self.assertTrue(NetBoxScript.objects.get(project=project, class_name='Farewell').is_retired)
 
         first.revision.refresh_from_db()
         activation.activate_revision(first.revision)
-        row = CustomScript.objects.get(project=project, class_name='Farewell')
+        row = NetBoxScript.objects.get(project=project, class_name='Farewell')
         self.assertEqual(row.pk, original_pk)
         self.assertFalse(row.is_retired)
 
@@ -724,13 +724,13 @@ class DataSourceToActiveTestCase(TestCase):
         data_file(self.source, 'scripts/hello_world.py', DISCOVERABLE_SCRIPT)
         # Nothing is declared yet, so the first synchronization publishes nothing.
         self.reconcile()
-        self.assertFalse(CustomScript.objects.filter(project=self.project).exists())
+        self.assertFalse(NetBoxScript.objects.filter(project=self.project).exists())
 
         self.project.select_entrypoints(['hello_world.py'])
         first = self.reconcile()
         self.assertEqual(first.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, first.pk)
-        script = CustomScript.objects.get(project=self.project)
+        script = NetBoxScript.objects.get(project=self.project)
         self.assertTrue(script.is_executable)
 
         # A Python file added to the source is a candidate, so the selection is unchanged and
@@ -739,7 +739,7 @@ class DataSourceToActiveTestCase(TestCase):
         active = self.reconcile()
         self.assertEqual(active.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual([entry['source_path'] for entry in active.entrypoint_snapshot], ['hello_world.py'])
-        self.assertEqual(CustomScript.objects.filter(project=self.project, is_retired=False).count(), 1)
+        self.assertEqual(NetBoxScript.objects.filter(project=self.project, is_retired=False).count(), 1)
 
         # The selected file is deleted from the source.
         DataFile.objects.filter(path='scripts/hello_world.py').delete()

@@ -115,7 +115,7 @@ def _defined_here(module, candidate):
 
 def _report_style(cls):
     """Return whether a class is a legacy report rather than a runnable script."""
-    if getattr(cls, '_custom_script_report', False):
+    if getattr(cls, '_netbox_script_report', False):
         return True
     if cls.run is not BaseScript.run:
         return False
@@ -134,8 +134,8 @@ def _publish(cls, project_key, revision_prefix):
             name=cls.__name__,
         )
     logical_module = cls.__module__[len(revision_prefix) + 1 :]
-    cls._custom_script_module = logical_module
-    cls._custom_script_logger_name = f'{LOGGER_PREFIX}.{project_key}.{logical_module}.{cls.__name__}'
+    cls._netbox_script_module = logical_module
+    cls._netbox_script_logger_name = f'{LOGGER_PREFIX}.{project_key}.{logical_module}.{cls.__name__}'
     return DiscoveredScript(cls=cls, logical_module=logical_module, name=cls.__name__)
 
 

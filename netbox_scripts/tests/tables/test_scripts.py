@@ -1,21 +1,21 @@
 from django.test import TestCase
 
-from netbox_scripts.tables import CustomScriptLogTable, CustomScriptTable, ScriptFileTable
+from netbox_scripts.tables import NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
 from utilities.testing import TableTestCases
 
 
-class CustomScriptTableTestCase(TableTestCases.StandardTableTestCase):
-    table = CustomScriptTable
+class NetBoxScriptTableTestCase(TableTestCases.StandardTableTestCase):
+    table = NetBoxScriptTable
 
 
-class CustomScriptLogTableTestCase(TestCase):
+class NetBoxScriptLogTableTestCase(TestCase):
     """The run log links a logged object, and refuses a scheme a browser must not follow."""
 
     def row(self, url):
         return [{'index': 1, 'time': None, 'status': 'info', 'object': 'thing', 'url': url, 'message': 'ran'}]
 
     def rendered(self, url):
-        table = CustomScriptLogTable(self.row(url))
+        table = NetBoxScriptLogTable(self.row(url))
         return ''.join(str(cell) for cell in table.rows[0].get_cell('object'))
 
     def test_a_relative_url_is_linked(self):

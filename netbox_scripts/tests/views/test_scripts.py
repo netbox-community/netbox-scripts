@@ -4,21 +4,21 @@ from django.urls import NoReverseMatch, reverse
 
 from core.models import ObjectChange
 from core.tables import ObjectChangeTable
-from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginTestCases
 from utilities.testing import TestCase, create_tags
 
 
-class CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
-    model = CustomScript
+class NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
+    model = NetBoxScript
 
     @classmethod
     def setUpTestData(cls):
         project = ScriptProject.objects.create(name='Surface Project', key='surface-project')
         scripts = (
-            CustomScript(project=project, module_path='a', class_name='First', display_name='First'),
-            CustomScript(project=project, module_path='b', class_name='Second', display_name='Second'),
-            CustomScript(project=project, module_path='c', class_name='Third', display_name='Third'),
+            NetBoxScript(project=project, module_path='a', class_name='First', display_name='First'),
+            NetBoxScript(project=project, module_path='b', class_name='Second', display_name='Second'),
+            NetBoxScript(project=project, module_path='c', class_name='Third', display_name='Third'),
         )
         for script in scripts:
             script.save()
@@ -39,15 +39,15 @@ class CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
         }
 
 
-class CustomScriptViewTestCase(TestCase):
+class NetBoxScriptViewTestCase(TestCase):
     """The detail view and the change-log rendering that reverses a Custom Script's URL."""
 
-    user_permissions = ('netbox_scripts.view_customscript',)
+    user_permissions = ('netbox_scripts.view_netboxscript',)
 
     @classmethod
     def setUpTestData(cls):
         cls.project = ScriptProject.objects.create(name='View Script Project', key='view-script-project')
-        cls.script = CustomScript.objects.create(
+        cls.script = NetBoxScript.objects.create(
             project=cls.project,
             module_path='tools.deploy',
             class_name='DeployDevices',
@@ -73,7 +73,7 @@ class CustomScriptViewTestCase(TestCase):
         content = self.client.get(self.script.get_absolute_url()).content.decode()
 
         identifier = ' '.join(content[content.find('<code class="d-block text-muted') :][:400].split())
-        self.assertIn(f'netbox_scripts.customscript:{self.script.pk}', identifier)
+        self.assertIn(f'netbox_scripts.netboxscript:{self.script.pk}', identifier)
         self.assertNotIn('tools.deploy.DeployDevices', identifier)
 
     def test_the_breadcrumbs_reverse_the_list_route(self):
@@ -95,20 +95,20 @@ class CustomScriptViewTestCase(TestCase):
 
     def test_no_create_route_is_registered(self):
         # Rows are derived from an activated revision, so authoring one has no route.
-        for name in ('customscript_add', 'customscript_bulk_delete'):
+        for name in ('netboxscript_add', 'netboxscript_bulk_delete'):
             with self.subTest(route=name), self.assertRaises(NoReverseMatch):
                 reverse(f'plugins:netbox_scripts:{name}')
 
     def test_no_delete_route_is_registered(self):
         # Retirement replaces deletion so accumulated Job history survives.
         with self.assertRaises(NoReverseMatch):
-            reverse('plugins:netbox_scripts:customscript_delete', args=[self.script.pk])
+            reverse('plugins:netbox_scripts:netboxscript_delete', args=[self.script.pk])
 
     def test_the_edit_route_requires_the_change_permission(self):
-        url = reverse('plugins:netbox_scripts:customscript_edit', args=[self.script.pk])
+        url = reverse('plugins:netbox_scripts:netboxscript_edit', args=[self.script.pk])
         self.assertEqual(self.client.get(url).status_code, 403)
 
-        self.add_permissions('netbox_scripts.change_customscript')
+        self.add_permissions('netbox_scripts.change_netboxscript')
         self.assertEqual(self.client.get(url).status_code, 200)
 
     def test_the_inherited_feature_tabs_render(self):
@@ -116,7 +116,7 @@ class CustomScriptViewTestCase(TestCase):
         # they are reachable whether or not this task set them up, and they render the same
         # per-model template.
         self.add_permissions(
-            'netbox_scripts.view_customscript',
+            'netbox_scripts.view_netboxscript',
             'extras.view_journalentry',
             'core.view_objectchange',
         )

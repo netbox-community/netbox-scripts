@@ -1,9 +1,9 @@
 from .projects import ScriptProjectFilterSet
 from .revisions import ScriptProjectRevisionFilterSet
-from .scripts import CustomScriptFilterSet, ScriptFileFilterSet
+from .scripts import NetBoxScriptFilterSet, ScriptFileFilterSet
 
 __all__ = (
-    'CustomScriptFilterSet',
+    'NetBoxScriptFilterSet',
     'ScriptFileFilterSet',
     'ScriptProjectFilterSet',
     'ScriptProjectRevisionFilterSet',

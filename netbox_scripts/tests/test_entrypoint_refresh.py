@@ -12,7 +12,7 @@ from netbox_scripts.forms import ScriptProjectEntrypointsForm
 from netbox_scripts.ingestion import current_source_tree, ingest_upload
 from netbox_scripts.jobs import ProjectEntrypointRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
-    CustomScript,
+    NetBoxScript,
     ScriptFile,
     ScriptProject,
     ScriptProjectRevision,
@@ -275,7 +275,7 @@ class EntrypointRefreshPolicyTestCase(TestCase):
 
     def test_an_automatic_project_ends_up_serving_the_new_selection(self):
         project = two_entrypoint_project(key='automatic', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
-        self.assertEqual(CustomScript.objects.filter(project=project).count(), 2)
+        self.assertEqual(NetBoxScript.objects.filter(project=project).count(), 2)
 
         project.select_entrypoints(['alpha.py'])
         project = self.refresh(project)
@@ -284,8 +284,8 @@ class EntrypointRefreshPolicyTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(project.active_revision_id, revision.pk)
         # Retirement rather than deletion, so the Job history a row accumulated survives.
-        self.assertTrue(CustomScript.objects.get(project=project, class_name='Alpha').is_executable)
-        self.assertTrue(CustomScript.objects.get(project=project, class_name='Beta').is_retired)
+        self.assertTrue(NetBoxScript.objects.get(project=project, class_name='Alpha').is_executable)
+        self.assertTrue(NetBoxScript.objects.get(project=project, class_name='Beta').is_retired)
 
     def test_a_manual_project_reaches_valid_and_keeps_serving_what_it_had(self):
         project = two_entrypoint_project(key='manual', activation_policy=ActivationPolicyChoices.MANUAL)
@@ -306,4 +306,4 @@ class EntrypointRefreshPolicyTestCase(TestCase):
         project = self.refresh(project)
 
         self.assertEqual(project.latest_revision().entrypoint_snapshot, [])
-        self.assertFalse(CustomScript.objects.filter(project=project, is_retired=False).exists())
+        self.assertFalse(NetBoxScript.objects.filter(project=project, is_retired=False).exists())

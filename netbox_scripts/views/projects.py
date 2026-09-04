@@ -81,7 +81,7 @@ class ScriptProjectView(generic.ObjectView):
             # Unfiltered by retirement on purpose: hiding a retired script would make one that
             # stopped being published look deleted while its row and Job history are still there.
             ObjectsTablePanel(
-                'netbox_scripts.customscript',
+                'netbox_scripts.netboxscript',
                 filters={'project_id': lambda context: context['object'].pk},
             ),
         ],

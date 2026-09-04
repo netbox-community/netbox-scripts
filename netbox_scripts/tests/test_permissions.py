@@ -7,7 +7,7 @@ from core.models import DataSource, ObjectType
 from netbox.registry import registry
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
-from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from users.models import ObjectPermission
 from utilities.permissions import get_permission_for_model
@@ -22,13 +22,13 @@ PERMISSION_STORAGES = {
 # Every action the plugin declares. The legacy reference migration maps onto these.
 DECLARED = {
     ScriptProject: ('view', 'add', 'change', 'delete', 'activate', 'migrate', 'reconcile'),
-    CustomScript: ('view', 'change', 'run', 'schedule'),
+    NetBoxScript: ('view', 'change', 'run', 'schedule'),
 }
 
 # The actions declared in Meta.permissions, which is to say every one Django does not supply.
 CUSTOM = {
     ScriptProject: ('activate', 'migrate', 'reconcile'),
-    CustomScript: ('run', 'schedule'),
+    NetBoxScript: ('run', 'schedule'),
 }
 
 RECORD = {
@@ -184,7 +184,7 @@ class SourceManagementPermissionTestCase(TestCase):
     def test_the_picker_offers_the_action_the_views_ask_for(self):
         # The picker reads the action registry, stores the ticked name verbatim, and the backend
         # composes f'{app}.{action}_{model}' from it. A registered name carrying the model name
-        # therefore grants run_customscript_customscript, which nothing checks, and the working
+        # therefore grants run_netboxscript_netboxscript, which nothing checks, and the working
         # permission becomes reachable only through the form's free-text box.
         for model, actions in CUSTOM.items():
             label = f'{model._meta.app_label}.{model._meta.model_name}'

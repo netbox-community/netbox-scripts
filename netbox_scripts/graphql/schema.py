@@ -2,7 +2,7 @@ import strawberry
 import strawberry_django
 
 from .types import (
-    CustomScriptType,
+    NetBoxScriptType,
     ScriptFileType,
     ScriptProjectRevisionType,
     ScriptProjectType,
@@ -11,10 +11,10 @@ from .types import (
 
 @strawberry.type(name='Query')
 class NetBoxScriptsQuery:
-    """GraphQL query fields contributed by the Custom Scripts plugin."""
+    """GraphQL query fields contributed by the NetBox Scripts plugin."""
 
-    custom_script: CustomScriptType = strawberry_django.field()
-    custom_script_list: list[CustomScriptType] = strawberry_django.field()
+    netbox_script: NetBoxScriptType = strawberry_django.field()
+    netbox_script_list: list[NetBoxScriptType] = strawberry_django.field()
     netbox_script_file: ScriptFileType = strawberry_django.field()
     netbox_script_file_list: list[ScriptFileType] = strawberry_django.field()
     netbox_script_project: ScriptProjectType = strawberry_django.field()

@@ -56,7 +56,7 @@ nav:
       - Script Project: models/scriptproject.md
       - Script Project Revision: models/scriptprojectrevision.md
       - Script File: models/scriptfile.md
-      - Custom Script: models/customscript.md
+      - Custom Script: models/netboxscript.md
   - Releases: releases.md
   - Development:
       - Contributing: development/contributing.md

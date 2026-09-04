@@ -1,0 +1,276 @@
+{% extends "generic/_base.html" %}
+{% load i18n %}
+{% comment %}
+The page both migration passes are started from.
+
+Context:
+  - inventory_job:  The most recent inventory Job, or None
+  - staging_job:    The most recent staging Job, or None
+  - staging_queued: Whether a staging pass is already under way
+  - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
+  - warning_count:  How many modules the last inventory reported a warning for
+  - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
+  - run:            The open MigrationRun, or None before the first staging pass
+  - cutover_job:    The most recent cutover Job, or None
+  - cutover_queued: Whether a cutover is already under way
+  - can_cut_over:   Whether the crossing has not been recorded yet and can be served past the fence
+  - cutover_interrupted: Whether the state reached cutover with the crossing unrecorded, so the fence may have closed
+  - unservable_projects: The staged Projects that could serve nothing past the fence, each {project_key, reason}
+  - activation_job: The most recent activation Job, or None
+  - activation_queued: Whether an activation is already under way
+  - can_activate:   Whether the fence has been crossed, which is activation's only precondition
+  - references_job: The most recent reference pass Job, or None
+  - references_queued: Whether a reference pass is already under way
+  - can_repoint:    Whether every migrated Project that still exists serves, so a reference has a row to name
+  - projects_not_serving: The migrated Projects that exist and serve nothing, which a reference pass would refuse over
+  - cleanup_job:    The most recent cleanup Job, or None
+  - cleanup_queued: Whether a cleanup is already under way
+  - can_clean_up:   Whether the Job history has moved, which is what deletion waits for
+  - verification_job: The most recent verification Job, or None
+{% endcomment %}
+{% block title %}
+  {% trans "Custom Script migration" %}
+{% endblock title %}
+{% block content %}
+  <div class="row">
+    <div class="col col-md-8 offset-md-2">
+      <div class="card">
+        <h2 class="card-header">{% trans "Migrate from the built-in feature" %}</h2>
+        <div class="card-body">
+          <p>
+            {% trans "The inventory reports what a migration would do and changes nothing. Staging creates the Custom Script Projects it proposes, every one inactive, and leaves the built-in Custom Scripts serving. Every step from the cutover onwards changes what this installation runs, and there is no way back." %}
+          </p>
+          <table class="table">
+            <tr>
+              <th scope="row">{% trans "State" %}</th>
+              <td>
+                {% if run %}
+                  <a href="{{ run.get_absolute_url }}">
+                    <span class="badge text-bg-{{ run.get_state_color }}">{{ run.get_state_display }}</span>
+                  </a>
+                {% else %}
+                  <span class="badge text-bg-gray">{% trans "Not started" %}</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last inventory" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=inventory_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last staging" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=staging_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last cutover" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cutover_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last activation" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=activation_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last reference pass" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=references_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last cleanup" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cleanup_job %}</td>
+            </tr>
+            <tr>
+              <th scope="row">{% trans "Last verification" %}</th>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=verification_job %}</td>
+            </tr>
+          </table>
+          {% if blocking_findings %}
+            <div class="alert alert-danger mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "Staging will refuse" %}</h3>
+              <p>
+                {% trans "The last inventory found source a migration could not import. Staging creates nothing while any of these stands, so resolve each one in the built-in feature and run the inventory again." %}
+              </p>
+              <table class="table table-sm mb-0">
+                <tr>
+                  <th scope="col">{% trans "Module" %}</th>
+                  <th scope="col">{% trans "Why it blocks" %}</th>
+                </tr>
+                {% for finding in blocking_findings %}
+                  <tr>
+                    <td class="text-nowrap">
+                      <code>{{ finding.path }}</code>
+                      <div class="text-secondary small">{{ finding.code }}</div>
+                    </td>
+                    <td>{{ finding.message }}</td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+          {% endif %}
+          {% if unservable_projects and perms.netbox_scripts.migrate_customscriptproject %}
+            <div class="alert alert-danger mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "The cutover will refuse" %}</h3>
+              <p>
+                {% trans "These Custom Script Projects could serve nothing once the built-in feature is closed, and there is no way back across that fence. Wait for a verdict on the ones still being validated, and fix the source of the rest and stage it again." %}
+              </p>
+              <table class="table table-sm mb-0">
+                <tr>
+                  <th scope="col">{% trans "Project" %}</th>
+                  <th scope="col">{% trans "Why it blocks" %}</th>
+                </tr>
+                {% for entry in unservable_projects %}
+                  <tr>
+                    <td class="text-nowrap">
+                      <code>{{ entry.project_key }}</code>
+                    </td>
+                    <td>{{ entry.reason }}</td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+          {% endif %}
+          {% if projects_not_serving and perms.netbox_scripts.migrate_customscriptproject %}
+            <div class="alert alert-warning mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "The reference pass will refuse" %}</h3>
+              <p>
+                {% trans "These migrated Custom Script Projects are serving no revision, so an Event Rule or a repointed job would have no Custom Script to name. Put each one into service, then run the activation again." %}
+              </p>
+              <table class="table table-sm mb-0">
+                <tr>
+                  <th scope="col">{% trans "Project" %}</th>
+                </tr>
+                {% for key in projects_not_serving %}
+                  <tr>
+                    <td class="text-nowrap">
+                      <code>{{ key }}</code>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+          {% endif %}
+          {% if warning_count %}
+            <p class="text-secondary mt-3">
+              {% blocktrans count total=warning_count %}
+                One module imports the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by it.
+              {% plural %}
+                {{ total }} modules import the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by them.
+              {% endblocktrans %}
+              {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
+          {% if helper_count %}
+            <p class="text-secondary mt-3">
+              {% blocktrans count total=helper_count %}
+                One module publishes no Custom Script, so it migrates as a helper file rather than an entrypoint.
+              {% plural %}
+                {{ total }} modules publish no Custom Script, so they migrate as helper files rather than entrypoints.
+              {% endblocktrans %}
+              {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
+          {% if rows %}
+            <h3 class="fs-4 mt-4">{% trans "Projects" %}</h3>
+            <p class="text-secondary">
+              {% trans "Every Project the passes above name, including one the inventory proposed that staging has not created yet. Each state is read now rather than when a pass ran, so it is the verdict validation reached, and a revision that was refused records why on its own page." %}
+            </p>
+            <table class="table">
+              <tr>
+                <th scope="col">{% trans "Custom Script Project" %}</th>
+                <th scope="col">{% trans "Revision" %}</th>
+                <th scope="col">{% trans "Status" %}</th>
+                <th scope="col">{% trans "Custom Scripts" %}</th>
+              </tr>
+              {% for row in rows %}
+                <tr>
+                  <td>
+                    {% if row.project %}
+                      <a href="{{ row.project.get_absolute_url }}">{{ row.project }}</a>
+                    {% else %}
+                      {{ row.name }}
+                    {% endif %}
+                  </td>
+                  {% with revision=row.revision %}
+                    <td>
+                      {% if revision %}
+                        <a href="{{ revision.get_absolute_url }}">{% firstof revision.short_digest _("Not stored") %}</a>
+                      {% else %}
+                        {{ ''|placeholder }}
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if revision %}
+                        <span class="badge text-bg-{{ revision.get_status_color }}">{{ revision.get_status_display }}</span>
+                      {% else %}
+                        <span class="badge text-bg-secondary">{% trans "Not staged" %}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if revision %}
+                        {{ revision.discovered_scripts|length }}
+                      {% else %}
+                        {{ ''|placeholder }}
+                      {% endif %}
+                    </td>
+                  {% endwith %}
+                </tr>
+              {% endfor %}
+            </table>
+          {% endif %}
+          {% if cutover_interrupted and perms.netbox_scripts.migrate_customscriptproject %}
+            <div class="alert alert-warning mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "The cutover did not finish" %}</h3>
+              <p class="mb-0">
+                {% trans "This migration reached the cutover state without recording the crossing, so the fence may already have closed. Enter the cutover again to finish it, and treat the backup as still required until it reports." %}
+              </p>
+            </div>
+          {% endif %}
+        </div>
+        <div class="card-footer text-end">
+          <form action="{% url 'plugins:netbox_scripts:migration_inventory' %}"
+                method="post"
+                class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-primary">{% trans "Run inventory" %}</button>
+          </form>
+          <form action="{% url 'plugins:netbox_scripts:migration_verify' %}"
+                method="post"
+                class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-primary">{% trans "Verify" %}</button>
+          </form>
+          <a href="{% url 'plugins:netbox_scripts:migration_stage' %}"
+             class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>
+          {% if perms.netbox_scripts.migrate_customscriptproject %}
+            {% if can_cut_over %}
+              <a href="{% url 'plugins:netbox_scripts:migration_cutover' %}"
+                 class="btn btn-danger{% if cutover_queued %} disabled{% endif %}">{% trans "Enter cutover" %}</a>
+            {% endif %}
+            {% if can_activate %}
+              <form action="{% url 'plugins:netbox_scripts:migration_activate' %}"
+                    method="post"
+                    class="d-inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-primary"
+                        {% if activation_queued %}disabled{% endif %}>{% trans "Activate Projects" %}</button>
+              </form>
+            {% endif %}
+            {% if can_repoint %}
+              <form action="{% url 'plugins:netbox_scripts:migration_repoint' %}"
+                    method="post"
+                    class="d-inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-primary"
+                        {% if references_queued %}disabled{% endif %}>{% trans "Repoint references" %}</button>
+              </form>
+            {% endif %}
+            {% if can_clean_up %}
+              <a href="{% url 'plugins:netbox_scripts:migration_cleanup' %}"
+                 class="btn btn-danger{% if cleanup_queued %} disabled{% endif %}">{% trans "Clean up" %}</a>
+            {% endif %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock content %}

@@ -1,4 +1,4 @@
-# AGENTS.md, netbox-custom-scripts
+# AGENTS.md, netbox-scripts
 
 ## Methodology precedence
 
@@ -16,15 +16,15 @@ here, follow this document.
 
 ## Repository Overview
 
-`netbox-custom-scripts` is a NetBox plugin: Custom Scripts for NetBox It is owned by
-NetBox Labs and runs inside NetBox as a Django app (`netbox_custom_scripts`).
+`netbox-scripts` is a NetBox plugin: Custom Scripts for NetBox It is owned by
+NetBox Labs and runs inside NetBox as a Django app (`netbox_scripts`).
 The supported NetBox version range is in `COMPATIBILITY.md`
 (4.7.0 to 4.7.99 at scaffold time).
 
 Version pins live in two places:
 
 - `pyproject.toml`, Python, build, and dependency pins.
-- `netbox_custom_scripts/__init__.py`, `PluginConfig.min_version` /
+- `netbox_scripts/__init__.py`, `PluginConfig.min_version` /
   `PluginConfig.max_version` for the NetBox host app.
 
 Defer all version pins to those files; do not duplicate them elsewhere.
@@ -32,7 +32,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 ## Tech Stack
 
 - Python 3.12+ (defer to `pyproject.toml` for the exact pin).
-- NetBox (host app, min/max in `netbox_custom_scripts/__init__.py`).
+- NetBox (host app, min/max in `netbox_scripts/__init__.py`).
 - Django + Django REST Framework (NetBox's foundations).
 - Django's built-in test runner (this plugin does **not** use pytest, the
   suite is `django.test.TestCase`-based and runs via `manage.py test`).
@@ -53,7 +53,7 @@ when domain content calls for them.
 
 ```text
 .
-├── netbox_custom_scripts/            , The Django app.
+├── netbox_scripts/            , The Django app.
 │   ├── __init__.py                , [stub] PluginConfig (name, version, base_url, min/max NetBox).
 │   ├── urls.py                    , urlpatterns for 'modules/' + 'projects/' + 'scripts/' + detail-only 'revisions/<int:pk>/' via get_model_urls, sorted. Segments never repeat the base_url. The eight 'migration/' routes are explicit paths, because the passes act on the built-in feature and have no model of their own. The run's own detail route goes through get_model_urls like any other.
 │   ├── navigation.py              , PluginMenu 'Custom Scripts' with a Projects group and a Scripts group, each labelled like every sibling plugin. A menu button declares EVERY permission its route requires, since has_perms is all-of and a menu button has no inert state to fall back on: Upload Script names the Module add half as well as the Project one. Scripts get no add button and Modules get no nav item: a declaration is a Project setting. Migration sits in the Projects group, because a pass produces Projects.
@@ -158,7 +158,7 @@ when domain content calls for them.
 │   │   ├── test_inherited_guarantees.py , Guarantees delivered by a base class rather than by our code, each asserted as behaviour so an override drops it loudly: a read-only token cannot start a run (TokenPermissions, which enforces it from BOTH has_permission and has_object_permission, so a control has to bypass both), and a raising action neither propagates nor ends the dispatch batch (is_plugin_provided, which register_event_rule_action assigns onto the INSTANCE, so a class attribute is overwritten and only the registered instance decides).
 │   │   ├── test_internals_canary.py , The canary script loaded by path: every listed crossing resolves on this host, the resolver reports a missing attribute, module or registry key under its row, refuses a malformed probe rather than resolving part of it, the lock check keys on the plugin's real namespaces, a plugin NetBox skipped at settings load is reported, and the page's table and the probe list agree row for row, every row carrying a probe.
 │   │   ├── test_permissions.py    , The source-management separation: change alone cannot activate or reconcile, each own action can, and an object constraint narrows both projects and their revisions.
-│   │   ├── test_event_rules.py    , The `netbox_custom_scripts.run` action: registration, the refusals validate() makes and the ones it leaves to dispatch, the event payload, and import resolution by project key. Skipped entirely below the 4.7 line through an importlib.util.find_spec probe, which is the only guard the feature needs. One class reads the queued task, because enqueue_run keeps script input off the Job row so that is the only place action_data can be seen.
+│   │   ├── test_event_rules.py    , The `netbox_scripts.run` action: registration, the refusals validate() makes and the ones it leaves to dispatch, the event payload, and import resolution by project key. Skipped entirely below the 4.7 line through an importlib.util.find_spec probe, which is the only guard the feature needs. One class reads the queued task, because enqueue_run keeps script input off the Job row so that is the only place action_data can be seen.
 │   │   ├── test_event_sources.py  , The plugin's models as Event Rule sources: all four qualify, a rule saves against one, the webhook body carries identity and no stored document, and a matching rule reaches the queue. The queue is isolated in testing/configuration.py rather than per class, so emptying here only separates one test from the next. Never clear with RQQueueTestMixin, which uses a server-wide flushall(). Dispatch needs captureOnCommitCallbacks, since django_rq defers an enqueue to on_commit and a TestCase never commits.
 │   │   ├── test_management.py     , The runcustomscript command: what it resolves, what it refuses, that a committed run is change logged against the named user, and that a failure raised before the script is reached still reports why.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
@@ -180,7 +180,7 @@ when domain content calls for them.
 │   │   ├── filters.py             , [CustomScriptProject] CustomScriptProjectFilter(PrimaryModelFilter) with enum-typed choice filters; no storage_key filter.
 │   │   └── enums.py               , [CustomScriptProject] ProjectSourceTypeEnum + ActivationPolicyEnum via strawberry.enum(ChoiceSet.as_enum()).
 │   ├── storage/
-│   │   ├── config.py              , Resolves the required STORAGES['netbox_custom_scripts'] backend and limit settings.
+│   │   ├── config.py              , Resolves the required STORAGES['netbox_scripts'] backend and limit settings.
 │   │   ├── paths.py               , Canonical source paths, the case-insensitive comparison, compiled-artifact refusal, storage keys.
 │   │   ├── manifest.py            , Manifest build/validate pair, content digests, per-node letter-case collision rejection.
 │   │   ├── entrypoints.py         , Entrypoint snapshot build/validate pair, the return-trip trust boundary.
@@ -217,7 +217,7 @@ when domain content calls for them.
 │   ├── activation.py              , activate_revision() / deactivate_revision() domain orchestrators + synchronize_scripts(): the CustomScript upsert-and-retire pass, no imports. synchronize_scripts() returns the number of rows it wrote and activate_revision() carries it out as an ActivationResult, collected in a closure around the callback rather than by widening promote_revision(), whose return is the storage tier's contract. deactivate_revision() still returns the revision alone, because deactivation has one outcome the confirmation page already states.
 │   ├── jobs.py                    , ProjectStorageCleanupJob (cleanup rechecks references under the project lock) + ProjectStorageSweepJob (the daily sweep that reports what an unfinished cleanup left in the store, reclaiming nothing. The only job here core schedules rather than a caller enqueueing it, through @system_job, so it needs no trigger of its own, and it cannot set a job timeout that way either, which is why it takes the oldest candidates first and puts the report on the row before the loop. Groups candidates by stored tree, since a Project cascade records one cleanup per revision and rows can share a digest. It takes no routing check for the same reason the migration inventory takes none, it writes nothing. Content no cleanup Job names is out of its reach, because finding that needs a backend that can enumerate) + ProjectReconciliationJob (stages the Data Source directory as it stands at run time, and activates what a reverted directory resolves to) + ProjectEntrypointRefreshJob (restages the stored tree under the current selection, the only route an uploaded project has to apply one) + RevisionValidationJob (activates through activation.activate_revision on a valid verdict when the policy allows, or when the enqueue asked for this one revision) + CustomScriptJob (pins the revision at enqueue for a one-shot run and pins nothing for a recurrence, which resolves the active revision per occurrence because JobRunner re-enqueues a periodic job with the same kwargs, then resolves the class out of it, runs it through execution.run_script, and sanitizes the run record before it reaches the Job row, and carries an optional event payload from enqueue onto the instance, which must stay JSON-safe because it rides on the Job row) + the seven migration jobs: MigrationInventoryJob (reports what a migration would do, writing nothing) + MigrationStagingJob (refuses on any blocking finding, then stages the proposed Projects) + MigrationCutoverJob (captures, then closes what a plugin can) + MigrationActivationJob (puts the staged Projects into service, so the CustomScript rows a reference can name exist) + MigrationReferencesJob (Event Rules, permissions, Job history and schedules, in that order, history before schedules so preservation happens before anything new is created) + MigrationCleanupJob (deletes the mapped modules, skipping any whose deletion would take Job history or an Event Rule with it) + MigrationVerificationJob (the five read-only checks). Every migration job imports the migration tier locally, because staging reaches ingestion, which imports this module. Each is started from the Migration page, which is the only trigger any of them has. All but the inventory and the verification check branching.unsafe_routing_reason() first, because enqueue-time safety does not carry to a job that may run much later on another pod, and those two need no check because they write nothing.
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, and a completed Data Source sync enqueues one reconciliation per project on it. Wired in AppConfig.ready().
-│   ├── event_rules.py             , RunCustomScriptAction, the registered `netbox_custom_scripts.run` action, plus the `event_rule_actions` list PluginConfig loads by convention, so no AppConfig entry is needed. A thin adapter onto CustomScriptJob.enqueue_run(), which already owns pinning and the executability check, and it reports a script it cannot run rather than raising, because one rule's misconfiguration must not end the batch. validate() refuses only retirement, since a disabled script is temporary state an administrator flips back. **This module needs no version guard and must not grow one**: PluginConfig resolves the list only where DEFAULT_RESOURCE_PATHS carries the key, which no 4.6 release does, so nothing below the 4.7 line ever imports it.
+│   ├── event_rules.py             , RunCustomScriptAction, the registered `netbox_scripts.run` action, plus the `event_rule_actions` list PluginConfig loads by convention, so no AppConfig entry is needed. A thin adapter onto CustomScriptJob.enqueue_run(), which already owns pinning and the executability check, and it reports a script it cannot run rather than raising, because one rule's misconfiguration must not end the batch. validate() refuses only retirement, since a disabled script is temporary state an administrator flips back. **This module needs no version guard and must not grow one**: PluginConfig resolves the list only where DEFAULT_RESOURCE_PATHS carries the key, which no 4.6 release does, so nothing below the 4.7 line ever imports it.
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices, MigrationStateChoices.
 │   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing, ingestion and migration staging.
@@ -226,7 +226,7 @@ when domain content calls for them.
 │   ├── ingestion.py               , ingest_upload() (which takes activate_once, the upload form's one-shot, and forwards it to the validation job so a manual project can still put one upload into service) / ingest_data_source() / current_source_tree() / uploaded_source_path() / declare_entrypoint() / check_upload_conflicts(): the one home of source ingestion. check_upload_conflicts() holds the replacement and case-collision rules, so the Add Script form and the REST upload action cannot drift. Upload declares the file it carries unless its caller passes declare=False, which only migration does for a module that would publish nothing, and a synchronized directory declares nothing. declare_entrypoint() is public because migration staging shares it, so the rule that a declaration is reused rather than replaced has one home.
 │   ├── object_actions.py          , ActivateRevision + AddScript + ReconcileSource + RepairScripts + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. Each takes the model's own action rather than change: activate, reconcile and run. RepairScripts takes activate too, because republishing rows is the write activation makes. RunScript, RepairScripts and AddScript render inert rather than hidden when they cannot act, AddScript because an upload declares a Module and permissions_required cannot name another model. **The explanatory title goes on a wrapping span, never on the disabled button**, because Tabler sets pointer-events:none on both .btn:disabled and .btn.disabled, so a title on the control itself never surfaces. AddScript and ReconcileSource each render only for the source type they belong to.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
-│   └── templates/netbox_custom_scripts/
+│   └── templates/netbox_scripts/
 │       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
 │       ├── customscriptprojectrevision.html       , Detail-view template for one revision, extends `generic/object.html`.
 │       ├── migration.html         , The Migration landing page, which extends `generic/_base.html` rather than an object template. Lists the last inventory's blocking findings above the buttons, because staging refuses on any of them and creates nothing, and counts the warnings instead, because that list is one entry per module.
@@ -432,7 +432,7 @@ that already matches, the repair writes nothing when nothing is wrong.
 The standard hooks every NetBox plugin uses. Fill in the per-plugin details
 inline as the plugin grows.
 
-- **PluginConfig**, `netbox_custom_scripts/__init__.py` declares `name`,
+- **PluginConfig**, `netbox_scripts/__init__.py` declares `name`,
   `label`, `verbose_name`, `description`, `version`, `author`,
   `author_email`, `base_url`, `min_version`, `max_version`. Add a
   `ready()` method that imports `signals` once you create that module.
@@ -464,7 +464,7 @@ inline as the plugin grows.
   by `get_model_urls(APP_LABEL, '<model>')` in `urls.py`. The REST API uses a
   `NetBoxRouter` in `api/urls.py`.
 - **Permissions**, Standard Django model permissions namespaced under
-  `netbox_custom_scripts.<perm>`.
+  `netbox_scripts.<perm>`.
 - **Signals**, `signals.py` is the home for cross-model side-effects.
 - **Search**, `search.py` registers `SearchIndex` subclasses for major models
   so they appear in NetBox's global search.
@@ -482,14 +482,14 @@ inside a NetBox checkout that has this plugin installed with
 | Command | What it does |
 |---|---|
 | `pip install -e '.[dev,test]'` (from this repo) | Install the plugin in editable mode with dev + test extras |
-| `python netbox/manage.py test netbox_custom_scripts.tests -v 2` | Run the plugin's test suite |
+| `python netbox/manage.py test netbox_scripts.tests -v 2` | Run the plugin's test suite |
 | `ruff check .` | Lint |
 | `ruff format .` | Format |
 | `pre-commit install` | Install the pre-commit hook into `.git/hooks` |
 | `pre-commit run --all-files` | Run every default-stage hook against the whole tree |
 | `pre-commit run --hook-stage manual check-manifest` | Run `check-manifest` (manual stage), exercise before tagging a release |
 | `python scripts/check_netbox_internals.py --netbox <netbox>/netbox` | Resolve every NetBox internal the plugin depends on against that checkout, no database needed |
-| `python netbox/manage.py makemigrations netbox_custom_scripts` | Generate Django migrations after model changes |
+| `python netbox/manage.py makemigrations netbox_scripts` | Generate Django migrations after model changes |
 | `python netbox/manage.py migrate` | Apply migrations |
 | `python netbox/manage.py runserver` | Start NetBox locally with the plugin loaded |
 | `mkdocs serve` | Preview the user docs |
@@ -509,7 +509,7 @@ mirrors what CI does (see `.github/workflows/test.yml`):
    export NETBOX_CONFIGURATION=configuration
    ```
 
-   The shipped config sets `PLUGINS = ['netbox_custom_scripts']` and points
+   The shipped config sets `PLUGINS = ['netbox_scripts']` and points
    at a local Postgres (netbox / netbox / netbox) plus Redis on default
    ports. NetBox's `manage.py` reads `NETBOX_CONFIGURATION` as a Python
    dotted module path and imports it against `sys.path`, so no symlink
@@ -521,18 +521,18 @@ mirrors what CI does (see `.github/workflows/test.yml`):
 5. Run migrations and start the dev server.
 
 After model changes, generate a migration with NetBox's
-`manage.py makemigrations netbox_custom_scripts`, `related_name` changes are
+`manage.py makemigrations netbox_scripts`, `related_name` changes are
 no-op SQL but still need a migration for Django's state graph. Squash
 periodically.
 
 ## Testing
 
 - Tests use Django's `unittest.TestCase` (`django.test.TestCase`), **not**
-  pytest. Suites live in `netbox_custom_scripts/tests/`.
+  pytest. Suites live in `netbox_scripts/tests/`.
 - Run via NetBox's test runner:
 
   ```bash
-  python netbox/manage.py test netbox_custom_scripts.tests -v 2
+  python netbox/manage.py test netbox_scripts.tests -v 2
   ```
 
   The runner uses NetBox's settings and creates a real test database, so any
@@ -541,14 +541,14 @@ periodically.
   model-layer tests cover validators, constraints, and computed properties.
 - **Query-count baselines.** NetBox 4.6+ view and REST API list tests assert
   each model's SQL query count against a baseline in
-  `netbox_custom_scripts/tests/query_counts.json`. The scaffold ships a baseline
+  `netbox_scripts/tests/query_counts.json`. The scaffold ships a baseline
   for the worked example, so a fresh render passes. After you add or change a
   model with a list view, regenerate it by running the suite once with
   `UPDATE_QUERY_COUNTS=1` serially (the recorder rejects `--parallel`), then
   commit the updated file:
 
   ```bash
-  UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_custom_scripts.tests
+  UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_scripts.tests
   ```
 
   **The baseline is a single file, but the CI matrix spans two NetBox refs, and a
@@ -620,7 +620,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
    tables. Add `ContactsMixin` from `netbox.models.features` if contacts
    apply.
 2. Add a `ChoiceSet` to `choices.py` for any new enum.
-3. `python netbox/manage.py makemigrations netbox_custom_scripts`.
+3. `python netbox/manage.py makemigrations netbox_scripts`.
 4. Wire up the rest of the surface area. In subpackage layout, add the
    classes to each area's topic module (`filtersets/<topic>.py`,
    `tables/<topic>.py`, `api/serializers/<topic>.py`) and re-export each
@@ -637,7 +637,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
    layout; re-export is automatic via `forms/__init__.py`. In custom layout,
    follow the rendered per-area layout choices. In all cases, update
    `api/urls.py`, `urls.py`, `navigation.py`, and per-model templates under
-   `templates/netbox_custom_scripts/`.
+   `templates/netbox_scripts/`.
 5. Register a `SearchIndex` in `search.py` if the model should be globally
    searchable.
 6. Add test classes for the new model, mirroring the `CustomScriptProject` classes the
@@ -681,17 +681,17 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 2. Add the table. In subpackage layout, add it to the topic module
    `tables/<topic>.py` and re-export from `tables/__init__.py`. In flat
    layout, append the class to `tables.py`.
-3. Add the template under `templates/netbox_custom_scripts/`. Detail layouts
+3. Add the template under `templates/netbox_scripts/`. Detail layouts
    use `netbox.ui.layout.SimpleLayout` with panel lists from `ui/panels.py`.
 4. Wire URL prefixes in `urls.py` via `get_model_urls(APP_LABEL, '<model>')`.
 5. Add the menu entry to `navigation.py` (with the right `permissions=[...]`).
 6. For object-level buttons, add an `ObjectAction` subclass to
    `object_actions.py` and a button template under
-   `templates/netbox_custom_scripts/buttons/`.
+   `templates/netbox_scripts/buttons/`.
 
 ### Bump the supported NetBox version
 
-1. Update `min_version` / `max_version` in `netbox_custom_scripts/__init__.py`.
+1. Update `min_version` / `max_version` in `netbox_scripts/__init__.py`.
 2. Update `COMPATIBILITY.md`.
 3. Update `netbox_test_min_ref` / `netbox_test_max_ref` (via `copier update`, or directly in the rendered `.github/workflows/test.yml`) to match the new supported floor / ceiling.
 4. Run the suite locally against the new version.
@@ -700,7 +700,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
 ### Cut a release
 
-1. Bump `version` in both `pyproject.toml` and `netbox_custom_scripts/__init__.py`.
+1. Bump `version` in both `pyproject.toml` and `netbox_scripts/__init__.py`.
 2. Update `docs/releases.md`.
 3. Tag and publish a GitHub release. `release.yml` builds and publishes to
    the internal artifact store.
@@ -714,7 +714,7 @@ would be missing for the worker pod that has to execute it.
 
 - **Persist bytes through a Django storage backend, never the local filesystem.**
   Project storage resolves its backend in `storage/config.py`, through the required
-  `netbox_custom_scripts` entry of `STORAGES`.
+  `netbox_scripts` entry of `STORAGES`.
 - **No authoritative per-pod state.** A disposable, manifest-verified runtime
   cache is supported, and it is the only layer that writes local executable
   files. Cache content is regenerated from the authoritative store and verified
@@ -740,7 +740,7 @@ would be missing for the worker pod that has to execute it.
   Python imports need a real directory tree.
 
 The contract is enforced twice. The backend contract tests in
-`netbox_custom_scripts/tests/storage/test_backend_contract.py` drive the
+`netbox_scripts/tests/storage/test_backend_contract.py` drive the
 storage lifecycle against backends without filesystem paths or directory
 semantics, proving the behavior. The AST checker `scripts/check_cloud_compat.py`
 (a pre-commit hook, so the CI lint job runs it) polices where local writes live:
@@ -760,7 +760,7 @@ Check this before designing anything that persists bytes.
 - **All UI views use `@register_model_view`** from `utilities.views`.
 - **URL segments never repeat the plugin name.** `PluginConfig.base_url` already
   scopes every route, so a model's segment is its own plural noun: `modules/`,
-  `projects/`, giving `/api/plugins/custom-scripts/modules/`, never
+  `projects/`, giving `/api/plugins/netbox-scripts/modules/`, never
   `custom-script-modules/`. Segments are the only thing this affects, since
   reverse names come from the model (DRF derives the router basename from
   `queryset.model`, and `register_model_view` / `get_model_urls` name UI routes),
@@ -769,7 +769,7 @@ Check this before designing anything that persists bytes.
   from `ui/panels.py`.
 - **Object-level buttons** are `ObjectAction` subclasses in
   `object_actions.py`, paired with templates in
-  `templates/netbox_custom_scripts/buttons/`.
+  `templates/netbox_scripts/buttons/`.
 - **FK filters** must declare an explicit
   `<field>_id = ModelMultipleChoiceFilter(field_name='<field>', ...)` in the
   filterset; do not rely on `Meta.fields` to generate `_id` variants. Filter
@@ -781,7 +781,7 @@ Check this before designing anything that persists bytes.
   `AppConfig.ready()`.
 - **Search registration** lives in `search.py`; cross-model UI extensions
   live in `template_content.py`.
-- **Permissions namespaced** under `netbox_custom_scripts.<perm>`. Used by
+- **Permissions namespaced** under `netbox_scripts.<perm>`. Used by
   `navigation.py` menu items and view base classes.
 - **`Meta.permissions` declares the BARE action**, `('run', ...)` and not
   `('run_customscript', ...)`, matching `core.DataSource`'s `('sync', ...)` and
@@ -790,7 +790,7 @@ Check this before designing anything that persists bytes.
   `f'{app_label}.{action}_{model_name}'` from whatever an administrator ticked, so a codename
   carrying the model name grants `run_customscript_customscript`, which nothing checks. Call
   sites are unaffected either way: they ask for the composed
-  `netbox_custom_scripts.run_customscript`, which `get_permission_for_model()` builds from the
+  `netbox_scripts.run_customscript`, which `get_permission_for_model()` builds from the
   action, never from the codename. One consequence to know rather than discover: the bare
   codename also produces a bare Django permission row, and `RemoteUserBackend` sits ahead of
   `ObjectPermissionBackend` in `AUTHENTICATION_BACKENDS` and does read `auth_permission`, so a

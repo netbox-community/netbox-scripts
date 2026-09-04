@@ -59,7 +59,7 @@ itself, and no project with an active revision could ever be deleted.
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | `/api/plugins/custom-scripts/project-revisions/` |
+| REST | `/api/plugins/netbox-scripts/project-revisions/` |
 | GraphQL | `custom_script_project_revision` / `custom_script_project_revision_list` |
 
 Both surfaces are read-only. A revision is produced by ingestion and moved
@@ -265,7 +265,7 @@ recorded, so nothing leaks.
 
 A revision's files live in the storage backend the plugin is configured to use,
 one key per file, under
-`netbox-custom-scripts/<storage_key>/revisions/<digest>/`, where `storage_key`
+`netbox-scripts/<storage_key>/revisions/<digest>/`, where `storage_key`
 belongs to the owning project. The key is a pure function of those values, with
 no request, branch, or schema context, so a stored file resolves identically on
 every node and in every pod. See [Configuration](../configuration.md) for the

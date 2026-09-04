@@ -1,0 +1,30 @@
+{% load i18n %}
+{% comment %}
+Per-row Activate and Deactivate buttons for the Revisions tab, rendered through the table's
+ActionsColumn extra_buttons.
+
+Links, not forms. The children view wraps its table in a form for bulk actions
+("generic/object_children.html"), and a nested form is invalid HTML that browsers discard, so a
+button inside one submits the OUTER form to the tab URL instead. Each link opens the confirmation
+page its view renders on GET, which then POSTs, matching how every other state change here works.
+
+The two are mutually exclusive: the revision in force offers Deactivate, one whose status allows
+it offers Activate, and a revision still staging, validating, invalid, or already superseded
+offers neither.
+
+Permission is the project's activate permission, matching the views, so the buttons appear exactly
+when they would work.
+{% endcomment %}
+{% if perms.netbox_scripts.activate_customscriptproject %}
+  {% if record.is_active %}
+    <a href="{% url 'plugins:netbox_scripts:customscriptprojectrevision_deactivate' pk=record.pk %}"
+       class="btn btn-sm btn-outline-warning">
+      <i class="mdi mdi-stop-circle-outline" aria-hidden="true"></i> {% trans "Deactivate" %}
+    </a>
+  {% elif record.is_activatable %}
+    <a href="{% url 'plugins:netbox_scripts:customscriptprojectrevision_activate' pk=record.pk %}"
+       class="btn btn-sm btn-outline-primary">
+      <i class="mdi mdi-play-circle-outline" aria-hidden="true"></i> {% trans "Activate" %}
+    </a>
+  {% endif %}
+{% endif %}

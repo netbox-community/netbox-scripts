@@ -12,7 +12,7 @@ sits below one private root, with one container per project and one package per
 revision:
 
 ```text
-_netbox_custom_scripts_runtime.p_<project>.r_<revision>.<dotted path>
+_netbox_scripts_runtime.p_<project>.r_<revision>.<dotted path>
 ```
 
 The project and revision components come from internal storage identities that
@@ -103,7 +103,7 @@ After an entrypoint imports, discovery decides which classes it offers:
 
 Each published class is stamped with its identity: the logical module path
 (project-relative, such as `tools.deploy`) and a logger name of the form
-`netbox.plugins.netbox_custom_scripts.scripts.<project key>.<logical
+`netbox.plugins.netbox_scripts.scripts.<project key>.<logical
 module>.<Class>`. The logger carries the stable project key and never a
 revision digest, so two projects publishing the same class name log apart and
 log routing survives new revisions.

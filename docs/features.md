@@ -2,7 +2,7 @@
 
 ## Overview
 
-NetBox Custom Scripts manages Custom Script source trees as first-class NetBox
+NetBox Scripts manages Custom Script source trees as first-class NetBox
 objects. Administrators define projects that either own uploaded content or
 mirror a directory of a NetBox Data Source, and get the standard NetBox object
 experience: list and detail views, filtering, tags, custom fields, change

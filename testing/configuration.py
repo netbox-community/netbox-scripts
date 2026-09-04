@@ -16,23 +16,23 @@ DATABASE = {
     # TransactionTestCase, which commits and then flushes, so it cannot share a database with
     # any other suite that might be running at the same time.
     'TEST': {
-        'NAME': 'test_netbox_custom_scripts',
+        'NAME': 'test_netbox_scripts',
     },
 }
 
 PLUGINS = [
-    'netbox_custom_scripts',
+    'netbox_scripts',
 ]
 
 PLUGINS_CONFIG = {
-    'netbox_custom_scripts': {},
+    'netbox_scripts': {},
 }
 
 # The plugin's storage entry is required. InMemoryStorage keeps the suite off the
 # filesystem, and tests that need a backend of their own override STORAGES themselves.
 # NetBox merges this with its built-in aliases, so defining only this entry is safe.
 STORAGES = {
-    'netbox_custom_scripts': {
+    'netbox_scripts': {
         'BACKEND': 'django.core.files.storage.InMemoryStorage',
     },
 }

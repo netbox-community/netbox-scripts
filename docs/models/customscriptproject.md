@@ -37,7 +37,7 @@ classes an activated revision publishes are [Custom Scripts](customscript.md).
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | `/api/plugins/custom-scripts/projects/` |
+| REST | `/api/plugins/netbox-scripts/projects/` |
 | GraphQL | `custom_script_project` / `custom_script_project_list` |
 
 A project's **Entrypoints** tab selects which of its source modules discovery
@@ -126,14 +126,14 @@ NetBox Branching's own `exempt_models` setting is the supported way to say so:
 PLUGINS_CONFIG = {
     'netbox_branching': {
         'exempt_models': [
-            'netbox_custom_scripts.customscriptproject',
-            'netbox_custom_scripts.customscriptprojectrevision',
+            'netbox_scripts.customscriptproject',
+            'netbox_scripts.customscriptprojectrevision',
         ],
     },
 }
 ```
 
-List the models individually rather than using a `netbox_custom_scripts.*`
+List the models individually rather than using a `netbox_scripts.*`
 wildcard. The wildcard is accurate today, because every model in this plugin is
 installation-global, but it would also sweep in a model added later that is meant
 to keep NetBox Branching's ordinary behaviour.

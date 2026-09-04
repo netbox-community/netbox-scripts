@@ -1,0 +1,363 @@
+"""
+Integration tests against a real provisioned NetBox Branching branch.
+
+Without NetBox Branching these classes are not collected at all, so the default suite is unchanged.
+The cases are TransactionTestCase: a branch lives in its own PostgreSQL schema on its own
+connection, which no savepoint rolls back.
+"""
+
+import hashlib
+import os
+import unittest
+import uuid
+from unittest import mock
+
+import django_rq
+from django.apps import apps
+from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test import RequestFactory, SimpleTestCase, TransactionTestCase
+from django.urls import reverse
+
+from core.models import ObjectType
+from dcim.models import Site
+from extras.models import JournalEntry, Tag
+from netbox.context_managers import event_tracking
+from netbox_scripts import signals
+from netbox_scripts.choices import RevisionStatusChoices
+from netbox_scripts.execution import run_script
+from netbox_scripts.models import CustomScriptProject, CustomScriptProjectRevision
+from netbox_scripts.scripts import Script
+from netbox_scripts.storage import config, store
+from netbox_scripts.storage.manifest import compute_digest
+from netbox_scripts.storage.paths import revision_prefix
+
+# Branching can be importable while absent from INSTALLED_APPS, and defining one of its models in
+# that state raises RuntimeError, which no ImportError guard would catch.
+HAS_BRANCHING = apps.is_installed('netbox_branching')
+
+if HAS_BRANCHING:
+    from netbox_branching.choices import BranchMergeStrategyChoices, BranchStatusChoices
+    from netbox_branching.models import Branch, ChangeDiff
+    from netbox_branching.provisioning import quote_ident
+    from netbox_branching.utilities import activate_branch, get_tables_to_replicate
+
+User = get_user_model()
+
+# Set by the CI job that installs NetBox Branching.
+REQUIRE_BRANCHING = os.environ.get('NETBOX_SCRIPTS_REQUIRE_BRANCHING') == '1'
+
+
+class BranchingRequirementTestCase(SimpleTestCase):
+    """Fail loudly where Branching is meant to be installed and is not."""
+
+    @unittest.skipUnless(REQUIRE_BRANCHING, 'NETBOX_SCRIPTS_REQUIRE_BRANCHING is not set')
+    def test_netbox_branching_is_installed(self):
+        # Deliberately not a TransactionTestCase and not gated on HAS_BRANCHING. Every class below
+        # subclasses `object` when Branching is absent, so none of them is collected and a run
+        # reporting zero tests exits 0. This is the only assertion that survives that case.
+        self.assertTrue(apps.is_installed('netbox_branching'))
+
+
+# One tiny tree. The digest comes from the production helper so the constant cannot drift.
+SOURCE = {'hello.py': b'print("hi")\n'}
+MANIFEST = [
+    {
+        'path': 'hello.py',
+        'size': len(SOURCE['hello.py']),
+        'sha256': hashlib.sha256(SOURCE['hello.py']).hexdigest(),
+    }
+]
+DIGEST = compute_digest(MANIFEST)
+
+# Not TestCase subclasses without Branching, so the runner never reaches their machinery at all.
+_TestBase = TransactionTestCase if HAS_BRANCHING else object
+
+
+def provision_branch(name, merge_strategy=None, user=None):
+    """Return a provisioned branch, asserted to have reached READY."""
+    branch = Branch(name=name, merge_strategy=merge_strategy)
+    branch.save(provision=False)
+    # Synchronous, and it writes the terminal status with an update() the instance cannot see.
+    branch.provision(user=user)
+    branch.refresh_from_db()
+    if branch.status != BranchStatusChoices.READY:
+        raise AssertionError(f'Branch {name!r} provisioned to status {branch.status!r}')
+    return branch
+
+
+@unittest.skipUnless(HAS_BRANCHING, 'netbox_branching is not installed')
+class BranchingTestCase(_TestBase):
+    """Provision branches and drop their schemas afterwards, whatever the test did."""
+
+    # Provisioning reads main-schema rows, which a preceding TransactionTestCase truncated.
+    serialized_rollback = True
+
+    def setUp(self):
+        super().setUp()
+        self._schemas = []
+        self.user = User.objects.create_user(username='branchuser')
+        self.request = self.make_request(self.user)
+
+    def tearDown(self):
+        # Phase 1 of provision() commits its CREATE SCHEMA, so rollback leaves the schema behind
+        # and a --keepdb run would accumulate one per test.
+        for schema in self._schemas:
+            with connection.cursor() as cursor:
+                cursor.execute(f'DROP SCHEMA IF EXISTS {quote_ident(schema)} CASCADE')
+        super().tearDown()
+
+    def make_request(self, user):
+        """Return the request object change logging needs in order to record anything at all."""
+        request = RequestFactory().get(reverse('home'))
+        request.id = uuid.uuid4()
+        request.user = user
+        return request
+
+    def branch(self, name, **kwargs):
+        """Return a READY branch whose schema this test will drop."""
+        branch = provision_branch(name, user=self.user, **kwargs)
+        self._schemas.append(branch.schema_name)
+        return branch
+
+    def staged_revision(self, project, entrypoint_digest=''):
+        """Return one VALID revision of a project, with its single source file really stored."""
+        store.write_revision(config.get_storage(), project.storage_key, DIGEST, SOURCE, MANIFEST)
+        return CustomScriptProjectRevision.objects.create(
+            project=project,
+            digest=DIGEST,
+            status=RevisionStatusChoices.VALID,
+            manifest=MANIFEST,
+            entrypoint_digest=entrypoint_digest,
+        )
+
+    def revision_stored(self, project):
+        """Report whether the stored tree behind DIGEST is still in the backend."""
+        return config.get_storage().exists(f'{revision_prefix(project.storage_key, DIGEST)}hello.py')
+
+
+class ProvisioningTestCase(BranchingTestCase):
+    def test_a_branch_provisions_with_this_plugin_installed(self):
+        branch = self.branch('Smoke')
+        self.assertEqual(branch.status, BranchStatusChoices.READY)
+
+    def test_no_table_of_this_plugin_is_replicated_into_the_branch_schema(self):
+        # The routing claim at its strongest: the tables do not physically exist in the branch.
+        branch = self.branch('Tables')
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT table_name FROM information_schema.tables WHERE table_schema = %s',
+                (branch.schema_name,),
+            )
+            replicated = {row[0] for row in cursor.fetchall()}
+        self.assertTrue(replicated, 'the branch schema holds no tables at all, so it never provisioned')
+        self.assertEqual([name for name in replicated if name.startswith('netbox_scripts_')], [])
+
+    def test_the_replication_list_excludes_this_plugin(self):
+        tables = get_tables_to_replicate()
+        self.assertTrue(tables, 'nothing is replicated at all, so the filter below proves nothing')
+        self.assertEqual([t for t in tables if t.startswith('netbox_scripts_')], [])
+
+
+class ActiveBranchTestCase(BranchingTestCase):
+    def test_a_project_created_inside_a_branch_is_visible_outside_it(self):
+        branch = self.branch('Writes')
+        with activate_branch(branch):
+            project = CustomScriptProject.objects.create(name='Inside', key='inside')
+        # No activate_branch here, so the main schema is what answers.
+        self.assertTrue(CustomScriptProject.objects.filter(pk=project.pk).exists())
+
+    def test_a_project_created_after_provisioning_is_readable_inside_a_branch(self):
+        # Created after provisioning, so a branch-aware model would not have been replicated into
+        # the schema and the read would find nothing.
+        branch = self.branch('Reads')
+        project = CustomScriptProject.objects.create(name='Outside', key='outside')
+        with activate_branch(branch):
+            self.assertTrue(CustomScriptProject.objects.filter(pk=project.pk).exists())
+
+    def test_an_edit_inside_a_branch_applies_globally(self):
+        project = CustomScriptProject.objects.create(name='Before', key='edited')
+        branch = self.branch('Edits')
+        with activate_branch(branch):
+            project.name = 'After'
+            project.save()
+        # Re-fetched rather than refreshed: refresh_from_db() reads self._state.db, which the
+        # branch save set to the branch alias, so it would answer from the branch either way.
+        self.assertEqual(CustomScriptProject.objects.get(pk=project.pk).name, 'After')
+
+    def test_a_project_change_raises_no_branch_diff(self):
+        branch = self.branch('Diff')
+        # Change logging writes no ObjectChange without a current request, so without
+        # event_tracking this would pass for a branch-aware model too.
+        with activate_branch(branch), event_tracking(self.request):
+            CustomScriptProject.objects.create(name='Undiffed', key='undiffed')
+            Site.objects.create(name='Diffed Site', slug='diffed-site')
+        site_diffs = ChangeDiff.objects.filter(branch=branch, object_type=ObjectType.objects.get_for_model(Site))
+        self.assertTrue(site_diffs.exists(), 'no diff for a branch-aware model, so this proves nothing')
+        project_diffs = ChangeDiff.objects.filter(
+            branch=branch, object_type=ObjectType.objects.get_for_model(CustomScriptProject)
+        )
+        self.assertFalse(project_diffs.exists())
+
+    def test_a_tag_assignment_inside_a_branch_stays_in_the_branch(self):
+        # The Tag exists before provisioning, so the branch replicates it. The Project is global
+        # and is not replicated, which is what the assignment below is assigned across.
+        project = CustomScriptProject.objects.create(name='Tagged', key='tagged')
+        tag = Tag.objects.create(name='Branch Tag', slug='branch-tag')
+        branch = self.branch('Tags')
+        with activate_branch(branch):
+            project.tags.add(tag)
+            self.assertEqual(list(project.tags.all()), [tag])
+        # Branching checks assignments ahead of any exempt list, so no plugin can make them
+        # global. This records that boundary rather than asking for it.
+        self.assertEqual(list(project.tags.all()), [])
+
+    def test_a_journal_entry_inside_a_branch_stays_in_the_branch(self):
+        project = CustomScriptProject.objects.create(name='Journalled', key='journalled')
+        object_type = ObjectType.objects.get_for_model(CustomScriptProject)
+        entries = JournalEntry.objects.filter(assigned_object_type=object_type, assigned_object_id=project.pk)
+        branch = self.branch('Journal')
+        with activate_branch(branch):
+            JournalEntry.objects.create(
+                assigned_object_type=object_type, assigned_object_id=project.pk, comments='Inside'
+            )
+            self.assertEqual(entries.count(), 1)
+        self.assertEqual(entries.count(), 0)
+
+
+class BranchDeletionTestCase(BranchingTestCase):
+    def setUp(self):
+        super().setUp()
+        # This class commits, so the deletion signal really enqueues. Drained to leave it as found.
+        self.addCleanup(django_rq.get_queue('default').empty)
+        self.project = CustomScriptProject.objects.create(name='Deletions', key='deletions')
+
+    def test_a_revision_deleted_inside_a_branch_is_gone_from_main(self):
+        revision = self.staged_revision(self.project)
+        # delete() clears the instance pk, so a later filter on it finds nothing whatever routing did.
+        pk = revision.pk
+        branch = self.branch('Delete')
+        with activate_branch(branch):
+            revision.delete()
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=pk).exists())
+
+    def test_reverting_a_merge_does_not_resurrect_a_deleted_revision(self):
+        # A resurrected row would name bytes the cleanup job already reclaimed, which is the
+        # unrecoverable shape: a revision whose content is gone.
+        revision = self.staged_revision(self.project)
+        pk = revision.pk
+        branch = self.branch('Revert', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
+        # The Site is a branch-aware companion, and it carries the controls below. Without one the
+        # branch holds no changes at all and both operations return before doing anything.
+        with activate_branch(branch), event_tracking(self.request):
+            Site.objects.create(name='Reverted Site', slug='reverted-site')
+            revision.delete()
+        sites = Site.objects.filter(slug='reverted-site')
+        self.assertFalse(sites.exists(), 'a branch-aware row reached main before the merge')
+        # Only a merged branch can be reverted, so this merge is a precondition, not the subject.
+        branch.merge(user=self.user)
+        self.assertTrue(sites.exists(), 'the merge applied nothing, so the revert proves nothing')
+        branch.revert(user=self.user)
+        self.assertFalse(sites.exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=pk).exists())
+
+    def test_a_branch_delete_hands_off_cleanup_for_unreferenced_content(self):
+        # Asserted on the handoff, not on the bytes: only the job removes content, and it never
+        # runs here, so a storage assertion would hold whatever the signal decided.
+        revision = self.staged_revision(self.project)
+        branch = self.branch('Cleanup')
+        with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
+            revision.delete()
+        enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST, paths=['hello.py'])
+
+    def test_deleting_a_project_inside_a_branch_takes_its_revisions_with_it(self):
+        # The cascade path rather than the single-row one, where an earlier review found a defect.
+        project = CustomScriptProject.objects.create(name='Doomed', key='doomed')
+        revision = self.staged_revision(project)
+        storage_key, project_pk, revision_pk = project.storage_key, project.pk, revision.pk
+        branch = self.branch('ProjectDelete')
+        with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
+            project.delete()
+        self.assertFalse(CustomScriptProject.objects.filter(pk=project_pk).exists())
+        self.assertFalse(CustomScriptProjectRevision.objects.filter(pk=revision_pk).exists())
+        enqueue.assert_called_once_with(storage_key=storage_key, digest=DIGEST, paths=['hello.py'])
+
+    def test_a_branch_delete_withholds_cleanup_for_content_a_sibling_names(self):
+        # Two rows share one stored tree, so deleting one must not hand off bytes the other names.
+        first = self.staged_revision(self.project)
+        self.staged_revision(self.project, entrypoint_digest='b' * 64)
+        branch = self.branch('Shared')
+        with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
+            first.delete()
+        enqueue.assert_not_called()
+
+
+class MergeAndRevertTestCase(BranchingTestCase):
+    def test_merging_a_branch_does_not_replay_a_project_change(self):
+        branch = self.branch('Merge', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
+        # The Site is a branch-aware companion. Without one the branch holds no changes and
+        # merge() returns before doing anything, which would prove nothing.
+        with activate_branch(branch), event_tracking(self.request):
+            Site.objects.create(name='Merged Site', slug='merged-site')
+            CustomScriptProject.objects.create(name='Merged', key='merged')
+        sites = Site.objects.filter(slug='merged-site')
+        projects = CustomScriptProject.objects.filter(key='merged')
+        # The discriminating pair: the global row is already in main while the branch-aware one
+        # waits for the merge.
+        self.assertEqual(projects.count(), 1)
+        self.assertFalse(sites.exists())
+        branch.merge(user=self.user)
+        self.assertTrue(sites.exists(), 'the merge applied nothing, so the count below proves nothing')
+        # A replay would apply the project a second time.
+        self.assertEqual(projects.count(), 1)
+
+    def test_reverting_a_merge_does_not_undo_a_project_edit(self):
+        project = CustomScriptProject.objects.create(name='Before', key='reverted-edit')
+        branch = self.branch('RevertEdit', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
+        with activate_branch(branch), event_tracking(self.request):
+            Site.objects.create(name='Undone Site', slug='undone-site')
+            project.name = 'After'
+            project.save()
+        sites = Site.objects.filter(slug='undone-site')
+        branch.merge(user=self.user)
+        self.assertTrue(sites.exists(), 'the merge applied nothing')
+        branch.revert(user=self.user)
+        self.assertFalse(sites.exists(), 'the revert undid nothing, so the name below proves nothing')
+        # Re-fetched rather than refreshed, which would answer from the branch the save recorded.
+        self.assertEqual(CustomScriptProject.objects.get(pk=project.pk).name, 'After')
+
+
+class WritesASite(Script):
+    """Creates one site, so a caller can see which schema the run wrote to."""
+
+    def run(self, data, commit):
+        Site.objects.create(name='Written By A Run', slug='written-by-a-run')
+
+
+class ExecutionTargetsMainTestCase(BranchingTestCase):
+    def sites(self):
+        return Site.objects.filter(slug='written-by-a-run')
+
+    def test_a_run_started_inside_a_branch_writes_to_main(self):
+        branch = self.branch('DirectRun')
+        with activate_branch(branch):
+            run_script(WritesASite(), data={}, commit=True)
+        # Read with no branch active, so only the main schema can answer.
+        self.assertTrue(self.sites().exists())
+
+    def test_a_run_started_inside_a_branch_leaves_that_branch_untouched(self):
+        branch = self.branch('BranchUntouched')
+        with activate_branch(branch):
+            run_script(WritesASite(), data={}, commit=True)
+            # The branch holds its own copy of the table, so a write to main is not visible here.
+            self.assertFalse(self.sites().exists())
+        with connection.cursor() as cursor:
+            cursor.execute(f'SELECT count(*) FROM {branch.schema_name}.dcim_site')
+            self.assertEqual(cursor.fetchone()[0], 0, 'the run wrote into the branch schema')
+        self.assertTrue(self.sites().exists())
+
+    def test_a_dry_run_started_inside_a_branch_reverts(self):
+        branch = self.branch('DryRun')
+        with activate_branch(branch):
+            run_script(WritesASite(), data={}, commit=False)
+        self.assertFalse(self.sites().exists())

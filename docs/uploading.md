@@ -80,7 +80,7 @@ case-insensitive filesystem, so the collision is rejected at the point it is int
 The same operation without the browser, for a pipeline that generates or vendors scripts:
 
 ```
-POST /api/plugins/custom-scripts/projects/42/upload/
+POST /api/plugins/netbox-scripts/projects/42/upload/
 Authorization: Token $NETBOX_TOKEN
 Content-Type: multipart/form-data
 ```
@@ -89,7 +89,7 @@ Content-Type: multipart/form-data
 curl -sS -X POST \
   -H "Authorization: Token $NETBOX_TOKEN" \
   -F file=@deploy.py \
-  https://netbox.example.com/api/plugins/custom-scripts/projects/42/upload/
+  https://netbox.example.com/api/plugins/netbox-scripts/projects/42/upload/
 ```
 
 It accepts one Python file and returns the revision it staged, so the caller can poll that
@@ -153,7 +153,7 @@ resolves to the revision that already exists.
 
 ## Where the bytes go
 
-Uploaded content is stored through the `netbox_custom_scripts` entry of NetBox's `STORAGES`
+Uploaded content is stored through the `netbox_scripts` entry of NetBox's `STORAGES`
 setting, never on the local filesystem, under a prefix naming the Project's storage key and the
 revision digest. See [Project storage](configuration.md#project-storage) for the backend
 choice and [Storage layout](models/customscriptprojectrevision.md#storage-layout) for the key

@@ -1,0 +1,29 @@
+{% load i18n %}
+{% comment %}
+Per-row Run button for the Custom Script list, rendered through the table's ActionsColumn
+extra_buttons.
+
+Not a member of the actions dropdown, because ActionsColumn only knows edit, delete and
+changelog: its action set is a fixed class-level dict, so naming anything else raises KeyError.
+
+A link to the run page, which is where the script's own form is built. Nothing is posted from
+here, so the surrounding bulk-action form is left alone.
+
+Rendered inert rather than hidden when the script cannot run, matching the detail page, so an
+operator sees that running is unavailable instead of finding no button.
+{% endcomment %}
+{% if perms.netbox_scripts.run_customscript %}
+  {% if record.is_executable %}
+    <a href="{% url 'plugins:netbox_scripts:customscript_run' pk=record.pk %}"
+       class="btn btn-sm btn-primary">
+      <i class="mdi mdi-play" aria-hidden="true"></i> {% trans "Run" %}
+    </a>
+  {% else %}
+    <button type="button"
+            class="btn btn-sm btn-primary"
+            disabled
+            title="{% blocktrans with reason=record.run_refusal_reason %}This Custom Script cannot be run right now. {{ reason }}{% endblocktrans %}">
+      <i class="mdi mdi-play" aria-hidden="true"></i> {% trans "Run" %}
+    </button>
+  {% endif %}
+{% endif %}

@@ -8,10 +8,10 @@ run through the plugin yet.
 
 ## A minimal Custom Script
 
-Import the authoring API from `netbox_custom_scripts` and subclass `Script`:
+Import the authoring API from `netbox_scripts` and subclass `Script`:
 
 ```python
-from netbox_custom_scripts import Script, StringVar
+from netbox_scripts import Script, StringVar
 
 
 class RenameDevice(Script):
@@ -98,7 +98,7 @@ def run(self, data, commit):
 Each entry records a timestamp, the severity, the message, and a link to the
 related object when one is given. `log_failure()` also marks the whole run as
 failed. Messages are forwarded to the NetBox system log under the
-`netbox.plugins.netbox_custom_scripts.scripts` namespace.
+`netbox.plugins.netbox_scripts.scripts` namespace.
 
 **What you log is persisted and readable.** The run log is stored on the Job row,
 so anyone holding NetBox's `core.view_job` permission can read it, and it
@@ -133,7 +133,7 @@ def run(self, data, commit):
 Raise `AbortScript` to stop execution cleanly with a message:
 
 ```python
-from netbox_custom_scripts import AbortScript
+from netbox_scripts import AbortScript
 
 
 def run(self, data, commit):
@@ -253,7 +253,7 @@ surface built into NetBox. The deliberate differences:
   subclass bound in the module, including ones imported from installed
   packages.
 - System log records use the
-  `netbox.plugins.netbox_custom_scripts.scripts.<project key>.<module>.<Class>`
+  `netbox.plugins.netbox_scripts.scripts.<project key>.<module>.<Class>`
   namespace, so two projects publishing the same class name log apart. The
   built-in implementation logs under `netbox.scripts`, so operators with
   handlers or filters keyed to that name need to update their logging
@@ -308,11 +308,11 @@ message pointing at this plugin's own module. Nothing about your Project
 changes in the meantime, and there is no configuration to set.
 
 Treat it as a migration aid rather than a permanent interface. New scripts
-should import from `netbox_custom_scripts.scripts`, and migrating an existing
+should import from `netbox_scripts.scripts`, and migrating an existing
 one is a single line per file:
 
 ```python
-from netbox_custom_scripts.scripts import Script, StringVar
+from netbox_scripts.scripts import Script, StringVar
 ```
 
 ### What the supported surface covers

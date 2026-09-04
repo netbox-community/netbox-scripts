@@ -20,7 +20,7 @@ DATABASES = DynamicSchemaDict(
             # Not shared: provisioning creates and drops schemas, and ObjectType.features is a
             # stored column written at post_migrate, so it would record whichever config ran last.
             'TEST': {
-                'NAME': 'test_netbox_custom_scripts_branching',
+                'NAME': 'test_netbox_scripts_branching',
             },
         }
     }
@@ -31,12 +31,12 @@ DATABASE_ROUTERS = [
 ]
 
 PLUGINS = [
-    'netbox_custom_scripts',
+    'netbox_scripts',
     'netbox_branching',
 ]
 
 # Both entries are what NetBox would create anyway, kept explicit so the pair is visible here.
 PLUGINS_CONFIG = {
-    'netbox_custom_scripts': {},
+    'netbox_scripts': {},
     'netbox_branching': {},
 }

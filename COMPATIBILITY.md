@@ -1,7 +1,7 @@
 # Compatibility
 
 This document tracks the supported NetBox and Python versions for each
-release of NetBox Custom Scripts.
+release of NetBox Scripts.
 
 | Plugin Version | Minimum NetBox Version | Maximum NetBox Version | Minimum Python |
 |----------------|------------------------|------------------------|----------------|

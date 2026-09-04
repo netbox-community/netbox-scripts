@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parent.parent
-PACKAGE = REPOSITORY / 'netbox_custom_scripts'
+PACKAGE = REPOSITORY / 'netbox_scripts'
 
 # Generated, vendored, or deliberately host-bound code the contract does not govern.
 SKIP_DIRECTORIES = frozenset({'__pycache__', 'migrations', 'tests'})

@@ -93,7 +93,7 @@ scripts with it. Pruning an old revision never takes scripts with it, so
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | `/api/plugins/custom-scripts/scripts/` |
+| REST | `/api/plugins/netbox-scripts/scripts/` |
 | GraphQL | `custom_script`, `custom_script_list` |
 | UI | Custom Scripts > Scripts |
 

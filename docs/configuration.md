@@ -2,16 +2,16 @@
 
 ## Overview
 
-NetBox Custom Scripts keeps project source in a Django storage backend, configured through
+NetBox Scripts keeps project source in a Django storage backend, configured through
 NetBox's `STORAGES` setting, and reads its remaining settings from the
-`netbox_custom_scripts` entry in NetBox's `PLUGINS_CONFIG`. A deployment that
+`netbox_scripts` entry in NetBox's `PLUGINS_CONFIG`. A deployment that
 [uploads scripts](uploading.md) needs the storage entry, since that is where uploaded content
 is written. One that only manages project definitions can defer the decision, and the
-`netbox_custom_scripts.W001` system check reports it until it is made.
+`netbox_scripts.W001` system check reports it until it is made.
 
 ```python
 PLUGINS_CONFIG = {
-    'netbox_custom_scripts': {
+    'netbox_scripts': {
         'max_project_size': 209715200,
     },
 }
@@ -19,9 +19,9 @@ PLUGINS_CONFIG = {
 
 ## Project storage
 
-Stored revisions go to the backend registered under the `netbox_custom_scripts` key of
+Stored revisions go to the backend registered under the `netbox_scripts` key of
 NetBox's `STORAGES` setting. **This entry is required.** Everything the plugin writes sits
-under a single `netbox-custom-scripts/` prefix, so it stays separate from whatever else
+under a single `netbox-scripts/` prefix, so it stays separate from whatever else
 that backend holds.
 
 **Treat write access to the backend you name here as equivalent to running code as the
@@ -44,17 +44,17 @@ files:
 
 ```python
 STORAGES = {
-    'netbox_custom_scripts': {
+    'netbox_scripts': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
         'OPTIONS': {
-            'location': '/var/lib/netbox-custom-scripts',
+            'location': '/var/lib/netbox-scripts',
         },
     },
 }
 ```
 
 ```text
-/var/lib/netbox-custom-scripts/netbox-custom-scripts/<storage_key>/revisions/<digest>/hello.py
+/var/lib/netbox-scripts/netbox-scripts/<storage_key>/revisions/<digest>/hello.py
 ```
 
 Deleting a Project or one of its revisions reclaims the files that revision recorded, not
@@ -72,11 +72,11 @@ A horizontally scaled deployment points the entry at an S3-compatible bucket:
 
 ```python
 STORAGES = {
-    'netbox_custom_scripts': {
+    'netbox_scripts': {
         'BACKEND': 'storages.backends.s3.S3Storage',
         'OPTIONS': {
             'bucket_name': 'netbox-private-data',
-            'location': 'custom-scripts',
+            'location': 'netbox-scripts',
             'default_acl': 'private',
         },
     },
@@ -84,8 +84,8 @@ STORAGES = {
 ```
 
 S3 bounds the complete object key at 1024 UTF-8 bytes including every prefix. The plugin's
-own key prefix uses 134 of them and an accepted source path uses at most 768, which leaves
-122 bytes for the `location` above.
+own key prefix uses 127 of them and an accepted source path uses at most 768, which leaves
+129 bytes for the `location` above.
 
 ### The one requirement
 
@@ -110,7 +110,7 @@ Project.
 ### When the entry is missing or unusable
 
 NetBox still boots, and everything unrelated to project storage keeps working. The
-`netbox_custom_scripts.W001` system check reports the missing entry, and revision staging,
+`netbox_scripts.W001` system check reports the missing entry, and revision staging,
 activation, and cleanup refuse with a configuration error until it is defined. A backend
 that cannot be constructed is reported the same way when the storage layer uses it, rather
 than at startup.
@@ -120,7 +120,7 @@ than at startup.
 The entry and its options are part of the deployment's persistent state: they say where
 every stored revision lives. Changing the target backend, bucket, or `location` therefore
 needs a coordinated move, not just a configuration edit. Stop staging and deletion activity,
-let queued cleanup jobs drain, copy everything under the `netbox-custom-scripts/` prefix to
+let queued cleanup jobs drain, copy everything under the `netbox-scripts/` prefix to
 the new backend, and only then switch the entry. A cleanup job resolves the backend when it
 runs, so a job enqueued before the switch would otherwise delete from the new backend while
 its objects still sit in the old one. Verification on the next staging or activation
@@ -192,7 +192,7 @@ materialized from the storage backend into a local directory:
 ```
 
 The default root sits under the system temporary directory
-(`<tempdir>/netbox-custom-scripts/runtime-cache`), which is per-process-host, writable,
+(`<tempdir>/netbox-scripts/runtime-cache`), which is per-process-host, writable,
 and disposable. Set `runtime_cache_root` to place it elsewhere, for example on a larger
 or faster volume. Whatever the location, the cache is scratch state: losing it costs a
 rebuild from the backend, never data, so nothing about it needs to be backed up or
@@ -330,7 +330,7 @@ the new revision adopts them.
 
 The plugin runs alongside NetBox Branching, and this section records what a branch does and
 does not change. The routing and execution statements below are verified against NetBox Branching
-v1.2.0-beta1 by `netbox_custom_scripts/tests/test_branching_provisioned.py`, which provisions a
+v1.2.0-beta1 by `netbox_scripts/tests/test_branching_provisioned.py`, which provisions a
 real branch.
 
 Custom Script Projects, Modules, Custom Scripts, revisions and migration runs are

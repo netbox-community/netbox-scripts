@@ -1,4 +1,4 @@
-site_name: "NetBox Custom Scripts"
+site_name: "NetBox Scripts"
 site_description: "Custom Scripts for NetBox"
 repo_url: https://github.com/netboxlabs/netbox-custom-scripts
 repo_name: "netboxlabs/netbox-custom-scripts"

@@ -14,7 +14,7 @@
 Install into the NetBox virtualenv from the NetBox Labs artifact source:
 
 ```sh
-pip install netbox-custom-scripts
+pip install netbox-scripts
 ```
 
 For a source checkout, run `pip install -e .` from the repository root
@@ -22,11 +22,11 @@ instead.
 
 ## Enabling the plugin
 
-Add `netbox_custom_scripts` to `PLUGINS` in NetBox's `configuration.py`:
+Add `netbox_scripts` to `PLUGINS` in NetBox's `configuration.py`:
 
 ```python
 PLUGINS = [
-    'netbox_custom_scripts',
+    'netbox_scripts',
 ]
 ```
 
@@ -44,19 +44,19 @@ systemctl restart netbox netbox-rq
 
 ## Configuring project storage
 
-Project source is written to the backend registered under the `netbox_custom_scripts`
+Project source is written to the backend registered under the `netbox_scripts`
 key of NetBox's `STORAGES` setting. Without it the plugin loads and its pages work, but
-anything that stores source refuses, and the `netbox_custom_scripts.W001` system check
+anything that stores source refuses, and the `netbox_scripts.W001` system check
 reports it until the entry exists.
 
 On a single node, Django's own `FileSystemStorage` is enough:
 
 ```python
 STORAGES = {
-    'netbox_custom_scripts': {
+    'netbox_scripts': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
         'OPTIONS': {
-            'location': '/var/lib/netbox-custom-scripts',
+            'location': '/var/lib/netbox-scripts',
         },
     },
 }
@@ -80,10 +80,10 @@ and a run requested over REST is refused with a 503 rather than queued for nobod
 
 | Check | Expected result |
 |---|---|
-| Visit `/plugins/` in NetBox | NetBox Custom Scripts is listed |
+| Visit `/plugins/` in NetBox | NetBox Scripts is listed |
 | Open the navigation menu | A "Custom Scripts" menu appears, with a Projects group and a Scripts group |
-| `GET /api/plugins/custom-scripts/` | Plugin API root responds |
-| `python manage.py check` | No `netbox_custom_scripts.W001`, meaning project storage is configured |
+| `GET /api/plugins/netbox-scripts/` | Plugin API root responds |
+| `python manage.py check` | No `netbox_scripts.W001`, meaning project storage is configured |
 | Upload a script from *Custom Scripts > Projects > Upload Script* | The Project's revision reaches `valid`, which proves storage and the worker are both working |
 
 See [Uploading Scripts](uploading.md) for that last step in full.

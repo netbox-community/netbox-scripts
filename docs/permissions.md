@@ -29,7 +29,7 @@ so all four ask for the same action. **Repair Scripts** republishes the rows of
 the revision already in force, which is the same write activation makes, so it
 is the same privilege.
 
-**Browsing revisions is a separate permission, `netbox_custom_scripts.view_customscriptprojectrevision`.**
+**Browsing revisions is a separate permission, `netbox_scripts.view_customscriptprojectrevision`.**
 The line falls between what a Project is serving and its history. A Project's own
 page reports the revision in force, so `view` on the Project is enough to see
 that. The Revisions tab, the Files tab and a revision's own page list the

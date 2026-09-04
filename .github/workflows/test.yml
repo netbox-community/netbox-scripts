@@ -71,8 +71,8 @@ jobs:
       ${{ matrix.netbox-ref == 'feature' }}
     env:
       NETBOX_CONFIGURATION: configuration
-      PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
-      COVERAGE_RCFILE: ${{ github.workspace }}/netbox-custom-scripts/pyproject.toml  # yamllint disable-line rule:line-length
+      PYTHONPATH: ${{ github.workspace }}/netbox-scripts/testing
+      COVERAGE_RCFILE: ${{ github.workspace }}/netbox-scripts/pyproject.toml  # yamllint disable-line rule:line-length
       # S3 support is a hard platform contract, so CI fails loudly when the
       # S3 test stack is missing instead of silently skipping that coverage.
       REQUIRE_S3_TESTS: '1'
@@ -117,7 +117,7 @@ jobs:
         # actions/checkout v6.0.2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          path: netbox-custom-scripts
+          path: netbox-scripts
 
       - name: Checkout NetBox
         # actions/checkout v6.0.2
@@ -141,7 +141,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install plugin (editable, with test extras)
-        working-directory: netbox-custom-scripts
+        working-directory: netbox-scripts
         run: pip install -e '.[test]'
 
       - name: Run tests
@@ -149,14 +149,14 @@ jobs:
         working-directory: netbox
         run: >-
           python netbox/manage.py test
-          netbox_custom_scripts.tests --parallel
+          netbox_scripts.tests --parallel
 
       - name: Run tests with coverage
         if: ${{ matrix.coverage }}
         working-directory: netbox
         run: >-
           coverage run netbox/manage.py test
-          netbox_custom_scripts.tests --parallel
+          netbox_scripts.tests --parallel
 
       - name: Combine coverage data
         if: ${{ matrix.coverage }}
@@ -180,11 +180,11 @@ jobs:
     continue-on-error: true
     env:
       NETBOX_CONFIGURATION: configuration_branching
-      PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
+      PYTHONPATH: ${{ github.workspace }}/netbox-scripts/testing
       # Turns a Branching install that did not happen into a failure. Without
       # it the provisioned classes are not collected and the job passes
       # having run nothing.
-      NETBOX_CS_REQUIRE_BRANCHING: '1'
+      NETBOX_SCRIPTS_REQUIRE_BRANCHING: '1'
     services:
       redis:
         image: redis
@@ -212,7 +212,7 @@ jobs:
         # actions/checkout v6.0.2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          path: netbox-custom-scripts
+          path: netbox-scripts
 
       - name: Checkout NetBox
         # actions/checkout v6.0.2
@@ -236,7 +236,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install plugin (editable, with test extras)
-        working-directory: netbox-custom-scripts
+        working-directory: netbox-scripts
         run: pip install -e '.[test]'
 
       # Pinned exactly, and to a pre-release, so it cannot drift onto a
@@ -262,8 +262,8 @@ jobs:
         working-directory: netbox
         run: >-
           python netbox/manage.py test
-          netbox_custom_scripts.tests.test_branching
-          netbox_custom_scripts.tests.test_branching_provisioned -v 2
+          netbox_scripts.tests.test_branching
+          netbox_scripts.tests.test_branching_provisioned -v 2
 
   # Blocking, unlike the feature test leg. With no database, services or
   # fixtures, what fails here is a crossing, the plugin skipped outside its
@@ -277,13 +277,13 @@ jobs:
     continue-on-error: false
     env:
       NETBOX_CONFIGURATION: configuration
-      PYTHONPATH: ${{ github.workspace }}/netbox-custom-scripts/testing
+      PYTHONPATH: ${{ github.workspace }}/netbox-scripts/testing
     steps:
       - name: Checkout plugin
         # actions/checkout v6.0.2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          path: netbox-custom-scripts
+          path: netbox-scripts
 
       - name: Checkout NetBox
         # actions/checkout v6.0.2
@@ -307,11 +307,11 @@ jobs:
           pip install -r requirements.txt
 
       - name: Install plugin (editable)
-        working-directory: netbox-custom-scripts
+        working-directory: netbox-scripts
         run: pip install -e .
 
       - name: Resolve every listed NetBox internal
-        working-directory: netbox-custom-scripts
+        working-directory: netbox-scripts
         run: >-
           python scripts/check_netbox_internals.py
           --netbox ${{ github.workspace }}/netbox/netbox

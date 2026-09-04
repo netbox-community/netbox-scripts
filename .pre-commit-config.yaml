@@ -73,5 +73,5 @@ repos:
         name: cloud-compat
         entry: python3 scripts/check_cloud_compat.py
         language: system
-        files: ^netbox_custom_scripts/.*\.py$
+        files: ^netbox_scripts/.*\.py$
         pass_filenames: false

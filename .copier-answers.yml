@@ -17,14 +17,14 @@ netbox_max_version: 4.7.99
 netbox_min_version: 4.7.0
 netbox_test_max_ref: v4.7.0-beta1
 netbox_test_min_ref: v4.7.0-beta1
-package_name: netbox_custom_scripts
-plugin_name: NetBox Custom Scripts
+package_name: netbox_scripts
+plugin_name: NetBox Scripts
 python_version: '3.12'
 python_versions:
 - '3.12'
 - '3.13'
 - '3.14'
-repo_slug: netbox-custom-scripts
+repo_slug: netbox-scripts
 ruff_version: 0.15.21
 short_description: Custom Scripts for NetBox
 version: 0.0.1

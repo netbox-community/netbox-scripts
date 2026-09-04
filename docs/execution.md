@@ -42,7 +42,7 @@ script is republished.
 
 ## Running over REST
 
-`POST /api/plugins/custom-scripts/scripts/<id>/run/` requests a run without a
+`POST /api/plugins/netbox-scripts/scripts/<id>/run/` requests a run without a
 browser. The body is the same shape the built-in script endpoint accepts, so a
 caller moving over changes the URL and nothing else.
 

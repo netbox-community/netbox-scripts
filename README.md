@@ -1,4 +1,4 @@
-# NetBox Custom Scripts
+# NetBox Scripts
 
 Custom Scripts for NetBox, maintained by [NetBox Labs](https://netboxlabs.com/).
 
@@ -59,7 +59,7 @@ The full per-release matrix lives in [COMPATIBILITY.md](COMPATIBILITY.md).
 Install into the NetBox virtualenv from the NetBox Labs artifact source:
 
 ```bash
-pip install netbox-custom-scripts
+pip install netbox-scripts
 ```
 
 For local development, run `pip install -e .` from the repo root.
@@ -68,7 +68,7 @@ Enable the plugin in NetBox's `configuration.py`:
 
 ```python
 PLUGINS = [
-    'netbox_custom_scripts',
+    'netbox_scripts',
 ]
 ```
 

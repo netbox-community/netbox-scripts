@@ -1,6 +1,6 @@
-# Contributing to NetBox Custom Scripts
+# Contributing to NetBox Scripts
 
-First off, thanks for taking the time to contribute to **NetBox Custom Scripts**.
+First off, thanks for taking the time to contribute to **NetBox Scripts**.
 Contributions of all kinds are welcome. Please be kind, constructive, and
 respectful in issues, PRs, and discussions.
 
@@ -103,7 +103,7 @@ NetBox development environment.
   ```text
   workspace/
     netbox/                        # NetBox checkout
-    netbox-custom-scripts/   # this plugin
+    netbox-scripts/                # this plugin
   ```
 
 - [`uv`](https://docs.astral.sh/uv/) for managing tool installs (optional
@@ -137,7 +137,7 @@ NetBox development environment.
    ```bash
    export NETBOX_CONFIGURATION=configuration
    export PYTHONPATH=$PWD/testing:$PYTHONPATH
-   python ../netbox/netbox/manage.py test netbox_custom_scripts -v 2
+   python ../netbox/netbox/manage.py test netbox_scripts -v 2
    ```
 
 5. **Run NetBox** and verify the plugin loads and behaves as expected.
@@ -172,7 +172,7 @@ handling and the `DEVELOPER = True` flag in `testing/configuration.py`.
   in CI (currently 3.12, 3.13, 3.14).
 - **Supported NetBox:** 4.7.0 to 4.7.99
   (matches the `PluginConfig` declaration in
-  `netbox_custom_scripts/__init__.py`).
+  `netbox_scripts/__init__.py`).
 - **Django:** 6.0 (matches the supported NetBox runtime).
 - **Typing:** Prefer adding or improving type hints where it increases
   clarity.

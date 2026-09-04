@@ -61,7 +61,7 @@ was a mistake that never validated.
 
 | Surface | Endpoint or field |
 |---|---|
-| REST | `/api/plugins/custom-scripts/modules/` |
+| REST | `/api/plugins/netbox-scripts/modules/` |
 | GraphQL | `custom_script_module` / `custom_script_module_list` |
 
 Entrypoints are selected on the owning Project's **Entrypoints** tab, which
@@ -69,8 +69,8 @@ lists the importable modules of its source at any depth and never asks for a
 typed path. The same operation is available over REST:
 
 ```text
-GET  /api/plugins/custom-scripts/projects/<id>/entrypoints/
-PUT  /api/plugins/custom-scripts/projects/<id>/entrypoints/   {"paths": [...]}
+GET  /api/plugins/netbox-scripts/projects/<id>/entrypoints/
+PUT  /api/plugins/netbox-scripts/projects/<id>/entrypoints/   {"paths": [...]}
 ```
 
 `GET` reports every candidate with `selected`, `available`, and its

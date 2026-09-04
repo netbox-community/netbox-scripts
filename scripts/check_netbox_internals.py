@@ -23,8 +23,8 @@ from pathlib import Path
 
 # Read from the plugin once Django is up, so moving a namespace there moves this check with it.
 PLUGIN_LOCK_NAMESPACES = (
-    'netbox_custom_scripts.storage.locks:ADVISORY_LOCK_NAMESPACE',
-    'netbox_custom_scripts.models.migration:MIGRATION_LOCK_NAMESPACE',
+    'netbox_scripts.storage.locks:ADVISORY_LOCK_NAMESPACE',
+    'netbox_scripts.models.migration:MIGRATION_LOCK_NAMESPACE',
 )
 
 # One entry per table row, in table order: the row's symbol text, then one probe per thing it names.
@@ -126,9 +126,9 @@ def check_plugin_loaded():
     from django.apps import apps
     from django.conf import settings
 
-    import netbox_custom_scripts
+    import netbox_scripts
 
-    config = netbox_custom_scripts.config
+    config = netbox_scripts.config
     if apps.is_installed(config.name):
         return []
     version = getattr(settings, 'VERSION', 'unknown')

@@ -2,7 +2,7 @@
 #
 # This pyproject.toml is generated from the NetBox Labs plugin scaffold.
 # The NetBox version range this plugin supports lives in PluginConfig
-# (see netbox_custom_scripts/__init__.py: min_version / max_version),
+# (see netbox_scripts/__init__.py: min_version / max_version),
 # not here. Update both places when you bump the supported range.
 #
 # [tool.*] sections are sorted alphabetically by top-level tool name.
@@ -15,7 +15,7 @@ requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "netbox-custom-scripts"
+name = "netbox-scripts"
 version = "0.0.1"
 description = "Custom Scripts for NetBox"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -88,7 +88,7 @@ ignore = [
     "mkdocs.yml",
     "testing/*.py",
     # Per-view query-count baseline: test-only tooling, not distribution content.
-    "netbox_custom_scripts/tests/query_counts.json",
+    "netbox_scripts/tests/query_counts.json",
     # Pre-commit hook script, not distribution content.
     "scripts/check_cloud_compat.py",
     # CI canary script, not distribution content.
@@ -109,7 +109,7 @@ skip = "*.po,*.lock,*.svg,*.min.js,*.min.css,docs/_build,site,build,dist,.git"
 count = true
 
 [tool.coverage.run]
-source = ["netbox_custom_scripts"]
+source = ["netbox_scripts"]
 omit = [
     "*/migrations/*",
     "*/tests/*",
@@ -316,12 +316,12 @@ known-first-party = [
     "virtualization",
     "vpn",
     "wireless",
-    "netbox_custom_scripts",
+    "netbox_scripts",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "template_code.py" = ["E501"]  # Generated/template code may exceed normal line length.
-"netbox_custom_scripts/__init__.py" = ["F822"]  # PEP 562 lazy re-exports: the __all__ names resolve through module __getattr__ at runtime, invisible to static analysis.
+"netbox_scripts/__init__.py" = ["F822"]  # PEP 562 lazy re-exports: the __all__ names resolve through module __getattr__ at runtime, invisible to static analysis.
 "**/migrations/*.py" = ["D", "E501", "I"]  # Django-generated migrations: no docstring coverage; long generated values; emitted in non-isort-canonical order.
 "**/tests/*.py" = ["D"]  # Tests do not require docstring coverage by default.
 "**/__init__.py" = ["D104"]  # Package marker files do not require public package docstrings.
@@ -361,10 +361,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["netbox_custom_scripts*"]
+include = ["netbox_scripts*"]
 
 [tool.setuptools.package-data]
-"netbox_custom_scripts" = [
+"netbox_scripts" = [
     "templates/**",
     "static/**",
     "locale/**/*.mo",

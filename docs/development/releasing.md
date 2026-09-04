@@ -36,7 +36,7 @@ We follow [Semantic Versioning](https://semver.org/) and keep a Change Log in `d
    and publish.
 
 7. **Post-release.** Verify the package is available from CodeArtifact
-   and that a fresh `pip install netbox-custom-scripts` resolves the new
+   and that a fresh `pip install netbox-scripts` resolves the new
    version. If the release introduced new prompts, run `copier update`
    against an existing rendered plugin to confirm the upgrade path is
    clean.

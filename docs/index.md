@@ -1,10 +1,10 @@
-# NetBox Custom Scripts
+# NetBox Scripts
 
 Custom Scripts for NetBox
 
 ## Overview
 
-NetBox Custom Scripts brings project-based management of Custom Scripts to
+NetBox Scripts brings project-based management of Custom Scripts to
 NetBox. A Custom Script Project represents one complete, internally consistent
 script source tree. It is the ownership boundary for source files and the
 Python package boundary used when loading and executing scripts. Projects own
@@ -28,7 +28,7 @@ current boundaries.
 
 | Page | What it covers |
 |---|---|
-| [Features](features.md) | What NetBox Custom Scripts adds to NetBox |
+| [Features](features.md) | What NetBox Scripts adds to NetBox |
 | [Quickstart](quickstart.md) | Install and enable the plugin |
 | [Configuration](configuration.md) | Supported settings |
 | [Uploading Scripts](uploading.md) | Adding source to a Project and putting it in service |

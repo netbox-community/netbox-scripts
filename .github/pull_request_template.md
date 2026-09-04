@@ -1,5 +1,5 @@
 <!--
-    Thank you for your interest in contributing to NetBox Custom Scripts! Pull
+    Thank you for your interest in contributing to NetBox Scripts! Pull
     requests are accepted ONLY for approved, assigned issues. Specify the
     issue resolved by this PR on the line below; PRs that do not reference
     an assigned issue will be closed automatically.

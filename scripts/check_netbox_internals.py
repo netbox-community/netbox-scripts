@@ -48,6 +48,11 @@ ROWS = (
         'core.models:ManagedFile.data_path',
         'core.models:ManagedFile.data_source',
     ),
+    (
+        'core.choices.ManagedFileRootPathChoices.SCRIPTS and .REPORTS',
+        'core.choices:ManagedFileRootPathChoices.SCRIPTS',
+        'core.choices:ManagedFileRootPathChoices.REPORTS',
+    ),
     ('extras.models.mixins.PythonModuleMixin.python_name', 'extras.models.mixins:PythonModuleMixin.python_name'),
     ("storages['scripts']", "django.core.files.storage:storages['scripts']"),
     ('extras.models.EventRule.action_object_type', 'extras.models:EventRule.action_object_type'),
@@ -67,6 +72,7 @@ ROWS = (
         'rq.job:Job.fetch',
         'rq.job:Job.delete',
     ),
+    ('rq.exceptions.NoSuchJobError', 'rq.exceptions:NoSuchJobError'),
     ('core.models.AutoSyncRecord', 'core.models:AutoSyncRecord'),
     (
         'extras.models.EventRule.action_type, .action_object_type, .action_object_id, .object_types',
@@ -83,6 +89,7 @@ ROWS = (
         'users.models:ObjectPermission.users',
         'users.models:ObjectPermission.groups',
     ),
+    ('users.models.Group', 'users.models:Group'),
     ('core.models.Job.object_type / .object_id update', 'core.models:Job.object_type', 'core.models:Job.object_id'),
     ('extras.models.ScriptModule.delete', 'extras.models:ScriptModule.delete'),
 )

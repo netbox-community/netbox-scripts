@@ -25,6 +25,7 @@ the plugin contract allows explicitly.
 | `extras.models.ScriptModule` and its manager | `migration/source.py` | Every built-in script module. A proxy on `ManagedFile` whose manager admits both the `scripts` and `reports` roots, so legacy Reports are already rows |
 | `extras.models.Script` through `module.scripts` | `migration/source.py` | Which script classes each built-in module publishes today |
 | `core.models.ManagedFile` fields `file_root`, `file_path`, `data_path`, `data_source` | `migration/source.py` | Where a module's bytes are and which repository path it came from. NetBox marks this model `_netbox_private` |
+| `core.choices.ManagedFileRootPathChoices.SCRIPTS` and `.REPORTS` | `migration/source.py` | The two roots the proxy manager admits. Every read filters to the first, and the second is counted only so that Reports are visibly outside this migration |
 | `extras.models.mixins.PythonModuleMixin.python_name` | `migration/source.py` | The bare stem of a module's file name, or its parent directory for an `__init__.py`. Not a dotted path, so it is a label rather than something importable |
 | `storages['scripts']` | `migration/source.py` | The stored bytes of one built-in module, opened by `file_path` because that is what the built-in loader opens |
 | `extras.models.EventRule.action_object_type` | `migration/source.py` | How many Event Rules a migration would have to repoint |
@@ -35,9 +36,11 @@ the plugin contract allows explicitly.
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Taking a rule out of service for the handover, and putting it back once its action and sources name plugin rows |
 | `core.models.Job.terminate` | `migration/cutover.py` | Failing a queued run closed. Used rather than an `update()` so the owner is notified, and there is no cancelled status to set |
 | `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | A queued run's input, which lives only on the RQ task because `Job.enqueue()` keeps it off the row, and then dropping that task so nothing can execute it |
+| `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | The miss RQ raises when a queued run's task is already gone. The capture records that run's input as unrecoverable, and the closure treats the task as already dropped |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Deregistering the built-in source, so no later synchronization rewrites it. Filtered on the **concrete** `ManagedFile` type, the inverse of the proxy rule below |
 | `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repointing a rule onto the Custom Script that replaced its built-in one. `full_clean()` first, because a rule can be invalid for reasons that predate the migration |
 | `users.models.ObjectPermission` creation, `.actions`, `.object_types`, `.users`, `.groups` | `migration/references.py` | Moving a grant onto the plugin's models, and splitting one that also named something else |
+| `users.models.Group` | `migration/references.py` | Resolving a captured grant's groups to live rows before the sibling permission takes them, so a group deleted since the cutover is reported rather than written as a raw key |
 | `core.models.Job.object_type` / `.object_id` update | `migration/references.py` | Repointing run history, batched, and done before anything is deleted because a Script's jobs go with it |
 | `extras.models.ScriptModule.delete` | `migration/cleanup.py` | Retiring a module and its stored source. Called per instance, because `QuerySet.delete()` does not call the model's `delete()`, which is what removes the file |
 

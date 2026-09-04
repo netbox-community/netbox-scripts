@@ -8,7 +8,7 @@ from extras.models import EventRule, Script, ScriptModule, Webhook
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationReferencesJob, RevisionValidationJob
 from netbox_scripts.migration import cutover, references
-from netbox_scripts.models import CustomScript, CustomScriptProject, MigrationRun, ScriptProjectRevision
+from netbox_scripts.models import CustomScript, MigrationRun, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import Group, ObjectPermission
 
@@ -246,7 +246,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         permission.refresh_from_db()
         self.assertEqual(
             set(permission.object_types.values_list('pk', flat=True)),
-            {ObjectType.objects.get_for_model(CustomScriptProject).pk},
+            {ObjectType.objects.get_for_model(ScriptProject).pk},
         )
         self.assertEqual(permission.actions, ['view', 'add', 'change', 'delete'])
 
@@ -451,7 +451,7 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
         # serve, which is the state this leaves behind rather than the one it starts from.
         cutover.enter_cutover(self.migration)
         self.migration.refresh_from_db()
-        self.broken = CustomScriptProject.objects.get(source_type=ProjectSourceTypeChoices.UPLOAD)
+        self.broken = ScriptProject.objects.get(source_type=ProjectSourceTypeChoices.UPLOAD)
         ScriptProjectRevision.objects.filter(project=self.broken).update(status=RevisionStatusChoices.INVALID)
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()

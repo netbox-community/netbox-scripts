@@ -1,7 +1,7 @@
 # Custom Script Module
 
-A Custom Script Module declares one executable entrypoint within a Custom
-Script Project: a Python file of the project's source tree that discovery
+A Custom Script Module declares one executable entrypoint within a Script
+Project: a Python file of the project's source tree that discovery
 imports and publishes Custom Scripts from. Helper files need no module row,
 they stay importable by the entrypoints without being one, so a module list is
 the project's explicit statement of what runs rather than an inventory of every
@@ -16,7 +16,7 @@ what an existing revision was validated against.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | FK | yes | Owning Custom Script Project |
+| `project` | FK | yes | Owning Script Project |
 | `source_path` | string | yes | POSIX-style relative path of the entrypoint Python file, stored in canonical form |
 | `enabled` | boolean | yes | Whether staging includes this declaration in new revision snapshots, default true |
 | `discovery_status` | choice | system | `pending`, `discovered`, `no_scripts`, or `failed`, describing the most recent validation of the current declaration |
@@ -54,7 +54,7 @@ was a mistake that never validated.
 
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
-| `project` | `CustomScriptProject` | yes | `on_delete=CASCADE`, reverse name `modules` |
+| `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `modules` |
 | `last_discovered_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
 ## API

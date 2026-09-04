@@ -1,7 +1,7 @@
 from django.test import TestCase
 
 from netbox_scripts.forms import CustomScriptBulkEditForm, CustomScriptEditForm
-from netbox_scripts.models import CustomScript, CustomScriptProject
+from netbox_scripts.models import CustomScript, ScriptProject
 
 
 class CustomScriptEditFormTestCase(TestCase):
@@ -9,7 +9,7 @@ class CustomScriptEditFormTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Form Project', key='form-project')
+        cls.project = ScriptProject.objects.create(name='Form Project', key='form-project')
 
     def setUp(self):
         # Built per test, not in setUpTestData: the stale-save test mutates the row out from

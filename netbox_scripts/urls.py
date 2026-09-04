@@ -30,11 +30,11 @@ urlpatterns: tuple = (
     ),
     path(
         'projects/',
-        include(get_model_urls('netbox_scripts', 'customscriptproject', detail=False)),
+        include(get_model_urls('netbox_scripts', 'scriptproject', detail=False)),
     ),
     path(
         'projects/<int:pk>/',
-        include(get_model_urls('netbox_scripts', 'customscriptproject')),
+        include(get_model_urls('netbox_scripts', 'scriptproject')),
     ),
     # Detail and actions only: revisions are history, so they are read from a project's
     # Revisions tab and carry no list, edit, or delete route of their own.

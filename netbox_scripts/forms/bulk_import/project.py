@@ -5,13 +5,13 @@ from netbox.forms import PrimaryModelImportForm
 from utilities.forms.fields import CSVChoiceField, CSVModelChoiceField
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ...models import CustomScriptProject
+from ...models import ScriptProject
 
-__all__ = ('CustomScriptProjectBulkImportForm',)
+__all__ = ('ScriptProjectBulkImportForm',)
 
 
-class CustomScriptProjectBulkImportForm(PrimaryModelImportForm):
-    """Bulk import form for Custom Script Projects."""
+class ScriptProjectBulkImportForm(PrimaryModelImportForm):
+    """Bulk import form for Script Projects."""
 
     source_type = CSVChoiceField(
         choices=ProjectSourceTypeChoices,
@@ -31,7 +31,7 @@ class CustomScriptProjectBulkImportForm(PrimaryModelImportForm):
     )
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         fields = (
             'name',
             'key',

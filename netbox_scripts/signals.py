@@ -14,7 +14,7 @@ exists on the default database only, so
 a deletion arriving on any other alias is refused rather than allowed to record cleanup
 intent that could commit independently.
 
-Deleting a Custom Script Project needs no receiver of its own: the cascade collects every
+Deleting a Script Project needs no receiver of its own: the cascade collects every
 revision it owns, and registering these receivers rules out Django's signal-free fast-delete
 path for the revision model, so each cascaded revision records its own cleanup.
 
@@ -36,7 +36,7 @@ from core.signals import post_sync
 from . import branching
 from .choices import ProjectSourceTypeChoices
 from .jobs import ProjectReconciliationJob, ProjectStorageCleanupJob
-from .models import CustomScriptProject, ScriptProjectRevision
+from .models import ScriptProject, ScriptProjectRevision
 from .storage.exceptions import RevisionCorruptError
 from .storage.manifest import validate_manifest
 
@@ -120,7 +120,7 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
     # API, so cleanup recorded for a delete on any other alias could commit independently.
     if using != DEFAULT_DB_ALIAS:
         raise ImproperlyConfigured(
-            f'Custom Script Project revisions must live on the "{DEFAULT_DB_ALIAS}" database. '
+            f'Script Project revisions must live on the "{DEFAULT_DB_ALIAS}" database. '
             f'This revision was deleted on "{using}", where its cleanup Job cannot be recorded '
             'in the same transaction.'
         )
@@ -157,7 +157,7 @@ def reconcile_project_sources(sender, instance, **kwargs):
     or a manual reconciliation.
     """
     try:
-        projects = CustomScriptProject.objects.filter(
+        projects = ScriptProject.objects.filter(
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=instance,
         )
@@ -165,6 +165,6 @@ def reconcile_project_sources(sender, instance, **kwargs):
             ProjectReconciliationJob.enqueue_reconciliation(project)
     except Exception:
         logger.exception(
-            'Could not enqueue Custom Script Project source reconciliation after "%s" synchronized.',
+            'Could not enqueue Script Project source reconciliation after "%s" synchronized.',
             instance,
         )

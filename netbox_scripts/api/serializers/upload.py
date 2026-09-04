@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 
-class CustomScriptProjectUploadSerializer(serializers.Serializer):
+class ScriptProjectUploadSerializer(serializers.Serializer):
     """
     One uploaded Python file plus the confirmation a replacement needs.
 

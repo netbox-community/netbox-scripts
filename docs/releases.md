@@ -6,7 +6,7 @@
 * Requires NetBox 4.7.0 or later. The Event Rule action this plugin registers
   needs the plugin action registry that arrived in 4.7, so the floor is the
   version where every shipped feature works rather than the oldest that loads
-* `CustomScriptProject` model with full UI, REST API, GraphQL, and
+* `ScriptProject` model with full UI, REST API, GraphQL, and
   global-search surfaces
 * Custom Script authoring API: `Script` base classes, variable types, dynamic
   form generation, structured logging, and `AbortScript`
@@ -41,7 +41,7 @@
 * Leased revision validation service and background job driving revisions to
   `valid` or `invalid` verdicts, with owner-fenced transitions, sanitized
   stored errors, and per-module discovery results
-* Script upload: a Custom Script Project can be created from one uploaded `.py`
+* Script upload: a Script Project can be created from one uploaded `.py`
   file, which is declared as an entrypoint, staged as a revision, validated in a
   worker, and activated when the Project's activation policy allows. Adding
   another script stages a revision holding the existing tree plus the new file,

@@ -26,7 +26,7 @@ from netbox.context_managers import event_tracking
 from netbox_scripts import signals
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.execution import run_script
-from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptProject, ScriptProjectRevision
 from netbox_scripts.scripts import Script
 from netbox_scripts.storage import config, store
 from netbox_scripts.storage.manifest import compute_digest
@@ -163,46 +163,46 @@ class ActiveBranchTestCase(BranchingTestCase):
     def test_a_project_created_inside_a_branch_is_visible_outside_it(self):
         branch = self.branch('Writes')
         with activate_branch(branch):
-            project = CustomScriptProject.objects.create(name='Inside', key='inside')
+            project = ScriptProject.objects.create(name='Inside', key='inside')
         # No activate_branch here, so the main schema is what answers.
-        self.assertTrue(CustomScriptProject.objects.filter(pk=project.pk).exists())
+        self.assertTrue(ScriptProject.objects.filter(pk=project.pk).exists())
 
     def test_a_project_created_after_provisioning_is_readable_inside_a_branch(self):
         # Created after provisioning, so a branch-aware model would not have been replicated into
         # the schema and the read would find nothing.
         branch = self.branch('Reads')
-        project = CustomScriptProject.objects.create(name='Outside', key='outside')
+        project = ScriptProject.objects.create(name='Outside', key='outside')
         with activate_branch(branch):
-            self.assertTrue(CustomScriptProject.objects.filter(pk=project.pk).exists())
+            self.assertTrue(ScriptProject.objects.filter(pk=project.pk).exists())
 
     def test_an_edit_inside_a_branch_applies_globally(self):
-        project = CustomScriptProject.objects.create(name='Before', key='edited')
+        project = ScriptProject.objects.create(name='Before', key='edited')
         branch = self.branch('Edits')
         with activate_branch(branch):
             project.name = 'After'
             project.save()
         # Re-fetched rather than refreshed: refresh_from_db() reads self._state.db, which the
         # branch save set to the branch alias, so it would answer from the branch either way.
-        self.assertEqual(CustomScriptProject.objects.get(pk=project.pk).name, 'After')
+        self.assertEqual(ScriptProject.objects.get(pk=project.pk).name, 'After')
 
     def test_a_project_change_raises_no_branch_diff(self):
         branch = self.branch('Diff')
         # Change logging writes no ObjectChange without a current request, so without
         # event_tracking this would pass for a branch-aware model too.
         with activate_branch(branch), event_tracking(self.request):
-            CustomScriptProject.objects.create(name='Undiffed', key='undiffed')
+            ScriptProject.objects.create(name='Undiffed', key='undiffed')
             Site.objects.create(name='Diffed Site', slug='diffed-site')
         site_diffs = ChangeDiff.objects.filter(branch=branch, object_type=ObjectType.objects.get_for_model(Site))
         self.assertTrue(site_diffs.exists(), 'no diff for a branch-aware model, so this proves nothing')
         project_diffs = ChangeDiff.objects.filter(
-            branch=branch, object_type=ObjectType.objects.get_for_model(CustomScriptProject)
+            branch=branch, object_type=ObjectType.objects.get_for_model(ScriptProject)
         )
         self.assertFalse(project_diffs.exists())
 
     def test_a_tag_assignment_inside_a_branch_stays_in_the_branch(self):
         # The Tag exists before provisioning, so the branch replicates it. The Project is global
         # and is not replicated, which is what the assignment below is assigned across.
-        project = CustomScriptProject.objects.create(name='Tagged', key='tagged')
+        project = ScriptProject.objects.create(name='Tagged', key='tagged')
         tag = Tag.objects.create(name='Branch Tag', slug='branch-tag')
         branch = self.branch('Tags')
         with activate_branch(branch):
@@ -213,8 +213,8 @@ class ActiveBranchTestCase(BranchingTestCase):
         self.assertEqual(list(project.tags.all()), [])
 
     def test_a_journal_entry_inside_a_branch_stays_in_the_branch(self):
-        project = CustomScriptProject.objects.create(name='Journalled', key='journalled')
-        object_type = ObjectType.objects.get_for_model(CustomScriptProject)
+        project = ScriptProject.objects.create(name='Journalled', key='journalled')
+        object_type = ObjectType.objects.get_for_model(ScriptProject)
         entries = JournalEntry.objects.filter(assigned_object_type=object_type, assigned_object_id=project.pk)
         branch = self.branch('Journal')
         with activate_branch(branch):
@@ -230,7 +230,7 @@ class BranchDeletionTestCase(BranchingTestCase):
         super().setUp()
         # This class commits, so the deletion signal really enqueues. Drained to leave it as found.
         self.addCleanup(django_rq.get_queue('default').empty)
-        self.project = CustomScriptProject.objects.create(name='Deletions', key='deletions')
+        self.project = ScriptProject.objects.create(name='Deletions', key='deletions')
 
     def test_a_revision_deleted_inside_a_branch_is_gone_from_main(self):
         revision = self.staged_revision(self.project)
@@ -272,13 +272,13 @@ class BranchDeletionTestCase(BranchingTestCase):
 
     def test_deleting_a_project_inside_a_branch_takes_its_revisions_with_it(self):
         # The cascade path rather than the single-row one, where an earlier review found a defect.
-        project = CustomScriptProject.objects.create(name='Doomed', key='doomed')
+        project = ScriptProject.objects.create(name='Doomed', key='doomed')
         revision = self.staged_revision(project)
         storage_key, project_pk, revision_pk = project.storage_key, project.pk, revision.pk
         branch = self.branch('ProjectDelete')
         with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
             project.delete()
-        self.assertFalse(CustomScriptProject.objects.filter(pk=project_pk).exists())
+        self.assertFalse(ScriptProject.objects.filter(pk=project_pk).exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=revision_pk).exists())
         enqueue.assert_called_once_with(storage_key=storage_key, digest=DIGEST, paths=['hello.py'])
 
@@ -299,9 +299,9 @@ class MergeAndRevertTestCase(BranchingTestCase):
         # merge() returns before doing anything, which would prove nothing.
         with activate_branch(branch), event_tracking(self.request):
             Site.objects.create(name='Merged Site', slug='merged-site')
-            CustomScriptProject.objects.create(name='Merged', key='merged')
+            ScriptProject.objects.create(name='Merged', key='merged')
         sites = Site.objects.filter(slug='merged-site')
-        projects = CustomScriptProject.objects.filter(key='merged')
+        projects = ScriptProject.objects.filter(key='merged')
         # The discriminating pair: the global row is already in main while the branch-aware one
         # waits for the merge.
         self.assertEqual(projects.count(), 1)
@@ -312,7 +312,7 @@ class MergeAndRevertTestCase(BranchingTestCase):
         self.assertEqual(projects.count(), 1)
 
     def test_reverting_a_merge_does_not_undo_a_project_edit(self):
-        project = CustomScriptProject.objects.create(name='Before', key='reverted-edit')
+        project = ScriptProject.objects.create(name='Before', key='reverted-edit')
         branch = self.branch('RevertEdit', merge_strategy=BranchMergeStrategyChoices.ITERATIVE)
         with activate_branch(branch), event_tracking(self.request):
             Site.objects.create(name='Undone Site', slug='undone-site')
@@ -324,7 +324,7 @@ class MergeAndRevertTestCase(BranchingTestCase):
         branch.revert(user=self.user)
         self.assertFalse(sites.exists(), 'the revert undid nothing, so the name below proves nothing')
         # Re-fetched rather than refreshed, which would answer from the branch the save recorded.
-        self.assertEqual(CustomScriptProject.objects.get(pk=project.pk).name, 'After')
+        self.assertEqual(ScriptProject.objects.get(pk=project.pk).name, 'After')
 
 
 class WritesASite(Script):

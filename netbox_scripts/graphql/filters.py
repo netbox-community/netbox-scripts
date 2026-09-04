@@ -7,7 +7,7 @@ from strawberry_django import BaseFilterLookup, FilterLookup, StrFilterLookup
 
 from netbox.graphql.filters import ChangeLoggedModelFilter, PrimaryModelFilter
 
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from ..models import CustomScript, CustomScriptModule, ScriptProject, ScriptProjectRevision
 
 if TYPE_CHECKING:
     from core.graphql.filters import DataSourceFilter
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 __all__ = (
     'CustomScriptFilter',
     'CustomScriptModuleFilter',
-    'CustomScriptProjectFilter',
+    'ScriptProjectFilter',
     'ScriptProjectRevisionFilter',
 )
 
@@ -26,9 +26,9 @@ __all__ = (
 # their raw values as strings, mirroring NetBox's GraphQL convention.
 # storage_key is deliberately not filterable: it is internal storage/runtime
 # identity, not a public lookup key.
-@strawberry_django.filter_type(CustomScriptProject, lookups=True)
-class CustomScriptProjectFilter(PrimaryModelFilter):
-    """GraphQL filter for the Custom Script Project model."""
+@strawberry_django.filter_type(ScriptProject, lookups=True, name='NetBoxScriptProjectFilter')
+class ScriptProjectFilter(PrimaryModelFilter):
+    """GraphQL filter for the Script Project model."""
 
     name: StrFilterLookup | None = strawberry_django.filter_field()
     key: StrFilterLookup | None = strawberry_django.filter_field()
@@ -52,7 +52,7 @@ class CustomScriptProjectFilter(PrimaryModelFilter):
 class ScriptProjectRevisionFilter(ChangeLoggedModelFilter):
     """GraphQL filter for the Script Project Revision model."""
 
-    project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
+    project: ScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
     digest: StrFilterLookup | None = strawberry_django.filter_field()
     entrypoint_digest: StrFilterLookup | None = strawberry_django.filter_field()
@@ -65,7 +65,7 @@ class ScriptProjectRevisionFilter(ChangeLoggedModelFilter):
 class CustomScriptModuleFilter(PrimaryModelFilter):
     """GraphQL filter for the Custom Script Module model."""
 
-    project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
+    project: ScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
     source_path: StrFilterLookup | None = strawberry_django.filter_field()
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
@@ -82,7 +82,7 @@ class CustomScriptModuleFilter(PrimaryModelFilter):
 class CustomScriptFilter(PrimaryModelFilter):
     """GraphQL filter for the Custom Script model."""
 
-    project: CustomScriptProjectFilter | None = strawberry_django.filter_field()
+    project: ScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
     module_path: StrFilterLookup | None = strawberry_django.filter_field()
     class_name: StrFilterLookup | None = strawberry_django.filter_field()

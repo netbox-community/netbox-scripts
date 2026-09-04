@@ -6,7 +6,7 @@ from netbox.filtersets import ChangeLoggedModelFilterSet
 from utilities.filtersets import register_filterset
 
 from ..choices import RevisionStatusChoices
-from ..models import CustomScriptProject, ScriptProjectRevision
+from ..models import ScriptProject, ScriptProjectRevision
 
 
 @register_filterset
@@ -15,15 +15,15 @@ class ScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet):
 
     project_id = django_filters.ModelMultipleChoiceFilter(
         field_name='project',
-        queryset=CustomScriptProject.objects.all(),
-        label=_('Custom Script Project (ID)'),
+        queryset=ScriptProject.objects.all(),
+        label=_('Script Project (ID)'),
     )
     # Keyed on key rather than name, the only unique natural key on a project.
     project = django_filters.ModelMultipleChoiceFilter(
         field_name='project__key',
-        queryset=CustomScriptProject.objects.all(),
+        queryset=ScriptProject.objects.all(),
         to_field_name='key',
-        label=_('Custom Script Project (key)'),
+        label=_('Script Project (key)'),
     )
     status = django_filters.MultipleChoiceFilter(
         choices=RevisionStatusChoices,

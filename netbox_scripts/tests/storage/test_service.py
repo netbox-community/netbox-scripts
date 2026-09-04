@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST, build_entrypoint_snapshot
 from netbox_scripts.storage.exceptions import (
@@ -84,7 +84,7 @@ class StorageServiceMixin:
         super().setUp()
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
         self.storage = config.get_storage()
-        self.project = CustomScriptProject.objects.create(name='Staged Project', key='staged-project')
+        self.project = ScriptProject.objects.create(name='Staged Project', key='staged-project')
 
     def project_keys(self, project=None):
         """Return every key one project holds, relative to its prefix."""
@@ -296,8 +296,8 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
 
     def test_stage_revision_ignores_a_mutated_in_memory_storage_key(self):
         # The caller's instance contributes only its primary key.
-        stale = CustomScriptProject.objects.get(pk=self.project.pk)
-        stale.storage_key = CustomScriptProject.objects.create(name='Other', key='other').storage_key
+        stale = ScriptProject.objects.get(pk=self.project.pk)
+        stale.storage_key = ScriptProject.objects.create(name='Other', key='other').storage_key
         revision = self.materialize(project=stale)
         self.assertEqual(self.revision_keys(revision.digest), {'hello.py', 'pkg/mod.py'})
 
@@ -425,7 +425,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.validated()
 
         def delete_the_project(*args, **kwargs):
-            CustomScriptProject.objects.filter(pk=revision.project_id).delete()
+            ScriptProject.objects.filter(pk=revision.project_id).delete()
 
         # Verification runs after the unlocked reads and before the row lock, which is the
         # window a concurrent delete lands in.
@@ -518,7 +518,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
     def test_promote_revision_ignores_a_mutated_in_memory_project(self):
         # The owning project is read from the database, so pointing the in-memory instance at
         # another project cannot create a cross-project active revision.
-        other = CustomScriptProject.objects.create(name='Other Project', key='other-project')
+        other = ScriptProject.objects.create(name='Other Project', key='other-project')
         revision = self.validated()
         revision.project = other
 
@@ -535,7 +535,7 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
             service.promote_revision(revision, on_promote=promote_without_synchronizing)
         locking = [entry['sql'] for entry in queries if 'FOR UPDATE' in entry['sql']]
         self.assertEqual(len(locking), 2)
-        self.assertIn('"netbox_scripts_customscriptproject"', locking[0])
+        self.assertIn('"netbox_scripts_scriptproject"', locking[0])
         self.assertIn('"netbox_scripts_scriptprojectrevision"', locking[1])
 
     def test_promote_revision_refuses_a_revision_from_another_database(self):

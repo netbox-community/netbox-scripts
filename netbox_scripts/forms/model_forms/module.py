@@ -4,7 +4,7 @@ from netbox.forms import PrimaryModelForm
 from utilities.forms.fields import DynamicModelChoiceField
 from utilities.forms.rendering import FieldSet
 
-from ...models import CustomScriptModule, CustomScriptProject
+from ...models import CustomScriptModule, ScriptProject
 
 __all__ = ('CustomScriptModuleEditForm',)
 
@@ -13,8 +13,8 @@ class CustomScriptModuleEditForm(PrimaryModelForm):
     """Create and edit form for the Custom Script Module model."""
 
     project = DynamicModelChoiceField(
-        queryset=CustomScriptProject.objects.all(),
-        label=_('Custom Script Project'),
+        queryset=ScriptProject.objects.all(),
+        label=_('Script Project'),
     )
 
     def __init__(self, *args, **kwargs):

@@ -22,7 +22,7 @@ from ..jobs import (
     MigrationVerificationJob,
 )
 from ..migration import cleanup, cutover, mapping, plan
-from ..models import CustomScriptProject, MigrationRun, ScriptProjectRevision
+from ..models import MigrationRun, ScriptProject, ScriptProjectRevision
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
 __all__ = (
@@ -76,7 +76,7 @@ def _migration_rows(request, inventory_job, staging_job):
     keys = list(proposed) + [key for key in produced if key not in proposed]
     projects = {
         project.key: project
-        for project in CustomScriptProject.objects.restrict(request.user, 'view')
+        for project in ScriptProject.objects.restrict(request.user, 'view')
         .select_related('active_revision')
         .filter(key__in=keys)
     }
@@ -94,7 +94,7 @@ def _migration_rows(request, inventory_job, staging_job):
 
 def _newest_stored_revisions(projects):
     """Return the newest revision holding content for each project, keyed by project."""
-    # One query for every row. CustomScriptProject.current_revision answers this per instance,
+    # One query for every row. ScriptProject.current_revision answers this per instance,
     # so reading it from the template would cost one query per Project the page lists.
     newest = {}
     stored = ScriptProjectRevision.objects.filter(
@@ -122,7 +122,7 @@ class BaseMigrationView(ContentTypePermissionRequiredMixin, View):
 
     def get_required_permission(self):
         # A pass acts on the built-in feature, so the gate is what it produces: Projects.
-        return get_permission_for_model(CustomScriptProject, 'add')
+        return get_permission_for_model(ScriptProject, 'add')
 
 
 class DestructiveMigrationView(BaseMigrationView):
@@ -130,7 +130,7 @@ class DestructiveMigrationView(BaseMigrationView):
 
     def get_required_permission(self):
         # Closing rows of the built-in feature is not a form of creating a Project.
-        return get_permission_for_model(CustomScriptProject, 'migrate')
+        return get_permission_for_model(ScriptProject, 'migrate')
 
 
 class MigrationView(BaseMigrationView):
@@ -217,7 +217,7 @@ class MigrationRunView(generic.ObjectView):
         """Require the same permission as the Migration page, not a permission of this model's own."""
         # One permission covers the whole migration surface, so the page never links a viewer
         # somewhere they cannot follow.
-        return get_permission_for_model(CustomScriptProject, 'add')
+        return get_permission_for_model(ScriptProject, 'add')
 
     def has_permission(self):
         """Gate on that permission alone, without the inherited queryset restriction."""
@@ -322,7 +322,7 @@ class MigrationActivationView(DestructiveMigrationView):
             messages.warning(request, _('A Custom Script migration activation is already queued.'))
             return redirect('plugins:netbox_scripts:migration')
         MigrationActivationJob.enqueue(user=request.user)
-        messages.success(request, _('Queued activation of the staged Custom Script Projects.'))
+        messages.success(request, _('Queued activation of the staged Script Projects.'))
         return redirect('plugins:netbox_scripts:migration')
 
 

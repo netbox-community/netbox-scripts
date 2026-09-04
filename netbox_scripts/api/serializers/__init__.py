@@ -1,15 +1,15 @@
 from .module import CustomScriptModuleSerializer
-from .project import CustomScriptProjectSerializer
+from .project import ScriptProjectSerializer
 from .revision import ScriptProjectRevisionSerializer
 from .run import CustomScriptRunInputSerializer
 from .script import CustomScriptSerializer
-from .upload import CustomScriptProjectUploadSerializer
+from .upload import ScriptProjectUploadSerializer
 
 __all__ = (
     'CustomScriptModuleSerializer',
-    'CustomScriptProjectSerializer',
-    'CustomScriptProjectUploadSerializer',
     'CustomScriptRunInputSerializer',
     'CustomScriptSerializer',
     'ScriptProjectRevisionSerializer',
+    'ScriptProjectSerializer',
+    'ScriptProjectUploadSerializer',
 )

@@ -1,5 +1,5 @@
 """
-Staging and activation of a Custom Script Project's revisions.
+Staging and activation of a Script Project's revisions.
 
 This module resolves the configuration for one operation and passes it down, and it owns the
 transaction and lock boundaries of the storage layer. Staging turns a mapping of source files
@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from .. import branching, constants
 from ..choices import RevisionStatusChoices
-from ..models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from ..models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from . import config, store
 from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
 from .exceptions import (
@@ -100,7 +100,7 @@ def stage_revision(project, files):
     # The caller's instance contributes only its primary key, so a stale or mutated
     # storage_key cannot decide where content is written.
     storage_key = project_or_vanished(
-        CustomScriptProject.objects.using(using).values_list('storage_key', flat=True), project.pk
+        ScriptProject.objects.using(using).values_list('storage_key', flat=True), project.pk
     )
 
     # Held from the identity row through the content write to the status that settles it, so
@@ -192,7 +192,7 @@ def refresh_revision_entrypoints(revision):
         CustomScriptModule.objects.using(using).filter(project=source.project_id, enabled=True)
     )
     storage_key = project_or_vanished(
-        CustomScriptProject.objects.using(using).values_list('storage_key', flat=True), source.project_id
+        ScriptProject.objects.using(using).values_list('storage_key', flat=True), source.project_id
     )
     # The new row claims content this call has just proven present, so the verification and the
     # row that depends on it happen under one hold. Otherwise cleanup could reclaim the tree in
@@ -243,7 +243,7 @@ def promote_revision(revision, *, on_promote):
 
     snapshot = revision_or_vanished(ScriptProjectRevision.objects.using(using), revision_pk)
     project_state = project_or_vanished(
-        CustomScriptProject.objects.using(using).values('storage_key', 'active_revision_id'), snapshot.project_id
+        ScriptProject.objects.using(using).values('storage_key', 'active_revision_id'), snapshot.project_id
     )
     already_active = (
         snapshot.status == RevisionStatusChoices.ACTIVE and project_state['active_revision_id'] == snapshot.pk
@@ -272,7 +272,7 @@ def _promote(snapshot, revision_pk, using, on_promote):
     with transaction.atomic(using=using):
         # Project row before revision row, the same order a project delete takes, so concurrent
         # activations serialize rather than deadlock.
-        project = project_or_vanished(CustomScriptProject.objects.using(using).select_for_update(), snapshot.project_id)
+        project = project_or_vanished(ScriptProject.objects.using(using).select_for_update(), snapshot.project_id)
         locked = revision_or_vanished(
             ScriptProjectRevision.objects.using(using).select_for_update(),
             revision_pk,
@@ -320,7 +320,7 @@ def project_or_vanished(query, project_id):
     """Return one shaped project read, reporting a concurrent deletion as such."""
     try:
         return query.get(pk=project_id)
-    except CustomScriptProject.DoesNotExist as error:
+    except ScriptProject.DoesNotExist as error:
         raise ProjectVanishedError(f'Project {project_id} was deleted while its content was being changed.') from error
 
 
@@ -373,7 +373,7 @@ def require_default_database(instance):
     using = instance._state.db or router.db_for_write(ScriptProjectRevision, instance=instance)
     if using != DEFAULT_DB_ALIAS:
         raise ImproperlyConfigured(
-            f'Custom Script Project storage operations run on the "{DEFAULT_DB_ALIAS}" database only. '
+            f'Script Project storage operations run on the "{DEFAULT_DB_ALIAS}" database only. '
             f'This operation arrived on "{using}", where stored content could never be reclaimed, '
             'because deletion cleanup is recorded on the default connection.'
         )

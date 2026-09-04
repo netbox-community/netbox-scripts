@@ -10,7 +10,7 @@ Grant these like any other NetBox permission, by ticking the action on an
 Object Permission for the relevant model. Object-level constraints work
 throughout, so a permission can be narrowed to particular Projects or Scripts.
 
-## Custom Script Project
+## Script Project
 
 | Action | What it allows |
 |---|---|
@@ -43,7 +43,7 @@ leaves the button out of reach.
 
 ## The Migration page
 
-The Migration page has no model of its own, so its passes take Custom Script
+The Migration page has no model of its own, so its passes take Script
 Project actions. Which one depends on what the pass changes, and the split is
 the same principle as `activate`: the passes below the fence only report or
 create Projects, while everything from the cutover onwards rewrites and deletes

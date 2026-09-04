@@ -17,7 +17,7 @@ __all__ = (
 
 class ActivateRevision(ObjectAction):
     """
-    Put a Custom Script Project's newest validated revision into service.
+    Put a Script Project's newest validated revision into service.
 
     Only rendered when there is something to activate, so a project already serving its newest
     revision shows no button. Its own permission rather than change, because choosing what code a
@@ -38,7 +38,7 @@ class ActivateRevision(ObjectAction):
 
 class AddScript(ObjectAction):
     """
-    Upload one more script into an existing Custom Script Project.
+    Upload one more script into an existing Script Project.
 
     Only rendered for a project whose source is uploaded, since a Data Source-backed project
     rebuilds its source from its directory and ingestion refuses an upload into one.
@@ -66,7 +66,7 @@ class AddScript(ObjectAction):
 
 class ReconcileSource(ObjectAction):
     """
-    Rebuild a Custom Script Project's source from its Data Source directory now.
+    Rebuild a Script Project's source from its Data Source directory now.
 
     Only rendered for a Data Source-backed project, since an uploaded one has no directory to
     reconcile against. Its own permission rather than change, because what it changes is what the
@@ -87,7 +87,7 @@ class ReconcileSource(ObjectAction):
 
 class RepairScripts(ObjectAction):
     """
-    Republish a Custom Script Project's rows from the revision it is already serving.
+    Republish a Script Project's rows from the revision it is already serving.
 
     A recovery action for rows that drifted from the snapshot they derive from. It takes the
     activate permission, because republishing rows into service is what that grants, and it

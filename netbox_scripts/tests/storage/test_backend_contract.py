@@ -24,7 +24,7 @@ from django.test import TestCase, override_settings
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import CustomScriptProject
+from netbox_scripts.models import ScriptProject
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.storage.paths import MAX_PATH_BYTES, revision_key, revision_prefix
@@ -95,7 +95,7 @@ class BackendLifecycleMixin:
 
     def test_the_full_lifecycle_holds_on_this_backend(self):
         with override_settings(STORAGES={**BASE_STORAGES, 'netbox_scripts': self.storages_setting()}):
-            project = CustomScriptProject.objects.create(name='Contract Project', key='contract-project')
+            project = ScriptProject.objects.create(name='Contract Project', key='contract-project')
             storage_key = str(project.storage_key)
 
             staged, created = service.stage_revision(project, SOURCE)
@@ -192,7 +192,7 @@ class S3BackendTestCase(BackendLifecycleMixin, TestCase):
         # This backend downloads an object whole when it is opened, so verification has to
         # reject a wrong-size replacement from its HEAD metadata, before any open happens.
         with override_settings(STORAGES={**BASE_STORAGES, 'netbox_scripts': self.storages_setting()}):
-            project = CustomScriptProject.objects.create(name='Oversize Project', key='oversize-project')
+            project = ScriptProject.objects.create(name='Oversize Project', key='oversize-project')
             staged, _ = service.stage_revision(project, SOURCE)
             storage = config.get_storage()
             key = revision_key(project.storage_key, staged.digest, 'deploy.py')
@@ -219,7 +219,7 @@ class S3BackendTestCase(BackendLifecycleMixin, TestCase):
         path = '/'.join([*segments, tail])
         self.assertEqual(len(path.encode('utf-8')), MAX_PATH_BYTES)
         with override_settings(STORAGES={**BASE_STORAGES, 'netbox_scripts': self.storages_setting()}):
-            project = CustomScriptProject.objects.create(name='Budget Project', key='budget-project')
+            project = ScriptProject.objects.create(name='Budget Project', key='budget-project')
             staged, _ = service.stage_revision(project, {path: b'BUDGET = 1\n'})
             self.assertEqual(staged.status, RevisionStatusChoices.MATERIALIZED)
             key = revision_key(project.storage_key, staged.digest, path)

@@ -22,55 +22,55 @@ from utilities.views import ViewTab, register_model_view
 
 from .. import activation
 from ..choices import ProjectSourceTypeChoices
-from ..filtersets import CustomScriptProjectFilterSet
+from ..filtersets import ScriptProjectFilterSet
 from ..forms import (
-    CustomScriptProjectAddScriptForm,
-    CustomScriptProjectBulkEditForm,
-    CustomScriptProjectBulkImportForm,
-    CustomScriptProjectEditForm,
-    CustomScriptProjectEntrypointsForm,
-    CustomScriptProjectFilterForm,
-    CustomScriptProjectUploadForm,
+    ScriptProjectAddScriptForm,
+    ScriptProjectBulkEditForm,
+    ScriptProjectBulkImportForm,
+    ScriptProjectEditForm,
+    ScriptProjectEntrypointsForm,
+    ScriptProjectFilterForm,
+    ScriptProjectUploadForm,
 )
 from ..jobs import ProjectReconciliationJob
-from ..models import CustomScriptProject, ScriptProjectRevision
+from ..models import ScriptProject, ScriptProjectRevision
 from ..object_actions import ActivateRevision, AddScript, ReconcileSource, RepairScripts
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from ..tables import CustomScriptProjectFileTable, CustomScriptProjectTable, ScriptProjectRevisionTable
-from ..ui import CustomScriptProjectPanel, CustomScriptProjectSourcePanel, CustomScriptProjectStatePanel
+from ..tables import ScriptProjectFileTable, ScriptProjectRevisionTable, ScriptProjectTable
+from ..ui import ScriptProjectPanel, ScriptProjectSourcePanel, ScriptProjectStatePanel
 from .revision import activation_message
 
 
-@register_model_view(CustomScriptProject, 'list', path='', detail=False)
-class CustomScriptProjectListView(generic.ObjectListView):
-    """List view for Custom Script Projects."""
+@register_model_view(ScriptProject, 'list', path='', detail=False)
+class ScriptProjectListView(generic.ObjectListView):
+    """List view for Script Projects."""
 
     # The default set also includes rename, which this model does not register, and
     # ActionsMixin filters by permission alone rather than by route.
     actions = (AddObject, BulkImport, BulkExport, BulkEdit, BulkDelete)
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    table = CustomScriptProjectTable
-    filterset = CustomScriptProjectFilterSet
-    filterset_form = CustomScriptProjectFilterForm
+    queryset = ScriptProject.objects.select_related('data_source')
+    table = ScriptProjectTable
+    filterset = ScriptProjectFilterSet
+    filterset_form = ScriptProjectFilterForm
 
 
-@register_model_view(CustomScriptProject)
-class CustomScriptProjectView(generic.ObjectView):
-    """Detail view for a single Custom Script Project."""
+@register_model_view(ScriptProject)
+class ScriptProjectView(generic.ObjectView):
+    """Detail view for a single Script Project."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
+    queryset = ScriptProject.objects.select_related('data_source')
     # Workflow order: add source, then put it in service. Only one of the first two ever renders,
     # each for the source type it belongs to.
     actions = (AddScript, ReconcileSource, ActivateRevision, RepairScripts, CloneObject, EditObject, DeleteObject)
     layout = layout.SimpleLayout(
         left_panels=[
-            CustomScriptProjectPanel(),
+            ScriptProjectPanel(),
             TagsPanel(),
             CommentsPanel(),
         ],
         right_panels=[
-            CustomScriptProjectSourcePanel(),
-            CustomScriptProjectStatePanel(),
+            ScriptProjectSourcePanel(),
+            ScriptProjectStatePanel(),
             CustomFieldsPanel(),
         ],
         bottom_panels=[
@@ -88,10 +88,10 @@ class CustomScriptProjectView(generic.ObjectView):
     )
 
 
-@register_model_view(CustomScriptProject, 'activate', path='activate')
-class CustomScriptProjectActivateView(generic.ObjectView):
+@register_model_view(ScriptProject, 'activate', path='activate')
+class ScriptProjectActivateView(generic.ObjectView):
     """
-    Point a Custom Script Project at its newest validated revision.
+    Point a Script Project at its newest validated revision.
 
     A project whose activation policy is manual reaches VALID and stops, so without this there
     is no way to put it in service. GET names the revision that would go live and POST performs
@@ -101,8 +101,8 @@ class CustomScriptProjectActivateView(generic.ObjectView):
     a candidate and reports the outcome rather than deciding anything itself.
     """
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    template_name = 'netbox_scripts/customscriptproject_activate.html'
+    queryset = ScriptProject.objects.select_related('data_source')
+    template_name = 'netbox_scripts/scriptproject_activate.html'
 
     def get_required_permission(self):
         """Require the activate permission, granted separately from change."""
@@ -139,8 +139,8 @@ class CustomScriptProjectActivateView(generic.ObjectView):
         return redirect(project.get_absolute_url())
 
 
-@register_model_view(CustomScriptProject, 'repair', path='repair')
-class CustomScriptProjectRepairView(generic.ObjectView):
+@register_model_view(ScriptProject, 'repair', path='repair')
+class ScriptProjectRepairView(generic.ObjectView):
     """
     Republish a Project's Custom Script rows from the revision it is already serving.
 
@@ -153,8 +153,8 @@ class CustomScriptProjectRepairView(generic.ObjectView):
     something, so the route does not apply to one that is not.
     """
 
-    queryset = CustomScriptProject.objects.filter(active_revision__isnull=False).select_related('active_revision')
-    template_name = 'netbox_scripts/customscriptproject_repair.html'
+    queryset = ScriptProject.objects.filter(active_revision__isnull=False).select_related('active_revision')
+    template_name = 'netbox_scripts/scriptproject_repair.html'
 
     def get_required_permission(self):
         """Require the activate permission, granted separately from change."""
@@ -198,8 +198,8 @@ class CustomScriptProjectRepairView(generic.ObjectView):
         return redirect(project.get_absolute_url())
 
 
-@register_model_view(CustomScriptProject, 'reconcile', path='reconcile')
-class CustomScriptProjectReconcileView(generic.ObjectView):
+@register_model_view(ScriptProject, 'reconcile', path='reconcile')
+class ScriptProjectReconcileView(generic.ObjectView):
     """
     Rebuild a Data Source-backed Project's source from its directory as it stands now.
 
@@ -215,10 +215,10 @@ class CustomScriptProjectReconcileView(generic.ObjectView):
     does not apply to a project whose source is uploaded.
     """
 
-    queryset = CustomScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.DATA_SOURCE).select_related(
+    queryset = ScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.DATA_SOURCE).select_related(
         'data_source'
     )
-    template_name = 'netbox_scripts/customscriptproject_reconcile.html'
+    template_name = 'netbox_scripts/scriptproject_reconcile.html'
 
     def get_required_permission(self):
         """Require the reconcile permission, granted separately from change."""
@@ -244,10 +244,10 @@ class CustomScriptProjectReconcileView(generic.ObjectView):
         return redirect(project.get_absolute_url())
 
 
-@register_model_view(CustomScriptProject, 'revisions', path='revisions')
+@register_model_view(ScriptProject, 'revisions', path='revisions')
 class ScriptProjectRevisionsView(generic.ObjectChildrenView):
     """
-    A Custom Script Project's revision history.
+    A Script Project's revision history.
 
     Its own tab rather than a panel on the detail page: revisions are the project's history, so
     they are worth a page of their own and not worth the room on the page answering "what is
@@ -255,7 +255,7 @@ class ScriptProjectRevisionsView(generic.ObjectChildrenView):
     hand, and the ones that will act on it belong to the revision itself rather than the table.
     """
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
+    queryset = ScriptProject.objects.select_related('data_source')
     child_model = ScriptProjectRevision
     table = ScriptProjectRevisionTable
     actions = ()
@@ -273,12 +273,12 @@ class ScriptProjectRevisionsView(generic.ObjectChildrenView):
         return parent.revisions.restrict(request.user, 'view')
 
 
-@register_model_view(CustomScriptProject, 'entrypoints', path='entrypoints')
-class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
-    """Select a Custom Script Project's executable entrypoints from its own source."""
+@register_model_view(ScriptProject, 'entrypoints', path='entrypoints')
+class ScriptProjectEntrypointsView(generic.ObjectEditView):
+    """Select a Script Project's executable entrypoints from its own source."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    form = CustomScriptProjectEntrypointsForm
+    queryset = ScriptProject.objects.select_related('data_source')
+    form = ScriptProjectEntrypointsForm
     tab = ViewTab(
         label=_('Entrypoints'),
         badge=lambda obj: obj.modules.filter(enabled=True).count(),
@@ -289,17 +289,17 @@ class CustomScriptProjectEntrypointsView(generic.ObjectEditView):
     additional_permissions = ('netbox_scripts.change_customscriptmodule',)
 
 
-@register_model_view(CustomScriptProject, 'files', path='files')
-class CustomScriptProjectFilesView(generic.ObjectChildrenView):
+@register_model_view(ScriptProject, 'files', path='files')
+class ScriptProjectFilesView(generic.ObjectChildrenView):
     """
-    The files a Custom Script Project's current revision holds.
+    The files a Script Project's current revision holds.
 
     Read-only rows out of the revision's manifest, so no revision means an empty tab. The live
     declarations supply the entrypoint marker and any declared path the source no longer holds.
     """
 
-    queryset = CustomScriptProject.objects.select_related('active_revision')
-    table = CustomScriptProjectFileTable
+    queryset = ScriptProject.objects.select_related('active_revision')
+    table = ScriptProjectFileTable
     actions = ()
     tab = ViewTab(
         label=_('Files'),
@@ -337,72 +337,72 @@ class CustomScriptProjectFilesView(generic.ObjectChildrenView):
         return sorted(rows, key=lambda row: row['path'])
 
 
-@register_model_view(CustomScriptProject, 'add', detail=False)
-@register_model_view(CustomScriptProject, 'edit')
-class CustomScriptProjectEditView(generic.ObjectEditView):
-    """Create and edit view for a Custom Script Project."""
+@register_model_view(ScriptProject, 'add', detail=False)
+@register_model_view(ScriptProject, 'edit')
+class ScriptProjectEditView(generic.ObjectEditView):
+    """Create and edit view for a Script Project."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    form = CustomScriptProjectEditForm
+    queryset = ScriptProject.objects.select_related('data_source')
+    form = ScriptProjectEditForm
 
 
-@register_model_view(CustomScriptProject, 'upload', path='upload', detail=False)
-class CustomScriptProjectUploadView(generic.ObjectEditView):
-    """Create a Custom Script Project from one uploaded script."""
+@register_model_view(ScriptProject, 'upload', path='upload', detail=False)
+class ScriptProjectUploadView(generic.ObjectEditView):
+    """Create a Script Project from one uploaded script."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    form = CustomScriptProjectUploadForm
+    queryset = ScriptProject.objects.select_related('data_source')
+    form = ScriptProjectUploadForm
 
     # The upload declares its own entrypoint, so it creates a Module.
     additional_permissions = ('netbox_scripts.add_customscriptmodule',)
 
 
-@register_model_view(CustomScriptProject, 'add_script', path='upload')
-class CustomScriptProjectAddScriptView(generic.ObjectEditView):
+@register_model_view(ScriptProject, 'add_script', path='upload')
+class ScriptProjectAddScriptView(generic.ObjectEditView):
     """
-    Add one more script to an existing Custom Script Project.
+    Add one more script to an existing Script Project.
 
     Registered on the detail route, so the base view asks for the project's change permission
     rather than its add permission. That is the right side of the pair: the project exists and
     its source is being changed.
     """
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    form = CustomScriptProjectAddScriptForm
+    queryset = ScriptProject.objects.select_related('data_source')
+    form = ScriptProjectAddScriptForm
 
     # The upload declares its own entrypoint, so it creates a Module.
     additional_permissions = ('netbox_scripts.add_customscriptmodule',)
 
 
-@register_model_view(CustomScriptProject, 'delete')
-class CustomScriptProjectDeleteView(generic.ObjectDeleteView):
-    """Delete view for a single Custom Script Project."""
+@register_model_view(ScriptProject, 'delete')
+class ScriptProjectDeleteView(generic.ObjectDeleteView):
+    """Delete view for a single Script Project."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-
-
-@register_model_view(CustomScriptProject, 'bulk_edit', path='edit', detail=False)
-class CustomScriptProjectBulkEditView(generic.BulkEditView):
-    """Bulk edit view for Custom Script Projects."""
-
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    filterset = CustomScriptProjectFilterSet
-    table = CustomScriptProjectTable
-    form = CustomScriptProjectBulkEditForm
+    queryset = ScriptProject.objects.select_related('data_source')
 
 
-@register_model_view(CustomScriptProject, 'bulk_delete', path='delete', detail=False)
-class CustomScriptProjectBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete view for Custom Script Projects."""
+@register_model_view(ScriptProject, 'bulk_edit', path='edit', detail=False)
+class ScriptProjectBulkEditView(generic.BulkEditView):
+    """Bulk edit view for Script Projects."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    filterset = CustomScriptProjectFilterSet
-    table = CustomScriptProjectTable
+    queryset = ScriptProject.objects.select_related('data_source')
+    filterset = ScriptProjectFilterSet
+    table = ScriptProjectTable
+    form = ScriptProjectBulkEditForm
 
 
-@register_model_view(CustomScriptProject, 'bulk_import', path='import', detail=False)
-class CustomScriptProjectBulkImportView(generic.BulkImportView):
-    """Bulk import view for Custom Script Projects."""
+@register_model_view(ScriptProject, 'bulk_delete', path='delete', detail=False)
+class ScriptProjectBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete view for Script Projects."""
 
-    queryset = CustomScriptProject.objects.select_related('data_source')
-    model_form = CustomScriptProjectBulkImportForm
+    queryset = ScriptProject.objects.select_related('data_source')
+    filterset = ScriptProjectFilterSet
+    table = ScriptProjectTable
+
+
+@register_model_view(ScriptProject, 'bulk_import', path='import', detail=False)
+class ScriptProjectBulkImportView(generic.BulkImportView):
+    """Bulk import view for Script Projects."""
+
+    queryset = ScriptProject.objects.select_related('data_source')
+    model_form = ScriptProjectBulkImportForm

@@ -3,7 +3,7 @@ from netbox.api.serializers import ValidatedModelSerializer
 
 from ...choices import RevisionStatusChoices
 from ...models import ScriptProjectRevision
-from .project import CustomScriptProjectSerializer
+from .project import ScriptProjectSerializer
 
 
 class ScriptProjectRevisionSerializer(ValidatedModelSerializer):
@@ -15,7 +15,7 @@ class ScriptProjectRevisionSerializer(ValidatedModelSerializer):
     name rather than by route, which is event serialization on a cascade delete.
     """
 
-    project = CustomScriptProjectSerializer(nested=True)
+    project = ScriptProjectSerializer(nested=True)
     status = ChoiceField(choices=RevisionStatusChoices, read_only=True)
 
     class Meta:

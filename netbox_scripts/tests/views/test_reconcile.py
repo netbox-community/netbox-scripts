@@ -5,7 +5,7 @@ from django.urls import reverse
 from core.models import DataSource, ObjectType
 from netbox_scripts.choices import ProjectSourceTypeChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
-from netbox_scripts.models import CustomScriptProject
+from netbox_scripts.models import ScriptProject
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -17,14 +17,14 @@ class ReconcileSourceViewTestCase(TestCase):
         self.user = create_test_user()
         self.client.force_login(self.user)
         self.source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')
-        self.project = CustomScriptProject.objects.create(
+        self.project = ScriptProject.objects.create(
             name='Repo Project',
             key='repo-project',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=self.source,
             data_path='scripts',
         )
-        self.uploaded = CustomScriptProject.objects.create(name='Uploaded', key='uploaded')
+        self.uploaded = ScriptProject.objects.create(name='Uploaded', key='uploaded')
         self.enqueued = self.enterContext(
             mock.patch.object(ProjectReconciliationJob, 'enqueue_reconciliation', return_value=None)
         )
@@ -33,11 +33,11 @@ class ReconcileSourceViewTestCase(TestCase):
         obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
 
     @staticmethod
     def url(project):
-        return reverse('plugins:netbox_scripts:customscriptproject_reconcile', args=[project.pk])
+        return reverse('plugins:netbox_scripts:scriptproject_reconcile', args=[project.pk])
 
     def test_a_get_confirms_without_enqueueing_anything(self):
         self.grant('view', 'reconcile')

@@ -1,5 +1,5 @@
 """
-Activation of a Custom Script Project's revisions.
+Activation of a Script Project's revisions.
 
 Storage promotes a revision. This module is the domain operation around it, turning the
 Custom Scripts a revision recorded at its verdict into rows in the same transaction that
@@ -17,7 +17,7 @@ from django.db import transaction
 
 from . import branching
 from .choices import RevisionStatusChoices
-from .models import CustomScript, CustomScriptProject, ScriptProjectRevision
+from .models import CustomScript, ScriptProject, ScriptProjectRevision
 from .runtime.exceptions import ScriptMetadataError
 from .runtime.introspection import validate_discovered_scripts
 from .storage import service
@@ -99,7 +99,7 @@ def deactivate_revision(revision):
     branching.require_safe_routing()
     using = require_default_database(revision)
     with transaction.atomic(using=using):
-        project = project_or_vanished(CustomScriptProject.objects.using(using).select_for_update(), revision.project_id)
+        project = project_or_vanished(ScriptProject.objects.using(using).select_for_update(), revision.project_id)
         locked = revision_or_vanished(
             ScriptProjectRevision.objects.using(using).select_for_update(),
             revision.pk,

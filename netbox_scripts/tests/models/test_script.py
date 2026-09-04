@@ -6,7 +6,7 @@ from netbox_scripts.constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MO
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 
@@ -17,8 +17,8 @@ DIGEST_B = 'b' * 64
 class CustomScriptTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Script Project 1', key='script-project-1')
-        cls.other_project = CustomScriptProject.objects.create(name='Script Project 2', key='script-project-2')
+        cls.project = ScriptProject.objects.create(name='Script Project 1', key='script-project-1')
+        cls.other_project = ScriptProject.objects.create(name='Script Project 2', key='script-project-2')
         cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=DIGEST_A,
@@ -31,8 +31,8 @@ class CustomScriptTestCase(TestCase):
         )
         # A script is only executable while its project is serving a revision, so both projects
         # start out serving one and each test takes away whatever it is about.
-        CustomScriptProject.objects.filter(pk=cls.project.pk).update(active_revision=cls.revision)
-        CustomScriptProject.objects.filter(pk=cls.other_project.pk).update(active_revision=cls.other_revision)
+        ScriptProject.objects.filter(pk=cls.project.pk).update(active_revision=cls.revision)
+        ScriptProject.objects.filter(pk=cls.other_project.pk).update(active_revision=cls.other_revision)
         cls.project.refresh_from_db()
         cls.other_project.refresh_from_db()
 
@@ -120,7 +120,7 @@ class CustomScriptTestCase(TestCase):
         # Deactivation retires every script in the same transaction, so this state is normally
         # unreachable. The check makes the guarantee local rather than an agreement between two
         # code paths, which is what execution has to be able to trust.
-        CustomScriptProject.objects.filter(pk=self.other_project.pk).update(active_revision=None)
+        ScriptProject.objects.filter(pk=self.other_project.pk).update(active_revision=None)
         self.other_project.refresh_from_db()
         script = self._script(project=self.other_project)
         self.assertFalse(script.is_executable)
@@ -145,7 +145,7 @@ class CustomScriptTestCase(TestCase):
         self.assertIsNotNone(instance.pk)
 
     def test_deleting_the_project_cascades_the_scripts(self):
-        project = CustomScriptProject.objects.create(name='Script Project 3', key='script-project-3')
+        project = ScriptProject.objects.create(name='Script Project 3', key='script-project-3')
         self._script(project=project)
         project.delete()
         self.assertFalse(CustomScript.objects.filter(project_id=project.pk).exists())

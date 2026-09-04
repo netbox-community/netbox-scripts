@@ -1,13 +1,13 @@
 # Data Source Projects
 
-A Custom Script Project whose source type is `data_source` mirrors one directory of a NetBox
+A Script Project whose source type is `data_source` mirrors one directory of a NetBox
 Core Data Source. The Data Source owns the files, and the Project decides what is published
 from them. This page covers pointing a Project at a directory, what a synchronization does, and
 why a Python file appearing in a repository publishes nothing on its own.
 
 ## Pointing a Project at a directory
 
-*Custom Scripts > Custom Script Projects*, then **Add**. Choose `Data source` as the source
+*Custom Scripts > Script Projects*, then **Add**. Choose `Data source` as the source
 type, which reveals the two fields it needs.
 
 | Field | Meaning |

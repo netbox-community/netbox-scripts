@@ -11,12 +11,12 @@ from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeCho
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import PluginTestCases
-from netbox_scripts.ui import CustomScriptProjectPanel, CustomScriptProjectStatePanel
+from netbox_scripts.ui import ScriptProjectPanel, ScriptProjectStatePanel
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, create_test_user
 
@@ -27,8 +27,8 @@ ACTIVATE_STORAGES = {
 }
 
 
-class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
-    model = CustomScriptProject
+class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
+    model = ScriptProject
 
     @classmethod
     def setUpTestData(cls):
@@ -39,10 +39,10 @@ class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         )
 
         objs = (
-            CustomScriptProject(name='CustomScriptProject 1', key='project-1', description='First'),
-            CustomScriptProject(name='CustomScriptProject 2', key='project-2', description='Second'),
-            CustomScriptProject(
-                name='CustomScriptProject 3',
+            ScriptProject(name='ScriptProject 1', key='project-1', description='First'),
+            ScriptProject(name='ScriptProject 2', key='project-2', description='Second'),
+            ScriptProject(
+                name='ScriptProject 3',
                 key='project-3',
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
                 data_source=data_source,
@@ -56,7 +56,7 @@ class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         tags = create_tags('Alpha', 'Bravo', 'Charlie')
 
         cls.form_data = {
-            'name': 'CustomScriptProject X',
+            'name': 'ScriptProject X',
             'key': 'project-x',
             'description': 'Form-created project',
             'source_type': ProjectSourceTypeChoices.UPLOAD,
@@ -69,16 +69,16 @@ class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
 
         cls.csv_data = (
             'name,key,source_type,activation_policy,enabled,description,comments',
-            'CustomScriptProject 4,project-4,upload,manual,true,Bulk-imported,',
-            'CustomScriptProject 5,project-5,upload,manual,true,Bulk-imported,',
-            'CustomScriptProject 6,project-6,upload,automatic_if_valid,false,Bulk-imported,',
+            'ScriptProject 4,project-4,upload,manual,true,Bulk-imported,',
+            'ScriptProject 5,project-5,upload,manual,true,Bulk-imported,',
+            'ScriptProject 6,project-6,upload,automatic_if_valid,false,Bulk-imported,',
         )
 
         cls.csv_update_data = (
             'id,name,description,comments',
-            f'{objs[0].pk},CustomScriptProject 1 Updated,Updated first,Note 1',
-            f'{objs[1].pk},CustomScriptProject 2 Updated,Updated second,Note 2',
-            f'{objs[2].pk},CustomScriptProject 3 Updated,Updated third,Note 3',
+            f'{objs[0].pk},ScriptProject 1 Updated,Updated first,Note 1',
+            f'{objs[1].pk},ScriptProject 2 Updated,Updated second,Note 2',
+            f'{objs[2].pk},ScriptProject 3 Updated,Updated third,Note 3',
         )
 
         cls.bulk_edit_data = {
@@ -101,12 +101,12 @@ class CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         super().test_edit_object_with_constrained_permission()
 
 
-class CustomScriptProjectEntrypointsViewTestCase(TestCase):
+class ScriptProjectEntrypointsViewTestCase(TestCase):
     """The Entrypoints tab writes declarations, so it carries the Module permission."""
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Tab Project', key='tab-project')
+        cls.project = ScriptProject.objects.create(name='Tab Project', key='tab-project')
         ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
@@ -119,7 +119,7 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
         self.client.force_login(self.user)
 
     def url(self):
-        return reverse('plugins:netbox_scripts:customscriptproject_entrypoints', args=[self.project.pk])
+        return reverse('plugins:netbox_scripts:scriptproject_entrypoints', args=[self.project.pk])
 
     def grant(self, model, *actions, constraints=None):
         obj_perm = ObjectPermission(
@@ -133,7 +133,7 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
 
     def grant_both(self):
         # The tab restricts the project queryset and writes declarations, so it needs both.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.grant(CustomScriptModule, 'view', 'change', 'add')
 
     def test_the_tab_lists_the_candidates(self):
@@ -160,7 +160,7 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
 
     def test_the_project_permission_alone_is_not_enough(self):
         # Writing declarations needs their own permission, not just the project's.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_module_permission_alone_is_not_enough(self):
@@ -185,17 +185,17 @@ class CustomScriptProjectEntrypointsViewTestCase(TestCase):
 
     def test_a_project_without_source_renders_an_empty_selection(self):
         self.grant_both()
-        bare = CustomScriptProject.objects.create(name='Bare Project', key='bare-project')
-        url = reverse('plugins:netbox_scripts:customscriptproject_entrypoints', args=[bare.pk])
+        bare = ScriptProject.objects.create(name='Bare Project', key='bare-project')
+        url = reverse('plugins:netbox_scripts:scriptproject_entrypoints', args=[bare.pk])
         self.assertHttpStatus(self.client.get(url), 200)
 
 
-class CustomScriptProjectSourceStateViewTestCase(TestCase):
+class ScriptProjectSourceStateViewTestCase(TestCase):
     """The detail view surfaces source state, revision history, and the add-script action."""
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='State Project', key='state-project')
+        cls.project = ScriptProject.objects.create(name='State Project', key='state-project')
         cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='d' * 64,
@@ -225,20 +225,20 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         return response.content.decode()
 
     def test_the_project_panel_reports_a_revision_awaiting_activation(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.assertIn('waiting to be activated', self.body())
 
     def test_the_state_line_is_not_inside_the_current_revision_panel(self):
         # The sentence describes the newest revision, the panel below it describes the served one.
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         body = self.body()
         self.assertLess(body.index('waiting to be activated'), body.index('Current revision'))
         # And where the fact lives, so declaring it back on the revision panel fails here too.
-        self.assertIn('source_state', CustomScriptProjectPanel._attrs)
-        self.assertNotIn('source_state', CustomScriptProjectStatePanel._attrs)
+        self.assertIn('source_state', ScriptProjectPanel._attrs)
+        self.assertNotIn('source_state', ScriptProjectStatePanel._attrs)
 
     def test_the_panel_describes_the_current_revision(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         body = self.body()
         # Date, status, digest, files, size, activation, per the panel's contract.
         self.assertIn('d' * 12, body)
@@ -246,21 +246,21 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('Current revision', body)
 
     def test_the_panel_links_the_current_revision(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.assertIn(self.revision.get_absolute_url(), self.body())
 
     def test_the_panel_omits_revision_implementation_fields(self):
         # The manifest and the full digest belong to a diagnostic view. The project's own
         # storage key is a separate decision, and the Project panel has always shown it.
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         body = self.body()
         self.assertNotIn('e' * 64, body, 'the manifest checksum leaked into the panel')
         self.assertNotIn('d' * 64, body, 'the full digest leaked, only the short form belongs here')
 
     def test_the_revision_history_moved_to_its_own_tab(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
         # Linked from the detail page as a tab, and rendering the history itself.
         self.assertIn(url, self.body())
         response = self.client.get(url)
@@ -269,33 +269,33 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_history_tab_leads_with_created_then_the_linked_digest(self):
         # The linked column is a table's way into the detail page, so it follows the timestamp.
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
         table = self.client.get(url).context['table']
         self.assertEqual([column.name for column in table.columns][:3], ['created', 'short_digest', 'status'])
 
     def test_the_history_tab_shows_the_entrypoint_count(self):
         # Asserted on the configured table, because a declared column survives being dropped
         # from the displayed set and would still answer get_cell().
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
         response = self.client.get(url)
         visible = [name for name, _label in response.context['table'].selected_columns]
 
         self.assertIn('entrypoint_count', visible)
 
     def test_the_history_tab_links_each_revision(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
         self.assertIn(self.revision.get_absolute_url(), body)
 
     def test_a_staging_with_no_digest_is_named_and_still_linked(self):
         # The row a reader most wants to open, since a rejected staging stored nothing.
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
         rejected = ScriptProjectRevision.objects.create(
             project=self.project,
@@ -303,18 +303,18 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
             status=RevisionStatusChoices.INVALID,
             validation_errors=[{'path': 'notes.txt', 'code': 'not_a_python_file', 'message': 'Refused.'}],
         )
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
         self.assertIn('Not stored', body)
         self.assertIn(rejected.get_absolute_url(), body)
 
     def test_the_tabs_are_withheld_without_the_revision_view_permission(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
 
         body = self.body()
 
         for name in ('revisions', 'files'):
-            url = reverse(f'plugins:netbox_scripts:customscriptproject_{name}', args=[self.project.pk])
+            url = reverse(f'plugins:netbox_scripts:scriptproject_{name}', args=[self.project.pk])
             self.assertNotIn(url, body)
 
     def test_the_history_tab_hides_a_revision_the_grant_excludes(self):
@@ -324,9 +324,9 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
             digest='c' * 64,
             status=RevisionStatusChoices.VALID,
         )
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view', constraints={'pk': self.revision.pk})
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
 
         body = self.client.get(url).content.decode()
 
@@ -336,33 +336,33 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_history_tab_offers_no_actions_on_a_revision(self):
         # A revision is never created or edited by hand, so the tab carries no action buttons.
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
-        url = reverse('plugins:netbox_scripts:customscriptproject_revisions', args=[self.project.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_revisions', args=[self.project.pk])
         body = self.client.get(url).content.decode()
         for absent in ('scriptprojectrevision_add', 'scriptprojectrevision_edit'):
             self.assertNotIn(absent, body)
 
     def test_a_project_with_no_source_renders(self):
-        self.grant(CustomScriptProject, 'view')
-        bare = CustomScriptProject.objects.create(name='Bare State', key='bare-state')
+        self.grant(ScriptProject, 'view')
+        bare = ScriptProject.objects.create(name='Bare State', key='bare-state')
         response = self.client.get(bare.get_absolute_url())
         self.assertHttpStatus(response, 200)
         self.assertIn('No source', response.content.decode())
 
     def test_the_add_script_action_links_to_the_upload_route(self):
         # Both halves: an upload creates a Module, so the route needs that permission too.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.grant(CustomScriptModule, 'add')
-        expected = reverse('plugins:netbox_scripts:customscriptproject_add_script', args=[self.project.pk])
+        expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
         self.assertIn(expected, self.body())
 
     def test_the_add_script_action_is_inert_without_the_module_add_permission(self):
         # permissions_required cannot name another model, so without this check the button would
         # link somewhere the view refuses once a file has already been chosen.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         body = self.body()
-        expected = reverse('plugins:netbox_scripts:customscriptproject_add_script', args=[self.project.pk])
+        expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
 
         self.assertIn('Add Script', body)
         self.assertNotIn(expected, body)
@@ -370,14 +370,14 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_add_script_action_is_hidden_without_the_change_permission(self):
         # The Module half is granted so the inert branch cannot satisfy the assertion for us.
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         self.grant(CustomScriptModule, 'add')
-        expected = reverse('plugins:netbox_scripts:customscriptproject_add_script', args=[self.project.pk])
+        expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
         self.assertNotIn(expected, self.body())
 
     def synchronized_project(self):
         source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')
-        return CustomScriptProject.objects.create(
+        return ScriptProject.objects.create(
             name='Synced State',
             key='synced-state',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -389,19 +389,19 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
         # Ingestion refuses an upload into a synchronized project, so offering the button would
         # put a user on a path that can only fail. The Module half is granted for the same reason
         # as the test above.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.grant(CustomScriptModule, 'add')
         synced = self.synchronized_project()
-        expected = reverse('plugins:netbox_scripts:customscriptproject_add_script', args=[synced.pk])
+        expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[synced.pk])
         self.assertNotIn(expected, self.client.get(synced.get_absolute_url()).content.decode())
 
     def test_uploading_into_a_data_source_project_is_a_form_error(self):
         # A hand-typed URL still reaches the view, and the refusal has to be a form error. Left to
         # ingestion it surfaces out of form.save(), which ObjectEditView does not catch.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.grant(CustomScriptModule, 'add')
         synced = self.synchronized_project()
-        url = reverse('plugins:netbox_scripts:customscriptproject_add_script', args=[synced.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[synced.pk])
         response = self.client.post(url, {'upload_file': SimpleUploadedFile('deploy.py', b'X = 1\n')})
         self.assertHttpStatus(response, 200)
         self.assertIn('reconciled from its Data Source rather than uploaded', response.content.decode())
@@ -409,25 +409,25 @@ class CustomScriptProjectSourceStateViewTestCase(TestCase):
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)
-class CustomScriptProjectActivateViewTestCase(TestCase):
+class ScriptProjectActivateViewTestCase(TestCase):
     """Manual activation, which a project whose policy is manual has no other route to."""
 
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
-        self.project = CustomScriptProject.objects.create(name='Manual Project', key='manual-project')
+        self.project = ScriptProject.objects.create(name='Manual Project', key='manual-project')
         self.revision = service.stage_revision(self.project, {'deploy.py': b'VALUE = 1\n'}).revision
         ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.VALID)
         self.revision.refresh_from_db()
 
     def url(self):
-        return reverse('plugins:netbox_scripts:customscriptproject_activate', args=[self.project.pk])
+        return reverse('plugins:netbox_scripts:scriptproject_activate', args=[self.project.pk])
 
     def grant(self, *actions):
         obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
 
     def grant_scripts(self, *actions):
         obj_perm = ObjectPermission(name=f'script {"/".join(actions)}', actions=list(actions))
@@ -483,7 +483,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def delete_project_url(self):
-        return reverse('plugins:netbox_scripts:customscriptproject_delete', args=[self.project.pk])
+        return reverse('plugins:netbox_scripts:scriptproject_delete', args=[self.project.pk])
 
     def test_the_delete_page_renders_for_a_project_with_an_active_revision(self):
         # The confirmation page runs the deletion collector before deleting anything. With the
@@ -502,7 +502,7 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.client.post(self.url())
         response = self.client.post(self.delete_project_url(), {'confirm': True})
         self.assertHttpStatus(response, 302)
-        self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
         self.assertFalse(CustomScript.objects.exists())
 
@@ -510,10 +510,10 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
         self.grant('view', 'activate', 'delete')
         self.publish()
         self.client.post(self.url())
-        bulk = reverse('plugins:netbox_scripts:customscriptproject_bulk_delete')
+        bulk = reverse('plugins:netbox_scripts:scriptproject_bulk_delete')
         response = self.client.post(bulk, {'pk': [self.project.pk], 'confirm': True, '_confirm': True})
         self.assertHttpStatus(response, 302)
-        self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
 
     def publish(self):
         """Record one Custom Script on the revision, so activation has something to publish."""
@@ -628,13 +628,13 @@ class CustomScriptProjectActivateViewTestCase(TestCase):
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)
-class CustomScriptProjectRepairViewTestCase(TestCase):
+class ScriptProjectRepairViewTestCase(TestCase):
     """Republishing a serving Project's rows, the one route to the already-active path."""
 
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
-        self.project = CustomScriptProject.objects.create(name='Repair Project', key='repair-project')
+        self.project = ScriptProject.objects.create(name='Repair Project', key='repair-project')
         self.revision = service.stage_revision(self.project, {'deploy.py': b'VALUE = 1\n'}).revision
         ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
             status=RevisionStatusChoices.VALID,
@@ -656,13 +656,13 @@ class CustomScriptProjectRepairViewTestCase(TestCase):
         self.project.refresh_from_db()
 
     def url(self, project=None):
-        return reverse('plugins:netbox_scripts:customscriptproject_repair', args=[(project or self.project).pk])
+        return reverse('plugins:netbox_scripts:scriptproject_repair', args=[(project or self.project).pk])
 
     def grant(self, *actions, constraints=None):
         obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions), constraints=constraints)
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
 
     def message(self, response):
         return str(list(response.context['messages'])[0])
@@ -674,7 +674,7 @@ class CustomScriptProjectRepairViewTestCase(TestCase):
     def test_the_action_is_inert_rather_than_hidden_for_a_project_serving_nothing(self):
         # Hiding it would leave an operator hunting for a button that used to be there.
         self.grant('view', 'activate')
-        idle = CustomScriptProject.objects.create(name='Idle', key='idle')
+        idle = ScriptProject.objects.create(name='Idle', key='idle')
         body = self.client.get(idle.get_absolute_url()).content.decode()
 
         self.assertIn('Repair Scripts', body)
@@ -710,7 +710,7 @@ class CustomScriptProjectRepairViewTestCase(TestCase):
     def test_a_project_serving_nothing_has_no_reachable_route(self):
         # The queryset excludes it, so a hand-typed URL is a 404 rather than an error later.
         self.grant('view', 'activate')
-        idle = CustomScriptProject.objects.create(name='Idle', key='idle')
+        idle = ScriptProject.objects.create(name='Idle', key='idle')
         self.assertHttpStatus(self.client.get(self.url(idle)), 404)
 
     def test_an_object_constraint_narrows_the_route(self):

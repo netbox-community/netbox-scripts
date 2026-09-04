@@ -3,7 +3,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.utils import source_path_to_dotted_name
 
 DIGEST_A = 'a' * 64
@@ -47,8 +47,8 @@ class SourcePathToDottedNameTestCase(TestCase):
 class CustomScriptModuleTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Module Project 1', key='module-project-1')
-        cls.other_project = CustomScriptProject.objects.create(name='Module Project 2', key='module-project-2')
+        cls.project = ScriptProject.objects.create(name='Module Project 1', key='module-project-1')
+        cls.other_project = ScriptProject.objects.create(name='Module Project 2', key='module-project-2')
 
     def test_create_customscriptmodule(self):
         instance = CustomScriptModule.objects.create(project=self.project, source_path='deploy.py')

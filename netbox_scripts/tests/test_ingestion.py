@@ -31,7 +31,7 @@ from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.storage import service, store
@@ -122,7 +122,7 @@ class IngestUploadTestCase(TestCase):
     """Ordering and failure handling of the one source-ingestion entry point."""
 
     def setUp(self):
-        self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+        self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
         self.enqueued = self.enterContext(
             mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None)
         )
@@ -163,7 +163,7 @@ class IngestUploadTestCase(TestCase):
 
     def test_a_data_source_project_refuses_an_upload(self):
         source = DataSource.objects.create(name='Scripts', type='local', source_url='file:///tmp/scripts')
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Synced',
             key='synced',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -328,7 +328,7 @@ class IngestDataSourceTestCase(TestCase):
         self.source = DataSource.objects.create(
             name='Scripts Repo', type='local', source_url='file:///tmp/scripts-repo/'
         )
-        self.project = CustomScriptProject.objects.create(
+        self.project = ScriptProject.objects.create(
             name='Repo Project',
             key='repo-project',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -475,7 +475,7 @@ class IngestDataSourceTestCase(TestCase):
         self.assertEqual(staged.revision.manifest, [])
 
     def test_an_upload_project_is_refused(self):
-        upload = CustomScriptProject.objects.create(name='Uploaded', key='uploaded')
+        upload = ScriptProject.objects.create(name='Uploaded', key='uploaded')
         with self.assertRaises(ValidationError) as ctx:
             ingest_data_source(upload)
         self.assertIn('uploaded', str(ctx.exception))
@@ -488,10 +488,10 @@ class ValidationJobActivationTestCase(TestCase):
     """The activation policy decides whether a valid revision goes live inside the job."""
 
     def setUp(self):
-        self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+        self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
 
     def valid_revision(self, policy):
-        CustomScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=policy)
+        ScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=policy)
         self.project.refresh_from_db()
         revision = service.stage_revision(self.project, {'deploy.py': SCRIPT}).revision
         ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
@@ -579,7 +579,7 @@ class UploadToActiveTestCase(TestCase):
         runner.run(revision_pk=revision.pk, job_id='x')
 
     def test_an_uploaded_script_reaches_active_and_discovered(self):
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Deploy Devices',
             key='deploy-devices',
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
@@ -611,7 +611,7 @@ class UploadToActiveTestCase(TestCase):
         self.assertTrue(script.is_executable)
 
     def test_a_replacement_that_drops_a_class_retires_it(self):
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Two Scripts',
             key='two-scripts',
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
@@ -631,7 +631,7 @@ class UploadToActiveTestCase(TestCase):
         # through activation rather than a third upload, because re-uploading content the project
         # has held before resolves to the existing revision, which validation can no longer
         # claim. That gap is ingestion's, not activation's.
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Returning',
             key='returning',
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
@@ -651,7 +651,7 @@ class UploadToActiveTestCase(TestCase):
         self.assertFalse(row.is_retired)
 
     def test_a_manual_project_stops_at_valid_and_still_discovers(self):
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Manual Devices', key='manual-devices', activation_policy=ActivationPolicyChoices.MANUAL
         )
         staged = ingest_upload(project, filename='hello_world.py', content=DISCOVERABLE_SCRIPT)
@@ -668,7 +668,7 @@ class UploadToActiveTestCase(TestCase):
         )
 
     def test_a_script_that_cannot_import_is_an_invalid_verdict(self):
-        project = CustomScriptProject.objects.create(name='Broken', key='broken')
+        project = ScriptProject.objects.create(name='Broken', key='broken')
         staged = ingest_upload(project, filename='broken.py', content=b'this is not python(\n')
         self.run_validation(staged.revision)
 
@@ -700,7 +700,7 @@ class DataSourceToActiveTestCase(TestCase):
         self.enterContext(mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None))
 
         self.source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')
-        self.project = CustomScriptProject.objects.create(
+        self.project = ScriptProject.objects.create(
             name='Repo Project',
             key='repo-project',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -717,7 +717,7 @@ class DataSourceToActiveTestCase(TestCase):
             runner.run(revision_pk=staged.revision.pk, job_id='x')
         staged.revision.refresh_from_db()
         # Re-read rather than refresh, because current_revision is cached per instance.
-        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        self.project = ScriptProject.objects.get(pk=self.project.pk)
         return staged.revision
 
     def test_the_selection_survives_and_a_vanished_entrypoint_spares_the_active_revision(self):

@@ -118,7 +118,7 @@ def _refusal_for(module, references, stranded):
     # Permanent means no operator action clears it, so the run closes with the module in place.
     if references['module_jobs']:
         return True, _(
-            'Built-in script module {name} holds Job history of its own, which no Custom Script Project '
+            'Built-in script module {name} holds Job history of its own, which no Script Project '
             'can hold, so it stays where it is.'
         ).format(name=name)
     if references['retired_script_jobs']:

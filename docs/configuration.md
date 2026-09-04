@@ -98,7 +98,7 @@ a shared volume.
 
 ### Database connection pooling
 
-**Custom Script Projects need session-mode pooling, or a database alias that is not pooled.**
+**Script Projects need session-mode pooling, or a database alias that is not pooled.**
 Every operation that touches stored content serializes on a PostgreSQL session-level advisory
 lock, and such a lock belongs to the physical backend connection that took it. Under
 transaction-mode pooling, which pgbouncer offers and many deployments select, each transaction
@@ -267,7 +267,7 @@ and size the backend and filesystem permissions accordingly.
   it. The plugin confines itself to one prefix, but a backend shared with unrelated writers
   widens who can put content where NetBox will look for it.
 
-Custom Script Project and Revision rows, and the cleanup jobs that reclaim their stored
+Script Project and Revision rows, and the cleanup jobs that reclaim their stored
 content, live on the default database, and the whole storage lifecycle is bound to it.
 The core job API records a cleanup Job and its queue handoff on the default connection,
 so staging, activation, and deletion arriving on any other database alias are refused up
@@ -333,7 +333,7 @@ does not change. The routing and execution statements below are verified against
 v1.2.0-beta1 by `netbox_scripts/tests/test_branching_provisioned.py`, which provisions a
 real branch.
 
-Custom Script Projects, Modules, Custom Scripts, revisions and migration runs are
+Script Projects, Modules, Custom Scripts, revisions and migration runs are
 installation-global. The plugin routes all five to the main schema, so a Project edited
 inside a branch applies everywhere at once, appears in no branch diff, and is neither
 replayed by a merge nor rolled back by reverting one. None of their tables is replicated

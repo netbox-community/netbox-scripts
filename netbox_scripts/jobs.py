@@ -18,7 +18,7 @@ from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, STALLED_CLEANUP_GRACE_SECONDS, VALIDATION_JOB_TIMEOUT
 from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
-from .models import CustomScript, CustomScriptProject, MigrationRun, ScriptProjectRevision
+from .models import CustomScript, MigrationRun, ScriptProject, ScriptProjectRevision
 from .models.migration import migration_lock
 from .runtime.exceptions import EntrypointImportError
 from .runtime.loader import revision_import_session, unload_revision
@@ -42,7 +42,7 @@ class ProjectStorageCleanupJob(JobRunner):
     """
 
     class Meta:
-        name = 'Custom Script Project storage cleanup'
+        name = 'Script Project storage cleanup'
 
     @classmethod
     def enqueue_cleanup(cls, *, storage_key, digest, paths):
@@ -109,7 +109,7 @@ class ProjectStorageSweepJob(JobRunner):
     """
 
     class Meta:
-        name = 'Custom Script Project storage sweep'
+        name = 'Script Project storage sweep'
 
     def run(self, **kwargs):
         """Classify every stalled cleanup, record the report, and log what is stranded."""
@@ -194,7 +194,7 @@ class ProjectReconciliationJob(JobRunner):
     """
 
     class Meta:
-        name = 'Custom Script Project source reconciliation'
+        name = 'Script Project source reconciliation'
 
     @classmethod
     def enqueue_reconciliation(cls, project):
@@ -220,12 +220,12 @@ class ProjectReconciliationJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing Custom Script Project reconciliation, because {reason}'
+            detail = f'Refusing Script Project reconciliation, because {reason}'
             self.logger.error(detail)
             raise JobFailed()
-        project = CustomScriptProject.objects.filter(pk=project_id).first()
+        project = ScriptProject.objects.filter(pk=project_id).first()
         if project is None:
-            self.logger.info(f'Custom Script Project {project_id} no longer exists, nothing to reconcile.')
+            self.logger.info(f'Script Project {project_id} no longer exists, nothing to reconcile.')
             return
         try:
             staged = ingestion.ingest_data_source(project)
@@ -285,7 +285,7 @@ class ProjectEntrypointRefreshJob(JobRunner):
     """
 
     class Meta:
-        name = 'Custom Script Project entrypoint refresh'
+        name = 'Script Project entrypoint refresh'
 
     @classmethod
     def enqueue_refresh(cls, project):
@@ -308,12 +308,12 @@ class ProjectEntrypointRefreshJob(JobRunner):
         """Recheck routing safety, then restage the stored tree under the current selection."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing a Custom Script Project entrypoint refresh, because {reason}'
+            detail = f'Refusing a Script Project entrypoint refresh, because {reason}'
             self.logger.error(detail)
             raise JobFailed()
-        project = CustomScriptProject.objects.filter(pk=project_id).first()
+        project = ScriptProject.objects.filter(pk=project_id).first()
         if project is None:
-            self.logger.info(f'Custom Script Project {project_id} no longer exists, nothing to refresh.')
+            self.logger.info(f'Script Project {project_id} no longer exists, nothing to refresh.')
             return
         source = project.latest_stored_revision()
         if source is None:
@@ -723,7 +723,7 @@ class MigrationInventoryJob(JobRunner):
         for finding in report['findings']:
             log = self.logger.error if finding['level'] == plan.BLOCKING else self.logger.warning
             log(finding['message'])
-        self.logger.info(f'{len(report["projects"])} Custom Script Project(s) would be created.')
+        self.logger.info(f'{len(report["projects"])} Script Project(s) would be created.')
 
 
 class MigrationStagingJob(JobRunner):
@@ -790,7 +790,7 @@ class MigrationStagingJob(JobRunner):
         for result in results:
             if refusal := result.get('refused'):
                 # The pass is not failed over this: the inventory is the gate on a whole run.
-                self.logger.error(f'Custom Script Project {result["key"]} was not staged. {refusal}')
+                self.logger.error(f'Script Project {result["key"]} was not staged. {refusal}')
                 continue
             status = result['revision_status']
             # Ingestion queues validation for a materialized revision and nothing else, so any
@@ -807,7 +807,7 @@ class MigrationStagingJob(JobRunner):
         pending = sum(1 for result in staged if result['revision_status'] == RevisionStatusChoices.MATERIALIZED)
         refused = len(results) - len(staged)
         self.logger.info(
-            f'{len(staged)} Custom Script Project(s) staged, none activated. '
+            f'{len(staged)} Script Project(s) staged, none activated. '
             f'{pending} awaiting a verdict, which each revision records. '
             f'{refused} refused, each named above.'
         )
@@ -885,10 +885,10 @@ class MigrationActivationJob(JobRunner):
         for result in results:
             self.logger.info(f'Project {result["project_key"]} {result["outcome"]}.')
         keys = [result['project_key'] for result in results]
-        serving = CustomScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).count()
+        serving = ScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).count()
         published = CustomScript.objects.filter(project__key__in=keys).count()
         self.logger.info(
-            f'{serving} of {len(results)} Custom Script Project(s) are serving a revision, '
+            f'{serving} of {len(results)} Script Project(s) are serving a revision, '
             f'publishing {published} Custom Script(s). Repoint the references next.'
         )
 

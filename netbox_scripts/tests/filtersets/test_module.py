@@ -2,7 +2,7 @@ from django.test import TestCase
 
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.filtersets import CustomScriptModuleFilterSet
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 DIGEST = 'b' * 64
@@ -15,8 +15,8 @@ class CustomScriptModuleFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMix
     @classmethod
     def setUpTestData(cls):
         cls.projects = (
-            CustomScriptProject(name='Alpha', key='alpha'),
-            CustomScriptProject(name='Bravo', key='bravo'),
+            ScriptProject(name='Alpha', key='alpha'),
+            ScriptProject(name='Bravo', key='bravo'),
         )
         for project in cls.projects:
             project.save()

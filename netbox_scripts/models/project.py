@@ -30,9 +30,9 @@ _SOURCE_STATE_SUMMARIES = {
 }
 
 
-class CustomScriptProject(PrimaryModel):
+class ScriptProject(PrimaryModel):
     """
-    One Custom Script Project: a single script source tree and one future Python package.
+    One Script Project: a single script source tree and one future Python package.
 
     A project owns either uploaded content or a directory of a data source, never both.
     The key and source type are frozen after creation, and the storage key never changes.
@@ -105,14 +105,14 @@ class CustomScriptProject(PrimaryModel):
     class Meta:
         app_label = 'netbox_scripts'
         ordering = ('name',)
-        verbose_name = _('custom script project')
-        verbose_name_plural = _('custom script projects')
+        verbose_name = _('script project')
+        verbose_name_plural = _('script projects')
         # Choosing what code a project runs is not a form of changing the row. Bare actions,
         # because the permission picker offers the codename verbatim, see CustomScript.Meta.
         permissions = (
-            ('activate', 'Can activate a revision of a Custom Script Project'),
+            ('activate', 'Can activate a revision of a Script Project'),
             ('migrate', 'Can migrate off the built-in Custom Scripts feature'),
-            ('reconcile', "Can reconcile a Custom Script Project's source"),
+            ('reconcile', "Can reconcile a Script Project's source"),
         )
         constraints = [
             models.CheckConstraint(
@@ -402,7 +402,7 @@ class CustomScriptProject(PrimaryModel):
 
 class ScriptProjectRevision(ChangeLoggedModel):
     """
-    One immutable snapshot of a Custom Script Project's complete source tree.
+    One immutable snapshot of a Script Project's complete source tree.
 
     A revision records what was staged, not how it is served. Its content fields are
     frozen once the row exists, so a job can be replayed against exactly the tree it
@@ -420,7 +420,7 @@ class ScriptProjectRevision(ChangeLoggedModel):
     """
 
     project = models.ForeignKey(
-        to='netbox_scripts.CustomScriptProject',
+        to='netbox_scripts.ScriptProject',
         on_delete=models.CASCADE,
         related_name='revisions',
     )

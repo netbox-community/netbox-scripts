@@ -38,7 +38,7 @@ Context:
         <h2 class="card-header">{% trans "Migrate from the built-in feature" %}</h2>
         <div class="card-body">
           <p>
-            {% trans "The inventory reports what a migration would do and changes nothing. Staging creates the Custom Script Projects it proposes, every one inactive, and leaves the built-in Custom Scripts serving. Every step from the cutover onwards changes what this installation runs, and there is no way back." %}
+            {% trans "The inventory reports what a migration would do and changes nothing. Staging creates the Script Projects it proposes, every one inactive, and leaves the built-in Custom Scripts serving. Every step from the cutover onwards changes what this installation runs, and there is no way back." %}
           </p>
           <table class="table">
             <tr>
@@ -105,11 +105,11 @@ Context:
               </table>
             </div>
           {% endif %}
-          {% if unservable_projects and perms.netbox_scripts.migrate_customscriptproject %}
+          {% if unservable_projects and perms.netbox_scripts.migrate_scriptproject %}
             <div class="alert alert-danger mt-3" role="alert">
               <h3 class="alert-heading fs-5">{% trans "The cutover will refuse" %}</h3>
               <p>
-                {% trans "These Custom Script Projects could serve nothing once the built-in feature is closed, and there is no way back across that fence. Wait for a verdict on the ones still being validated, and fix the source of the rest and stage it again." %}
+                {% trans "These Script Projects could serve nothing once the built-in feature is closed, and there is no way back across that fence. Wait for a verdict on the ones still being validated, and fix the source of the rest and stage it again." %}
               </p>
               <table class="table table-sm mb-0">
                 <tr>
@@ -127,11 +127,11 @@ Context:
               </table>
             </div>
           {% endif %}
-          {% if projects_not_serving and perms.netbox_scripts.migrate_customscriptproject %}
+          {% if projects_not_serving and perms.netbox_scripts.migrate_scriptproject %}
             <div class="alert alert-warning mt-3" role="alert">
               <h3 class="alert-heading fs-5">{% trans "The reference pass will refuse" %}</h3>
               <p>
-                {% trans "These migrated Custom Script Projects are serving no revision, so an Event Rule or a repointed job would have no Custom Script to name. Put each one into service, then run the activation again." %}
+                {% trans "These migrated Script Projects are serving no revision, so an Event Rule or a repointed job would have no Custom Script to name. Put each one into service, then run the activation again." %}
               </p>
               <table class="table table-sm mb-0">
                 <tr>
@@ -174,7 +174,7 @@ Context:
             </p>
             <table class="table">
               <tr>
-                <th scope="col">{% trans "Custom Script Project" %}</th>
+                <th scope="col">{% trans "Script Project" %}</th>
                 <th scope="col">{% trans "Revision" %}</th>
                 <th scope="col">{% trans "Status" %}</th>
                 <th scope="col">{% trans "Custom Scripts" %}</th>
@@ -215,7 +215,7 @@ Context:
               {% endfor %}
             </table>
           {% endif %}
-          {% if cutover_interrupted and perms.netbox_scripts.migrate_customscriptproject %}
+          {% if cutover_interrupted and perms.netbox_scripts.migrate_scriptproject %}
             <div class="alert alert-warning mt-3" role="alert">
               <h3 class="alert-heading fs-5">{% trans "The cutover did not finish" %}</h3>
               <p class="mb-0">
@@ -239,7 +239,7 @@ Context:
           </form>
           <a href="{% url 'plugins:netbox_scripts:migration_stage' %}"
              class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>
-          {% if perms.netbox_scripts.migrate_customscriptproject %}
+          {% if perms.netbox_scripts.migrate_scriptproject %}
             {% if can_cut_over %}
               <a href="{% url 'plugins:netbox_scripts:migration_cutover' %}"
                  class="btn btn-danger{% if cutover_queued %} disabled{% endif %}">{% trans "Enter cutover" %}</a>

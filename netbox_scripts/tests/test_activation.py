@@ -11,7 +11,7 @@ from netbox_scripts.activation import activate_revision, deactivate_revision, sy
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import (
     CustomScript,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.runtime import loader
@@ -47,7 +47,7 @@ def record(module_path='deploy', class_name='DeployDevices', position=0, **overr
 
 class SynchronizeScriptsTestCase(TestCase):
     def setUp(self):
-        self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+        self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
         self.revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST_A,
@@ -168,7 +168,7 @@ class SynchronizeScriptsTestCase(TestCase):
         self.assertEqual(CustomScript.objects.get().description, description)
 
     def test_another_project_is_left_alone(self):
-        other = CustomScriptProject.objects.create(name='Audit', key='audit')
+        other = ScriptProject.objects.create(name='Audit', key='audit')
         other_revision = ScriptProjectRevision.objects.create(
             project=other,
             digest=DIGEST_B,
@@ -347,7 +347,7 @@ class DeactivateRevisionTestCase(ActivationMixin, TestCase):
         activate_revision(revision)
 
         def delete_then_resolve(instance):
-            CustomScriptProject.objects.filter(pk=revision.project_id).delete()
+            ScriptProject.objects.filter(pk=revision.project_id).delete()
             return DEFAULT_DB_ALIAS
 
         with (

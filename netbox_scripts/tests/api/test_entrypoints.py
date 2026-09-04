@@ -5,7 +5,7 @@ from rest_framework import status
 
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectEntrypointRefreshJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from utilities.testing import APITestCase
 
 
@@ -14,7 +14,7 @@ class EntrypointsAPITestCase(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='API Tab Project', key='api-tab-project')
+        cls.project = ScriptProject.objects.create(name='API Tab Project', key='api-tab-project')
         ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
@@ -28,16 +28,16 @@ class EntrypointsAPITestCase(APITestCase):
         # A PUT on the project viewset needs the project's change permission from NetBox's
         # token permissions, and the declarations' own on top.
         self.add_permissions(
-            'netbox_scripts.view_customscriptproject',
-            'netbox_scripts.change_customscriptproject',
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
             'netbox_scripts.change_customscriptmodule',
         )
 
     def url(self):
-        return reverse('plugins-api:netbox_scripts-api:customscriptproject-entrypoints', args=[self.project.pk])
+        return reverse('plugins-api:netbox_scripts-api:scriptproject-entrypoints', args=[self.project.pk])
 
     def test_get_reports_the_candidate_inventory(self):
-        self.add_permissions('netbox_scripts.view_customscriptproject')
+        self.add_permissions('netbox_scripts.view_scriptproject')
         response = self.client.get(self.url(), **self.header)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['mode'], 'ui')
@@ -79,8 +79,8 @@ class EntrypointsAPITestCase(APITestCase):
 
     def test_put_needs_the_module_permission(self):
         self.add_permissions(
-            'netbox_scripts.view_customscriptproject',
-            'netbox_scripts.change_customscriptproject',
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
         )
         response = self.client.put(self.url(), {'paths': ['deploy.py']}, format='json', **self.header)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -103,7 +103,7 @@ class EntrypointsAPITestCase(APITestCase):
         enqueue.assert_not_called()
 
     def test_a_declared_path_missing_from_the_source_is_reported_unavailable(self):
-        self.add_permissions('netbox_scripts.view_customscriptproject')
+        self.add_permissions('netbox_scripts.view_scriptproject')
         CustomScriptModule.objects.create(project=self.project, source_path='removed.py')
         response = self.client.get(self.url(), **self.header)
         entry = next(item for item in response.data['candidates'] if item['path'] == 'removed.py')

@@ -13,7 +13,7 @@ from django.utils import timezone
 from core.models import DataSource
 from netbox_scripts import constants
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from netbox_scripts.storage.manifest import compute_digest
 
@@ -22,9 +22,9 @@ DIGEST_B = 'b' * 64
 MANIFEST_A = [{'path': 'hello.py', 'size': 3, 'sha256': 'c' * 64}]
 
 
-class CustomScriptProjectTestCase(TestCase):
-    def test_create_customscriptproject(self):
-        instance = CustomScriptProject.objects.create(
+class ScriptProjectTestCase(TestCase):
+    def test_create_scriptproject(self):
+        instance = ScriptProject.objects.create(
             name='Sample Project 1',
             key='sample-project-1',
             description='Created by the test suite.',
@@ -35,20 +35,20 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertTrue(instance.enabled)
 
     def test_str(self):
-        instance = CustomScriptProject(name='Sample Project 2', key='sample-project-2')
+        instance = ScriptProject(name='Sample Project 2', key='sample-project-2')
         self.assertEqual(str(instance), 'Sample Project 2')
 
     def test_absolute_url(self):
-        instance = CustomScriptProject.objects.create(name='Sample Project 3', key='sample-project-3')
+        instance = ScriptProject.objects.create(name='Sample Project 3', key='sample-project-3')
         url = instance.get_absolute_url()
         self.assertEqual(
             url,
-            reverse('plugins:netbox_scripts:customscriptproject', args=[instance.pk]),
+            reverse('plugins:netbox_scripts:scriptproject', args=[instance.pk]),
         )
 
     def test_storage_key_autoassigned(self):
-        instance1 = CustomScriptProject.objects.create(name='Sample Project 4', key='sample-project-4')
-        instance2 = CustomScriptProject.objects.create(name='Sample Project 5', key='sample-project-5')
+        instance1 = ScriptProject.objects.create(name='Sample Project 4', key='sample-project-4')
+        instance2 = ScriptProject.objects.create(name='Sample Project 5', key='sample-project-5')
         self.assertIsNotNone(instance1.storage_key)
         self.assertIsNotNone(instance2.storage_key)
         self.assertNotEqual(instance1.storage_key, instance2.storage_key)
@@ -59,7 +59,7 @@ class CustomScriptProjectTestCase(TestCase):
             type='local',
             source_url='file:///tmp/data-source-1/',
         )
-        instance = CustomScriptProject(
+        instance = ScriptProject(
             name='Sample Project 6',
             key='sample-project-6',
             source_type=ProjectSourceTypeChoices.UPLOAD,
@@ -71,7 +71,7 @@ class CustomScriptProjectTestCase(TestCase):
 
     def test_upload_project_rejects_data_path(self):
         # The edit form no longer offers data_path on uploads, so guard clean() here.
-        instance = CustomScriptProject(
+        instance = ScriptProject(
             name='Sample Project 16',
             key='sample-project-16',
             source_type=ProjectSourceTypeChoices.UPLOAD,
@@ -82,7 +82,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('data_path', cm.exception.message_dict)
 
     def test_data_source_project_requires_data_source(self):
-        instance = CustomScriptProject(
+        instance = ScriptProject(
             name='Sample Project 7',
             key='sample-project-7',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -104,7 +104,7 @@ class CustomScriptProjectTestCase(TestCase):
             (' automation/netbox ', 'automation/netbox'),
         ):
             with self.subTest(raw=raw):
-                instance = CustomScriptProject(
+                instance = ScriptProject(
                     name='Sample Project 8',
                     key='sample-project-8',
                     source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -122,7 +122,7 @@ class CustomScriptProjectTestCase(TestCase):
         )
         for bad in ('/absolute/path', '../up', 'a/../b', 'a\\b', 'a\x00b'):
             with self.subTest(bad=bad):
-                instance = CustomScriptProject(
+                instance = ScriptProject(
                     name='Sample Project 9',
                     key='sample-project-9',
                     source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -139,7 +139,7 @@ class CustomScriptProjectTestCase(TestCase):
             type='local',
             source_url='file:///tmp/data-source-4/',
         )
-        instance = CustomScriptProject(
+        instance = ScriptProject(
             name='Sample Project 10',
             key='sample-project-10',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -151,7 +151,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('data_path', cm.exception.message_dict)
 
     def test_key_and_source_type_immutable(self):
-        instance = CustomScriptProject.objects.create(name='Sample Project 11', key='sample-project-11')
+        instance = ScriptProject.objects.create(name='Sample Project 11', key='sample-project-11')
         instance.key = 'sample-project-11-renamed'
         with self.assertRaises(ValidationError) as cm:
             instance.full_clean()
@@ -164,7 +164,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('source_type', cm.exception.message_dict)
 
     def test_storage_key_immutable_on_save(self):
-        instance = CustomScriptProject.objects.create(name='Sample Project 12', key='sample-project-12')
+        instance = ScriptProject.objects.create(name='Sample Project 12', key='sample-project-12')
         instance.storage_key = uuid.uuid4()
         with self.assertRaises(ValidationError):
             instance.save()
@@ -172,21 +172,21 @@ class CustomScriptProjectTestCase(TestCase):
     def test_storage_key_immutability_accepts_an_equal_string_form(self):
         # The persisted row reads back as a uuid.UUID while a caller may assign the equal
         # string form. Equality is decided on the field's python type, not on repr.
-        instance = CustomScriptProject.objects.create(name='Sample Project 17', key='sample-project-17')
+        instance = ScriptProject.objects.create(name='Sample Project 17', key='sample-project-17')
         instance.storage_key = str(instance.storage_key)
         instance.save()
         instance.refresh_from_db()
         self.assertEqual(instance.key, 'sample-project-17')
 
     def test_key_immutable_on_save(self):
-        instance = CustomScriptProject.objects.create(name='Sample Project 14', key='sample-project-14')
+        instance = ScriptProject.objects.create(name='Sample Project 14', key='sample-project-14')
         instance.key = 'sample-project-14-renamed'
         with self.assertRaises(ValidationError) as cm:
             instance.save()
         self.assertIn('key', cm.exception.message_dict)
 
     def test_source_type_immutable_on_save(self):
-        instance = CustomScriptProject.objects.create(name='Sample Project 15', key='sample-project-15')
+        instance = ScriptProject.objects.create(name='Sample Project 15', key='sample-project-15')
         instance.source_type = ProjectSourceTypeChoices.DATA_SOURCE
         with self.assertRaises(ValidationError) as cm:
             instance.save()
@@ -196,8 +196,8 @@ class CustomScriptProjectTestCase(TestCase):
         # Comparing the new value against a row fetched from a different connection compares
         # it against a different database, so the guard follows the save rather than the
         # router. The alias below does not exist, so the guard's own query is what fails.
-        instance = CustomScriptProject.objects.create(name='Sample Project 16', key='sample-project-16')
-        table = CustomScriptProject._meta.db_table
+        instance = ScriptProject.objects.create(name='Sample Project 16', key='sample-project-16')
+        table = ScriptProject._meta.db_table
         with (
             CaptureQueriesContext(connections[DEFAULT_DB_ALIAS]) as captured,
             self.assertRaises(ConnectionDoesNotExist),
@@ -206,15 +206,15 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertEqual([entry for entry in captured.captured_queries if table in entry['sql']], [])
 
     def test_db_constraint_blocks_orm_bypass(self):
-        instance = CustomScriptProject.objects.create(name='Sample Project 13', key='sample-project-13')
+        instance = ScriptProject.objects.create(name='Sample Project 13', key='sample-project-13')
         with self.assertRaises(IntegrityError), transaction.atomic():
-            CustomScriptProject.objects.filter(pk=instance.pk).update(data_path='sneaky/path')
+            ScriptProject.objects.filter(pk=instance.pk).update(data_path='sneaky/path')
 
     def test_data_path_rejects_exact_duplicate_on_same_data_source(self):
         data_source = DataSource.objects.create(
             name='Duplicate Path Source', type='local', source_url='file:///tmp/duplicate-path/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Automation Netbox',
             key='automation-netbox',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -222,7 +222,7 @@ class CustomScriptProjectTestCase(TestCase):
             data_path='automation/netbox',
         )
         with self.assertRaises(IntegrityError), transaction.atomic():
-            CustomScriptProject.objects.create(
+            ScriptProject.objects.create(
                 name='Automation Netbox Again',
                 key='automation-netbox-again',
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -234,14 +234,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source = DataSource.objects.create(
             name='Ancestor Overlap Source', type='local', source_url='file:///tmp/ancestor-overlap/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Automation Tree',
             key='automation-tree',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation',
         )
-        child = CustomScriptProject(
+        child = ScriptProject(
             name='Automation Subtree',
             key='automation-subtree',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -256,14 +256,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source = DataSource.objects.create(
             name='Descendant Overlap Source', type='local', source_url='file:///tmp/descendant-overlap/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Deep Path',
             key='deep-path',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
         )
-        ancestor = CustomScriptProject(
+        ancestor = ScriptProject(
             name='Enclosing Path',
             key='enclosing-path',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -278,14 +278,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source = DataSource.objects.create(
             name='Sibling Path Source', type='local', source_url='file:///tmp/sibling-paths/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Netbox Scripts',
             key='netbox-scripts',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
         )
-        sibling = CustomScriptProject(
+        sibling = ScriptProject(
             name='Netbox Scripts Old',
             key='netbox-scripts-old',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -301,14 +301,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source_two = DataSource.objects.create(
             name='Second Shared Path Source', type='local', source_url='file:///tmp/shared-path-two/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Same Path First Source',
             key='same-path-first-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source_one,
             data_path='automation/netbox',
         )
-        other = CustomScriptProject(
+        other = ScriptProject(
             name='Same Path Second Source',
             key='same-path-second-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -322,14 +322,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source = DataSource.objects.create(
             name='Root Overlap Source', type='local', source_url='file:///tmp/root-overlap/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Scripts Directory',
             key='scripts-directory',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/scripts',
         )
-        ancestor = CustomScriptProject(
+        ancestor = ScriptProject(
             name='Automation Directory',
             key='automation-directory',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -346,14 +346,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source = DataSource.objects.create(
             name='Root First Source', type='local', source_url='file:///tmp/root-first/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Whole Repository',
             key='whole-repository',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation',
         )
-        child = CustomScriptProject(
+        child = ScriptProject(
             name='Scripts Subdirectory',
             key='scripts-subdirectory',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -372,14 +372,14 @@ class CustomScriptProjectTestCase(TestCase):
         data_source_two = DataSource.objects.create(
             name='Second Root Source', type='local', source_url='file:///tmp/root-source-two/'
         )
-        CustomScriptProject.objects.create(
+        ScriptProject.objects.create(
             name='Root On First Source',
             key='root-on-first-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source_one,
             data_path='automation',
         )
-        other = CustomScriptProject(
+        other = ScriptProject(
             name='Root On Second Source',
             key='root-on-second-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -395,7 +395,7 @@ class CustomScriptProjectTestCase(TestCase):
             name='Constraint Check Source', type='local', source_url='file:///tmp/constraint-check/'
         )
         with self.assertRaises(IntegrityError), transaction.atomic():
-            CustomScriptProject.objects.create(
+            ScriptProject.objects.create(
                 name='Unvalidated Root',
                 key='unvalidated-root',
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -404,14 +404,14 @@ class CustomScriptProjectTestCase(TestCase):
             )
 
     def test_upload_projects_unaffected_by_data_path_overlap_check(self):
-        first = CustomScriptProject.objects.create(name='Overlap Exempt Upload A', key='overlap-exempt-upload-a')
-        second = CustomScriptProject.objects.create(name='Overlap Exempt Upload B', key='overlap-exempt-upload-b')
+        first = ScriptProject.objects.create(name='Overlap Exempt Upload A', key='overlap-exempt-upload-a')
+        second = ScriptProject.objects.create(name='Overlap Exempt Upload B', key='overlap-exempt-upload-b')
         first.full_clean()
         second.full_clean()
 
     def test_active_revision_must_belong_to_project(self):
-        owner = CustomScriptProject.objects.create(name='AR Owner', key='ar-owner')
-        other = CustomScriptProject.objects.create(name='AR Other', key='ar-other')
+        owner = ScriptProject.objects.create(name='AR Owner', key='ar-owner')
+        other = ScriptProject.objects.create(name='AR Other', key='ar-other')
         revision = ScriptProjectRevision.objects.create(project=owner, digest='e' * 64)
         other.active_revision = revision
         with self.assertRaises(ValidationError) as cm:
@@ -419,7 +419,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('active_revision', cm.exception.message_dict)
 
     def test_active_revision_accepts_an_active_revision(self):
-        project = CustomScriptProject.objects.create(name='AR Own', key='ar-own')
+        project = ScriptProject.objects.create(name='AR Own', key='ar-own')
         project.active_revision = ScriptProjectRevision.objects.create(
             project=project, digest='f' * 64, status=RevisionStatusChoices.ACTIVE
         )
@@ -431,7 +431,7 @@ class CustomScriptProjectTestCase(TestCase):
     def test_active_revision_rejects_a_revision_that_is_not_active(self):
         # The pointer means "this is being served", so a revision that was merely stored or
         # that validation rejected cannot occupy it.
-        project = CustomScriptProject.objects.create(name='AR Status', key='ar-status')
+        project = ScriptProject.objects.create(name='AR Status', key='ar-status')
         for digest, status in (
             ('a' * 64, RevisionStatusChoices.STAGING),
             ('b' * 64, RevisionStatusChoices.MATERIALIZED),
@@ -449,7 +449,7 @@ class CustomScriptProjectTestCase(TestCase):
     def test_save_refuses_a_revision_that_is_not_active(self):
         # clean() is the form and REST path. This is the backstop for an ORM write, so it
         # names the same field and reason rather than raising something generic.
-        project = CustomScriptProject.objects.create(name='AR Save', key='ar-save')
+        project = ScriptProject.objects.create(name='AR Save', key='ar-save')
         project.active_revision = ScriptProjectRevision.objects.create(
             project=project, digest='9' * 64, status=RevisionStatusChoices.STAGING
         )
@@ -458,8 +458,8 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('active revision', str(cm.exception.message_dict['active_revision']))
 
     def test_save_refuses_a_revision_belonging_to_another_project(self):
-        owner = CustomScriptProject.objects.create(name='AR Own2', key='ar-own2')
-        other = CustomScriptProject.objects.create(name='AR Other2', key='ar-other2')
+        owner = ScriptProject.objects.create(name='AR Own2', key='ar-own2')
+        other = ScriptProject.objects.create(name='AR Other2', key='ar-other2')
         other.active_revision = ScriptProjectRevision.objects.create(
             project=owner, digest='8' * 64, status=RevisionStatusChoices.ACTIVE
         )
@@ -470,7 +470,7 @@ class CustomScriptProjectTestCase(TestCase):
     def test_save_refuses_a_bad_pointer_named_by_its_column_in_update_fields(self):
         # Django accepts a foreign key's attname there, so a gate testing only the field name
         # would let an ORM writer past the very check it exists for.
-        project = CustomScriptProject.objects.create(name='AR Attname', key='ar-attname')
+        project = ScriptProject.objects.create(name='AR Attname', key='ar-attname')
         project.active_revision = ScriptProjectRevision.objects.create(
             project=project, digest='7' * 64, status=RevisionStatusChoices.STAGING
         )
@@ -479,7 +479,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertIn('active revision', str(cm.exception.message_dict['active_revision']))
 
     def test_active_revision_for_reverse_accessor(self):
-        project = CustomScriptProject.objects.create(name='AR Reverse', key='ar-reverse')
+        project = ScriptProject.objects.create(name='AR Reverse', key='ar-reverse')
         revision = ScriptProjectRevision.objects.create(
             project=project, digest='1' * 64, status=RevisionStatusChoices.ACTIVE
         )
@@ -489,7 +489,7 @@ class CustomScriptProjectTestCase(TestCase):
         self.assertEqual(list(revision.active_revision_for.all()), [project])
 
     def test_delete_project_with_active_revision_succeeds(self):
-        project = CustomScriptProject.objects.create(name='AR Delete', key='ar-delete')
+        project = ScriptProject.objects.create(name='AR Delete', key='ar-delete')
         # The deletion signal validates a captured manifest against its digest, so a
         # deletable fixture must carry a pair that actually matches.
         digest = compute_digest([])
@@ -499,13 +499,13 @@ class CustomScriptProjectTestCase(TestCase):
         project.active_revision = revision
         project.save()
         project.delete()
-        self.assertFalse(CustomScriptProject.objects.filter(key='ar-delete').exists())
+        self.assertFalse(ScriptProject.objects.filter(key='ar-delete').exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(digest=digest).exists())
 
     def test_deleting_the_active_revision_clears_the_pointer(self):
         # SET_NULL rather than PROTECT. A project that loses its active revision serves nothing
         # until another is activated, which is the same state it starts life in.
-        project = CustomScriptProject.objects.create(name='AR Clear', key='ar-clear')
+        project = ScriptProject.objects.create(name='AR Clear', key='ar-clear')
         revision = ScriptProjectRevision.objects.create(
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
@@ -518,21 +518,21 @@ class CustomScriptProjectTestCase(TestCase):
     def test_a_queryset_delete_removes_a_project_with_an_active_revision(self):
         # The regression test for the pointer that protected its own project. PROTECT fired
         # here even though the protecting row was the project being deleted.
-        project = CustomScriptProject.objects.create(name='AR Bulk', key='ar-bulk')
+        project = ScriptProject.objects.create(name='AR Bulk', key='ar-bulk')
         revision = ScriptProjectRevision.objects.create(
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
         project.save()
-        CustomScriptProject.objects.filter(pk=project.pk).delete()
-        self.assertFalse(CustomScriptProject.objects.filter(key='ar-bulk').exists())
+        ScriptProject.objects.filter(pk=project.pk).delete()
+        self.assertFalse(ScriptProject.objects.filter(key='ar-bulk').exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=revision.pk).exists())
 
     def test_collecting_dependents_of_an_active_project_does_not_raise(self):
         # What the delete confirmation page does before any deletion happens. It ran the
         # collector, PROTECT fired, and the page refused with the project named as its own
         # dependent object.
-        project = CustomScriptProject.objects.create(name='AR Collect', key='ar-collect')
+        project = ScriptProject.objects.create(name='AR Collect', key='ar-collect')
         revision = ScriptProjectRevision.objects.create(
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
@@ -547,7 +547,7 @@ class CustomScriptProjectTestCase(TestCase):
 class ScriptProjectRevisionTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Revision Project', key='revision-project')
+        cls.project = ScriptProject.objects.create(name='Revision Project', key='revision-project')
 
     def make_revision(self, **overrides):
         values = {
@@ -605,7 +605,7 @@ class ScriptProjectRevisionTestCase(TestCase):
             self.make_revision()
 
     def test_same_digest_allowed_on_a_different_project(self):
-        other = CustomScriptProject.objects.create(name='Other Project', key='other-project')
+        other = ScriptProject.objects.create(name='Other Project', key='other-project')
         self.make_revision()
         instance = ScriptProjectRevision.objects.create(project=other, digest=DIGEST_A)
         self.assertIsNotNone(instance.pk)
@@ -670,7 +670,7 @@ class ScriptProjectRevisionTestCase(TestCase):
             self.make_revision(digest=DIGEST_B, status=RevisionStatusChoices.ACTIVE)
 
     def test_two_projects_may_each_have_an_active_revision(self):
-        other = CustomScriptProject.objects.create(name='Other Active', key='other-active')
+        other = ScriptProject.objects.create(name='Other Active', key='other-active')
         self.make_revision(digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE)
         sibling = ScriptProjectRevision.objects.create(
             project=other, digest=DIGEST_A, status=RevisionStatusChoices.ACTIVE
@@ -679,7 +679,7 @@ class ScriptProjectRevisionTestCase(TestCase):
 
     def test_project_field_immutable_on_save(self):
         instance = self.make_revision()
-        instance.project = CustomScriptProject.objects.create(name='Moved To', key='moved-to')
+        instance.project = ScriptProject.objects.create(name='Moved To', key='moved-to')
         with self.assertRaises(ValidationError) as cm:
             instance.save()
         self.assertIn('project', cm.exception.message_dict)
@@ -721,7 +721,7 @@ class ScriptProjectRevisionTestCase(TestCase):
         self.assertEqual(instance.activated, moment)
 
     def test_deleting_the_project_cascades_to_its_revisions(self):
-        project = CustomScriptProject.objects.create(name='Doomed Project', key='doomed-project')
+        project = ScriptProject.objects.create(name='Doomed Project', key='doomed-project')
         digest = compute_digest([])
         ScriptProjectRevision.objects.create(project=project, digest=digest)
         project.delete()
@@ -767,12 +767,12 @@ class ScriptProjectRevisionTestCase(TestCase):
         self.assertNotIn(RevisionStatusChoices.VALIDATING, stored | retryable)
 
 
-class CustomScriptProjectSourceStateTestCase(TestCase):
+class ScriptProjectSourceStateTestCase(TestCase):
     """The source state a project reports for its detail view."""
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+        cls.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
 
     def revision(self, status, digest=DIGEST_A, **kwargs):
         return ScriptProjectRevision.objects.create(

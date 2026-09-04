@@ -4,7 +4,7 @@ from rest_framework import status
 from extras.events import serialize_for_event
 from netbox_scripts.api.serializers import CustomScriptSerializer
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from utilities.api import get_serializer_for_model
 from utilities.testing import APITestCase
@@ -19,7 +19,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='API Script Project', key='api-script-project')
+        cls.project = ScriptProject.objects.create(name='API Script Project', key='api-script-project')
         cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=DIGEST,
@@ -68,7 +68,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     def test_deleting_the_project_serializes_the_cascading_script_events(self):
         # Delete events serialize eagerly, unlike create and update, so this path needs the
         # serializer even though activation never runs in this request.
-        project = CustomScriptProject.objects.create(name='Cascade Project', key='cascade-project')
+        project = ScriptProject.objects.create(name='Cascade Project', key='cascade-project')
         CustomScript.objects.create(
             project=project,
             module_path='deploy',
@@ -76,18 +76,18 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
             display_name='Cascaded',
         )
         self.add_permissions(
-            'netbox_scripts.delete_customscriptproject',
+            'netbox_scripts.delete_scriptproject',
             'netbox_scripts.delete_customscript',
-            'netbox_scripts.view_customscriptproject',
+            'netbox_scripts.view_scriptproject',
         )
         self.client.force_login(self.user)
 
-        url = reverse('plugins:netbox_scripts:customscriptproject_delete', kwargs={'pk': project.pk})
+        url = reverse('plugins:netbox_scripts:scriptproject_delete', kwargs={'pk': project.pk})
         response = self.client.post(url, {'confirm': True}, follow=False)
 
         self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_302_FOUND))
         self.assertFalse(CustomScript.objects.filter(project_id=project.pk).exists())
-        self.assertFalse(CustomScriptProject.objects.filter(pk=project.pk).exists())
+        self.assertFalse(ScriptProject.objects.filter(pk=project.pk).exists())
 
     def test_list_and_detail_return_200_with_permission(self):
         self.add_permissions('netbox_scripts.view_customscript')
@@ -233,7 +233,7 @@ class CustomScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
     def test_a_patch_cannot_move_a_script_to_another_project(self):
         # project is a declared field, and DRF ignores Meta.read_only_fields for those, so a
         # plain change token could reparent a derived row and take its Job history with it.
-        other = CustomScriptProject.objects.create(name='Other Project', key='other-project')
+        other = ScriptProject.objects.create(name='Other Project', key='other-project')
         self.add_permissions(
             'netbox_scripts.view_customscript',
             'netbox_scripts.change_customscript',

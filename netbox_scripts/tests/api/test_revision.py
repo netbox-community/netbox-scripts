@@ -4,7 +4,7 @@ from rest_framework import status
 from extras.events import serialize_for_event
 from netbox_scripts.api.serializers import ScriptProjectRevisionSerializer
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from utilities.api import get_serializer_for_model
@@ -22,7 +22,7 @@ class ScriptProjectRevisionSerializerTestCase(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='API Revision Project', key='api-revision-project')
+        cls.project = ScriptProject.objects.create(name='API Revision Project', key='api-revision-project')
         cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=compute_digest([]),
@@ -54,7 +54,7 @@ class ScriptProjectRevisionAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Revision Endpoint', key='revision-endpoint')
+        cls.project = ScriptProject.objects.create(name='Revision Endpoint', key='revision-endpoint')
         cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=compute_digest([]),
@@ -135,7 +135,7 @@ class ScriptProjectRevisionAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def test_the_project_filter_narrows_the_list(self):
-        other = CustomScriptProject.objects.create(name='Other Revisions', key='other-revisions')
+        other = ScriptProject.objects.create(name='Other Revisions', key='other-revisions')
         ScriptProjectRevision.objects.create(project=other, digest='b' * 64)
         self.add_permissions('netbox_scripts.view_scriptprojectrevision')
         response = self.client.get(f'{self._list_url()}?project_id={self.project.pk}', **self.header)
@@ -147,7 +147,7 @@ class ProjectDeleteEventSerializationTestCase(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='API Delete Project', key='api-delete-project')
+        cls.project = ScriptProject.objects.create(name='API Delete Project', key='api-delete-project')
         cls.revision = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest=compute_digest([]),
@@ -164,10 +164,10 @@ class ProjectDeleteEventSerializationTestCase(APITestCase):
         )
 
     def test_deleting_an_active_project_over_rest_succeeds(self):
-        self.add_permissions('netbox_scripts.delete_customscriptproject')
-        url = reverse('plugins-api:netbox_scripts-api:customscriptproject-detail', args=[self.project.pk])
+        self.add_permissions('netbox_scripts.delete_scriptproject')
+        url = reverse('plugins-api:netbox_scripts-api:scriptproject-detail', args=[self.project.pk])
         response = self.client.delete(url, **self.header)
         self.assertHttpStatus(response, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=self.revision.pk).exists())
         self.assertFalse(CustomScript.objects.exists())

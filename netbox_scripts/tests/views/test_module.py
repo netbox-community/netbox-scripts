@@ -1,4 +1,4 @@
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject
+from netbox_scripts.models import CustomScriptModule, ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginTestCases
 from utilities.testing import create_tags
 
@@ -9,8 +9,8 @@ class CustomScriptModuleTestCase(PluginTestCases.NestedObjectViewTestCase):
     @classmethod
     def setUpTestData(cls):
         projects = (
-            CustomScriptProject(name='View Project 1', key='view-project-1'),
-            CustomScriptProject(name='View Project 2', key='view-project-2'),
+            ScriptProject(name='View Project 1', key='view-project-1'),
+            ScriptProject(name='View Project 2', key='view-project-2'),
         )
         for project in projects:
             project.save()

@@ -3,11 +3,11 @@ from django.utils.translation import gettext_lazy as _
 
 from netbox.tables import BaseTable, PrimaryModelTable, columns
 
-from ..models import CustomScriptProject, ScriptProjectRevision
+from ..models import ScriptProject, ScriptProjectRevision
 
 
-class CustomScriptProjectTable(PrimaryModelTable):
-    """Table for the Custom Script Project list view."""
+class ScriptProjectTable(PrimaryModelTable):
+    """Table for the Script Project list view."""
 
     name = tables.Column(
         linkify=True,
@@ -20,11 +20,11 @@ class CustomScriptProjectTable(PrimaryModelTable):
     activation_policy = columns.ChoiceFieldColumn()
     enabled = columns.BooleanColumn()
     tags = columns.TagColumn(
-        url_name='plugins:netbox_scripts:customscriptproject_list',
+        url_name='plugins:netbox_scripts:scriptproject_list',
     )
 
     class Meta(PrimaryModelTable.Meta):
-        model = CustomScriptProject
+        model = ScriptProject
         fields = (
             'pk',
             'id',
@@ -107,7 +107,7 @@ class ScriptProjectRevisionTable(BaseTable):
         return len(value)
 
 
-class CustomScriptProjectFileTable(BaseTable):
+class ScriptProjectFileTable(BaseTable):
     """
     The files of a project's current revision, for the project's Files tab.
 

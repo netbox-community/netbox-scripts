@@ -20,7 +20,7 @@ from ..execution import LOAD_FAILURES, load_script_class
 from ..filtersets import (
     CustomScriptFilterSet,
     CustomScriptModuleFilterSet,
-    CustomScriptProjectFilterSet,
+    ScriptProjectFilterSet,
     ScriptProjectRevisionFilterSet,
 )
 from ..ingestion import (
@@ -30,15 +30,15 @@ from ..ingestion import (
     uploaded_source_path,
 )
 from ..jobs import CustomScriptJob, ProjectEntrypointRefreshJob
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from ..models import CustomScript, CustomScriptModule, ScriptProject, ScriptProjectRevision
 from ..storage import config
 from .serializers import (
     CustomScriptModuleSerializer,
-    CustomScriptProjectSerializer,
-    CustomScriptProjectUploadSerializer,
     CustomScriptRunInputSerializer,
     CustomScriptSerializer,
     ScriptProjectRevisionSerializer,
+    ScriptProjectSerializer,
+    ScriptProjectUploadSerializer,
 )
 
 
@@ -62,12 +62,12 @@ class CustomScriptModuleViewSet(NetBoxModelViewSet):
     filterset_class = CustomScriptModuleFilterSet
 
 
-class CustomScriptProjectViewSet(NetBoxModelViewSet):
-    """REST API viewset for Custom Script Projects."""
+class ScriptProjectViewSet(NetBoxModelViewSet):
+    """REST API viewset for Script Projects."""
 
-    queryset = CustomScriptProject.objects.all()
-    serializer_class = CustomScriptProjectSerializer
-    filterset_class = CustomScriptProjectFilterSet
+    queryset = ScriptProject.objects.all()
+    serializer_class = ScriptProjectSerializer
+    filterset_class = ScriptProjectFilterSet
 
     def initial(self, request, *args, **kwargs):
         """Narrow the upload action by the change permission rather than by its HTTP method."""
@@ -87,7 +87,7 @@ class CustomScriptProjectViewSet(NetBoxModelViewSet):
         if not request.user.has_perm('netbox_scripts.add_customscriptmodule'):
             raise PermissionDenied('Uploading source requires the Custom Script Module add permission.')
 
-        input_serializer = CustomScriptProjectUploadSerializer(data=request.data)
+        input_serializer = ScriptProjectUploadSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         upload = input_serializer.validated_data['file']
         # Flattened here rather than relying on the parser. Django reduces a browser upload to

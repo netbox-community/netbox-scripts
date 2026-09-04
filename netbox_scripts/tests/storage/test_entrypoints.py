@@ -2,7 +2,7 @@ import json
 
 from django.test import TestCase
 
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject
+from netbox_scripts.models import CustomScriptModule, ScriptProject
 from netbox_scripts.storage import entrypoints
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 
@@ -15,7 +15,7 @@ def entry(module, source_path):
 class BuildEntrypointSnapshotTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Snapshot Project', key='snapshot-project')
+        cls.project = ScriptProject.objects.create(name='Snapshot Project', key='snapshot-project')
 
     def modules(self, *paths):
         return [CustomScriptModule.objects.create(project=self.project, source_path=path) for path in paths]

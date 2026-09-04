@@ -10,12 +10,12 @@ renders the panels declaratively, so this template carries only the breadcrumbs.
 {% block breadcrumbs %}
   {# The default breadcrumb reverses this model's list route, which revisions deliberately have none of. #}
   <li class="breadcrumb-item">
-    <a href="{% url 'plugins:netbox_scripts:customscriptproject_list' %}">{% trans "Custom Script Projects" %}</a>
+    <a href="{% url 'plugins:netbox_scripts:scriptproject_list' %}">{% trans "Script Projects" %}</a>
   </li>
   <li class="breadcrumb-item">
     <a href="{{ object.project.get_absolute_url }}">{{ object.project }}</a>
   </li>
   <li class="breadcrumb-item">
-    <a href="{% url 'plugins:netbox_scripts:customscriptproject_revisions' pk=object.project.pk %}">{% trans "Revisions" %}</a>
+    <a href="{% url 'plugins:netbox_scripts:scriptproject_revisions' pk=object.project.pk %}">{% trans "Revisions" %}</a>
   </li>
 {% endblock breadcrumbs %}

@@ -33,7 +33,7 @@ its old location is retired.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | FK | yes | Owning Custom Script Project |
+| `project` | FK | yes | Owning Script Project |
 | `module_path` | string | yes | Dotted path of the project module that defines the Script class |
 | `class_name` | string | yes | Name of the Script class |
 | `display_name` | string | system | `Meta.name`, defaulting to the class name |
@@ -81,7 +81,7 @@ undo an administrator's decision.
 
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
-| `project` | `CustomScriptProject` | yes | `on_delete=CASCADE`, reverse name `scripts` |
+| `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `scripts` |
 | `last_seen_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
 Deleting a Custom Script Module leaves its scripts alone, since the publishing

@@ -14,8 +14,8 @@ from netbox_scripts.execution import CHANGELOGGED_PROBE_MODEL
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
     MigrationRun,
+    ScriptProject,
     ScriptProjectRevision,
 )
 
@@ -28,15 +28,15 @@ CONTEXTVARS = f'{PACKAGE}.contextvars'
 GLOBAL_MODELS = (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
     MigrationRun,
+    ScriptProject,
     ScriptProjectRevision,
 )
 GLOBAL_LABELS = [
     'netbox_scripts.customscript',
     'netbox_scripts.customscriptmodule',
-    'netbox_scripts.customscriptproject',
     'netbox_scripts.migrationrun',
+    'netbox_scripts.scriptproject',
     'netbox_scripts.scriptprojectrevision',
 ]
 
@@ -167,9 +167,9 @@ class RoutingReasonTestCase(TestCase):
             self.assertIsNone(branching.unsafe_routing_reason())
 
     def test_a_reason_naming_only_the_model_routed_to_a_branch(self):
-        with routing(customscriptproject=True):
+        with routing(scriptproject=True):
             reason = branching.unsafe_routing_reason()
-        self.assertIn('netbox_scripts.customscriptproject', reason)
+        self.assertIn('netbox_scripts.scriptproject', reason)
         self.assertNotIn('scriptprojectrevision', reason)
         self.assertNotIn('customscriptmodule', reason)
 
@@ -245,7 +245,7 @@ class RoutingCheckTestCase(TestCase):
         self.assertEqual(branching.check_routing(None), [])
 
     def test_one_error_carrying_the_configuration_when_routing_is_unsafe(self):
-        with routing(customscriptproject=True):
+        with routing(scriptproject=True):
             errors = branching.check_routing(None)
         self.assertEqual([error.id for error in errors], ['netbox_scripts.E001'])
         self.assertIn('storage operations are refused', errors[0].msg)

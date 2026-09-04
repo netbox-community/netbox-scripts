@@ -34,7 +34,7 @@ __all__ = (
 
 _PLUGIN_NAME = 'netbox_scripts'
 
-# The STORAGES alias holding Custom Script Project source. The entry is required rather than
+# The STORAGES alias holding Script Project source. The entry is required rather than
 # falling back to the default alias, because revision content is executable source and must
 # not silently inherit the visibility, retention, and sharing policy an operator chose for
 # ordinary media. Pointing this alias at the same physical backend as the default is a
@@ -79,7 +79,7 @@ def check_storage_configured(app_configs, **kwargs):
         return []
     return [
         checks.Warning(
-            'Custom Script Project storage is not configured. Revision staging, activation, '
+            'Script Project storage is not configured. Revision staging, activation, '
             'and cleanup are refused until it is.',
             hint=f'Define a "{STORAGE_ALIAS}" entry in the STORAGES setting.',
             id='netbox_scripts.W001',

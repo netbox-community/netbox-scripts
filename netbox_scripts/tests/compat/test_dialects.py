@@ -18,7 +18,7 @@ from netbox_scripts.choices import (
 )
 from netbox_scripts.ingestion import ingest_data_source
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
+from netbox_scripts.models import CustomScript, CustomScriptModule, ScriptProject
 
 FORMS = {
     'named.py': 'from extras.scripts import Script, StringVar\n\n\nclass Named(Script):\n    name = StringVar()\n',
@@ -61,7 +61,7 @@ class DialectTestCase(TestCase):
     def stage_and_validate(self, files, key='dialects', entrypoints=None):
         """Stage one tree as a Data Source project, drive validation, and return the revision."""
         source = DataSource.objects.create(name=key, type='local', source_url=f'file:///tmp/{key}/')
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name=key,
             key=key,
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,

@@ -16,7 +16,7 @@ from netbox_scripts import jobs, validation
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.runtime.exceptions import DiscoveryError, EntrypointImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.storage import service
@@ -50,7 +50,7 @@ class ValidationTestMixin:
         )
         self.addCleanup(discard_tree, self.cache_root)
         self.addCleanup(self._purge_namespace)
-        self.project = CustomScriptProject.objects.create(name='Validated Project', key='validated-project')
+        self.project = ScriptProject.objects.create(name='Validated Project', key='validated-project')
         self.job = self.make_job()
 
     def _purge_namespace(self):

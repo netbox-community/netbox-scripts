@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='CustomScriptProject',
+            name='ScriptProject',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
                 ('created', models.DateTimeField(auto_now_add=True, null=True)),
@@ -41,13 +41,13 @@ class Migration(migrations.Migration):
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
             ],
             options={
-                'verbose_name': 'custom script project',
-                'verbose_name_plural': 'custom script projects',
+                'verbose_name': 'script project',
+                'verbose_name_plural': 'script projects',
                 'ordering': ('name',),
                 'permissions': (
-                    ('activate', 'Can activate a revision of a Custom Script Project'),
+                    ('activate', 'Can activate a revision of a Script Project'),
                     ('migrate', 'Can migrate off the built-in Custom Scripts feature'),
-                    ('reconcile', "Can reconcile a Custom Script Project's source"),
+                    ('reconcile', "Can reconcile a Script Project's source"),
                 ),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                 ('validation_started', models.DateTimeField(blank=True, editable=False, null=True)),
                 ('validation_error', models.TextField(blank=True, editable=False)),
                 ('activated', models.DateTimeField(blank=True, null=True)),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='revisions', to='netbox_scripts.customscriptproject')),
+                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='revisions', to='netbox_scripts.scriptproject')),
                 ('validation_job', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='core.job')),
             ],
             options={
@@ -81,7 +81,7 @@ class Migration(migrations.Migration):
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
         migrations.AddField(
-            model_name='customscriptproject',
+            model_name='scriptproject',
             name='active_revision',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='active_revision_for', to='netbox_scripts.scriptprojectrevision'),
         ),
@@ -100,7 +100,7 @@ class Migration(migrations.Migration):
                 ('discovery_error', models.TextField(blank=True, editable=False)),
                 ('last_discovered_revision', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.scriptprojectrevision')),
                 ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='users.owner')),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='modules', to='netbox_scripts.customscriptproject')),
+                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='modules', to='netbox_scripts.scriptproject')),
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
             ],
             options={
@@ -130,7 +130,7 @@ class Migration(migrations.Migration):
                 ('metadata', models.JSONField(blank=True, default=dict, editable=False)),
                 ('last_seen_revision', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.scriptprojectrevision')),
                 ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='users.owner')),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='scripts', to='netbox_scripts.customscriptproject')),
+                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='scripts', to='netbox_scripts.scriptproject')),
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
             ],
             options={
@@ -187,11 +187,11 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(condition=models.Q(('status', 'active')), fields=('project',), name='unique_active_revision_per_project'),
         ),
         migrations.AddConstraint(
-            model_name='customscriptproject',
+            model_name='scriptproject',
             constraint=models.CheckConstraint(condition=models.Q(models.Q(('data_path', ''), ('data_source__isnull', True), ('source_type', 'upload')), models.Q(('data_source__isnull', False), ('source_type', 'data_source'), models.Q(('data_path', ''), _negated=True)), _connector='OR'), name='enforce_source_ownership'),
         ),
         migrations.AddConstraint(
-            model_name='customscriptproject',
+            model_name='scriptproject',
             constraint=models.UniqueConstraint(condition=models.Q(('source_type', 'data_source')), fields=('data_source', 'data_path'), name='unique_data_source_path'),
         ),
         migrations.AddConstraint(

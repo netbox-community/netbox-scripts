@@ -2,7 +2,7 @@ from django.urls import reverse
 
 from core.models import ObjectType
 from netbox_scripts.choices import MigrationStateChoices
-from netbox_scripts.models import CustomScriptProject, MigrationRun
+from netbox_scripts.models import MigrationRun, ScriptProject
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -23,7 +23,7 @@ class MigrationRunViewTestCase(TestCase):
         obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
 
     def url(self):
         return reverse('plugins:netbox_scripts:migrationrun', args=[self.migration.pk])

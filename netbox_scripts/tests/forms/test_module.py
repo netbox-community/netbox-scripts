@@ -1,14 +1,14 @@
 from django.test import TestCase
 
 from netbox_scripts.forms import CustomScriptModuleEditForm, CustomScriptModuleFilterForm
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject
+from netbox_scripts.models import CustomScriptModule, ScriptProject
 
 
 class CustomScriptModuleEditFormTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Form Project 1', key='form-project-1')
-        cls.other_project = CustomScriptProject.objects.create(name='Form Project 2', key='form-project-2')
+        cls.project = ScriptProject.objects.create(name='Form Project 1', key='form-project-1')
+        cls.other_project = ScriptProject.objects.create(name='Form Project 2', key='form-project-2')
 
     def test_good_path(self):
         form = CustomScriptModuleEditForm(

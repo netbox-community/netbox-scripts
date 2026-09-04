@@ -6,7 +6,7 @@ from utilities.forms.constants import BOOLEAN_WITH_BLANK_CHOICES
 from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterField
 from utilities.forms.rendering import FieldSet
 
-from ...models import CustomScript, CustomScriptProject
+from ...models import CustomScript, ScriptProject
 
 __all__ = ('CustomScriptFilterForm',)
 
@@ -16,9 +16,9 @@ class CustomScriptFilterForm(PrimaryModelFilterSetForm):
 
     model = CustomScript
     project_id = DynamicModelMultipleChoiceField(
-        queryset=CustomScriptProject.objects.all(),
+        queryset=ScriptProject.objects.all(),
         required=False,
-        label=_('Custom Script Project'),
+        label=_('Script Project'),
     )
     module_path = forms.CharField(
         required=False,

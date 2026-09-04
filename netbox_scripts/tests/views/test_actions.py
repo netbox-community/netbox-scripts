@@ -5,20 +5,20 @@ from netbox.object_actions import BulkExport
 from netbox.tables.columns import ActionsColumn
 from netbox_scripts.tables import (
     CustomScriptModuleTable,
-    CustomScriptProjectTable,
     CustomScriptTable,
     ScriptProjectRevisionTable,
+    ScriptProjectTable,
 )
 from netbox_scripts.views import (
     CustomScriptListView,
     CustomScriptModuleListView,
-    CustomScriptProjectListView,
-    CustomScriptProjectView,
     CustomScriptView,
+    ScriptProjectListView,
+    ScriptProjectView,
 )
 
 LIST_VIEWS = (
-    CustomScriptProjectListView,
+    ScriptProjectListView,
     CustomScriptModuleListView,
     CustomScriptListView,
 )
@@ -26,12 +26,12 @@ LIST_VIEWS = (
 # Detail views declare their own action sets too, and an ObjectAction naming an unregistered
 # route fails exactly the same way a list button does.
 DETAIL_VIEWS = (
-    CustomScriptProjectView,
+    ScriptProjectView,
     CustomScriptView,
 )
 
 TABLES = (
-    CustomScriptProjectTable,
+    ScriptProjectTable,
     ScriptProjectRevisionTable,
     CustomScriptModuleTable,
     CustomScriptTable,

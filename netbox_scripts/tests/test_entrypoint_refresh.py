@@ -8,13 +8,13 @@ from django.test import TestCase, override_settings
 from core.choices import JobStatusChoices
 from netbox_scripts import branching
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
-from netbox_scripts.forms import CustomScriptProjectEntrypointsForm
+from netbox_scripts.forms import ScriptProjectEntrypointsForm
 from netbox_scripts.ingestion import current_source_tree, ingest_upload
 from netbox_scripts.jobs import ProjectEntrypointRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.storage import service, store
@@ -51,13 +51,13 @@ class Beta(Script):
 
 def two_entrypoint_project(key='deploy-devices', **kwargs):
     """Return a project holding two uploaded files, both declared and enabled."""
-    project = CustomScriptProject.objects.create(name=key.replace('-', ' ').title(), key=key, **kwargs)
+    project = ScriptProject.objects.create(name=key.replace('-', ' ').title(), key=key, **kwargs)
     ingest_upload(project, filename='alpha.py', content=ALPHA)
     # Re-read rather than refresh, because current_revision is cached per instance and the
     # second upload has to stage the tree the first one left behind.
-    project = CustomScriptProject.objects.get(pk=project.pk)
+    project = ScriptProject.objects.get(pk=project.pk)
     ingest_upload(project, filename='beta.py', content=BETA, base_files=current_source_tree(project))
-    return CustomScriptProject.objects.get(pk=project.pk)
+    return ScriptProject.objects.get(pk=project.pk)
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
@@ -95,7 +95,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         ScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
             status=RevisionStatusChoices.VALID
         )
-        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        self.project = ScriptProject.objects.get(pk=self.project.pk)
         self.validated.reset_mock()
 
     def run_job(self, project_id=None):
@@ -104,7 +104,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
             immediate=True, project_id=self.project.pk if project_id is None else project_id
         )
         job.refresh_from_db()
-        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        self.project = ScriptProject.objects.get(pk=self.project.pk)
         return job
 
     def test_a_changed_selection_stages_a_new_revision(self):
@@ -134,8 +134,8 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         # Restaging what the project serves would drop that revision's content silently.
         active = self.project.revisions.order_by('created').first()
         ScriptProjectRevision.objects.filter(pk=active.pk).update(status=RevisionStatusChoices.ACTIVE)
-        CustomScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active)
-        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active)
+        self.project = ScriptProject.objects.get(pk=self.project.pk)
         self.assertEqual([entry['path'] for entry in active.manifest], ['alpha.py'])
 
         before = self.project.revisions.count()
@@ -173,7 +173,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         self.validated.assert_called_once()
 
     def test_a_project_with_no_stored_content_completes_with_nothing_to_do(self):
-        empty = CustomScriptProject.objects.create(name='Empty', key='empty')
+        empty = ScriptProject.objects.create(name='Empty', key='empty')
         job = ProjectEntrypointRefreshJob.enqueue(immediate=True, project_id=empty.pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
@@ -215,7 +215,7 @@ class EntrypointsFormTestCase(TestCase):
         )
 
     def save(self, paths):
-        form = CustomScriptProjectEntrypointsForm(data={'entrypoints': paths}, instance=self.project)
+        form = ScriptProjectEntrypointsForm(data={'entrypoints': paths}, instance=self.project)
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
         return form
@@ -271,7 +271,7 @@ class EntrypointRefreshPolicyTestCase(TestCase):
         job = ProjectEntrypointRefreshJob.enqueue(immediate=True, project_id=project.pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
-        return CustomScriptProject.objects.get(pk=project.pk)
+        return ScriptProject.objects.get(pk=project.pk)
 
     def test_an_automatic_project_ends_up_serving_the_new_selection(self):
         project = two_entrypoint_project(key='automatic', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)

@@ -9,13 +9,13 @@ from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import BulkEditNullBooleanSelect
 
 from ...choices import ActivationPolicyChoices
-from ...models import CustomScriptProject
+from ...models import ScriptProject
 
-__all__ = ('CustomScriptProjectBulkEditForm',)
+__all__ = ('ScriptProjectBulkEditForm',)
 
 
-class CustomScriptProjectBulkEditForm(PrimaryModelBulkEditForm):
-    """Bulk edit form for Custom Script Projects."""
+class ScriptProjectBulkEditForm(PrimaryModelBulkEditForm):
+    """Bulk edit form for Script Projects."""
 
     enabled = forms.NullBooleanField(
         required=False,
@@ -37,7 +37,7 @@ class CustomScriptProjectBulkEditForm(PrimaryModelBulkEditForm):
         label=_('Data path'),
     )
 
-    model = CustomScriptProject
+    model = ScriptProject
     fieldsets = (
         FieldSet('description', 'enabled', name=_('Project')),
         FieldSet('data_source', 'data_path', name=_('Source')),

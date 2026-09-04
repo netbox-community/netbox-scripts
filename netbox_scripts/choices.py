@@ -12,7 +12,7 @@ __all__ = (
 
 
 class ProjectSourceTypeChoices(ChoiceSet):
-    """Choice set for where a Custom Script Project's source tree comes from."""
+    """Choice set for where a Script Project's source tree comes from."""
 
     UPLOAD = 'upload'
     DATA_SOURCE = 'data_source'
@@ -24,7 +24,7 @@ class ProjectSourceTypeChoices(ChoiceSet):
 
 
 class ActivationPolicyChoices(ChoiceSet):
-    """Choice set for how a Custom Script Project activates a new revision."""
+    """Choice set for how a Script Project activates a new revision."""
 
     MANUAL = 'manual'
     AUTOMATIC_IF_VALID = 'automatic_if_valid'

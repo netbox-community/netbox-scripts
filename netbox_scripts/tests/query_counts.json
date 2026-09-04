@@ -2,6 +2,6 @@
   "customscript:list_objects_with_permission": 17,
   "customscriptmodule:api_list_objects": 12,
   "customscriptmodule:list_objects_with_permission": 17,
-  "customscriptproject:api_list_objects": 12,
-  "customscriptproject:list_objects_with_permission": 17
+  "scriptproject:api_list_objects": 12,
+  "scriptproject:list_objects_with_permission": 17
 }

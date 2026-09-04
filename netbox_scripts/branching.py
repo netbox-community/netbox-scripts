@@ -1,7 +1,7 @@
 """
 Keep this plugin's models out of NetBox Branching's per-branch schemas.
 
-A Custom Script Project and its revisions address one source tree through the project's storage
+A Script Project and its revisions address one source tree through the project's storage
 key and the revision's digest. That path carries no branch or schema component, so rows living in
 two schemas would name the same bytes on disk, and a revision deleted inside a branch would
 remove source that the main schema still serves. Module rows are part of that same configuration:
@@ -44,8 +44,8 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 GLOBAL_MODELS = (
     'customscript',
     'customscriptmodule',
-    'customscriptproject',
     'migrationrun',
+    'scriptproject',
     'scriptprojectrevision',
 )
 
@@ -60,7 +60,7 @@ ROUTING_HINT = (
     "labels to PLUGINS_CONFIG['netbox_branching']['exempt_models']: "
     '"netbox_scripts.customscript", '
     '"netbox_scripts.customscriptmodule", '
-    '"netbox_scripts.customscriptproject", '
+    '"netbox_scripts.scriptproject", '
     '"netbox_scripts.scriptprojectrevision", '
     '"netbox_scripts.migrationrun".'
 )
@@ -211,7 +211,7 @@ def check_routing(app_configs, **kwargs):
     if reason := unsafe_routing_reason():
         return [
             Error(
-                f'{reason} Custom Script Project storage operations are refused until it is resolved.',
+                f'{reason} Script Project storage operations are refused until it is resolved.',
                 hint=ROUTING_HINT,
                 id='netbox_scripts.E001',
             )

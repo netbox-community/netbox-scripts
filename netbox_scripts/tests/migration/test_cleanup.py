@@ -7,7 +7,7 @@ from core.models import Job, ObjectType
 from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.choices import MigrationStateChoices
 from netbox_scripts.migration import cleanup, cutover, references
-from netbox_scripts.models import CustomScriptProject, MigrationRun
+from netbox_scripts.models import MigrationRun, ScriptProject
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from netbox_scripts.tests.migration.test_staging import HELPER, LEGACY_SCRIPT
 
@@ -176,7 +176,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
 
     def test_a_module_whose_project_serves_nothing_is_left_in_place(self):
         run = self.repointed()
-        project = CustomScriptProject.objects.get(key__startswith='automation')
+        project = ScriptProject.objects.get(key__startswith='automation')
         project.active_revision = None
         project.save()
 
@@ -192,7 +192,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         # One migrated Project is gone, and one of its built-in modules publishes nothing.
         helper = self.legacy_synced_module('automation/util.py', HELPER)
         run = self.repointed()
-        CustomScriptProject.objects.get(key__startswith='automation').delete()
+        ScriptProject.objects.get(key__startswith='automation').delete()
 
         counts, _warnings = cleanup.retire_legacy(run)
 
@@ -206,7 +206,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         # Consent to delete the Project is not consent to destroy history the module carries.
         run = self.repointed()
         self.module_job(self.synced)
-        CustomScriptProject.objects.get(key__startswith='automation').delete()
+        ScriptProject.objects.get(key__startswith='automation').delete()
 
         counts, warnings = cleanup.retire_legacy(run)
 
@@ -445,8 +445,8 @@ class LegacyFeatureStateTestCase(CleanupMixin, TestCase):
 
         cleanup.retire_legacy(run)
 
-        self.assertTrue(CustomScriptProject.objects.exists())
-        for project in CustomScriptProject.objects.all():
+        self.assertTrue(ScriptProject.objects.exists())
+        for project in ScriptProject.objects.all():
             self.assertIsNotNone(project.active_revision)
 
 

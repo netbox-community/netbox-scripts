@@ -3,14 +3,14 @@ from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
 from ...models import CustomScript
-from .project import CustomScriptProjectSerializer
+from .project import ScriptProjectSerializer
 from .revision import ScriptProjectRevisionSerializer
 
 
 class CustomScriptSerializer(PrimaryModelSerializer):
     """Serializer for the Custom Script model."""
 
-    project = CustomScriptProjectSerializer(nested=True, read_only=True)
+    project = ScriptProjectSerializer(nested=True, read_only=True)
     last_seen_revision = ScriptProjectRevisionSerializer(nested=True, read_only=True)
 
     # allow_blank, because the column spends '' on inherit. ChoiceField then also coerces a

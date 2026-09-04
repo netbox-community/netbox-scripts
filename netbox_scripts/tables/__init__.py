@@ -1,20 +1,20 @@
 from .module import CustomScriptModuleTable
 from .project import (
-    CustomScriptProjectFileTable,
-    CustomScriptProjectTable,
+    ScriptProjectFileTable,
     ScriptProjectRevisionEntrypointTable,
     ScriptProjectRevisionProblemTable,
     ScriptProjectRevisionTable,
+    ScriptProjectTable,
 )
 from .script import CustomScriptLogTable, CustomScriptTable
 
 __all__ = (
     'CustomScriptLogTable',
     'CustomScriptModuleTable',
-    'CustomScriptProjectFileTable',
-    'CustomScriptProjectTable',
     'CustomScriptTable',
+    'ScriptProjectFileTable',
     'ScriptProjectRevisionEntrypointTable',
     'ScriptProjectRevisionProblemTable',
     'ScriptProjectRevisionTable',
+    'ScriptProjectTable',
 )

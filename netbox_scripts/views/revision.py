@@ -11,7 +11,7 @@ from utilities.views import register_model_view
 
 from .. import activation
 from ..constants import ACTIVATABLE_REVISION_STATUSES
-from ..models import CustomScriptProject, ScriptProjectRevision
+from ..models import ScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import ScriptProjectRevisionEntrypointTable, ScriptProjectRevisionProblemTable
 from ..ui import ScriptProjectRevisionPanel, ScriptProjectRevisionStatePanel
@@ -95,14 +95,14 @@ class RevisionServiceView(generic.ObjectView):
 
     def get_required_permission(self):
         """Require the owning project's activate permission, not the revision's own."""
-        return get_permission_for_model(CustomScriptProject, 'activate')
+        return get_permission_for_model(ScriptProject, 'activate')
 
     def has_permission(self):
         """Gate on the project permission, and narrow the revisions to permitted projects."""
         user = self.request.user
         if not user.has_perm(self.get_required_permission()):
             return False
-        self.queryset = self.queryset.filter(project__in=CustomScriptProject.objects.restrict(user, 'activate'))
+        self.queryset = self.queryset.filter(project__in=ScriptProject.objects.restrict(user, 'activate'))
         return True
 
     @staticmethod

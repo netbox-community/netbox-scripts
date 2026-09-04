@@ -22,8 +22,8 @@ from netbox_scripts.jobs import MigrationStagingJob, RevisionValidationJob
 from netbox_scripts.migration import plan, source, staging
 from netbox_scripts.models import (
     CustomScriptModule,
-    CustomScriptProject,
     MigrationRun,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.tests.runtime.test_cache import discard_tree
@@ -118,15 +118,15 @@ class LegacySourceMixin:
             RevisionValidationJob.enqueue_validation(revision, immediate=True)
 
     def project_for(self, source_type):
-        return CustomScriptProject.objects.get(source_type=source_type)
+        return ScriptProject.objects.get(source_type=source_type)
 
 
 class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
     """A Project an operator already made is reused only where reusing it changes nothing."""
 
     def existing(self, data_path, policy):
-        """Create a Custom Script Project on the same Data Source as the built-in content."""
-        return CustomScriptProject.objects.create(
+        """Create a Script Project on the same Data Source as the built-in content."""
+        return ScriptProject.objects.create(
             name=f'existing {data_path}',
             key=f'existing-{data_path.replace("/", "-")}',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -144,7 +144,7 @@ class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
         refused = [result for result in results if result.get('refused')]
         self.assertEqual(len(refused), 1)
         self.assertIn('overlaps', refused[0]['refused'])
-        self.assertTrue(CustomScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.UPLOAD).exists())
+        self.assertTrue(ScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.UPLOAD).exists())
 
     def test_a_reused_project_on_an_automatic_policy_is_refused_before_it_activates(self):
         # An exact path match, so staging reuses this Project rather than creating its own.
@@ -159,7 +159,7 @@ class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
                 RevisionValidationJob.enqueue_validation(
                     ScriptProjectRevision.objects.get(pk=result['revision_pk']), immediate=True
                 )
-        self.assertIsNone(CustomScriptProject.objects.get(data_path='automation').active_revision_id)
+        self.assertIsNone(ScriptProject.objects.get(data_path='automation').active_revision_id)
 
     def test_the_job_reports_a_refusal_and_still_stages_the_rest(self):
         # Reachable only when the Project appears after the inventory, so the gate is stubbed out.
@@ -173,7 +173,7 @@ class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('was not staged', messages)
         self.assertIn('1 refused', messages)
-        self.assertTrue(CustomScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.UPLOAD).exists())
+        self.assertTrue(ScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.UPLOAD).exists())
 
 
 class StageTestCase(LegacySourceMixin, TestCase):
@@ -202,13 +202,13 @@ class StageTestCase(LegacySourceMixin, TestCase):
     def test_running_staging_twice_changes_nothing(self):
         # Deterministic identity plus content addressing, so the second pass creates no rows.
         self.stage_all()
-        projects = CustomScriptProject.objects.count()
+        projects = ScriptProject.objects.count()
         revision_pks = set(ScriptProjectRevision.objects.values_list('pk', flat=True))
         declarations = CustomScriptModule.objects.count()
 
         results = self.stage_all()
 
-        self.assertEqual(CustomScriptProject.objects.count(), projects)
+        self.assertEqual(ScriptProject.objects.count(), projects)
         self.assertEqual(set(ScriptProjectRevision.objects.values_list('pk', flat=True)), revision_pks)
         self.assertEqual(CustomScriptModule.objects.count(), declarations)
         self.assertTrue(all(result['created'] is False for result in results))
@@ -223,7 +223,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
                 RevisionValidationJob.enqueue_validation(revision, immediate=True)
                 revision.refresh_from_db()
                 self.assertEqual(revision.status, RevisionStatusChoices.VALID)
-                self.assertIsNone(CustomScriptProject.objects.get(pk=revision.project_id).active_revision_id)
+                self.assertIsNone(ScriptProject.objects.get(pk=revision.project_id).active_revision_id)
 
     def test_the_job_stages_every_project_and_records_the_result(self):
         job = MigrationStagingJob.enqueue(immediate=True)
@@ -232,7 +232,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
         staged = job.data['projects']
         self.assertEqual(len(staged), 2)
         self.assertTrue(all(result['created'] for result in staged))
-        self.assertEqual(CustomScriptProject.objects.count(), 2)
+        self.assertEqual(ScriptProject.objects.count(), 2)
 
     def test_the_job_reports_that_a_verdict_is_still_to_come(self):
         # The status staging leaves behind is never the verdict, so it must not read like one.
@@ -277,7 +277,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
-        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertFalse(ScriptProject.objects.exists())
         self.assertIn('my-report.py', ' '.join(entry['message'] for entry in job.log_entries))
 
     def test_the_built_in_rows_are_untouched(self):
@@ -338,7 +338,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
-        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertFalse(ScriptProject.objects.exists())
         self.assertIn('cutover', ' '.join(entry['message'] for entry in job.log_entries))
 
 
@@ -352,7 +352,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
 
         self.stage_all()
 
-        project = CustomScriptProject.objects.get(data_path='shared')
+        project = ScriptProject.objects.get(data_path='shared')
         self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
 
     def test_the_helper_only_revision_reaches_a_valid_verdict(self):
@@ -361,7 +361,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
 
         self.stage_and_validate()
 
-        revision = CustomScriptProject.objects.get(data_path='shared').revisions.get()
+        revision = ScriptProject.objects.get(data_path='shared').revisions.get()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['util.py'])
 
@@ -372,7 +372,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
         self.stage_and_validate()
 
         # By name rather than key, because the key carries a digest of the identity tuple.
-        project = CustomScriptProject.objects.get(name='shared_util')
+        project = ScriptProject.objects.get(name='shared_util')
         self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
         self.assertEqual(project.revisions.get().status, RevisionStatusChoices.VALID)
 
@@ -384,7 +384,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
 
         self.stage_all()
 
-        project = CustomScriptProject.objects.get(data_path='shared')
+        project = ScriptProject.objects.get(data_path='shared')
         self.assertEqual(list(CustomScriptModule.objects.filter(project=project)), [])
 
     def test_only_the_publishing_member_of_a_shared_folder_is_declared(self):
@@ -393,6 +393,6 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
 
         self.stage_all()
 
-        project = CustomScriptProject.objects.get(data_path='automation')
+        project = ScriptProject.objects.get(data_path='automation')
         declared = sorted(CustomScriptModule.objects.filter(project=project).values_list('source_path', flat=True))
         self.assertEqual(declared, ['deploy.py'])

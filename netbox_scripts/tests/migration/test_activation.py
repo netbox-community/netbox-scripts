@@ -5,7 +5,7 @@ from extras.models import ScriptModule
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
-from netbox_scripts.models import CustomScript, CustomScriptProject, MigrationRun, ScriptProjectRevision
+from netbox_scripts.models import CustomScript, MigrationRun, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
 
@@ -22,7 +22,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
     def stage_and_validate(self):
         """Stage and validate, then pin that this suite starts from nothing activated."""
         super().stage_and_validate()
-        self.assertFalse(CustomScriptProject.objects.filter(active_revision__isnull=False).exists())
+        self.assertFalse(ScriptProject.objects.filter(active_revision__isnull=False).exists())
 
     def test_it_refuses_before_the_fence_has_been_recorded(self):
         # Only one run may be open, so the fenced one goes before the fresh one is created.
@@ -43,7 +43,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         results = cutover.activate_staged(self.migration)
 
         self.assertEqual(sorted(result['outcome'] for result in results), ['activated', 'activated'])
-        self.assertEqual(CustomScriptProject.objects.filter(active_revision__isnull=False).count(), 2)
+        self.assertEqual(ScriptProject.objects.filter(active_revision__isnull=False).count(), 2)
         # The class each legacy module published, now published by the plugin instead.
         self.assertEqual(sorted(CustomScript.objects.values_list('class_name', flat=True)), ['Deploy', 'Provision'])
 
@@ -85,7 +85,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
 
     def test_a_project_an_operator_made_by_hand_is_left_alone(self):
         self.stage_and_validate()
-        untouched = CustomScriptProject.objects.create(
+        untouched = ScriptProject.objects.create(
             name='hand made', key='hand-made', source_type=ProjectSourceTypeChoices.UPLOAD
         )
 
@@ -98,13 +98,13 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
     def test_a_second_run_repairs_rather_than_repeats(self):
         self.stage_and_validate()
         cutover.activate_staged(self.migration)
-        serving = dict(CustomScriptProject.objects.values_list('key', 'active_revision_id'))
+        serving = dict(ScriptProject.objects.values_list('key', 'active_revision_id'))
         script_pks = set(CustomScript.objects.values_list('pk', flat=True))
 
         results = cutover.activate_staged(self.migration)
 
         self.assertEqual(sorted(result['outcome'] for result in results), ['was already serving this revision'] * 2)
-        self.assertEqual(dict(CustomScriptProject.objects.values_list('key', 'active_revision_id')), serving)
+        self.assertEqual(dict(ScriptProject.objects.values_list('key', 'active_revision_id')), serving)
         # Synchronization skips a row that already matches, so the same rows survive untouched.
         self.assertEqual(set(CustomScript.objects.values_list('pk', flat=True)), script_pks)
 
@@ -132,7 +132,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertEqual(len(job.data['projects']), 2)
         messages = ' '.join(entry['message'] for entry in job.log_entries)
-        self.assertIn('2 of 2 Custom Script Project(s) are serving', messages)
+        self.assertIn('2 of 2 Script Project(s) are serving', messages)
         self.assertIn('publishing 2 Custom Script(s)', messages)
 
     def test_the_job_fails_when_the_fence_has_not_been_crossed(self):

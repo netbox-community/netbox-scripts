@@ -7,12 +7,12 @@ from netbox.filtersets import PrimaryModelFilterSet
 from utilities.filtersets import register_filterset
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ..models import CustomScriptProject
+from ..models import ScriptProject
 
 
 @register_filterset
-class CustomScriptProjectFilterSet(PrimaryModelFilterSet):
-    """Filter set for the Custom Script Project model."""
+class ScriptProjectFilterSet(PrimaryModelFilterSet):
+    """Filter set for the Script Project model."""
 
     source_type = django_filters.MultipleChoiceFilter(
         choices=ProjectSourceTypeChoices,
@@ -35,7 +35,7 @@ class CustomScriptProjectFilterSet(PrimaryModelFilterSet):
     )
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         # storage_key is internal storage/runtime identity, not a lookup key (that is
         # `key`), so neither REST nor GraphQL filters on it. It stays exposed read-only.
         fields = (

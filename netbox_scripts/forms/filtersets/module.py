@@ -7,7 +7,7 @@ from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterFie
 from utilities.forms.rendering import FieldSet
 
 from ...choices import ModuleDiscoveryStatusChoices
-from ...models import CustomScriptModule, CustomScriptProject
+from ...models import CustomScriptModule, ScriptProject
 
 __all__ = ('CustomScriptModuleFilterForm',)
 
@@ -17,9 +17,9 @@ class CustomScriptModuleFilterForm(PrimaryModelFilterSetForm):
 
     model = CustomScriptModule
     project_id = DynamicModelMultipleChoiceField(
-        queryset=CustomScriptProject.objects.all(),
+        queryset=ScriptProject.objects.all(),
         required=False,
-        label=_('Custom Script Project'),
+        label=_('Script Project'),
     )
     source_path = forms.CharField(
         required=False,

@@ -10,7 +10,7 @@ from core.choices import JobStatusChoices
 from core.models import Job
 from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.migration import cleanup, mapping, plan, verification
-from netbox_scripts.models import CustomScript, CustomScriptProject, MigrationRun
+from netbox_scripts.models import CustomScript, MigrationRun, ScriptProject
 from netbox_scripts.tests.migration.test_cleanup import CleanupMixin
 from users.models import ObjectPermission
 
@@ -131,9 +131,9 @@ class VerificationAfterAFullRunTestCase(VerificationMixin, TestCase):
             'rules': EventRule.objects.count(),
             'permissions': ObjectPermission.objects.count(),
             'custom_scripts': CustomScript.objects.count(),
-            'projects': CustomScriptProject.objects.count(),
+            'projects': ScriptProject.objects.count(),
             'runs': MigrationRun.objects.count(),
-            'serving': sorted(CustomScriptProject.objects.values_list('key', 'active_revision_id')),
+            'serving': sorted(ScriptProject.objects.values_list('key', 'active_revision_id')),
             'retired': sorted(CustomScript.objects.values_list('class_name', 'is_retired')),
             'enabled_rules': sorted(EventRule.objects.values_list('pk', 'enabled')),
             'enabled_permissions': sorted(ObjectPermission.objects.values_list('pk', 'enabled')),
@@ -147,7 +147,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
 
     def test_a_project_serving_nothing_blocks_the_modules_check(self):
         run = self.repoint_all()
-        project = CustomScriptProject.objects.filter(active_revision__isnull=False).first()
+        project = ScriptProject.objects.filter(active_revision__isnull=False).first()
         project.active_revision = None
         project.save()
 

@@ -7,7 +7,7 @@ from netbox.filtersets import PrimaryModelFilterSet
 from utilities.filters import MultiValueCharFilter
 from utilities.filtersets import register_filterset
 
-from ..models import CustomScript, CustomScriptProject, ScriptProjectRevision
+from ..models import CustomScript, ScriptProject, ScriptProjectRevision
 
 
 @register_filterset
@@ -16,15 +16,15 @@ class CustomScriptFilterSet(PrimaryModelFilterSet):
 
     project_id = django_filters.ModelMultipleChoiceFilter(
         field_name='project',
-        queryset=CustomScriptProject.objects.all(),
-        label=_('Custom Script Project (ID)'),
+        queryset=ScriptProject.objects.all(),
+        label=_('Script Project (ID)'),
     )
     # Keyed on key rather than name, the only unique natural key on a project.
     project = django_filters.ModelMultipleChoiceFilter(
         field_name='project__key',
-        queryset=CustomScriptProject.objects.all(),
+        queryset=ScriptProject.objects.all(),
         to_field_name='key',
-        label=_('Custom Script Project (key)'),
+        label=_('Script Project (key)'),
     )
     last_seen_revision_id = django_filters.ModelMultipleChoiceFilter(
         field_name='last_seen_revision',

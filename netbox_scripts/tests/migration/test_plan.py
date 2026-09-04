@@ -15,7 +15,7 @@ from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeCho
 from netbox_scripts.jobs import MigrationInventoryJob
 from netbox_scripts.migration import dialects, plan, source
 from netbox_scripts.migration.source import LegacyModule, LegacyScript
-from netbox_scripts.models import CustomScriptProject
+from netbox_scripts.models import ScriptProject
 
 LEGACY_SCRIPT = b"""from extras.scripts import Script
 
@@ -526,11 +526,11 @@ class MigrationInventoryJobTestCase(TestCase):
             {item['source_type'] for item in proposed},
             {ProjectSourceTypeChoices.DATA_SOURCE, ProjectSourceTypeChoices.UPLOAD},
         )
-        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertFalse(ScriptProject.objects.exists())
 
 
 class ExistingProjectTestCase(TestCase):
-    """The inventory reads the Custom Script Projects an operator already made, which staging reuses."""
+    """The inventory reads the Script Projects an operator already made, which staging reuses."""
 
     def setUp(self):
         self.source = DataSource.objects.create(name='Repo', type='local', source_url='file:///tmp/repo')
@@ -551,8 +551,8 @@ class ExistingProjectTestCase(TestCase):
         return module
 
     def project(self, data_path, policy):
-        """Create a Custom Script Project an operator would have made by hand."""
-        return CustomScriptProject.objects.create(
+        """Create a Script Project an operator would have made by hand."""
+        return ScriptProject.objects.create(
             name=f'existing {data_path}',
             key=f'existing-{data_path.replace("/", "-")}',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,

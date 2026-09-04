@@ -3,12 +3,12 @@ from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ...models import CustomScriptProject
+from ...models import ScriptProject
 from ...validators import normalize_data_path
 
 
-class CustomScriptProjectSerializer(PrimaryModelSerializer):
-    """Serializer for the Custom Script Project model."""
+class ScriptProjectSerializer(PrimaryModelSerializer):
+    """Serializer for the Script Project model."""
 
     data_source = DataSourceSerializer(
         nested=True,
@@ -29,7 +29,7 @@ class CustomScriptProjectSerializer(PrimaryModelSerializer):
         return normalize_data_path(value)
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         fields = (
             'id',
             'url',

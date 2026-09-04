@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject
+from netbox_scripts.models import CustomScriptModule, ScriptProject
 from netbox_scripts.runtime.exceptions import ScriptMetadataError, ScriptResolutionError
 from netbox_scripts.runtime.loader import revision_import_session, unload_revision
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
@@ -34,7 +34,7 @@ class ResolutionTestMixin:
         )
         self.addCleanup(discard_tree, self.cache_root)
         self.addCleanup(self._purge_namespace)
-        self.project = CustomScriptProject.objects.create(name='Runnable Project', key='runnable-project')
+        self.project = ScriptProject.objects.create(name='Runnable Project', key='runnable-project')
 
     def _purge_namespace(self):
         for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:

@@ -1,7 +1,7 @@
 # Migration
 
 An installation that already uses NetBox's built-in Custom Scripts can have that content read,
-reported on, staged as Custom Script Projects, and finally handed over. This page covers the seven
+reported on, staged as Script Projects, and finally handed over. This page covers the seven
 passes that do it, how to read what they report, and what they deliberately leave alone.
 
 The first two change nothing an operator depends on, and you can stop after them. The third is
@@ -55,7 +55,7 @@ irreversible, so do all of it before you press **Enter cutover**.
 *Custom Scripts > Migration* carries every pass and names the most recent run of each, so you can see
 whether one is still queued and where the migration stands.
 
-It also lists every Custom Script Project the inventory and staging passes name, with the state each is in right
+It also lists every Script Project the inventory and staging passes name, with the state each is in right
 now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
 so running one pass without the other is visible rather than implied. Each state is read as the
 page renders, so it is the verdict validation reached rather than what a pass recorded, and the
@@ -69,7 +69,7 @@ says so before you press the button rather than leaving you to read a failed Job
 legacy-import list is counted rather than listed, because it is one entry per module and it does not
 block anything. The inventory Job carries the full list.
 
-**Stage Projects** confirms first, because it creates Custom Script Projects. It refuses while
+**Stage Projects** confirms first, because it creates Script Projects. It refuses while
 another staging pass is queued, and it refuses if the inventory reports any blocking finding. What it
 reads is its own fresh report rather than the one on this page, so a blocking finding you have since
 resolved does not stop it, and one introduced since the last inventory still will.
@@ -85,8 +85,8 @@ Every button returns you to this page, with the run it just queued named at the 
 link to the Job when you want the detail, because the log and the recorded result are both on the
 Job's own page.
 
-The inventory, staging and verification passes need permission to **add** a Custom Script Project.
-**Entering the cutover, activating, repointing and cleaning up need the Custom Script Project
+The inventory, staging and verification passes need permission to **add** a Script Project.
+**Entering the cutover, activating, repointing and cleaning up need the Script Project
 `migrate` action instead**, which is separate precisely because those four change rows this plugin
 does not own and cannot be undone. A user holding `add` alone still sees the page and can run the
 first two and the verification, and is not offered the other four. Reading any result needs the
@@ -340,7 +340,7 @@ two kinds, and the difference decides whether the migration can finish.
 open:
 
 - The module holds Job rows of its own. Older NetBox versions recorded a run against the module
-  rather than against the Script, and a Custom Script Project cannot hold jobs.
+  rather than against the Script, and a Script Project cannot hold jobs.
 - The module holds Job history for a class that has since left the file. NetBox keeps such a Script
   row, not executable, purely for its history, and nothing in this plugin replaces it. This is
   ordinary on a long-lived installation.
@@ -446,7 +446,7 @@ from an unreachable one. Run **Verify** again once the queue is back.
 Two other `warning` results are ordinary rather than faults, and both are restated on every run
 because each is operator work that stays outstanding until somebody does it: a permission that
 carried constraints and was left withdrawn for you to recreate, and a Job that names a built-in
-script module rather than a Script, which no Custom Script Project can hold.
+script module rather than a Script, which no Script Project can hold.
 
 ## What is not part of this release
 

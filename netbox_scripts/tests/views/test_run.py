@@ -13,7 +13,7 @@ from core.models import Job, ObjectType
 from extras.models import Tag
 from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.jobs import CustomScriptJob
-from netbox_scripts.models import CustomScript, CustomScriptModule, CustomScriptProject
+from netbox_scripts.models import CustomScript, CustomScriptModule, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_scripts.scripts.logging import LogLevelChoices
@@ -49,7 +49,7 @@ class RunViewTestMixin:
         )
         self.addCleanup(discard_tree, self.cache_root)
         self.addCleanup(self._purge_namespace)
-        self.project = CustomScriptProject.objects.create(name='Runnable', key='runnable')
+        self.project = ScriptProject.objects.create(name='Runnable', key='runnable')
         self.revision = self.publish()
         self.script = CustomScript.objects.get(project=self.project)
 
@@ -166,7 +166,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
 
     def test_the_run_page_names_a_project_serving_no_revision_rather_than_guessing(self):
         self.grant('view', 'run')
-        CustomScriptProject.objects.filter(pk=self.script.project_id).update(active_revision=None)
+        ScriptProject.objects.filter(pk=self.script.project_id).update(active_revision=None)
 
         content = self.client.get(self.url()).content.decode()
 
@@ -368,7 +368,7 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
         foreign = Job.objects.create(
             name='something else',
             job_id=uuid.uuid4(),
-            object_type=ObjectType.objects.get_for_model(CustomScriptProject),
+            object_type=ObjectType.objects.get_for_model(ScriptProject),
             object_id=self.script.pk,
             user=self.user,
         )

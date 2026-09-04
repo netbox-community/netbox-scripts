@@ -4,7 +4,7 @@ from django.urls import NoReverseMatch, reverse
 
 from core.models import ObjectChange
 from core.tables import ObjectChangeTable
-from netbox_scripts.models import CustomScript, CustomScriptProject
+from netbox_scripts.models import CustomScript, ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginTestCases
 from utilities.testing import TestCase, create_tags
 
@@ -14,7 +14,7 @@ class CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-        project = CustomScriptProject.objects.create(name='Surface Project', key='surface-project')
+        project = ScriptProject.objects.create(name='Surface Project', key='surface-project')
         scripts = (
             CustomScript(project=project, module_path='a', class_name='First', display_name='First'),
             CustomScript(project=project, module_path='b', class_name='Second', display_name='Second'),
@@ -46,7 +46,7 @@ class CustomScriptViewTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='View Script Project', key='view-script-project')
+        cls.project = ScriptProject.objects.create(name='View Script Project', key='view-script-project')
         cls.script = CustomScript.objects.create(
             project=cls.project,
             module_path='tools.deploy',

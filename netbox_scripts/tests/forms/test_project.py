@@ -4,20 +4,20 @@ from django.test import TestCase
 from core.models import DataSource
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from netbox_scripts.forms import (
-    CustomScriptProjectBulkImportForm,
-    CustomScriptProjectEditForm,
-    CustomScriptProjectFilterForm,
+    ScriptProjectBulkImportForm,
+    ScriptProjectEditForm,
+    ScriptProjectFilterForm,
 )
-from netbox_scripts.models import CustomScriptProject
+from netbox_scripts.models import ScriptProject
 from utilities.forms.fields import SlugField
 from utilities.forms.widgets import HTMXSelect
 
 
-class CustomScriptProjectEditFormTestCase(TestCase):
+class ScriptProjectEditFormTestCase(TestCase):
     def test_good_path(self):
-        form = CustomScriptProjectEditForm(
+        form = ScriptProjectEditForm(
             data={
-                'name': 'CustomScriptProject 1',
+                'name': 'ScriptProject 1',
                 'key': 'project-1',
                 'description': 'A valid project',
                 'source_type': ProjectSourceTypeChoices.UPLOAD,
@@ -28,15 +28,15 @@ class CustomScriptProjectEditFormTestCase(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_name_is_required(self):
-        form = CustomScriptProjectEditForm(data={'key': 'missing-name'})
+        form = ScriptProjectEditForm(data={'key': 'missing-name'})
         self.assertFalse(form.is_valid())
         self.assertIn('name', form.errors)
 
     def test_key_uniqueness(self):
-        CustomScriptProject.objects.create(name='CustomScriptProject 1', key='project-1')
-        form = CustomScriptProjectEditForm(
+        ScriptProject.objects.create(name='ScriptProject 1', key='project-1')
+        form = ScriptProjectEditForm(
             data={
-                'name': 'CustomScriptProject 2',
+                'name': 'ScriptProject 2',
                 'key': 'project-1',
                 'source_type': ProjectSourceTypeChoices.UPLOAD,
                 'activation_policy': ActivationPolicyChoices.MANUAL,
@@ -49,9 +49,9 @@ class CustomScriptProjectEditFormTestCase(TestCase):
     def test_upload_project_omits_source_ownership_fields(self):
         # data_path is not a form field for upload projects: a posted value is simply
         # discarded. Rejection stays model-side (test_upload_project_rejects_data_path).
-        form = CustomScriptProjectEditForm(
+        form = ScriptProjectEditForm(
             data={
-                'name': 'CustomScriptProject 3',
+                'name': 'ScriptProject 3',
                 'key': 'project-3',
                 'source_type': ProjectSourceTypeChoices.UPLOAD,
                 'data_path': 'automation/netbox/',
@@ -70,9 +70,9 @@ class CustomScriptProjectEditFormTestCase(TestCase):
             type='local',
             source_url='file:///tmp/data-source-form-1/',
         )
-        form = CustomScriptProjectEditForm(
+        form = ScriptProjectEditForm(
             data={
-                'name': 'CustomScriptProject 4',
+                'name': 'ScriptProject 4',
                 'key': 'project-4',
                 'source_type': ProjectSourceTypeChoices.DATA_SOURCE,
                 'data_source': data_source.pk,
@@ -85,69 +85,69 @@ class CustomScriptProjectEditFormTestCase(TestCase):
         self.assertIn('data_path', form.errors)
 
     def test_identity_fields_disabled_on_edit(self):
-        project = CustomScriptProject.objects.create(name='CustomScriptProject 5', key='project-5')
-        edit_form = CustomScriptProjectEditForm(instance=project)
+        project = ScriptProject.objects.create(name='ScriptProject 5', key='project-5')
+        edit_form = ScriptProjectEditForm(instance=project)
         self.assertTrue(edit_form.fields['key'].disabled)
         self.assertTrue(edit_form.fields['source_type'].disabled)
         # The slug widget (and its regenerate button) applies only while key is editable.
         self.assertIs(type(edit_form.fields['key'].widget), forms.TextInput)
 
-        create_form = CustomScriptProjectEditForm()
+        create_form = ScriptProjectEditForm()
         self.assertFalse(create_form.fields['key'].disabled)
         self.assertFalse(create_form.fields['source_type'].disabled)
 
     def test_key_uses_slug_ux_on_create(self):
-        form = CustomScriptProjectEditForm()
+        form = ScriptProjectEditForm()
         self.assertIsInstance(form.fields['key'], SlugField)
         self.assertEqual(form.fields['key'].widget.attrs.get('slug-source'), 'name')
 
     def test_tags_included_in_fieldsets(self):
-        field_names = [item for fieldset in CustomScriptProjectEditForm.fieldsets for item in fieldset.items]
+        field_names = [item for fieldset in ScriptProjectEditForm.fieldsets for item in fieldset.items]
         self.assertIn('tags', field_names)
 
     def test_new_project_form_defaults_to_upload_without_source_ownership_fields(self):
-        form = CustomScriptProjectEditForm()
+        form = ScriptProjectEditForm()
         self.assertNotIn('data_source', form.fields)
         self.assertNotIn('data_path', form.fields)
 
     def test_data_source_selection_exposes_source_ownership_fields(self):
-        form = CustomScriptProjectEditForm(data={'source_type': ProjectSourceTypeChoices.DATA_SOURCE})
+        form = ScriptProjectEditForm(data={'source_type': ProjectSourceTypeChoices.DATA_SOURCE})
         self.assertIn('data_source', form.fields)
         self.assertIn('data_path', form.fields)
 
     def test_source_ownership_fields_follow_instance_source_type(self):
-        upload_project = CustomScriptProject.objects.create(name='CustomScriptProject 6', key='project-6')
+        upload_project = ScriptProject.objects.create(name='ScriptProject 6', key='project-6')
         data_source = DataSource.objects.create(
             name='Data Source Form 2',
             type='local',
             source_url='file:///tmp/data-source-form-2/',
         )
-        data_source_project = CustomScriptProject.objects.create(
-            name='CustomScriptProject 7',
+        data_source_project = ScriptProject.objects.create(
+            name='ScriptProject 7',
             key='project-7',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
             data_path='automation/netbox',
         )
-        self.assertNotIn('data_source', CustomScriptProjectEditForm(instance=upload_project).fields)
-        self.assertIn('data_source', CustomScriptProjectEditForm(instance=data_source_project).fields)
+        self.assertNotIn('data_source', ScriptProjectEditForm(instance=upload_project).fields)
+        self.assertIn('data_source', ScriptProjectEditForm(instance=data_source_project).fields)
 
     def test_source_type_uses_htmx_select(self):
-        form = CustomScriptProjectEditForm()
+        form = ScriptProjectEditForm()
         self.assertIsInstance(form.fields['source_type'].widget, HTMXSelect)
 
 
-class CustomScriptProjectFilterFormTestCase(TestCase):
+class ScriptProjectFilterFormTestCase(TestCase):
     def test_empty_filter_is_valid(self):
-        form = CustomScriptProjectFilterForm(data={})
+        form = ScriptProjectFilterForm(data={})
         self.assertTrue(form.is_valid(), form.errors)
 
 
-class CustomScriptProjectBulkImportFormTestCase(TestCase):
+class ScriptProjectBulkImportFormTestCase(TestCase):
     def test_good_path(self):
-        form = CustomScriptProjectBulkImportForm(
+        form = ScriptProjectBulkImportForm(
             data={
-                'name': 'CustomScriptProject Import 1',
+                'name': 'ScriptProject Import 1',
                 'key': 'project-import-1',
                 'description': 'CSV-imported',
                 'source_type': ProjectSourceTypeChoices.UPLOAD,
@@ -157,7 +157,7 @@ class CustomScriptProjectBulkImportFormTestCase(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_missing_required_field(self):
-        form = CustomScriptProjectBulkImportForm(data={'description': 'No name or key'})
+        form = ScriptProjectBulkImportForm(data={'description': 'No name or key'})
         self.assertFalse(form.is_valid())
         self.assertIn('name', form.errors)
         self.assertIn('key', form.errors)

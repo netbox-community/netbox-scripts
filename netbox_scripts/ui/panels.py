@@ -9,7 +9,7 @@ class CustomScriptPanel(ObjectAttributesPanel):
 
     title = _('Script')
 
-    project = attrs.RelatedObjectAttr('project', label=_('Custom Script Project'))
+    project = attrs.RelatedObjectAttr('project', label=_('Script Project'))
     module_path = attrs.TextAttr('module_path', label=_('Module path'))
     class_name = attrs.TextAttr('class_name', label=_('Class name'))
     display_name = attrs.TextAttr('display_name', label=_('Display name'))
@@ -37,7 +37,7 @@ class ScriptProjectRevisionPanel(ObjectAttributesPanel):
 
     title = _('Revision')
 
-    project = attrs.RelatedObjectAttr('project', label=_('Custom Script Project'))
+    project = attrs.RelatedObjectAttr('project', label=_('Script Project'))
     digest = attrs.TextAttr('digest', label=_('Digest'))
     entrypoint_digest = attrs.TextAttr('entrypoint_digest', label=_('Entrypoint digest'))
     file_count = attrs.NumericAttr('file_count', label=_('Files'))
@@ -59,7 +59,7 @@ class CustomScriptModulePanel(ObjectAttributesPanel):
 
     title = _('Module')
 
-    project = attrs.RelatedObjectAttr('project', label=_('Custom Script Project'))
+    project = attrs.RelatedObjectAttr('project', label=_('Script Project'))
     source_path = attrs.TextAttr('source_path', label=_('Source path'))
     enabled = attrs.BooleanAttr('enabled', label=_('Enabled'))
     description = attrs.TextAttr('description', label=_('Description'))
@@ -98,8 +98,8 @@ class MigrationRunVersionPanel(ObjectAttributesPanel):
     plugin_version = attrs.TextAttr('plugin_version', label=_('Plugin'))
 
 
-class CustomScriptProjectPanel(ObjectAttributesPanel):
-    """Identity attributes of a Custom Script Project, and where its source stands (detail view, left column)."""
+class ScriptProjectPanel(ObjectAttributesPanel):
+    """Identity attributes of a Script Project, and where its source stands (detail view, left column)."""
 
     title = _('Project')
 
@@ -113,7 +113,7 @@ class CustomScriptProjectPanel(ObjectAttributesPanel):
     source_state = attrs.TextAttr('source_state', label=_('Source state'))
 
 
-class CustomScriptProjectSourcePanel(ObjectAttributesPanel):
+class ScriptProjectSourcePanel(ObjectAttributesPanel):
     """Source ownership and activation attributes (detail view, right column)."""
 
     title = _('Source')
@@ -124,7 +124,7 @@ class CustomScriptProjectSourcePanel(ObjectAttributesPanel):
     activation_policy = attrs.ChoiceAttr('activation_policy', label=_('Activation policy'))
 
 
-class CustomScriptProjectStatePanel(ObjectAttributesPanel):
+class ScriptProjectStatePanel(ObjectAttributesPanel):
     """
     The revision whose tree is a project's source right now (detail view, right column).
 

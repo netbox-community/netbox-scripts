@@ -12,11 +12,11 @@ logging, global search, REST, and GraphQL.
 
 | Concept | Definition | More detail |
 |---|---|---|
-| Custom Script Project | One complete script source tree, the ownership and Python package boundary. | [Custom Script Project](models/customscriptproject.md) |
-| Key | Stable user-facing project identifier (slug), immutable after creation. | [Custom Script Project](models/customscriptproject.md) |
-| Storage key | Immutable internal storage and runtime identity (UUID), not a public identifier. | [Custom Script Project](models/customscriptproject.md) |
-| Source type | Where project content comes from: `upload` or `data_source`, never mixed. | [Custom Script Project](models/customscriptproject.md) |
-| Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Custom Script Project](models/customscriptproject.md) |
+| Script Project | One complete script source tree, the ownership and Python package boundary. | [Script Project](models/scriptproject.md) |
+| Key | Stable user-facing project identifier (slug), immutable after creation. | [Script Project](models/scriptproject.md) |
+| Storage key | Immutable internal storage and runtime identity (UUID), not a public identifier. | [Script Project](models/scriptproject.md) |
+| Source type | Where project content comes from: `upload` or `data_source`, never mixed. | [Script Project](models/scriptproject.md) |
+| Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Script Project](models/scriptproject.md) |
 | Project revision | One immutable snapshot of a project's source tree and entrypoint configuration, addressed by a content digest and an entrypoint digest. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Active revision | The single revision of a project that is currently active. Activating another retires it. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Custom Script Module | One declared entrypoint file that discovery imports and publishes Custom Scripts from. | [Custom Script Module](models/customscriptmodule.md) |
@@ -34,7 +34,7 @@ logging, global search, REST, and GraphQL.
 
 | Workflow | User | Outcome |
 |---|---|---|
-| Manage projects | Administrator | Create, edit, delete, bulk-import, and tag Custom Script Projects. |
+| Manage projects | Administrator | Create, edit, delete, bulk-import, and tag Script Projects. |
 | Upload a script | Administrator | Create a Project from one `.py` file, or add another to an existing one, without naming a path. See [Uploading Scripts](uploading.md). |
 | Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
 | Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |

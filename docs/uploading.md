@@ -1,11 +1,11 @@
 # Uploading Scripts
 
-A Custom Script Project whose source type is `upload` owns its content outright. This page
+A Script Project whose source type is `upload` owns its content outright. This page
 covers adding that content through the UI and what the plugin does with it.
 
 ## Creating a Project from one script
 
-*Custom Scripts > Custom Script Projects*, then **Upload Script**. The form asks for five
+*Custom Scripts > Script Projects*, then **Upload Script**. The form asks for five
 things and nothing else:
 
 | Field | Meaning |

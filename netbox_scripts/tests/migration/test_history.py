@@ -154,7 +154,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         self.assertTrue(self.migration.step_done(references.HISTORY_STEP))
 
     def test_a_job_naming_a_built_in_module_is_reported_rather_than_repointed(self):
-        # A Custom Script Project holds no jobs, and this key could collide with a Script's, which
+        # A Script Project holds no jobs, and this key could collide with a Script's, which
         # is why the queries scope on the object type rather than on the key alone.
         module_type = ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False)
         job = Job.objects.create(

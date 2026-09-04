@@ -6,9 +6,9 @@ author_name: NetBox Labs
 branching_support: true
 commercial: false
 current_year: 2026
-default_model_name: CustomScriptProject
-default_model_verbose_name: customscriptproject
-default_model_verbose_name_plural: customscriptprojects
+default_model_name: ScriptProject
+default_model_verbose_name: scriptproject
+default_model_verbose_name_plural: scriptprojects
 dev_status: 2 - Pre-Alpha
 django_version: '6.0'
 github_org: netboxlabs

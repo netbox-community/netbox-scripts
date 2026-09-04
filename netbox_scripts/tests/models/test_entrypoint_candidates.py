@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from core.models import DataFile, DataSource
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptProject, ScriptProjectRevision
 
 DIGEST = 'd' * 64
 
@@ -43,7 +43,7 @@ class DataSourceCandidatesTestCase(TestCase):
                 last_updated=timezone.now(),
             )
 
-        cls.project = CustomScriptProject.objects.create(
+        cls.project = ScriptProject.objects.create(
             name='Repo Project',
             key='repo-project',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -77,7 +77,7 @@ class DataSourceCandidatesTestCase(TestCase):
         self.assertNotIn('other.py', self.project.entrypoint_candidates())
 
     def test_a_project_at_a_sibling_directory_sees_only_its_own(self):
-        sibling = CustomScriptProject.objects.create(
+        sibling = ScriptProject.objects.create(
             name='Legacy Project',
             key='legacy-project',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -88,7 +88,7 @@ class DataSourceCandidatesTestCase(TestCase):
 
     def test_an_unsynchronized_data_source_yields_nothing(self):
         empty = DataSource.objects.create(name='Empty', type='local', source_url='file:///tmp/empty/')
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Empty Project',
             key='empty-project',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -103,7 +103,7 @@ class RevisionManifestCandidatesTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Upload Project', key='upload-project')
+        cls.project = ScriptProject.objects.create(name='Upload Project', key='upload-project')
 
     def test_a_project_without_source_yields_nothing(self):
         self.assertEqual(self.project.entrypoint_candidates(), [])

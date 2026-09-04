@@ -8,7 +8,7 @@ from core.models import ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.ingestion import ingest_upload
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config
 from netbox_scripts.storage.paths import STORAGE_PREFIX
 from netbox_scripts.tests.storage.test_store import stored_paths
@@ -25,7 +25,7 @@ SCRIPT = b'from netbox_scripts.scripts import Script\n\n\nclass Deploy(Script):\
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class CustomScriptProjectUploadViewTestCase(TestCase):
+class ScriptProjectUploadViewTestCase(TestCase):
     """The upload view creates a Project from one script and declares its entrypoint."""
 
     def setUp(self):
@@ -37,7 +37,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
 
     @staticmethod
     def url():
-        return reverse('plugins:netbox_scripts:customscriptproject_upload')
+        return reverse('plugins:netbox_scripts:scriptproject_upload')
 
     def grant(self, model, *actions):
         obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
@@ -47,7 +47,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
 
     def grant_both(self):
         # The view creates a Project and declares its entrypoint, so it needs both.
-        self.grant(CustomScriptProject, 'view', 'add')
+        self.grant(ScriptProject, 'view', 'add')
         self.grant(CustomScriptModule, 'view', 'add')
 
     @staticmethod
@@ -81,7 +81,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         response = self.post()
         self.assertHttpStatus(response, 302)
 
-        project = CustomScriptProject.objects.get(key='deploy-devices')
+        project = ScriptProject.objects.get(key='deploy-devices')
         # Straight to the Project, which is where the source state and the entrypoints are.
         self.assertEqual(response.url, project.get_absolute_url())
         self.assertEqual(project.source_type, ProjectSourceTypeChoices.UPLOAD)
@@ -97,14 +97,14 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         # The field that decides what later revisions do, which the tick beside it cannot set.
         self.grant_both()
         self.assertHttpStatus(self.post(activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID), 302)
-        project = CustomScriptProject.objects.get(key='deploy-devices')
+        project = ScriptProject.objects.get(key='deploy-devices')
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.AUTOMATIC_IF_VALID)
 
     def test_activating_this_upload_does_not_persist_an_automatic_policy(self):
         # The defect this split closes: the checkbox used to set the project's policy for life.
         self.grant_both()
         self.assertHttpStatus(self.post(activate_this_revision='on'), 302)
-        project = CustomScriptProject.objects.get(key='deploy-devices')
+        project = ScriptProject.objects.get(key='deploy-devices')
         self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
 
     def test_the_standing_policy_field_offers_manual_first(self):
@@ -132,7 +132,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         )
         self.assertHttpStatus(response, 200)
         self.assertIn('Python source', response.content.decode())
-        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertFalse(ScriptProject.objects.exists())
         self.enqueued.assert_not_called()
 
     def test_a_traversing_file_name_lands_flat_inside_the_project(self):
@@ -154,7 +154,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         self.assertHttpStatus(response, 200)
         # Named, so the absence of a project cannot be some other field's refusal.
         self.assertIn('upload_file', response.context['form'].errors)
-        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertFalse(ScriptProject.objects.exists())
 
     def test_a_nested_file_name_is_reduced_to_its_basename(self):
         # An upload can therefore never create a nested entrypoint. Nesting reaches a project
@@ -174,20 +174,20 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
         )
         constrained.save()
         constrained.users.add(self.user)
-        constrained.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        constrained.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
         self.grant(CustomScriptModule, 'view', 'add')
 
         before = stored_paths(config.get_storage(), f'{STORAGE_PREFIX}/')
         response = self.post()
 
         self.assertHttpStatus(response, 200)
-        self.assertFalse(CustomScriptProject.objects.exists())
+        self.assertFalse(ScriptProject.objects.exists())
         self.assertEqual(stored_paths(config.get_storage(), f'{STORAGE_PREFIX}/'), before)
         self.enqueued.assert_not_called()
 
     def test_the_project_permission_alone_is_not_enough(self):
         # The upload declares an entrypoint, so it needs the Module permission too.
-        self.grant(CustomScriptProject, 'view', 'add')
+        self.grant(ScriptProject, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
     def test_the_module_permission_alone_is_not_enough(self):
@@ -196,7 +196,7 @@ class CustomScriptProjectUploadViewTestCase(TestCase):
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class CustomScriptProjectAddScriptViewTestCase(TestCase):
+class ScriptProjectAddScriptViewTestCase(TestCase):
     """Adding a second script stages the existing tree plus the new file."""
 
     def setUp(self):
@@ -205,13 +205,13 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
         self.enqueued = self.enterContext(
             mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None)
         )
-        self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+        self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
         self.first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT).revision
         # The fixture enqueued once, so the assertions below count only what the request did.
         self.enqueued.reset_mock()
 
     def url(self):
-        return reverse('plugins:netbox_scripts:customscriptproject_add_script', args=[self.project.pk])
+        return reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
 
     def grant(self, model, *actions):
         obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
@@ -221,7 +221,7 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
 
     def grant_both(self):
         # Registered on the detail route, so the base view asks for change, not add.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.grant(CustomScriptModule, 'view', 'add')
 
     @staticmethod
@@ -297,7 +297,7 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
 
     def test_the_add_permission_is_not_what_this_route_needs(self):
         # ObjectEditView derives the action from the URL, so a detail route asks for change.
-        self.grant(CustomScriptProject, 'view', 'add')
+        self.grant(ScriptProject, 'view', 'add')
         self.grant(CustomScriptModule, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
@@ -308,5 +308,5 @@ class CustomScriptProjectAddScriptViewTestCase(TestCase):
     def test_the_project_permission_alone_is_not_enough(self):
         # The pair the Add Script button renders inert for. Without this the button's decision
         # and the view's could drift apart with nothing catching it.
-        self.grant(CustomScriptProject, 'view', 'change')
+        self.grant(ScriptProject, 'view', 'change')
         self.assertHttpStatus(self.client.get(self.url()), 403)

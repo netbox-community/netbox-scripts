@@ -11,7 +11,7 @@ from core.choices import JobNotificationChoices, JobStatusChoices
 from core.models import Job, ObjectChange
 from extras.models import Tag
 from netbox_scripts.management.commands.runcustomscript import Command
-from netbox_scripts.models import CustomScript, CustomScriptProject
+from netbox_scripts.models import CustomScript, ScriptProject
 from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
 from netbox_scripts.tests.test_execution import MAKES_A_TAG, RAISES, ScriptJobTestMixin
 
@@ -95,7 +95,7 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
     def publish_second_project(self):
         """Publish the same tree into a second project, leaving both scripts runnable."""
         first = self.project
-        self.project = CustomScriptProject.objects.create(name='Second', key='second')
+        self.project = ScriptProject.objects.create(name='Second', key='second')
         try:
             self.publish({'deploy.py': MAKES_A_TAG})
         finally:
@@ -172,7 +172,7 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
         self.publish({'deploy.py': MAKES_A_TAG})
         # Retirement never deletes the row, so without the executable check this name would
         # become permanently ambiguous the moment a second project was retired.
-        retired = CustomScriptProject.objects.create(name='Old', key='old')
+        retired = ScriptProject.objects.create(name='Old', key='old')
         CustomScript.objects.create(
             project=retired,
             module_path='deploy',

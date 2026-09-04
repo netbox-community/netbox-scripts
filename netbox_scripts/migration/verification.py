@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from core.choices import JobStatusChoices
 from core.models import Job
 
-from ..models import CustomScript, CustomScriptProject, MigrationRun
+from ..models import CustomScript, MigrationRun, ScriptProject
 from . import cleanup, cutover, mapping, plan
 from . import references as legacy_references
 from . import source as legacy_source
@@ -75,7 +75,7 @@ def _verify_modules(run, live_modules):
         return _check(MODULES, plan.WARNING, _('The staged Projects have not been activated yet.'))
     keys = _activated_keys(run)
     serving = set(
-        CustomScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).values_list('key', flat=True)
+        ScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).values_list('key', flat=True)
     )
     if missing := [key for key in keys if key not in serving]:
         return _check(
@@ -357,7 +357,7 @@ def _verify_jobs(run):
             JOBS,
             plan.WARNING,
             _(
-                '{count} Job(s) still name the built-in feature. Each one is history no Custom Script Project '
+                '{count} Job(s) still name the built-in feature. Each one is history no Script Project '
                 'can hold, so it stays where it is.'
             ).format(count=legacy_source.script_jobs().count()),
             source=_('the built-in rows'),

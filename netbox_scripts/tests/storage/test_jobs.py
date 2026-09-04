@@ -16,7 +16,7 @@ from netbox.registry import registry
 from netbox_scripts import jobs
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, store
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.storage.manifest import compute_digest
@@ -173,7 +173,7 @@ class SharedDigestJobTestCase(TestCase):
         store.write_revision(self.storage, STORAGE_KEY, DIGEST, SOURCE, MANIFEST)
 
     def test_a_current_reference_leaves_the_content_and_succeeds(self):
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Cleanup Reference Project',
             key='cleanup-reference-project',
             storage_key=STORAGE_KEY,
@@ -198,7 +198,7 @@ class ProjectStorageSweepJobTestCase(TestCase):
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
         self.storage = config.get_storage()
         store.write_revision(self.storage, STORAGE_KEY, DIGEST, SOURCE, MANIFEST)
-        self.project = CustomScriptProject.objects.create(
+        self.project = ScriptProject.objects.create(
             name='Sweep Project',
             key='sweep-project',
             storage_key=STORAGE_KEY,

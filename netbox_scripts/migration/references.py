@@ -37,7 +37,7 @@ SCHEDULES_STEP = 'recreate_schedules'
 # Which plugin model each built-in one's references move to.
 _TYPE_MAP = {
     'extras.script': 'customscript',
-    'extras.scriptmodule': 'customscriptproject',
+    'extras.scriptmodule': 'scriptproject',
 }
 
 # Which granted actions have a counterpart, per built-in type. The plugin's codenames were chosen to
@@ -459,7 +459,7 @@ def _require_serving(run):
     if outstanding := cutover.projects_not_serving(run):
         raise cutover.CutoverRefused(
             _(
-                '{count} migrated Custom Script Project(s) are serving nothing: {keys}. Put each one into '
+                '{count} migrated Script Project(s) are serving nothing: {keys}. Put each one into '
                 'service and run the activation again, because a reference can only name a Custom Script '
                 'that exists.'
             ).format(count=len(outstanding), keys=', '.join(outstanding))
@@ -471,9 +471,9 @@ def _plugin_types():
     """Return the plugin object type each built-in type's references move to, by its label."""
     from core.models import ObjectType
 
-    from ..models import CustomScript, CustomScriptProject
+    from ..models import CustomScript, ScriptProject
 
-    models = {'customscript': CustomScript, 'customscriptproject': CustomScriptProject}
+    models = {'customscript': CustomScript, 'scriptproject': ScriptProject}
     return {label: ObjectType.objects.get_for_model(models[name]) for label, name in _TYPE_MAP.items()}
 
 

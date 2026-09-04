@@ -44,10 +44,10 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 
 ## Repository Map
 
-The scaffold ships a working `CustomScriptProject` model across every
+The scaffold ships a working `ScriptProject` model across every
 subsystem (model, table, forms, filterset, views, urls, navigation,
 search, REST API, GraphQL, test) as a worked example. Entries marked
-`[CustomScriptProject]` are the shipped first-class object; entries marked
+`[ScriptProject]` are the shipped first-class object; entries marked
 `[add as needed]` are conventional NetBox plugin modules that you add
 when domain content calls for them.
 
@@ -60,62 +60,62 @@ when domain content calls for them.
 │   ├── api/
 │   │   ├── __init__.py            , [stub]
 │   │   ├── urls.py                , router.register for 'modules' + 'projects' + 'scripts'.
-│   │   ├── views.py               , RunScriptPermissions + CustomScriptModuleViewSet + CustomScriptProjectViewSet with its GET/PUT `entrypoints` action and its POST `upload` action (UploadSourcePermissions resolves POST to change, since the project exists and its source moves, and initial() re-narrows the queryset for the same reason. The Module add permission is checked in the action, matching the Add Script page, because an upload declares an entrypoint) + read-only ScriptProjectRevisionViewSet (NetBoxReadOnlyModelViewSet, so no write route is registered) + update-only CustomScriptViewSet (http_method_names drops POST and DELETE, since composing the mixins instead would drop NetBoxModelViewSet.update() and with it the changelog snapshot and the If-Match check) with its POST `run` action. Each viewset select_relates the revision its serializer nests. The run action carries its own permission class and http_method_names, because both defaults key off the HTTP method and would resolve POST to add, which no caller of a derived model holds. initial() narrows it by the run action for the same reason.
+│   │   ├── views.py               , RunScriptPermissions + CustomScriptModuleViewSet + ScriptProjectViewSet with its GET/PUT `entrypoints` action and its POST `upload` action (UploadSourcePermissions resolves POST to change, since the project exists and its source moves, and initial() re-narrows the queryset for the same reason. The Module add permission is checked in the action, matching the Add Script page, because an upload declares an entrypoint) + read-only ScriptProjectRevisionViewSet (NetBoxReadOnlyModelViewSet, so no write route is registered) + update-only CustomScriptViewSet (http_method_names drops POST and DELETE, since composing the mixins instead would drop NetBoxModelViewSet.update() and with it the changelog snapshot and the If-Match check) with its POST `run` action. Each viewset select_relates the revision its serializer nests. The run action carries its own permission class and http_method_names, because both defaults key off the HTTP method and would resolve POST to add, which no caller of a derived model holds. initial() narrows it by the run action for the same reason.
 │   │   └── serializers/
-│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, ScriptProjectRevisionSerializer, CustomScriptProjectSerializer, CustomScriptProjectUploadSerializer, CustomScriptRunInputSerializer, CustomScriptSerializer.
+│   │       ├── __init__.py        , Re-exports CustomScriptModuleSerializer, ScriptProjectRevisionSerializer, ScriptProjectSerializer, ScriptProjectUploadSerializer, CustomScriptRunInputSerializer, CustomScriptSerializer.
 │   │       ├── revision.py    , ScriptProjectRevisionSerializer: read-only, and also the serializer event serialization resolves by model name. Omits the manifest, the entrypoint snapshot and the validation lease fields.
 │   │       ├── script.py      , CustomScriptSerializer: derived fields in read_only_fields, importable as api.serializers.CustomScriptSerializer for event serialization.
-│   │       ├── project.py     , [CustomScriptProject] CustomScriptProjectSerializer.
-│       │       ├── upload.py      , CustomScriptProjectUploadSerializer: the upload envelope. One file plus confirm_replace, and no destination field, ever. The path is the basename.
+│   │       ├── project.py     , [ScriptProject] ScriptProjectSerializer.
+│       │       ├── upload.py      , ScriptProjectUploadSerializer: the upload envelope. One file plus confirm_replace, and no destination field, ever. The path is the basename.
 │   │       ├── run.py         , CustomScriptRunInputSerializer: the run envelope. Variable values nest under `data`, so a variable cannot collide with an execution parameter. Refuses a past schedule and one the script class forbids.
 │   │       └── module.py      , CustomScriptModuleSerializer: nested project, discovery fields read-only, nested read-only revision.
 │   ├── filtersets/
-│   │   ├── __init__.py            , Re-exports CustomScriptFilterSet, CustomScriptModuleFilterSet, CustomScriptProjectFilterSet, ScriptProjectRevisionFilterSet.
-│   │   ├── project.py             , [CustomScriptProject] CustomScriptProjectFilterSet with custom search().
+│   │   ├── __init__.py            , Re-exports CustomScriptFilterSet, CustomScriptModuleFilterSet, ScriptProjectFilterSet, ScriptProjectRevisionFilterSet.
+│   │   ├── project.py             , [ScriptProject] ScriptProjectFilterSet with custom search().
 │   │   ├── revision.py            , ScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet): project by id + key, status, both digests.
 │   │   ├── module.py              , CustomScriptModuleFilterSet: project by id + key, discovery filters, custom search().
 │   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, explicit MultipleChoiceFilter for the notification override, the other two overrides generated, metadata unfiltered.
 │   ├── forms/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports each by-type subpackage.
-│   │   ├── model_forms/project.py   , [CustomScriptProject] CustomScriptProjectEditForm + CustomScriptProjectEntrypointsForm (reconciles the selection onto enabled, then enqueues ProjectEntrypointRefreshJob when it moved).
+│   │   ├── __init__.py            , [ScriptProject] Re-exports each by-type subpackage.
+│   │   ├── model_forms/project.py   , [ScriptProject] ScriptProjectEditForm + ScriptProjectEntrypointsForm (reconciles the selection onto enabled, then enqueues ProjectEntrypointRefreshJob when it moved).
 │   │   ├── model_forms/module.py    , CustomScriptModuleEditForm (project + source_path frozen, so disabled on edit).
-│   │   ├── bulk_edit/project.py     , [CustomScriptProject] CustomScriptProjectBulkEditForm.
-│   │   ├── bulk_import/project.py   , [CustomScriptProject] CustomScriptProjectBulkImportForm.
+│   │   ├── bulk_edit/project.py     , [ScriptProject] ScriptProjectBulkEditForm.
+│   │   ├── bulk_import/project.py   , [ScriptProject] ScriptProjectBulkImportForm.
 │   │   ├── model_forms/script.py    , CustomScriptEditForm: writable set is enabled, the three execution overrides, comments, owner, tags and custom fields. A plain NetBox model form, because every derived column is editable=False and therefore already out of it.
 │   │   ├── bulk_edit/script.py      , CustomScriptBulkEditForm: enabled only, description removed declaratively since BulkEditView setattr ignores editable=False.
-│   │   ├── filtersets/project.py    , [CustomScriptProject] CustomScriptProjectFilterForm.
+│   │   ├── filtersets/project.py    , [ScriptProject] ScriptProjectFilterForm.
 │   │   ├── filtersets/module.py     , CustomScriptModuleFilterForm.
 │   │   ├── filtersets/script.py     , CustomScriptFilterForm.
 │   │   └── confirmations.py        , MigrationCutoverForm: the one acknowledgement the cutover will not submit without. A ConfirmationForm subclass, so generic/confirmation_form.html's hidden_fields loop has the marker it exists to render, and the visible checkbox is rendered by hand because that loop covers nothing else.
-│   ├── migrations/                , [CustomScriptProject] 0001_initial.py; regenerate on schema change and keep the pinned deps (see Conventions).
+│   ├── migrations/                , [ScriptProject] 0001_initial.py; regenerate on schema change and keep the pinned deps (see Conventions).
 │   ├── models/
-│   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision, MigrationRun.
-│   │   ├── project.py             , CustomScriptProject(PrimaryModel), whose Meta.permissions carries activate / migrate / reconcile beside the four standard actions, with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints / paths_awaiting_activation + ScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
+│   │   ├── __init__.py            , Re-exports CustomScript, CustomScriptModule, ScriptProject, ScriptProjectRevision, MigrationRun.
+│   │   ├── project.py             , ScriptProject(PrimaryModel), whose Meta.permissions carries activate / migrate / reconcile beside the four standard actions, with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints / paths_awaiting_activation + ScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
 │   │   ├── module.py              , CustomScriptModule(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
 │   │   ├── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name. run_refusal_reason names the first unmet run condition and is_executable is derived from it, so none of the six surfaces that refuse a run can describe a condition that did not hold. description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync). Three nullable execution-override columns sit beside enabled, empty meaning inherit, and the accessors resolve override then class then built-in default. scheduling_enabled takes no override, it is the author's safety claim.
 │   │   └── migration.py           , MigrationRun(ChangeLoggedModel): one attempt at moving off the built-in feature. Migration infrastructure rather than a domain model, so no REST, GraphQL or list view. State moves forward one step only, at most one run is open, and the journal is what every cutover step replays from. complete_step() and recorded_counts() are the one home of the resume guard every caller needs. record_journal(), record_step() and record_warnings() are the only writers of the two JSON columns and each merges what the row holds with what the caller has under migration_lock(), so a pass that has not saved its own entries yet keeps them and one recorded by another object is not dropped.
 │   ├── tables/
-│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, CustomScriptProjectFileTable, ScriptProjectRevisionEntrypointTable, ScriptProjectRevisionTable, CustomScriptProjectTable, CustomScriptTable.
-│   │   ├── project.py                 , [CustomScriptProject] CustomScriptProjectTable(PrimaryModelTable) + ScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns, and its entrypoint_count column is derived from the snapshot with no extra query, because two revisions can share a source digest and differ only there. + CustomScriptProjectFileTable, the Files tab fed the manifest's dictionaries rather than a queryset + ScriptProjectRevisionEntrypointTable, where that count resolves, fed the entrypoint snapshot the same way.
+│   │   ├── __init__.py            , Re-exports CustomScriptModuleTable, ScriptProjectFileTable, ScriptProjectRevisionEntrypointTable, ScriptProjectRevisionTable, ScriptProjectTable, CustomScriptTable.
+│   │   ├── project.py                 , [ScriptProject] ScriptProjectTable(PrimaryModelTable) + ScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns, and its entrypoint_count column is derived from the snapshot with no extra query, because two revisions can share a source digest and differ only there. + ScriptProjectFileTable, the Files tab fed the manifest's dictionaries rather than a queryset + ScriptProjectRevisionEntrypointTable, where that count resolves, fed the entrypoint snapshot the same way.
 │   │   ├── script.py              , CustomScriptTable + CustomScriptLogTable, the run log fed a list of dictionaries rather than a queryset.
 │   │   └── module.py              , CustomScriptModuleTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
 │   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered). PrimaryObjectViewTestCase + NestedObjectViewTestCase + DerivedObjectViewTestCase, the last for models whose rows are derived, so no create, delete, or import. Also the one home of ChangeLoggedFilterSetTestMixin, which the three filterset suites import from here rather than from the host.
-│   │   ├── models/__init__.py     , [CustomScriptProject] Test package anchor.
-│   │   ├── models/test_project.py , [CustomScriptProject] CustomScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
-│   │   ├── api/__init__.py        , [CustomScriptProject] Test package anchor.
-│   │   ├── api/test_project.py , [CustomScriptProject] CustomScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
-│   │   ├── views/__init__.py      , [CustomScriptProject] Test package anchor.
-│   │   ├── views/test_project.py , [CustomScriptProject] CustomScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase), plus the source-state, Activate and Repair view suites. The Repair one covers the inert button, the two message branches and the permission gate, and it is the only suite that reaches the already-active promotion path through a request.
-│   │   ├── tables/__init__.py     , [CustomScriptProject] Test package anchor.
-│   │   ├── tables/test_project.py , [CustomScriptProject] CustomScriptProjectTableTestCase(TableTestCases.StandardTableTestCase) + RevisionEntrypointColumnTestCase, which asserts the count on a table built per revision, since a table cannot be ordered by a column it does not declare.
-│   │   ├── forms/__init__.py      , [CustomScriptProject] Test package anchor.
-│   │   ├── forms/test_project.py , [CustomScriptProject] EditForm / FilterForm / BulkImportForm test cases.
-│   │   ├── filtersets/__init__.py , [CustomScriptProject] Test package anchor.
-│   │   ├── filtersets/test_project.py , [CustomScriptProject] CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
-│   │   ├── graphql/__init__.py    , [CustomScriptProject] Test package anchor.
-│   │   ├── graphql/test_project.py , [CustomScriptProject] CustomScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
+│   │   ├── models/__init__.py     , [ScriptProject] Test package anchor.
+│   │   ├── models/test_project.py , [ScriptProject] ScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
+│   │   ├── api/__init__.py        , [ScriptProject] Test package anchor.
+│   │   ├── api/test_project.py , [ScriptProject] ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
+│   │   ├── views/__init__.py      , [ScriptProject] Test package anchor.
+│   │   ├── views/test_project.py , [ScriptProject] ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase), plus the source-state, Activate and Repair view suites. The Repair one covers the inert button, the two message branches and the permission gate, and it is the only suite that reaches the already-active promotion path through a request.
+│   │   ├── tables/__init__.py     , [ScriptProject] Test package anchor.
+│   │   ├── tables/test_project.py , [ScriptProject] ScriptProjectTableTestCase(TableTestCases.StandardTableTestCase) + RevisionEntrypointColumnTestCase, which asserts the count on a table built per revision, since a table cannot be ordered by a column it does not declare.
+│   │   ├── forms/__init__.py      , [ScriptProject] Test package anchor.
+│   │   ├── forms/test_project.py , [ScriptProject] EditForm / FilterForm / BulkImportForm test cases.
+│   │   ├── filtersets/__init__.py , [ScriptProject] Test package anchor.
+│   │   ├── filtersets/test_project.py , [ScriptProject] ScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
+│   │   ├── graphql/__init__.py    , [ScriptProject] Test package anchor.
+│   │   ├── graphql/test_project.py , [ScriptProject] ScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   │   ├── models/test_module.py  , CustomScriptModule model invariants.
 │   │   ├── models/test_script.py  , CustomScript identity, retirement, cascade + is_executable.
 │   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, patchable enabled, ignored derived fields, refused create/delete.
@@ -163,22 +163,22 @@ when domain content calls for them.
 │   │   ├── test_management.py     , The runcustomscript command: what it resolves, what it refuses, that a committed run is change logged against the named user, and that a failure raised before the script is reached still reports why.
 │   │   └── test_reconciliation.py , The post_sync receiver (which projects, and that it never fails a sync) plus ProjectReconciliationJob, including the reverted-directory activation.
 │   ├── views/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports every view class except the three shared bases, `__all__` alphabetised.
-│   │   ├── migration.py            , The Migration page, the run's detail view, and the seven enqueue views, on TWO gates. BaseMigrationView takes add_customscriptproject for the page, the inventory, staging and verification, because creating Projects is all those authorize. DestructiveMigrationView takes migrate_customscriptproject for the cutover, activation, repoint and cleanup, because closing and deleting rows of the built-in feature is not a form of creating a Project. The cutover is offered while the crossing is unrecorded rather than while the state reads staging, so the one button that finishes an interrupted crossing stays up, and a notice beside it says the fence may already have closed. Staging, the cutover and cleanup confirm first and refuse while a pass of their own class is queued, the inventory and verification do neither, because they write nothing. The repoint button is withheld, with the Projects named, while any of them serves nothing, gated on the frozen map rather than on the recorded step because that is what the predicate reads.
-│   │   ├── project.py                  , [CustomScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the read-only Files tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate, Repair and Reconcile confirmation views. Activate reports through views/revision.py's shared activation_message(), so the two Activate routes cannot word the same outcome differently. Repair re-activates the revision already in force, which is the only route to the already-active path, because the per-revision Activate view now filters its queryset to ACTIVATABLE_REVISION_STATUSES and the project-level one resolves through activatable_revision(). Withholding the button was not enough: an action filters by permission and never by route. Its queryset is narrowed to projects serving something, and it reports a repair and a no-op differently, which is the defect it exists for. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
+│   │   ├── __init__.py            , [ScriptProject] Re-exports every view class except the three shared bases, `__all__` alphabetised.
+│   │   ├── migration.py            , The Migration page, the run's detail view, and the seven enqueue views, on TWO gates. BaseMigrationView takes add_scriptproject for the page, the inventory, staging and verification, because creating Projects is all those authorize. DestructiveMigrationView takes migrate_scriptproject for the cutover, activation, repoint and cleanup, because closing and deleting rows of the built-in feature is not a form of creating a Project. The cutover is offered while the crossing is unrecorded rather than while the state reads staging, so the one button that finishes an interrupted crossing stays up, and a notice beside it says the fence may already have closed. Staging, the cutover and cleanup confirm first and refuse while a pass of their own class is queued, the inventory and verification do neither, because they write nothing. The repoint button is withheld, with the Projects named, while any of them serves nothing, gated on the frozen map rather than on the recorded step because that is what the predicate reads.
+│   │   ├── project.py                  , [ScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the read-only Files tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate, Repair and Reconcile confirmation views. Activate reports through views/revision.py's shared activation_message(), so the two Activate routes cannot word the same outcome differently. Repair re-activates the revision already in force, which is the only route to the already-active path, because the per-revision Activate view now filters its queryset to ACTIVATABLE_REVISION_STATUSES and the project-level one resolves through activatable_revision(). Withholding the button was not enough: an action filters by permission and never by route. Its queryset is narrowed to projects serving something, and it reports a repair and a no-op differently, which is the defect it exists for. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
 │   │   ├── module.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
 │   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one. Run declares a ViewTab gated on the run permission, so every view of the script offers it, and builds its form through execution.load_script_class(), which the REST run action shares. Result serves its body as a partial to an htmx poll, so a run that has not reached a terminal state refreshes itself, at a slower rate while it is only scheduled.
 │   │   └── revision.py             , Detail view for one revision, carrying the entrypoint paths its snapshot froze, which is where the Revisions tab's entrypoint count resolves. That table always renders, unlike the problems one, because an empty snapshot is why a revision publishes nothing. Plus Activate + Deactivate, GET confirms and POST performs, and activation_message(), the one wording both Activate routes report through. Gated on the PROJECT's activate permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
-│   │   ├── __init__.py            , [CustomScriptProject] Re-exports CustomScriptProjectPanel + CustomScriptProjectSourcePanel.
-│   │   └── panels.py              , [CustomScriptProject] CustomScriptProjectPanel (left) + CustomScriptProjectSourcePanel and CustomScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel, the two Module panels, and the two Revision panels. source_state sits on the Project panel rather than the State panel, because it is keyed on the NEWEST revision of all while every field of the panel titled 'Current revision' reads off current_revision, which is the active revision or, failing one, the newest stored revision. The two are often different revisions.
-│   ├── search.py                  , [CustomScriptProject] CustomScriptIndex + CustomScriptModuleIndex + CustomScriptProjectIndex, each registered via @register_search.
+│   │   ├── __init__.py            , [ScriptProject] Re-exports ScriptProjectPanel + ScriptProjectSourcePanel.
+│   │   └── panels.py              , [ScriptProject] ScriptProjectPanel (left) + ScriptProjectSourcePanel and ScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel, the two Module panels, and the two Revision panels. source_state sits on the Project panel rather than the State panel, because it is keyed on the NEWEST revision of all while every field of the panel titled 'Current revision' reads off current_revision, which is the active revision or, failing one, the newest stored revision. The two are often different revisions.
+│   ├── search.py                  , [ScriptProject] CustomScriptIndex + CustomScriptModuleIndex + ScriptProjectIndex, each registered via @register_search.
 │   ├── graphql/
-│   │   ├── __init__.py            , [CustomScriptProject] Exports schema = [Query].
-│   │   ├── schema.py              , [CustomScriptProject] @strawberry.type(name='Query') with custom_script_project / custom_script_project_list fields.
-│   │   ├── types.py               , [CustomScriptProject] CustomScriptProjectType(PrimaryObjectType); choice fields expose raw string values.
-│   │   ├── filters.py             , [CustomScriptProject] CustomScriptProjectFilter(PrimaryModelFilter) with enum-typed choice filters; no storage_key filter.
-│   │   └── enums.py               , [CustomScriptProject] ProjectSourceTypeEnum + ActivationPolicyEnum via strawberry.enum(ChoiceSet.as_enum()).
+│   │   ├── __init__.py            , [ScriptProject] Exports schema = [Query].
+│   │   ├── schema.py              , [ScriptProject] @strawberry.type(name='Query') with netbox_script_project / netbox_script_project_list fields.
+│   │   ├── types.py               , [ScriptProject] ScriptProjectType(PrimaryObjectType); choice fields expose raw string values.
+│   │   ├── filters.py             , [ScriptProject] ScriptProjectFilter(PrimaryModelFilter) with enum-typed choice filters; no storage_key filter.
+│   │   └── enums.py               , [ScriptProject] ProjectSourceTypeEnum + ActivationPolicyEnum via strawberry.enum(ChoiceSet.as_enum()).
 │   ├── storage/
 │   │   ├── config.py              , Resolves the required STORAGES['netbox_scripts'] backend and limit settings.
 │   │   ├── paths.py               , Canonical source paths, the case-insensitive comparison, compiled-artifact refusal, storage keys.
@@ -219,7 +219,7 @@ when domain content calls for them.
 │   ├── signals.py                 , Revision deletion enqueues storage cleanup, and a completed Data Source sync enqueues one reconciliation per project on it. Wired in AppConfig.ready().
 │   ├── event_rules.py             , RunCustomScriptAction, the registered `netbox_scripts.run` action, plus the `event_rule_actions` list PluginConfig loads by convention, so no AppConfig entry is needed. A thin adapter onto CustomScriptJob.enqueue_run(), which already owns pinning and the executability check, and it reports a script it cannot run rather than raising, because one rule's misconfiguration must not end the batch. validate() refuses only retirement, since a disabled script is temporary state an administrator flips back. **This module needs no version guard and must not grow one**: PluginConfig resolves the list only where DEFAULT_RESOURCE_PATHS carries the key, which no 4.6 release does, so nothing below the 4.7 line ever imports it.
 │   ├── choices.py                 , ProjectSourceTypeChoices, ActivationPolicyChoices, RevisionStatusChoices, ModuleDiscoveryStatusChoices, MigrationStateChoices.
-│   ├── validators.py              , [CustomScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
+│   ├── validators.py              , [ScriptProject] normalize_data_path(): canonical data_path form, shared by model clean() and the REST serializer.
 │   ├── utils.py                   , source_path_to_dotted_name(): the one home of the path-to-module rule. data_source_relative_path(): the one home of the segment-wise data_path rule, shared by candidate listing, ingestion and migration staging.
 │   ├── constants.py               , Storage limits, revision status groupings, validation lease bounds, published-script field bounds.
 │   ├── management/commands/runcustomscript.py , The shell route to one run, for a self-hosted operator. Additive only: it duplicates the REST run route, which is what Cloud and Enterprise use, so it carries a cloud-compat waiver rather than breaching the contract. Named runcustomscript because NetBox ships its own runscript until v5.0 and the earlier app in INSTALLED_APPS wins the name, so a plugin command called runscript would never be reachable. Runs immediately in the calling process and exits non-zero unless the Job completed, which the built-in command never did. Refuses a --user that matches nobody rather than falling back to the first superuser.
@@ -227,7 +227,7 @@ when domain content calls for them.
 │   ├── object_actions.py          , ActivateRevision + AddScript + ReconcileSource + RepairScripts + RunScript ObjectAction subclasses, with button templates under templates/.../buttons/. Each takes the model's own action rather than change: activate, reconcile and run. RepairScripts takes activate too, because republishing rows is the write activation makes. RunScript, RepairScripts and AddScript render inert rather than hidden when they cannot act, AddScript because an upload declares a Module and permissions_required cannot name another model. **The explanatory title goes on a wrapping span, never on the disabled button**, because Tabler sets pointer-events:none on both .btn:disabled and .btn.disabled, so a title on the control itself never surfaces. AddScript and ReconcileSource each render only for the source type they belong to.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes (cross-model UI).
 │   └── templates/netbox_scripts/
-│       ├── customscriptproject.html              , [CustomScriptProject] Detail-view template, extends `generic/object.html`.
+│       ├── scriptproject.html              , [ScriptProject] Detail-view template, extends `generic/object.html`.
 │       ├── scriptprojectrevision.html            , Detail-view template for one revision, extends `generic/object.html`.
 │       ├── migration.html         , The Migration landing page, which extends `generic/_base.html` rather than an object template. Lists the last inventory's blocking findings above the buttons, because staging refuses on any of them and creates nothing, and counts the warnings instead, because that list is one entry per module.
 │       ├── migrationrun.html      , Detail-view template for one migration attempt.
@@ -260,7 +260,7 @@ when domain content calls for them.
 Four domain models, plus `MigrationRun`, which is migration infrastructure rather
 than domain content. All five are installation-global: `GLOBAL_MODELS` in
 `branching.py` routes every one of them to the main schema under NetBox
-Branching. `CustomScriptProject`:
+Branching. `ScriptProject`:
 one project = one script source tree = one Python package boundary, owning
 either uploaded content or a Data Source directory, never both, with frozen
 identity fields (`key`, `source_type` immutable, `storage_key` never changes).
@@ -359,7 +359,7 @@ grouping rule had to fit the existing model rather than the reverse.
 Two constraints shape grouping, and both come from the models rather than from preference.
 The built-in feature stores a synchronized file under its base name, so `data_path` is the
 only record of where it came from and the rule reads that path rather than inferring one.
-And `CustomScriptProject.clean()` refuses two projects on one Data Source whose data paths
+And `ScriptProject.clean()` refuses two projects on one Data Source whose data paths
 are ancestor and descendant, so a folder inside another script-holding folder joins it.
 That is not a compromise: `ingest_data_source()` stages everything under `data_path`, so
 the higher Project already holds the deeper file, and a migrated Project therefore holds
@@ -436,7 +436,7 @@ inline as the plugin grows.
   `label`, `verbose_name`, `description`, `version`, `author`,
   `author_email`, `base_url`, `min_version`, `max_version`. Add a
   `ready()` method that imports `signals` once you create that module.
-- **Default model (CustomScriptProject)**, the scaffold ships a
+- **Default model (ScriptProject)**, the scaffold ships a
   worked example object across every subsystem: model
   (`models/project.py`),
   table (`tables/project.py`),
@@ -640,7 +640,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
    `templates/netbox_scripts/`.
 5. Register a `SearchIndex` in `search.py` if the model should be globally
    searchable.
-6. Add test classes for the new model, mirroring the `CustomScriptProject` classes the
+6. Add test classes for the new model, mirroring the `ScriptProject` classes the
    scaffold ships, for each surface (model layer, API, views, tables,
    forms, filtersets). In a flat area, append the class to the existing
    `tests/test_<area>.py`. In a subpackage area, add the test class to the

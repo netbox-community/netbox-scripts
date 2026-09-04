@@ -13,18 +13,18 @@ from utilities.forms.widgets import HTMXSelect
 from ...choices import ProjectSourceTypeChoices
 from ...ingestion import check_upload_conflicts, current_source_tree, ingest_upload, uploaded_source_path
 from ...jobs import ProjectEntrypointRefreshJob
-from ...models import CustomScriptProject
+from ...models import ScriptProject
 
 __all__ = (
-    'CustomScriptProjectAddScriptForm',
-    'CustomScriptProjectEditForm',
-    'CustomScriptProjectEntrypointsForm',
-    'CustomScriptProjectUploadForm',
+    'ScriptProjectAddScriptForm',
+    'ScriptProjectEditForm',
+    'ScriptProjectEntrypointsForm',
+    'ScriptProjectUploadForm',
 )
 
 
-class CustomScriptProjectEditForm(PrimaryModelForm):
-    """Create and edit form for the Custom Script Project model."""
+class ScriptProjectEditForm(PrimaryModelForm):
+    """Create and edit form for the Script Project model."""
 
     key = SlugField(
         label=_('Key'),
@@ -59,7 +59,7 @@ class CustomScriptProjectEditForm(PrimaryModelForm):
     )
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         fields = (
             'name',
             'key',
@@ -78,9 +78,9 @@ class CustomScriptProjectEditForm(PrimaryModelForm):
         }
 
 
-class CustomScriptProjectUploadForm(PrimaryModelForm):
+class ScriptProjectUploadForm(PrimaryModelForm):
     """
-    Create a Custom Script Project from one uploaded script.
+    Create a Script Project from one uploaded script.
 
     The form asks for what a user knows and nothing the plugin can work out for itself. The
     uploaded file's name becomes the source path, the entrypoint is declared automatically, and
@@ -112,7 +112,7 @@ class CustomScriptProjectUploadForm(PrimaryModelForm):
     )
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         fields = ('name', 'key', 'description', 'activation_policy')
 
     def __init__(self, *args, **kwargs):
@@ -142,7 +142,7 @@ class CustomScriptProjectUploadForm(PrimaryModelForm):
         return project
 
 
-class CustomScriptProjectAddScriptForm(PrimaryModelForm):
+class ScriptProjectAddScriptForm(PrimaryModelForm):
     """
     Add one more script to a Project that already has source.
 
@@ -164,7 +164,7 @@ class CustomScriptProjectAddScriptForm(PrimaryModelForm):
     fieldsets = (FieldSet('upload_file', 'confirm_replace', name=_('Script')),)
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         fields = ()
 
     def clean_upload_file(self):
@@ -221,7 +221,7 @@ class EntrypointCheckboxSelect(forms.CheckboxSelectMultiple):
     template_name = 'netbox_scripts/widgets/entrypoint_checkboxes.html'
 
 
-class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
+class ScriptProjectEntrypointsForm(PrimaryModelForm):
     """Select which of a project's source modules are its executable entrypoints."""
 
     entrypoints = forms.MultipleChoiceField(
@@ -234,7 +234,7 @@ class CustomScriptProjectEntrypointsForm(PrimaryModelForm):
     fieldsets = (FieldSet('entrypoints', name=_('Entrypoints')),)
 
     class Meta:
-        model = CustomScriptProject
+        model = ScriptProject
         fields = ()
 
     def __init__(self, *args, **kwargs):

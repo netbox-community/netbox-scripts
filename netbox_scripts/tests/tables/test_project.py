@@ -1,12 +1,12 @@
 from django.test import TestCase
 
-from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
-from netbox_scripts.tables import CustomScriptProjectTable, ScriptProjectRevisionTable
+from netbox_scripts.models import ScriptProject, ScriptProjectRevision
+from netbox_scripts.tables import ScriptProjectRevisionTable, ScriptProjectTable
 from utilities.testing import TableTestCases
 
 
-class CustomScriptProjectTableTestCase(TableTestCases.StandardTableTestCase):
-    table = CustomScriptProjectTable
+class ScriptProjectTableTestCase(TableTestCases.StandardTableTestCase):
+    table = ScriptProjectTable
 
 
 class ScriptProjectRevisionTableTestCase(TableTestCases.StandardTableTestCase):
@@ -19,7 +19,7 @@ class ScriptProjectRevisionTableTestCase(TableTestCases.StandardTableTestCase):
     """
 
     table = ScriptProjectRevisionTable
-    queryset_sources = (('CustomScriptProjectView', ScriptProjectRevision.objects.all()),)
+    queryset_sources = (('ScriptProjectView', ScriptProjectRevision.objects.all()),)
 
 
 class RevisionEntrypointColumnTestCase(TestCase):
@@ -27,7 +27,7 @@ class RevisionEntrypointColumnTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Column Project', key='column-project')
+        cls.project = ScriptProject.objects.create(name='Column Project', key='column-project')
         # Identity is project plus source digest plus entrypoint digest, so one digest with two
         # entrypoint sets is a legal pair and the pair a reader cannot otherwise tell apart.
         cls.one = ScriptProjectRevision.objects.create(

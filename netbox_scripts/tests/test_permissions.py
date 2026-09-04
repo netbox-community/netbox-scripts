@@ -7,7 +7,7 @@ from core.models import DataSource, ObjectType
 from netbox.registry import registry
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
-from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from users.models import ObjectPermission
 from utilities.permissions import get_permission_for_model
@@ -21,13 +21,13 @@ PERMISSION_STORAGES = {
 
 # Every action the plugin declares. The legacy reference migration maps onto these.
 DECLARED = {
-    CustomScriptProject: ('view', 'add', 'change', 'delete', 'activate', 'migrate', 'reconcile'),
+    ScriptProject: ('view', 'add', 'change', 'delete', 'activate', 'migrate', 'reconcile'),
     CustomScript: ('view', 'change', 'run', 'schedule'),
 }
 
 # The actions declared in Meta.permissions, which is to say every one Django does not supply.
 CUSTOM = {
-    CustomScriptProject: ('activate', 'migrate', 'reconcile'),
+    ScriptProject: ('activate', 'migrate', 'reconcile'),
     CustomScript: ('run', 'schedule'),
 }
 
@@ -56,8 +56,8 @@ class SourceManagementPermissionTestCase(TestCase):
         self.user = create_test_user()
         self.client.force_login(self.user)
         self.source = DataSource.objects.create(name='Repo', type='local', source_url='file:///tmp/repo/')
-        self.project = CustomScriptProject.objects.create(name='Gated', key='gated')
-        self.synchronized = CustomScriptProject.objects.create(
+        self.project = ScriptProject.objects.create(name='Gated', key='gated')
+        self.synchronized = ScriptProject.objects.create(
             name='Synced',
             key='synced',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -79,7 +79,7 @@ class SourceManagementPermissionTestCase(TestCase):
         revision.refresh_from_db()
         return revision
 
-    def grant(self, *actions, model=CustomScriptProject, constraints=None):
+    def grant(self, *actions, model=ScriptProject, constraints=None):
         """Grant the named actions on one model to the test user."""
         permission = ObjectPermission(
             name=f'{model._meta.model_name} {"/".join(actions)}',
@@ -92,7 +92,7 @@ class SourceManagementPermissionTestCase(TestCase):
 
     def project_url(self, action, project=None):
         return reverse(
-            f'plugins:netbox_scripts:customscriptproject_{action}',
+            f'plugins:netbox_scripts:scriptproject_{action}',
             args=[(project or self.project).pk],
         )
 

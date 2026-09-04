@@ -1,5 +1,5 @@
 """
-Source ingestion for Custom Script Projects.
+Source ingestion for Script Projects.
 
 This module turns supplied source files into a revision that is on its way to a verdict: it
 declares the entrypoints the source implies, stages the tree, and enqueues validation. Upload and

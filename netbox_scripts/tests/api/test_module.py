@@ -1,7 +1,7 @@
 from rest_framework import status
 
 from netbox_scripts.choices import ModuleDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCases
 
 DIGEST = 'c' * 64
@@ -24,7 +24,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='API Module Project', key='api-module-project')
+        cls.project = ScriptProject.objects.create(name='API Module Project', key='api-module-project')
 
         CustomScriptModule.objects.create(project=cls.project, source_path='tools/first.py', description='First module')
         CustomScriptModule.objects.create(
@@ -75,7 +75,7 @@ class CustomScriptModuleAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
 
     def test_project_is_immutable(self):
         self.add_permissions('netbox_scripts.change_customscriptmodule')
-        other = CustomScriptProject.objects.create(name='API Other Project', key='api-other-project')
+        other = ScriptProject.objects.create(name='API Other Project', key='api-other-project')
         module = CustomScriptModule.objects.create(project=self.project, source_path='tools/owned.py')
         response = self.client.patch(self._get_detail_url(module), {'project': other.pk}, format='json', **self.header)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -29,7 +29,7 @@ from netbox_scripts.jobs import (
     MigrationVerificationJob,
 )
 from netbox_scripts.migration import cutover, mapping
-from netbox_scripts.models import CustomScriptProject, MigrationRun, ScriptProjectRevision
+from netbox_scripts.models import MigrationRun, ScriptProject, ScriptProjectRevision
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -66,7 +66,7 @@ class MigrationTriggerTestCase(TestCase):
         obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
         obj_perm.save()
         obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(CustomScriptProject))
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
 
     @staticmethod
     def url(name):
@@ -161,14 +161,14 @@ class MigrationTriggerTestCase(TestCase):
     def serving(self, *keys, activate=True):
         """Create one Project per key, serving a revision unless activate is False."""
         for key in keys:
-            project = CustomScriptProject.objects.create(name=key, key=key)
+            project = ScriptProject.objects.create(name=key, key=key)
             revision = ScriptProjectRevision.objects.create(
                 project=project, digest='a' * 64, status=RevisionStatusChoices.ACTIVE
             )
             if not activate:
                 continue
             # Set past clean(), which refuses a pointer the activation service did not move.
-            CustomScriptProject.objects.filter(pk=project.pk).update(active_revision=revision)
+            ScriptProject.objects.filter(pk=project.pk).update(active_revision=revision)
 
     def page_query_count(self):
         """Render the Migration page and report how many queries it took."""
@@ -207,7 +207,7 @@ class MigrationTriggerTestCase(TestCase):
 
     def staged(self, status, recorded_status=None, scripts=()):
         """Create a Project with a revision, and the staging Job that reports having made it."""
-        project = CustomScriptProject.objects.create(name='Staged Project', key='staged-project')
+        project = ScriptProject.objects.create(name='Staged Project', key='staged-project')
         revision = ScriptProjectRevision.objects.create(
             project=project, digest='f' * 64, status=status, discovered_scripts=list(scripts)
         )
@@ -385,7 +385,7 @@ class MigrationTriggerTestCase(TestCase):
         # The fence refuses unless every mapped Project was staged, so one that crossed leaves
         # the rows behind, serving nothing until an activation succeeds.
         for key in mapping.project_keys(run.journal['mapping']):
-            CustomScriptProject.objects.create(name=key, key=key, source_type=ProjectSourceTypeChoices.UPLOAD)
+            ScriptProject.objects.create(name=key, key=key, source_type=ProjectSourceTypeChoices.UPLOAD)
         run.record_step(cutover.STEP, counts={})
         run.record_step(cutover.ACTIVATE_STEP, projects=[])
         return run
@@ -420,7 +420,7 @@ class MigrationTriggerTestCase(TestCase):
         run = self.staged_fence()
         self.assertNotIn('Repoint references', self.client.get(self.url('migration')).content.decode())
 
-        CustomScriptProject.objects.filter(key__in=mapping.project_keys(run.journal['mapping'])).delete()
+        ScriptProject.objects.filter(key__in=mapping.project_keys(run.journal['mapping'])).delete()
 
         self.assertIn('Repoint references', self.client.get(self.url('migration')).content.decode())
 

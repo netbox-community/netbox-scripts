@@ -13,7 +13,7 @@ from django.utils.text import slugify
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ..compat import MIGRATION_HINTS
 from ..ingestion import uploaded_source_path
-from ..models import CustomScriptProject
+from ..models import ScriptProject
 from ..utils import data_source_relative_path, source_path_to_dotted_name
 from ..validators import data_paths_overlap
 from . import dialects
@@ -156,7 +156,7 @@ def _root_findings(proposed):
 
 
 def _existing_project_findings(proposed):
-    """Return a blocking finding for each proposal an existing Custom Script Project collides with."""
+    """Return a blocking finding for each proposal an existing Script Project collides with."""
     findings = []
     for proposal in proposed:
         for project in _colliding_projects(proposal):
@@ -171,8 +171,8 @@ def _existing_project_findings(proposed):
 def _colliding_projects(proposal):
     """Return the existing Projects staging would reuse or be refused by for one proposal."""
     if proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
-        return CustomScriptProject.objects.filter(key=proposal.key)
-    siblings = CustomScriptProject.objects.filter(
+        return ScriptProject.objects.filter(key=proposal.key)
+    siblings = ScriptProject.objects.filter(
         source_type=ProjectSourceTypeChoices.DATA_SOURCE,
         data_source_id=proposal.data_source_id,
     )
@@ -188,7 +188,7 @@ def _not_manual_finding(proposal, project):
         'pk': None,
         'path': proposal.data_path,
         'message': (
-            f'Custom Script Project "{project.name}" already holds what project "{proposal.key}" would '
+            f'Script Project "{project.name}" already holds what project "{proposal.key}" would '
             f'stage, and its activation policy is {label}. Staging would declare the built-in modules on '
             f'it and validation would then put them into service. Set it to Manual, then run this again.'
         ),
@@ -203,7 +203,7 @@ def _conflict_finding(proposal, project):
         'pk': None,
         'path': proposal.data_path,
         'message': (
-            f'Custom Script Project "{project.name}" holds {project.data_path or _ROOT_NAME}, which overlaps '
+            f'Script Project "{project.name}" holds {project.data_path or _ROOT_NAME}, which overlaps '
             f'the {proposal.data_path or _ROOT_NAME} this migration proposes. One data source cannot carry '
             f'two projects whose paths contain one another. Move or remove one of them, then run this again.'
         ),
@@ -373,7 +373,7 @@ def _source_findings(module, body, dialect):
             continue
         message = (
             f'{path} does not define {script.name}, which the built-in feature publishes from it. A '
-            f'Custom Script Project publishes only a class the module itself defines, so this one '
+            f'Script Project publishes only a class the module itself defines, so this one '
             f'migrates with fewer scripts than the built-in feature had. Move the class into this '
             f'file if it should keep publishing from here.'
         )

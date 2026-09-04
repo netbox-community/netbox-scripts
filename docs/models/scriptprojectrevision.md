@@ -1,6 +1,6 @@
 # Script Project Revision
 
-A Script Project Revision is one immutable snapshot of a Custom Script
+A Script Project Revision is one immutable snapshot of a Script
 Project's complete source tree together with the entrypoint configuration it
 was staged under. A revision records what was staged, not how it is served, so
 a job can be replayed against exactly the tree it ran on.
@@ -19,7 +19,7 @@ and validation services. They are not edited directly.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | FK | yes | Owning Custom Script Project, frozen after creation |
+| `project` | FK | yes | Owning Script Project, frozen after creation |
 | `digest` | string | no | 64-character lowercase hexadecimal content address, set as soon as the manifest is accepted. Required once the tree is stored, absent when content was rejected |
 | `status` | choice | yes | `staging`, `materialized`, `storage_failed`, `validating`, `valid`, `invalid`, `active`, or `retired` |
 | `manifest` | JSON | no | Sorted list of accepted source files, each with its `path`, `size`, and `sha256` |
@@ -45,10 +45,10 @@ references read project-relative.
 
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
-| `project` | `CustomScriptProject` | yes | `on_delete=CASCADE`, reverse name `revisions` |
+| `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `revisions` |
 
 The owning project also points back at one of its revisions through
-`CustomScriptProject.active_revision`, an `on_delete=SET_NULL` reference with the
+`ScriptProject.active_revision`, an `on_delete=SET_NULL` reference with the
 reverse name `active_revision_for`. Deleting the revision a project is serving
 clears the pointer and leaves the project serving nothing, which is the state it
 starts life in. The pointer cannot be `PROTECT`: a project's revisions cascade

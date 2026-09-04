@@ -5,11 +5,11 @@ import strawberry_django
 
 from netbox.graphql.types import ObjectType, PrimaryObjectType
 
-from ..models import CustomScript, CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from ..models import CustomScript, CustomScriptModule, ScriptProject, ScriptProjectRevision
 from .filters import (
     CustomScriptFilter,
     CustomScriptModuleFilter,
-    CustomScriptProjectFilter,
+    ScriptProjectFilter,
     ScriptProjectRevisionFilter,
 )
 
@@ -18,14 +18,15 @@ if TYPE_CHECKING:
 
 
 @strawberry_django.type(
-    CustomScriptProject,
+    ScriptProject,
+    name='NetBoxScriptProjectType',
     # Not fields='__all__': strawberry resolves the two in an if/elif, ignoring exclude.
     exclude=('active_revision',),
-    filters=CustomScriptProjectFilter,
+    filters=ScriptProjectFilter,
     pagination=True,
 )
-class CustomScriptProjectType(PrimaryObjectType):
-    """GraphQL object type for the Custom Script Project model."""
+class ScriptProjectType(PrimaryObjectType):
+    """GraphQL object type for the Script Project model."""
 
     data_source: Annotated['DataSourceType', strawberry.lazy('core.graphql.types')] | None
 
@@ -47,7 +48,7 @@ class CustomScriptProjectType(PrimaryObjectType):
 class ScriptProjectRevisionType(ObjectType):
     """GraphQL object type for the Script Project Revision model."""
 
-    project: CustomScriptProjectType
+    project: ScriptProjectType
 
     @classmethod
     def get_queryset(cls, queryset, info, **kwargs):
@@ -64,7 +65,7 @@ class ScriptProjectRevisionType(ObjectType):
 class CustomScriptModuleType(PrimaryObjectType):
     """GraphQL object type for the Custom Script Module model."""
 
-    project: CustomScriptProjectType
+    project: ScriptProjectType
     last_discovered_revision: ScriptProjectRevisionType | None
 
     @classmethod
@@ -82,7 +83,7 @@ class CustomScriptModuleType(PrimaryObjectType):
 class CustomScriptType(PrimaryObjectType):
     """GraphQL object type for the Custom Script model."""
 
-    project: CustomScriptProjectType
+    project: ScriptProjectType
     last_seen_revision: ScriptProjectRevisionType | None
 
     @classmethod

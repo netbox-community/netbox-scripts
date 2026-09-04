@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
 from ..constants import PENDING_VERDICT_REVISION_STATUSES
-from ..models import CustomScriptProject, ScriptProjectRevision
+from ..models import ScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from . import mapping
 from . import source as legacy_source
@@ -66,7 +66,7 @@ def enter_cutover(run):
     if blocked := unservable_projects(run):
         raise CutoverRefused(
             _(
-                '{count} Custom Script Project(s) could serve nothing after the cutover: {detail}. '
+                '{count} Script Project(s) could serve nothing after the cutover: {detail}. '
                 'Wait for a verdict or fix the source and stage again, because nothing comes back '
                 'across this fence.'
             ).format(
@@ -98,7 +98,7 @@ def unservable_projects(run):
     if mapping.recorded(run) is not None:
         return []
     keys = mapping.project_keys(mapping.build_map())
-    projects = {project.key: project for project in CustomScriptProject.objects.filter(key__in=keys)}
+    projects = {project.key: project for project in ScriptProject.objects.filter(key__in=keys)}
     by_project = {}
     columns = ScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created', 'validation_error')
     for revision in columns.filter(project__key__in=keys).order_by('-created', '-pk'):
@@ -125,14 +125,14 @@ def unservable_projects(run):
 def mapped_projects_present(run):
     """Return the mapped Project keys whose row still exists."""
     keys = mapping.project_keys(mapping.recorded(run))
-    return set(CustomScriptProject.objects.filter(key__in=keys).values_list('key', flat=True))
+    return set(ScriptProject.objects.filter(key__in=keys).values_list('key', flat=True))
 
 
 def projects_not_serving(run):
     """Return the mapped Project keys whose row still exists and serves no revision."""
     # A module deleted since the fence must not change which Projects this covers.
     keys = mapping.project_keys(mapping.recorded(run))
-    rows = CustomScriptProject.objects.filter(key__in=keys).values_list('key', 'active_revision_id')
+    rows = ScriptProject.objects.filter(key__in=keys).values_list('key', 'active_revision_id')
     # Absent is the operator's call, not outstanding work, so only a row that exists holds the gate.
     return sorted(key for key, active_revision_id in rows if active_revision_id is None)
 
@@ -168,9 +168,7 @@ def activate_staged(run):
     """
     require_staged(run)
     keys = mapping.project_keys(mapping.recorded(run))
-    results = [
-        _activate_project(project) for project in CustomScriptProject.objects.filter(key__in=keys).order_by('key')
-    ]
+    results = [_activate_project(project) for project in ScriptProject.objects.filter(key__in=keys).order_by('key')]
     run.record_step(ACTIVATE_STEP, projects=_merged_outcomes(run, results))
     return results
 

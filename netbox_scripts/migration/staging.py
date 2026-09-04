@@ -6,7 +6,7 @@ from django.utils.translation import gettext_lazy as _
 
 from .. import ingestion
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ..models import CustomScriptProject
+from ..models import ScriptProject
 from ..utils import data_source_relative_path
 from . import dialects
 from . import source as legacy_source
@@ -56,12 +56,12 @@ def _project_for(project_plan):
             # The inventory blocks this, so reaching it means the Project appeared since.
             raise ValidationError(
                 _(
-                    'Custom Script Project "{name}" is on the {policy} activation policy, so staging onto '
+                    'Script Project "{name}" is on the {policy} activation policy, so staging onto '
                     'it would put the built-in modules into service. Set it to Manual, then run this again.'
                 ).format(name=existing.name, policy=dict(ActivationPolicyChoices)[existing.activation_policy])
             )
         return existing, False
-    project = CustomScriptProject(
+    project = ScriptProject(
         name=project_plan.name,
         key=project_plan.key,
         source_type=project_plan.source_type,
@@ -81,8 +81,8 @@ def _project_for(project_plan):
 def _existing(project_plan):
     """Return the Project this plan entry already resolves to, if there is one."""
     if project_plan.source_type == ProjectSourceTypeChoices.UPLOAD:
-        return CustomScriptProject.objects.filter(key=project_plan.key).first()
-    return CustomScriptProject.objects.filter(
+        return ScriptProject.objects.filter(key=project_plan.key).first()
+    return ScriptProject.objects.filter(
         source_type=ProjectSourceTypeChoices.DATA_SOURCE,
         data_source_id=project_plan.data_source_id,
         data_path=project_plan.data_path,
@@ -112,7 +112,7 @@ def _declare(project, members):
     # Decided before the transaction opens, because _publishes can read stored bytes and a remote
     # backend would hold a write transaction open across every one of those round trips.
     publishing = [member for member in members if _publishes(member)]
-    using = router.db_for_write(CustomScriptProject, instance=project)
+    using = router.db_for_write(ScriptProject, instance=project)
     with transaction.atomic(using=using):
         for member in publishing:
             path = data_source_relative_path(member.data_path, project.data_path)

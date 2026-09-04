@@ -20,7 +20,7 @@ from netbox_scripts.jobs import ProjectReconciliationJob, RevisionValidationJob
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.storage import service, store
@@ -32,7 +32,7 @@ SIGNAL_LOGGER = 'netbox.plugins.netbox_scripts.storage'
 
 
 def data_source_project(source, key, data_path, **kwargs):
-    return CustomScriptProject.objects.create(
+    return ScriptProject.objects.create(
         name=key.replace('-', ' ').title(),
         key=key,
         source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -52,7 +52,7 @@ class ReconciliationSignalTestCase(TestCase):
         data_source_project(cls.source, 'repo-project', 'scripts')
         data_source_project(cls.source, 'tools-project', 'tools')
         data_source_project(cls.other, 'elsewhere-project', 'scripts')
-        CustomScriptProject.objects.create(name='Uploaded', key='uploaded')
+        ScriptProject.objects.create(name='Uploaded', key='uploaded')
 
     def setUp(self):
         self.enqueued = self.enterContext(
@@ -243,7 +243,7 @@ class ReconciliationPolicyTestCase(TestCase):
         job = ProjectReconciliationJob.enqueue(immediate=True, project_id=self.project.pk)
         job.refresh_from_db()
         # Re-read rather than refresh, because current_revision is cached per instance.
-        self.project = CustomScriptProject.objects.get(pk=self.project.pk)
+        self.project = ScriptProject.objects.get(pk=self.project.pk)
         return job
 
     def reconcile(self):
@@ -259,7 +259,7 @@ class ReconciliationPolicyTestCase(TestCase):
 
     def test_a_manual_project_reaches_valid_and_keeps_serving_what_it_had(self):
         active = self.reconcile()
-        CustomScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=ActivationPolicyChoices.MANUAL)
+        ScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=ActivationPolicyChoices.MANUAL)
         data_file(self.source, 'scripts/audit.py', SCRIPT)
 
         revision = self.reconcile()
@@ -298,7 +298,7 @@ class ReconciliationPolicyTestCase(TestCase):
         first = self.reconcile()
         data_file(self.source, 'scripts/helper.py', b'VALUE = 1\n')
         with_helper = self.reconcile()
-        CustomScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=ActivationPolicyChoices.MANUAL)
+        ScriptProject.objects.filter(pk=self.project.pk).update(activation_policy=ActivationPolicyChoices.MANUAL)
         DataFile.objects.filter(path='scripts/helper.py').delete()
 
         job = self.run_reconciliation()

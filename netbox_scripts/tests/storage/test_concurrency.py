@@ -24,7 +24,7 @@ from django.test import TransactionTestCase, override_settings
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.locks import advisory_key
@@ -86,7 +86,7 @@ class SerializationTestCase(TransactionTestCase):
         # the suite leaves nothing behind even there.
         self.addCleanup(django_rq.get_queue('default').empty)
         self.storage = config.get_storage()
-        self.project = CustomScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
+        self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
 
     def keys_present(self, digest, paths=('hello.py',)):
         """Return the stored paths of one revision's tree that the backend still holds."""
@@ -260,8 +260,8 @@ class DeletionVersusStagingTestCase(SerializationTestCase):
         def write_then_delete(*args, **kwargs):
             result = real_write(*args, **kwargs)
             # QuerySet.delete() skips the model's pointer clear, so it is done here.
-            CustomScriptProject.objects.filter(pk=self.project.pk).update(active_revision=None)
-            CustomScriptProject.objects.filter(pk=self.project.pk).delete()
+            ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=None)
+            ScriptProject.objects.filter(pk=self.project.pk).delete()
             return result
 
         return mock.patch.object(store, 'write_revision', side_effect=write_then_delete)

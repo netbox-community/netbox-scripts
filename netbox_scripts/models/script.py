@@ -33,7 +33,7 @@ class CustomScript(JobsMixin, PrimaryModel):
     """
 
     project = models.ForeignKey(
-        to='netbox_scripts.CustomScriptProject',
+        to='netbox_scripts.ScriptProject',
         on_delete=models.CASCADE,
         related_name='scripts',
     )

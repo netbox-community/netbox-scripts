@@ -15,7 +15,7 @@ offers neither.
 Permission is the project's activate permission, matching the views, so the buttons appear exactly
 when they would work.
 {% endcomment %}
-{% if perms.netbox_scripts.activate_customscriptproject %}
+{% if perms.netbox_scripts.activate_scriptproject %}
   {% if record.is_active %}
     <a href="{% url 'plugins:netbox_scripts:scriptprojectrevision_deactivate' pk=record.pk %}"
        class="btn btn-sm btn-outline-warning">

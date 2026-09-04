@@ -10,11 +10,11 @@ from netbox.models.features import has_feature
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 
-EVERY_MODEL = (CustomScriptProject, ScriptProjectRevision, CustomScriptModule, CustomScript)
+EVERY_MODEL = (ScriptProject, ScriptProjectRevision, CustomScriptModule, CustomScript)
 
 
 class EventSourceFeatureTestCase(TestCase):
@@ -28,7 +28,7 @@ class EventSourceFeatureTestCase(TestCase):
                 self.assertTrue(has_feature(model, 'event_rules'))
 
     def test_a_rule_can_be_saved_against_a_plugin_model(self):
-        object_type = ObjectType.objects.get_for_model(CustomScriptProject)
+        object_type = ObjectType.objects.get_for_model(ScriptProject)
         webhook = Webhook.objects.create(name='Receiver', payload_url='http://localhost/hook/')
         rule = EventRule(
             name='On a new project',
@@ -49,7 +49,7 @@ class EventBodyTestCase(TestCase):
 
     def setUp(self):
         super().setUp()
-        self.project = CustomScriptProject.objects.create(name='Serialized', key='serialized')
+        self.project = ScriptProject.objects.create(name='Serialized', key='serialized')
 
     def test_the_body_carries_the_project_identity(self):
         body = serialize_for_event(self.project)
@@ -93,8 +93,8 @@ class EventDispatchTestCase(TestCase):
         self.queue = django_rq.get_queue('default')
         self.queue.empty()
         self.addCleanup(self.queue.empty)
-        self.project = CustomScriptProject.objects.create(name='Dispatched', key='dispatched')
-        self.object_type = ObjectType.objects.get_for_model(CustomScriptProject)
+        self.project = ScriptProject.objects.create(name='Dispatched', key='dispatched')
+        self.object_type = ObjectType.objects.get_for_model(ScriptProject)
         webhook = Webhook.objects.create(name='Receiver', payload_url='http://localhost/hook/')
         self.rule = EventRule.objects.create(
             name='On a new project',

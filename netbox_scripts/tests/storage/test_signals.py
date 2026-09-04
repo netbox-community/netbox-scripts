@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from core.models import Job
 from netbox_scripts import signals
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, store
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.storage.manifest import compute_digest
@@ -48,7 +48,7 @@ class CleanupFixtureMixin:
         super().setUp()
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
         self.storage = config.get_storage()
-        self.project = CustomScriptProject.objects.create(name='Cleanup Project', key='cleanup-project')
+        self.project = ScriptProject.objects.create(name='Cleanup Project', key='cleanup-project')
 
     def revision_stored(self, digest, project=None):
         """Report whether one revision's single source file is still stored."""
@@ -188,7 +188,7 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
             with self.assertRaises(RuntimeError), transaction.atomic():
                 self.project.delete()
         self.assertEqual(ScriptProjectRevision.objects.count(), 2)
-        self.assertTrue(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertTrue(ScriptProject.objects.filter(pk=self.project.pk).exists())
         self.assertTrue(self.revision_stored(DIGEST_A))
         self.assertTrue(self.revision_stored(DIGEST_B))
 
@@ -231,7 +231,7 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
 
     def other_project(self):
         """Return a second project with its own revision tree already stored."""
-        other = CustomScriptProject.objects.create(name='Other Cleanup', key='other-cleanup')
+        other = ScriptProject.objects.create(name='Other Cleanup', key='other-cleanup')
         self.make_revision(DIGEST_A, project=other)
         return other
 
@@ -239,16 +239,16 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
         # The pointer is cleared unconditionally, so an instance loaded before another caller
         # activated a revision does not leave the row protected.
         revision = self.make_revision(DIGEST_A)
-        stale = CustomScriptProject.objects.get(pk=self.project.pk)
+        stale = ScriptProject.objects.get(pk=self.project.pk)
         self.assertIsNone(stale.active_revision_id)
 
         revision.status = RevisionStatusChoices.ACTIVE
         revision.save()
-        CustomScriptProject.objects.filter(pk=self.project.pk).update(active_revision=revision)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=revision)
 
         with self.capture_enqueues() as enqueue:
             stale.delete()
-        self.assertFalse(CustomScriptProject.objects.filter(pk=self.project.pk).exists())
+        self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
         enqueue.assert_called_once_with(storage_key=self.project.storage_key, digest=DIGEST_A, paths=['hello.py'])
 
     def test_a_mutated_storage_key_cannot_remove_another_projects_content(self):

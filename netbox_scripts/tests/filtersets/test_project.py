@@ -2,14 +2,14 @@ from django.test import TestCase
 
 from core.models import DataSource
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from netbox_scripts.filtersets import CustomScriptProjectFilterSet
-from netbox_scripts.models import CustomScriptProject
+from netbox_scripts.filtersets import ScriptProjectFilterSet
+from netbox_scripts.models import ScriptProject
 from netbox_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 
 
-class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
-    queryset = CustomScriptProject.objects.all()
-    filterset = CustomScriptProjectFilterSet
+class ScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
+    queryset = ScriptProject.objects.all()
+    filterset = ScriptProjectFilterSet
     # storage_key is deliberately unfiltered (internal storage/runtime identity), and
     # active_revision is written only by the storage activation service.
     ignore_fields = ('storage_key', 'active_revision')
@@ -24,23 +24,23 @@ class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMi
             data_source.save()
 
         projects = (
-            CustomScriptProject(
+            ScriptProject(
                 name='Alpha',
                 key='alpha',
                 description='First entry',
             ),
-            CustomScriptProject(
+            ScriptProject(
                 name='Bravo',
                 key='bravo',
                 description='Second entry',
             ),
-            CustomScriptProject(
+            ScriptProject(
                 name='Charlie',
                 key='charlie',
                 description='Third entry',
                 enabled=False,
             ),
-            CustomScriptProject(
+            ScriptProject(
                 name='Delta',
                 key='delta',
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -49,7 +49,7 @@ class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMi
                 activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
                 enabled=False,
             ),
-            CustomScriptProject(
+            ScriptProject(
                 name='Echo',
                 key='echo',
                 source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -57,7 +57,7 @@ class CustomScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMi
                 data_path='scripts',
                 activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
             ),
-            CustomScriptProject(
+            ScriptProject(
                 name='Foxtrot',
                 key='foxtrot',
             ),

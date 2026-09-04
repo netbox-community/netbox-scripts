@@ -1,6 +1,6 @@
-# Custom Script Project
+# Script Project
 
-A Custom Script Project represents one complete and internally consistent
+A Script Project represents one complete and internally consistent
 source tree. It is the ownership boundary for source files and the Python
 package boundary used when loading and executing scripts.
 
@@ -38,7 +38,7 @@ classes an activated revision publishes are [Custom Scripts](customscript.md).
 | Surface | Endpoint or field |
 |---|---|
 | REST | `/api/plugins/netbox-scripts/projects/` |
-| GraphQL | `custom_script_project` / `custom_script_project_list` |
+| GraphQL | `netbox_script_project` / `netbox_script_project_list` |
 
 A project's **Entrypoints** tab selects which of its source modules discovery
 imports, and its detail page lists the [Custom Script
@@ -115,7 +115,7 @@ never by `storage_key`.
 
 ## NetBox Branching
 
-Custom Script Projects and their revisions are **installation-global**. A
+Script Projects and their revisions are **installation-global**. A
 revision's on-disk location is a pure function of the project's `storage_key`
 and the revision's `digest`, with no branch or schema context, so one project
 names exactly one source tree no matter which branch is active.
@@ -126,7 +126,7 @@ NetBox Branching's own `exempt_models` setting is the supported way to say so:
 PLUGINS_CONFIG = {
     'netbox_branching': {
         'exempt_models': [
-            'netbox_scripts.customscriptproject',
+            'netbox_scripts.scriptproject',
             'netbox_scripts.scriptprojectrevision',
         ],
     },

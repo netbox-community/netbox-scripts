@@ -26,7 +26,7 @@ from netbox_scripts.jobs import CustomScriptJob
 from netbox_scripts.models import (
     CustomScript,
     CustomScriptModule,
-    CustomScriptProject,
+    ScriptProject,
     ScriptProjectRevision,
 )
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptResolutionError
@@ -367,7 +367,7 @@ class ScriptJobTestMixin:
         self.addCleanup(discard_tree, self.cache_root)
         self.addCleanup(self._purge_namespace)
         self.user = get_user_model().objects.create_user(username='runner')
-        self.project = CustomScriptProject.objects.create(name='Runnable', key='runnable')
+        self.project = ScriptProject.objects.create(name='Runnable', key='runnable')
 
     def _purge_namespace(self):
         import sys

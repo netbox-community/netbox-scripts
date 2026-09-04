@@ -4,7 +4,7 @@ from django.urls import reverse
 from core.models import ObjectType
 from netbox_scripts import activation
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import CustomScript, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tables import (
@@ -43,7 +43,7 @@ class RevisionServiceViewTestCase(TestCase):
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
-        self.project = CustomScriptProject.objects.create(name='Serviced', key='serviced')
+        self.project = ScriptProject.objects.create(name='Serviced', key='serviced')
 
     def grant(self, model, *actions):
         obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
@@ -72,7 +72,7 @@ class RevisionServiceViewTestCase(TestCase):
         return f'{self.project.get_absolute_url()}revisions/'
 
     def test_activating_puts_the_revision_into_service(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         response = self.client.post(self.url(revision, 'activate'))
         self.assertHttpStatus(response, 302)
@@ -83,7 +83,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertTrue(CustomScript.objects.get(project=self.project).is_executable)
 
     def test_the_success_message_names_what_the_revision_published(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision(records=[record(), record(class_name='AuditDevices', position=1)])
         response = self.client.post(self.url(revision, 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
@@ -91,14 +91,14 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertIn('publishing 2 Custom Scripts', message)
 
     def test_the_success_message_is_singular_for_one_script(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         response = self.client.post(self.url(self.valid_revision(), 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
 
         self.assertIn('publishing 1 Custom Script.', message)
 
     def test_a_revision_publishing_nothing_says_so_rather_than_reporting_zero(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         response = self.client.post(self.url(self.valid_revision(records=[]), 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
 
@@ -106,7 +106,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertNotIn('publishing 0', message)
 
     def test_a_retirement_is_reported_separately_from_what_is_published(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         first = self.valid_revision(records=[record(), record(class_name='AuditDevices', position=1)])
         # follow, so the first activation's message is rendered rather than left queued for this one.
         self.client.post(self.url(first, 'activate'), follow=True)
@@ -120,7 +120,7 @@ class RevisionServiceViewTestCase(TestCase):
 
     def test_the_route_refuses_the_revision_already_in_force(self):
         # A stale confirmation page is the realistic way to reach this.
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
 
@@ -128,14 +128,14 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertHttpStatus(self.client.post(self.url(revision, 'activate')), 404)
 
     def test_the_route_refuses_a_revision_that_never_validated(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         materialized = self.valid_revision()
         ScriptProjectRevision.objects.filter(pk=materialized.pk).update(status=RevisionStatusChoices.MATERIALIZED)
 
         self.assertHttpStatus(self.client.post(self.url(materialized, 'activate')), 404)
 
     def test_deactivating_retires_the_revision_and_its_scripts(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         response = self.client.post(self.url(revision, 'deactivate'))
@@ -149,7 +149,7 @@ class RevisionServiceViewTestCase(TestCase):
     def test_reactivating_brings_the_same_rows_back(self):
         # The point of retiring rather than deleting: the primary key and the administrator's
         # enabled both survive a round trip through deactivation.
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         script = CustomScript.objects.get(project=self.project)
@@ -164,7 +164,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertFalse(returned.enabled)
 
     def test_deactivating_a_revision_that_is_not_active_is_refused(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         response = self.client.post(self.url(revision, 'deactivate'))
         self.assertHttpStatus(response, 302)
@@ -172,7 +172,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
 
     def test_activating_a_second_revision_retires_the_first(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         first = self.valid_revision()
         self.client.post(self.url(first, 'activate'))
         second = self.valid_revision(records=[record(class_name='Later')])
@@ -183,7 +183,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(second.status, RevisionStatusChoices.ACTIVE)
 
     def test_a_get_confirms_without_changing_anything(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         response = self.client.get(self.url(revision, 'activate'))
         self.assertHttpStatus(response, 200)
@@ -192,7 +192,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
 
     def test_the_deactivate_confirmation_renders(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
         response = self.client.get(self.url(revision, 'deactivate'))
@@ -207,7 +207,7 @@ class RevisionServiceViewTestCase(TestCase):
         # The children view wraps its table in a form for bulk actions, and a nested form is
         # invalid HTML that browsers discard, so a button inside one submits the OUTER form to
         # the tab URL. That is exactly what happened: POST to the tab, 405. Links cannot.
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         self.grant(ScriptProjectRevision, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
@@ -218,12 +218,12 @@ class RevisionServiceViewTestCase(TestCase):
     def test_the_tab_url_refuses_a_post(self):
         # The 405 the owner hit. Nothing should ever post here, and this pins that the tab is
         # not a state-changing route if a future template regresses to a nested form.
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         self.valid_revision()
         self.assertHttpStatus(self.client.post(self.tab_url()), 405)
 
     def test_the_project_view_permission_alone_is_not_enough(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         revision = self.valid_revision()
         self.assertHttpStatus(self.client.post(self.url(revision, 'activate')), 403)
         revision.refresh_from_db()
@@ -232,14 +232,14 @@ class RevisionServiceViewTestCase(TestCase):
     def test_no_revision_permission_of_its_own_is_needed(self):
         # The operation changes what the project serves, so the project's permission is the
         # gate. Viewing a revision is separate and takes its own permission, as REST does.
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
         self.assertHttpStatus(self.client.post(self.url(revision, 'activate')), 302)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
 
     def test_the_tab_offers_activate_for_a_valid_revision_and_nothing_else(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         self.grant(ScriptProjectRevision, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
@@ -247,7 +247,7 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertNotIn(self.url(revision, 'deactivate'), body)
 
     def test_the_tab_offers_deactivate_for_the_active_revision(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         self.grant(ScriptProjectRevision, 'view')
         revision = self.valid_revision()
         self.client.post(self.url(revision, 'activate'))
@@ -256,13 +256,13 @@ class RevisionServiceViewTestCase(TestCase):
         self.assertNotIn(self.url(revision, 'activate'), body)
 
     def test_the_tab_offers_neither_button_without_the_activate_permission(self):
-        self.grant(CustomScriptProject, 'view')
+        self.grant(ScriptProject, 'view')
         revision = self.valid_revision()
         body = self.client.get(self.tab_url()).content.decode()
         self.assertNotIn(self.url(revision, 'activate'), body)
 
     def test_a_materialized_revision_offers_neither_button(self):
-        self.grant(CustomScriptProject, 'view', 'activate')
+        self.grant(ScriptProject, 'view', 'activate')
         revision = service.stage_revision(self.project, {'deploy.py': b'V = 99\n'}).revision
         self.assertFalse(revision.is_activatable)
         body = self.client.get(self.tab_url()).content.decode()
@@ -275,7 +275,7 @@ class DeactivateRevisionTestCase(TestCase):
     """The domain operation behind the button."""
 
     def setUp(self):
-        self.project = CustomScriptProject.objects.create(name='Domain', key='domain')
+        self.project = ScriptProject.objects.create(name='Domain', key='domain')
 
     def activated(self):
         revision = service.stage_revision(self.project, {'deploy.py': b'V = 1\n'}).revision
@@ -310,7 +310,7 @@ class ScriptProjectRevisionProblemPanelTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Problem Project', key='problem-project')
+        cls.project = ScriptProject.objects.create(name='Problem Project', key='problem-project')
         cls.invalid = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
@@ -397,7 +397,7 @@ class RevisionEntrypointPanelTestCase(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(name='Entrypoint Project', key='entrypoint-project')
+        cls.project = ScriptProject.objects.create(name='Entrypoint Project', key='entrypoint-project')
         cls.declared = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,

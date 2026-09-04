@@ -3,7 +3,7 @@
 Custom Scripts for NetBox, maintained by [NetBox Labs](https://netboxlabs.com/).
 
 The plugin provides project-based management of NetBox Custom Scripts: each
-Custom Script Project is the ownership boundary for one script source tree and
+Script Project is the ownership boundary for one script source tree and
 the Python package boundary used when loading and executing scripts.
 
 ## Status
@@ -14,7 +14,7 @@ works end to end.
 Implemented:
 
 - four models with full UI, REST API, GraphQL, and global-search surfaces:
-  `CustomScriptProject`, `ScriptProjectRevision`, `CustomScriptModule`,
+  `ScriptProject`, `ScriptProjectRevision`, `CustomScriptModule`,
   and `CustomScript`
 - the plugin-owned script authoring API: `Script` base classes, variable
   types, dynamic form generation, structured logging, and `AbortScript`

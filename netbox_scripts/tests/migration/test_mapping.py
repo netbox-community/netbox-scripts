@@ -3,7 +3,7 @@ from django.test import SimpleTestCase, TestCase
 from netbox_scripts.choices import ProjectSourceTypeChoices
 from netbox_scripts.migration import mapping
 from netbox_scripts.migration.source import LegacyModule, LegacyScript
-from netbox_scripts.models import CustomScript, CustomScriptProject
+from netbox_scripts.models import CustomScript, ScriptProject
 
 
 def legacy(pk, file_path, data_source_id=None, data_path='', scripts=()):
@@ -102,7 +102,7 @@ class ResolveScriptsTestCase(TestCase):
         self.key = self.mapping['modules'][0]['project_key']
 
     def project(self):
-        return CustomScriptProject.objects.create(
+        return ScriptProject.objects.create(
             name='migrated',
             key=self.key,
             source_type=ProjectSourceTypeChoices.UPLOAD,
@@ -145,7 +145,7 @@ class ResolveScriptsTestCase(TestCase):
         self.assertEqual(resolved[11], row)
 
     def test_a_row_in_another_project_does_not_resolve(self):
-        other = CustomScriptProject.objects.create(
+        other = ScriptProject.objects.create(
             name='hand made',
             key='hand-made',
             source_type=ProjectSourceTypeChoices.UPLOAD,

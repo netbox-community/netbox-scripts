@@ -8,15 +8,15 @@ from utilities.forms.fields import DynamicModelMultipleChoiceField, TagFilterFie
 from utilities.forms.rendering import FieldSet
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
-from ...models import CustomScriptProject
+from ...models import ScriptProject
 
-__all__ = ('CustomScriptProjectFilterForm',)
+__all__ = ('ScriptProjectFilterForm',)
 
 
-class CustomScriptProjectFilterForm(PrimaryModelFilterSetForm):
-    """Filter form for the Custom Script Project list view."""
+class ScriptProjectFilterForm(PrimaryModelFilterSetForm):
+    """Filter form for the Script Project list view."""
 
-    model = CustomScriptProject
+    model = ScriptProject
     name = forms.CharField(
         required=False,
         label=_('Name'),
@@ -46,7 +46,7 @@ class CustomScriptProjectFilterForm(PrimaryModelFilterSetForm):
         label=_('Data source'),
     )
     tag = TagFilterField(
-        CustomScriptProject,
+        ScriptProject,
     )
 
     fieldsets = (

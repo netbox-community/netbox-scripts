@@ -53,7 +53,7 @@ nav:
   - Event Rules: event-rules.md
   - Permissions: permissions.md
   - Models:
-      - Custom Script Project: models/customscriptproject.md
+      - Script Project: models/scriptproject.md
       - Script Project Revision: models/scriptprojectrevision.md
       - Custom Script Module: models/customscriptmodule.md
       - Custom Script: models/customscript.md

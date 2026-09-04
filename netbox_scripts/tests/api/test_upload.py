@@ -11,7 +11,7 @@ from rest_framework import status
 from core.models import DataSource, Job
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import RevisionValidationJob
-from netbox_scripts.models import CustomScriptModule, CustomScriptProject, ScriptProjectRevision
+from netbox_scripts.models import CustomScriptModule, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 from utilities.testing import APITestCase
 
@@ -24,7 +24,7 @@ class UploadAPITestCase(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = CustomScriptProject.objects.create(
+        cls.project = ScriptProject.objects.create(
             name='API Upload Project',
             key='api-upload-project',
             activation_policy=ActivationPolicyChoices.MANUAL,
@@ -46,7 +46,7 @@ class UploadAPITestCase(APITestCase):
         )
 
     def url(self, project=None):
-        return reverse('plugins-api:netbox_scripts-api:customscriptproject-upload', args=[(project or self.project).pk])
+        return reverse('plugins-api:netbox_scripts-api:scriptproject-upload', args=[(project or self.project).pk])
 
     def allow_uploads(self):
         # The project's change permission is what the action resolves POST to, and the upload
@@ -55,8 +55,8 @@ class UploadAPITestCase(APITestCase):
         # the queryset is narrowed by change: the method-derived narrowing would resolve POST to
         # add, restrict to an empty set, and return 404 instead.
         self.add_permissions(
-            'netbox_scripts.view_customscriptproject',
-            'netbox_scripts.change_customscriptproject',
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
             'netbox_scripts.add_customscriptmodule',
         )
 
@@ -120,7 +120,7 @@ class UploadAPITestCase(APITestCase):
     def test_a_data_source_project_is_refused(self):
         self.allow_uploads()
         source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')
-        project = CustomScriptProject.objects.create(
+        project = ScriptProject.objects.create(
             name='Synced',
             key='synced',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
@@ -146,7 +146,7 @@ class UploadAPITestCase(APITestCase):
 
     def test_the_automatic_policy_activates_the_revision(self):
         self.allow_uploads()
-        CustomScriptProject.objects.filter(pk=self.project.pk).update(
+        ScriptProject.objects.filter(pk=self.project.pk).update(
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
         )
         self.upload()
@@ -159,8 +159,8 @@ class UploadAPITestCase(APITestCase):
 
     def test_the_project_add_permission_does_not_authorize_an_upload(self):
         self.add_permissions(
-            'netbox_scripts.view_customscriptproject',
-            'netbox_scripts.add_customscriptproject',
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.add_scriptproject',
             'netbox_scripts.add_customscriptmodule',
         )
         response = self.upload()
@@ -169,8 +169,8 @@ class UploadAPITestCase(APITestCase):
     def test_the_module_add_permission_is_required_too(self):
         # The upload declares an entrypoint, which is what the UI view requires it for.
         self.add_permissions(
-            'netbox_scripts.view_customscriptproject',
-            'netbox_scripts.change_customscriptproject',
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
         )
         response = self.upload()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

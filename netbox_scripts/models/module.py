@@ -12,7 +12,7 @@ from ..utils import source_path_to_dotted_name
 
 class CustomScriptModule(PrimaryModel):
     """
-    One executable entrypoint within a Custom Script Project.
+    One executable entrypoint within a Script Project.
 
     A module names one Python file of the project's source tree that discovery imports
     and publishes Scripts from. Helper files need no module row, they stay importable by
@@ -26,7 +26,7 @@ class CustomScriptModule(PrimaryModel):
     """
 
     project = models.ForeignKey(
-        to='netbox_scripts.CustomScriptProject',
+        to='netbox_scripts.ScriptProject',
         on_delete=models.CASCADE,
         related_name='modules',
     )

@@ -1,8 +1,7 @@
 from netbox.search import SearchIndex, register_search
 
-from .models.project import ScriptProject
-from .models.script import CustomScript
-from .models.script_file import ScriptFile
+from .models.projects import ScriptProject
+from .models.scripts import CustomScript, ScriptFile
 
 
 @register_search

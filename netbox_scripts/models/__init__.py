@@ -1,7 +1,6 @@
 from .migration import MigrationRun
-from .project import ScriptProject, ScriptProjectRevision
-from .script import CustomScript
-from .script_file import ScriptFile
+from .projects import ScriptProject, ScriptProjectRevision
+from .scripts import CustomScript, ScriptFile
 
 __all__ = (
     'CustomScript',

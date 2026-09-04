@@ -3,7 +3,7 @@ from netbox.api.serializers import ValidatedModelSerializer
 
 from ...choices import RevisionStatusChoices
 from ...models import ScriptProjectRevision
-from .project import ScriptProjectSerializer
+from .projects import ScriptProjectSerializer
 
 
 class ScriptProjectRevisionSerializer(ValidatedModelSerializer):

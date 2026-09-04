@@ -18,7 +18,7 @@ the plugin contract allows explicitly.
 | `core.signals.clear_events` | `execution.py` | Discards queued events when a run is abandoned |
 | `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Which database change-logged writes go to, which is a branch schema while a branch is active. The model is asked of NetBox Branching first, so one that stopped being branch-aware is named rather than read as the default alias |
 | `utilities.exceptions.AbortScript` | `execution.py` | The abort raised by a script carried over unchanged from the built-in feature, caught beside this plugin's own so either one ends a run cleanly. NetBox documents it for script authors rather than for plugins, and it is expected to go with the built-in feature at v5.0 |
-| `utilities.request.copy_safe_request` | `views/script.py`, `api/views.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
+| `utilities.request.copy_safe_request` | `views/scripts.py`, `api/views.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
 | `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Whether a worker is live for the queue, so a REST run that nothing could pick up is refused rather than queued |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
 | `netbox.api.authentication.TokenPermissions` | `api/views.py` | The permission class the REST run action subclasses, so a POST resolves to the run permission rather than to add |

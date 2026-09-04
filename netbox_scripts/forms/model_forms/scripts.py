@@ -4,9 +4,38 @@ from netbox.forms import PrimaryModelForm
 from utilities.forms.fields import DynamicModelChoiceField
 from utilities.forms.rendering import FieldSet
 
-from ...models import ScriptFile, ScriptProject
+from ...models import CustomScript, ScriptFile, ScriptProject
 
-__all__ = ('ScriptFileEditForm',)
+__all__ = (
+    'CustomScriptEditForm',
+    'ScriptFileEditForm',
+)
+
+
+class CustomScriptEditForm(PrimaryModelForm):
+    """Edit form for the administrator-owned fields of a Custom Script."""
+
+    fieldsets = (
+        FieldSet('enabled', 'tags', name=_('Custom Script')),
+        FieldSet(
+            'commit_default_override',
+            'job_timeout_override',
+            'notifications_default_override',
+            name=_('Execution overrides'),
+        ),
+    )
+
+    class Meta:
+        model = CustomScript
+        fields = (
+            'enabled',
+            'commit_default_override',
+            'job_timeout_override',
+            'notifications_default_override',
+            'owner',
+            'comments',
+            'tags',
+        )
 
 
 class ScriptFileEditForm(PrimaryModelForm):

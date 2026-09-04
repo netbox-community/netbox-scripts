@@ -176,7 +176,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.grant('view', 'run')
 
         with patch(
-            'netbox_scripts.views.script.load_script_class',
+            'netbox_scripts.views.scripts.load_script_class',
             side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
         ):
             response = self.client.get(self.url())

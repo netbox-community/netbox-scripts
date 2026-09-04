@@ -1,7 +1,6 @@
-from .project import ScriptProjectFilterSet
-from .revision import ScriptProjectRevisionFilterSet
-from .script import CustomScriptFilterSet
-from .script_file import ScriptFileFilterSet
+from .projects import ScriptProjectFilterSet
+from .revisions import ScriptProjectRevisionFilterSet
+from .scripts import CustomScriptFilterSet, ScriptFileFilterSet
 
 __all__ = (
     'CustomScriptFilterSet',

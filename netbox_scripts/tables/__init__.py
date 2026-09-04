@@ -1,12 +1,11 @@
-from .project import (
+from .projects import (
     ScriptProjectFileTable,
     ScriptProjectRevisionEntrypointTable,
     ScriptProjectRevisionProblemTable,
     ScriptProjectRevisionTable,
     ScriptProjectTable,
 )
-from .script import CustomScriptLogTable, CustomScriptTable
-from .script_file import ScriptFileTable
+from .scripts import CustomScriptLogTable, CustomScriptTable, ScriptFileTable
 
 __all__ = (
     'CustomScriptLogTable',

@@ -1,3 +1,2 @@
-from .project import *
-from .script import *
-from .script_file import *
+from .projects import *
+from .scripts import *

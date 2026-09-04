@@ -1,8 +1,7 @@
-from .project import ScriptProjectSerializer
-from .revision import ScriptProjectRevisionSerializer
+from .projects import ScriptProjectSerializer
+from .revisions import ScriptProjectRevisionSerializer
 from .run import CustomScriptRunInputSerializer
-from .script import CustomScriptSerializer
-from .script_file import ScriptFileSerializer
+from .scripts import CustomScriptSerializer, ScriptFileSerializer
 from .upload import ScriptProjectUploadSerializer
 
 __all__ = (

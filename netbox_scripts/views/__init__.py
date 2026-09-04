@@ -9,7 +9,7 @@ from .migration import (
     MigrationVerificationView,
     MigrationView,
 )
-from .project import (
+from .projects import (
     ScriptProjectActivateView,
     ScriptProjectAddScriptView,
     ScriptProjectBulkDeleteView,
@@ -26,20 +26,18 @@ from .project import (
     ScriptProjectUploadView,
     ScriptProjectView,
 )
-from .revision import (
+from .revisions import (
     ScriptProjectRevisionActivateView,
     ScriptProjectRevisionDeactivateView,
     ScriptProjectRevisionView,
 )
-from .script import (
+from .scripts import (
     CustomScriptBulkEditView,
     CustomScriptEditView,
     CustomScriptListView,
     CustomScriptResultView,
     CustomScriptRunView,
     CustomScriptView,
-)
-from .script_file import (
     ScriptFileBulkDeleteView,
     ScriptFileDeleteView,
     ScriptFileEditView,

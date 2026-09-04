@@ -1,2 +1,2 @@
-from .project import *
-from .script import *
+from .projects import *
+from .scripts import *

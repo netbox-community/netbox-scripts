@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from netbox.tables import BaseTable, PrimaryModelTable, columns
 from utilities.validators import url_scheme_is_allowed
 
-from ..models import CustomScript
+from ..models import CustomScript, ScriptFile
 from ..scripts.logging import LogLevelChoices
 
 
@@ -103,3 +103,41 @@ class CustomScriptLogTable(BaseTable):
         if not isinstance(url, str) or not url_scheme_is_allowed(url):
             return value
         return format_html('<a href="{}">{}</a>', url, value)
+
+
+class ScriptFileTable(PrimaryModelTable):
+    """Table for the Script File list view."""
+
+    source_path = tables.Column(
+        linkify=True,
+    )
+    project = tables.Column(
+        linkify=True,
+    )
+    enabled = columns.BooleanColumn()
+    discovery_status = columns.ChoiceFieldColumn()
+    last_discovered_revision = tables.Column(linkify=True)
+    tags = columns.TagColumn(
+        url_name='plugins:netbox_scripts:scriptfile_list',
+    )
+
+    class Meta(PrimaryModelTable.Meta):
+        model = ScriptFile
+        fields = (
+            'pk',
+            'id',
+            'source_path',
+            'project',
+            'enabled',
+            'discovery_status',
+            'discovery_error',
+            'last_discovered_revision',
+            'description',
+            'comments',
+            'owner',
+            'owner_group',
+            'tags',
+            'created',
+            'last_updated',
+        )
+        default_columns = ('source_path', 'project', 'enabled', 'discovery_status')

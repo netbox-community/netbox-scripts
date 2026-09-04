@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from netbox_scripts.tables import CustomScriptLogTable, CustomScriptTable
+from netbox_scripts.tables import CustomScriptLogTable, CustomScriptTable, ScriptFileTable
 from utilities.testing import TableTestCases
 
 
@@ -32,3 +32,7 @@ class CustomScriptLogTableTestCase(TestCase):
 
         self.assertNotIn('href=', rendered)
         self.assertIn('thing', rendered)
+
+
+class ScriptFileTableTestCase(TableTestCases.StandardTableTestCase):
+    table = ScriptFileTable

@@ -4,7 +4,7 @@ from django.urls import NoReverseMatch, reverse
 
 from core.models import ObjectChange
 from core.tables import ObjectChangeTable
-from netbox_scripts.models import CustomScript, ScriptProject
+from netbox_scripts.models import CustomScript, ScriptFile, ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginTestCases
 from utilities.testing import TestCase, create_tags
 
@@ -145,3 +145,54 @@ class CustomScriptViewTestCase(TestCase):
         cell = next(iter(table.rows)).get_cell('object_repr')
         self.assertIn(self.script.get_absolute_url(), cell)
         self.assertIn('Deploy Devices', cell)
+
+
+class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):
+    model = ScriptFile
+
+    @classmethod
+    def setUpTestData(cls):
+        projects = (
+            ScriptProject(name='View Project 1', key='view-project-1'),
+            ScriptProject(name='View Project 2', key='view-project-2'),
+        )
+        for project in projects:
+            project.save()
+
+        objs = (
+            ScriptFile(project=projects[0], source_path='tools/first.py', description='First'),
+            ScriptFile(project=projects[0], source_path='tools/second.py', description='Second'),
+            ScriptFile(
+                project=projects[1],
+                source_path='tools/third.py',
+                description='Third',
+                enabled=False,
+            ),
+        )
+        for obj in objs:
+            obj.save()
+
+        tags = create_tags('Alpha', 'Bravo', 'Charlie')
+
+        # Posted canonical: save() canonicalizes, and posted values are compared to the saved row.
+        cls.form_data = {
+            'project': projects[0].pk,
+            'source_path': 'tools/created.py',
+            'description': 'Form-created module',
+            'enabled': True,
+            'comments': 'Some notes',
+            'tags': [t.pk for t in tags],
+        }
+
+    def _form_data_without_identity_fields(self):
+        # project and source_path are disabled on the edit form (frozen after creation), so
+        # posted values are ignored and must not be asserted.
+        return {key: value for key, value in self.form_data.items() if key not in ('project', 'source_path')}
+
+    def test_edit_object_with_permission(self):
+        self.form_data = self._form_data_without_identity_fields()
+        super().test_edit_object_with_permission()
+
+    def test_edit_object_with_constrained_permission(self):
+        self.form_data = self._form_data_without_identity_fields()
+        super().test_edit_object_with_constrained_permission()

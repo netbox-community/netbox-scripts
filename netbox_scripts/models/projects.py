@@ -265,7 +265,7 @@ class ScriptProject(PrimaryModel):
 
         Raises ValidationError for a path this project cannot declare.
         """
-        from .script_file import ScriptFile
+        from .scripts import ScriptFile
 
         selected = set(paths)
         if unknown := selected.difference(self.declarable_entrypoints()):

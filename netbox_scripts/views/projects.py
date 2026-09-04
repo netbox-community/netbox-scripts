@@ -38,7 +38,7 @@ from ..object_actions import ActivateRevision, AddScript, ReconcileSource, Repai
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import ScriptProjectFileTable, ScriptProjectRevisionTable, ScriptProjectTable
 from ..ui import ScriptProjectPanel, ScriptProjectSourcePanel, ScriptProjectStatePanel
-from .revision import activation_message
+from .revisions import activation_message
 
 
 @register_model_view(ScriptProject, 'list', path='', detail=False)

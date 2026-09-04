@@ -63,88 +63,75 @@ when domain content calls for them.
 │   │   ├── views.py               , RunScriptPermissions + ScriptFileViewSet + ScriptProjectViewSet with its GET/PUT `entrypoints` action and its POST `upload` action (UploadSourcePermissions resolves POST to change, since the project exists and its source moves, and initial() re-narrows the queryset for the same reason. The Module add permission is checked in the action, matching the Add Script page, because an upload declares an entrypoint) + read-only ScriptProjectRevisionViewSet (NetBoxReadOnlyModelViewSet, so no write route is registered) + update-only CustomScriptViewSet (http_method_names drops POST and DELETE, since composing the mixins instead would drop NetBoxModelViewSet.update() and with it the changelog snapshot and the If-Match check) with its POST `run` action. Each viewset select_relates the revision its serializer nests. The run action carries its own permission class and http_method_names, because both defaults key off the HTTP method and would resolve POST to add, which no caller of a derived model holds. initial() narrows it by the run action for the same reason.
 │   │   └── serializers/
 │   │       ├── __init__.py        , Re-exports ScriptFileSerializer, ScriptProjectRevisionSerializer, ScriptProjectSerializer, ScriptProjectUploadSerializer, CustomScriptRunInputSerializer, CustomScriptSerializer.
-│   │       ├── revision.py    , ScriptProjectRevisionSerializer: read-only, and also the serializer event serialization resolves by model name. Omits the manifest, the entrypoint snapshot and the validation lease fields.
-│   │       ├── script.py      , CustomScriptSerializer: derived fields in read_only_fields, importable as api.serializers.CustomScriptSerializer for event serialization.
-│   │       ├── project.py     , [ScriptProject] ScriptProjectSerializer.
+│   │       ├── revisions.py    , ScriptProjectRevisionSerializer: read-only, and also the serializer event serialization resolves by model name. Omits the manifest, the entrypoint snapshot and the validation lease fields.
+│   │       ├── scripts.py      , CustomScriptSerializer: derived fields in read_only_fields, importable as api.serializers.CustomScriptSerializer for event serialization. + ScriptFileSerializer: nested project, discovery fields read-only, nested read-only revision.
+│   │       ├── projects.py     , [ScriptProject] ScriptProjectSerializer.
 │       │       ├── upload.py      , ScriptProjectUploadSerializer: the upload envelope. One file plus confirm_replace, and no destination field, ever. The path is the basename.
-│   │       ├── run.py         , CustomScriptRunInputSerializer: the run envelope. Variable values nest under `data`, so a variable cannot collide with an execution parameter. Refuses a past schedule and one the script class forbids.
-│   │       └── script_file.py      , ScriptFileSerializer: nested project, discovery fields read-only, nested read-only revision.
+│   │       └── run.py         , CustomScriptRunInputSerializer: the run envelope. Variable values nest under `data`, so a variable cannot collide with an execution parameter. Refuses a past schedule and one the script class forbids.
 │   ├── filtersets/
 │   │   ├── __init__.py            , Re-exports CustomScriptFilterSet, ScriptFileFilterSet, ScriptProjectFilterSet, ScriptProjectRevisionFilterSet.
-│   │   ├── project.py             , [ScriptProject] ScriptProjectFilterSet with custom search().
-│   │   ├── revision.py            , ScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet): project by id + key, status, both digests.
-│   │   ├── script_file.py              , ScriptFileFilterSet: project by id + key, discovery filters, custom search().
-│   │   └── script.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, explicit MultipleChoiceFilter for the notification override, the other two overrides generated, metadata unfiltered.
+│   │   ├── projects.py             , [ScriptProject] ScriptProjectFilterSet with custom search().
+│   │   ├── revisions.py            , ScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet): project by id + key, status, both digests.
+│   │   └── scripts.py              , CustomScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, explicit MultipleChoiceFilter for the notification override, the other two overrides generated, metadata unfiltered. + ScriptFileFilterSet: project by id + key, discovery filters, custom search().
 │   ├── forms/
 │   │   ├── __init__.py            , [ScriptProject] Re-exports each by-type subpackage.
-│   │   ├── model_forms/project.py   , [ScriptProject] ScriptProjectEditForm + ScriptProjectEntrypointsForm (reconciles the selection onto enabled, then enqueues ProjectEntrypointRefreshJob when it moved).
-│   │   ├── model_forms/script_file.py    , ScriptFileEditForm (project + source_path frozen, so disabled on edit).
-│   │   ├── bulk_edit/project.py     , [ScriptProject] ScriptProjectBulkEditForm.
-│   │   ├── bulk_import/project.py   , [ScriptProject] ScriptProjectBulkImportForm.
-│   │   ├── model_forms/script.py    , CustomScriptEditForm: writable set is enabled, the three execution overrides, comments, owner, tags and custom fields. A plain NetBox model form, because every derived column is editable=False and therefore already out of it.
-│   │   ├── bulk_edit/script.py      , CustomScriptBulkEditForm: enabled only, description removed declaratively since BulkEditView setattr ignores editable=False.
-│   │   ├── filtersets/project.py    , [ScriptProject] ScriptProjectFilterForm.
-│   │   ├── filtersets/script_file.py     , ScriptFileFilterForm.
-│   │   ├── filtersets/script.py     , CustomScriptFilterForm.
+│   │   ├── model_forms/projects.py   , [ScriptProject] ScriptProjectEditForm + ScriptProjectEntrypointsForm (reconciles the selection onto enabled, then enqueues ProjectEntrypointRefreshJob when it moved).
+│   │   ├── bulk_edit/projects.py     , [ScriptProject] ScriptProjectBulkEditForm.
+│   │   ├── bulk_import/projects.py   , [ScriptProject] ScriptProjectBulkImportForm.
+│   │   ├── model_forms/scripts.py    , CustomScriptEditForm: writable set is enabled, the three execution overrides, comments, owner, tags and custom fields. A plain NetBox model form, because every derived column is editable=False and therefore already out of it. + ScriptFileEditForm (project + source_path frozen, so disabled on edit).
+│   │   ├── bulk_edit/scripts.py      , CustomScriptBulkEditForm: enabled only, description removed declaratively since BulkEditView setattr ignores editable=False.
+│   │   ├── filtersets/projects.py    , [ScriptProject] ScriptProjectFilterForm.
+│   │   ├── filtersets/scripts.py     , CustomScriptFilterForm. + ScriptFileFilterForm.
 │   │   └── confirmations.py        , MigrationCutoverForm: the one acknowledgement the cutover will not submit without. A ConfirmationForm subclass, so generic/confirmation_form.html's hidden_fields loop has the marker it exists to render, and the visible checkbox is rendered by hand because that loop covers nothing else.
 │   ├── migrations/                , [ScriptProject] 0001_initial.py; regenerate on schema change and keep the pinned deps (see Conventions).
 │   ├── models/
 │   │   ├── __init__.py            , Re-exports CustomScript, ScriptFile, ScriptProject, ScriptProjectRevision, MigrationRun.
-│   │   ├── project.py             , ScriptProject(PrimaryModel), whose Meta.permissions carries activate / migrate / reconcile beside the four standard actions, with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints / paths_awaiting_activation + ScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
-│   │   ├── script_file.py              , ScriptFile(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
-│   │   ├── script.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name. run_refusal_reason names the first unmet run condition and is_executable is derived from it, so none of the six surfaces that refuse a run can describe a condition that did not hold. description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync). Three nullable execution-override columns sit beside enabled, empty meaning inherit, and the accessors resolve override then class then built-in default. scheduling_enabled takes no override, it is the author's safety claim.
+│   │   ├── projects.py             , ScriptProject(PrimaryModel), whose Meta.permissions carries activate / migrate / reconcile beside the four standard actions, with identity/ownership invariants and entrypoint_candidates / declarable_entrypoints / select_entrypoints / paths_awaiting_activation + ScriptProjectRevision (immutable content fields, entrypoint snapshot in identity, status lifecycle, validation lease fields).
+│   │   ├── scripts.py              , CustomScript(JobsMixin, PrimaryModel): one published Script class, identity project + module_path + class_name. run_refusal_reason names the first unmet run condition and is_executable is derived from it, so none of the six surfaces that refuse a run can describe a condition that did not hold. description overrides the abstract base as an unbounded TextField, enabled (admin) separate from is_retired (sync). Three nullable execution-override columns sit beside enabled, empty meaning inherit, and the accessors resolve override then class then built-in default. scheduling_enabled takes no override, it is the author's safety claim. + ScriptFile(PrimaryModel): declared entrypoints, canonical importable source_path frozen with project after creation, sibling rejection by letter case and by module name, system-managed discovery fields.
 │   │   └── migration.py           , MigrationRun(ChangeLoggedModel): one attempt at moving off the built-in feature. Migration infrastructure rather than a domain model, so no REST, GraphQL or list view. State moves forward one step only, at most one run is open, and the journal is what every cutover step replays from. complete_step() and recorded_counts() are the one home of the resume guard every caller needs. record_journal(), record_step() and record_warnings() are the only writers of the two JSON columns and each merges what the row holds with what the caller has under migration_lock(), so a pass that has not saved its own entries yet keeps them and one recorded by another object is not dropped.
 │   ├── tables/
 │   │   ├── __init__.py            , Re-exports ScriptFileTable, ScriptProjectFileTable, ScriptProjectRevisionEntrypointTable, ScriptProjectRevisionTable, ScriptProjectTable, CustomScriptTable.
-│   │   ├── project.py                 , [ScriptProject] ScriptProjectTable(PrimaryModelTable) + ScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns, and its entrypoint_count column is derived from the snapshot with no extra query, because two revisions can share a source digest and differ only there. + ScriptProjectFileTable, the Files tab fed the manifest's dictionaries rather than a queryset + ScriptProjectRevisionEntrypointTable, where that count resolves, fed the entrypoint snapshot the same way.
-│   │   ├── script.py              , CustomScriptTable + CustomScriptLogTable, the run log fed a list of dictionaries rather than a queryset.
-│   │   └── script_file.py              , ScriptFileTable: source_path is the linked column, revision column unlinked.
+│   │   ├── projects.py                 , [ScriptProject] ScriptProjectTable(PrimaryModelTable) + ScriptProjectRevisionTable(BaseTable), the history table with no list view. Its ActionsColumn carries only extra_buttons and needs exempt_columns to render, since BaseTable hides unselected columns, and its entrypoint_count column is derived from the snapshot with no extra query, because two revisions can share a source digest and differ only there. + ScriptProjectFileTable, the Files tab fed the manifest's dictionaries rather than a queryset + ScriptProjectRevisionEntrypointTable, where that count resolves, fed the entrypoint snapshot the same way.
+│   │   └── scripts.py              , CustomScriptTable + CustomScriptLogTable, the run log fed a list of dictionaries rather than a queryset. + ScriptFileTable: source_path is the linked column, revision column unlinked.
 │   ├── tests/                     , Each area mirrors its module layout (flat file or subpackage).
 │   │   ├── __init__.py            , [stub] Test discovery anchor.
 │   │   ├── plugin_testing.py      , [shared] Plugin-aware view/API test mixins (always rendered). PrimaryObjectViewTestCase + NestedObjectViewTestCase + DerivedObjectViewTestCase, the last for models whose rows are derived, so no create, delete, or import. Also the one home of ChangeLoggedFilterSetTestMixin, which the three filterset suites import from here rather than from the host.
 │   │   ├── models/__init__.py     , [ScriptProject] Test package anchor.
-│   │   ├── models/test_project.py , [ScriptProject] ScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
+│   │   ├── models/test_projects.py , [ScriptProject] ScriptProjectTestCase: create, str, absolute_url, data_path canonicalization, immutability + constraint invariants.
 │   │   ├── api/__init__.py        , [ScriptProject] Test package anchor.
-│   │   ├── api/test_project.py , [ScriptProject] ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
+│   │   ├── api/test_projects.py , [ScriptProject] ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase).
 │   │   ├── views/__init__.py      , [ScriptProject] Test package anchor.
-│   │   ├── views/test_project.py , [ScriptProject] ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase), plus the source-state, Activate and Repair view suites. The Repair one covers the inert button, the two message branches and the permission gate, and it is the only suite that reaches the already-active promotion path through a request.
+│   │   ├── views/test_projects.py , [ScriptProject] ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase), plus the source-state, Activate and Repair view suites. The Repair one covers the inert button, the two message branches and the permission gate, and it is the only suite that reaches the already-active promotion path through a request.
 │   │   ├── tables/__init__.py     , [ScriptProject] Test package anchor.
-│   │   ├── tables/test_project.py , [ScriptProject] ScriptProjectTableTestCase(TableTestCases.StandardTableTestCase) + RevisionEntrypointColumnTestCase, which asserts the count on a table built per revision, since a table cannot be ordered by a column it does not declare.
+│   │   ├── tables/test_projects.py , [ScriptProject] ScriptProjectTableTestCase(TableTestCases.StandardTableTestCase) + RevisionEntrypointColumnTestCase, which asserts the count on a table built per revision, since a table cannot be ordered by a column it does not declare.
 │   │   ├── forms/__init__.py      , [ScriptProject] Test package anchor.
-│   │   ├── forms/test_project.py , [ScriptProject] EditForm / FilterForm / BulkImportForm test cases.
+│   │   ├── forms/test_projects.py , [ScriptProject] EditForm / FilterForm / BulkImportForm test cases.
 │   │   ├── filtersets/__init__.py , [ScriptProject] Test package anchor.
-│   │   ├── filtersets/test_project.py , [ScriptProject] ScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
+│   │   ├── filtersets/test_projects.py , [ScriptProject] ScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests).
 │   │   ├── graphql/__init__.py    , [ScriptProject] Test package anchor.
-│   │   ├── graphql/test_project.py , [ScriptProject] ScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
-│   │   ├── models/test_script_file.py  , ScriptFile model invariants.
-│   │   ├── models/test_script.py  , CustomScript identity, retirement, cascade + is_executable.
-│   │   ├── api/test_script.py     , CustomScriptSerializer route reversal, event serialization, patchable enabled, ignored derived fields, refused create/delete.
-│   │   ├── api/test_revision.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
+│   │   ├── graphql/test_projects.py , [ScriptProject] ScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
+│   │   ├── models/test_scripts.py  , CustomScript identity, retirement, cascade + is_executable. + ScriptFile model invariants.
+│   │   ├── api/test_scripts.py     , CustomScriptSerializer route reversal, event serialization, patchable enabled, ignored derived fields, refused create/delete. + ScriptFileAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
+│   │   ├── api/test_revisions.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
 │   │   ├── api/test_run.py        , The scripts/<id>/run/ contract: the envelope, the Job response, the refusals, and that neither the add permission nor an object constraint can be bypassed.
-│   │   ├── views/test_script.py   , CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase) + detail view, changelog rendering, and the absent create/delete routes.
+│   │   ├── views/test_scripts.py   , CustomScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase) + detail view, changelog rendering, and the absent create/delete routes. + ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase).
 │   │   ├── views/test_run.py      , The run page, the run permission gate, the queued payload, the result page and its level threshold, plus one end-to-end submit-and-execute.
 │   │   ├── views/test_actions.py  , Static guard: every list, detail and row action is checked against the registered routes, because ActionsMixin and ActionsColumn filter by permission alone.
 │   │   ├── views/test_files.py    , The Files tab: manifest rows, the entrypoint marker, both missing-path annotations (gone from the source versus held only by a newer revision), the empty state, and the view gate.
 │   │   ├── views/test_migration.py , The Migration page and its seven enqueue routes: both permission gates, every enqueue, the queued-pass refusals, and which button each state renders.
 │   │   ├── views/test_migration_run.py , One migration's detail page.
 │   │   ├── models/test_migration_run.py , MigrationRun: the state machine, the single-open-run rule, and the journal helpers.
-│   │   ├── tables/test_script.py  , CustomScriptTableTestCase(TableTestCases.StandardTableTestCase).
-│   │   ├── filtersets/test_script.py , CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), metadata in ignore_fields.
-│   │   ├── forms/test_script.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field.
-│   │   ├── graphql/test_script.py , CustomScriptGraphQLTestCase: last_seen_revision absent from the type.
-│   │   ├── views/test_revision.py , Activate/Deactivate buttons: round trip, refusals, permissions, and which button each status renders. Plus RevisionEntrypointPanelTestCase, the frozen paths and the empty case.
+│   │   ├── tables/test_scripts.py  , CustomScriptTableTestCase(TableTestCases.StandardTableTestCase). + ScriptFileTableTestCase(TableTestCases.StandardTableTestCase).
+│   │   ├── filtersets/test_scripts.py , CustomScriptFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), metadata in ignore_fields. + ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
+│   │   ├── forms/test_scripts.py   , Edit + bulk edit forms: the writable set, and that a stale save cannot revert a derived field. + Edit / Filter form test cases.
+│   │   ├── graphql/test_scripts.py , CustomScriptGraphQLTestCase: last_seen_revision absent from the type. + ScriptFileGraphQLTestCase: discovery enum matches the ChoiceSet, the revision relation resolves.
+│   │   ├── views/test_revisions.py , Activate/Deactivate buttons: round trip, refusals, permissions, and which button each status renders. Plus RevisionEntrypointPanelTestCase, the frozen paths and the empty case.
 │   │   ├── views/test_reconcile.py , The Reconcile Source action: the confirmation, the enqueue, the permission gate, and which source type renders the button.
-│   │   ├── api/test_script_file.py     , ScriptFileAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
-│   │   ├── views/test_script_file.py   , ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase).
-│   │   ├── tables/test_script_file.py  , ScriptFileTableTestCase(TableTestCases.StandardTableTestCase).
-│   │   ├── forms/test_script_file.py   , Edit / Filter form test cases.
 │   │   ├── forms/test_confirmations.py , MigrationCutoverForm: the box is required, and it is visible rather than hidden, since the confirmation template renders only hidden fields.
 │   │   ├── forms/test_entrypoints.py , Selection reconciles onto enabled, nested paths, missing declared paths.
 │   │   ├── api/test_entrypoints.py , The projects/<id>/entrypoints/ GET + PUT contract.
 │   │   ├── models/test_entrypoint_candidates.py , Candidate enumeration from DataFile and from the newest manifest.
-│   │   ├── filtersets/test_script_file.py , ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTests), every field filterable.
-│   │   ├── graphql/test_script_file.py , ScriptFileGraphQLTestCase: discovery enum matches the ChoiceSet, the revision relation resolves.
-│   │   ├── graphql/test_revision.py , ScriptProjectRevisionGraphQLTestCase: status enum matches the ChoiceSet, stored documents and lease fields stay off the type.
+│   │   ├── graphql/test_revisions.py , ScriptProjectRevisionGraphQLTestCase: status enum matches the ChoiceSet, stored documents and lease fields stay off the type.
 │   │   ├── storage/               , Storage tier suites: config, paths, manifest, entrypoints, store, service, signals, jobs, branching, backend contract, concurrency. test_concurrency.py really commits, so its on_commit callbacks enqueue live RQ jobs. It shares that shape with MigrationLockTestCase in tests/models/test_migration_run.py, and both prove serialization in two halves against a second connection rather than by racing threads, which cannot be made deterministic. It drains the queue in cleanup so the suite leaves nothing behind even in the isolated database.
 │   │   ├── runtime/               , Runtime tier suites: test_cache.py, test_naming.py, test_loader.py, test_discovery.py, test_introspection.py, test_resolution.py.
 │   │   ├── scripts/               , Authoring API suites: test_base.py, test_variables.py, test_exports.py.
@@ -165,10 +152,9 @@ when domain content calls for them.
 │   ├── views/
 │   │   ├── __init__.py            , [ScriptProject] Re-exports every view class except the three shared bases, `__all__` alphabetised.
 │   │   ├── migration.py            , The Migration page, the run's detail view, and the seven enqueue views, on TWO gates. BaseMigrationView takes add_scriptproject for the page, the inventory, staging and verification, because creating Projects is all those authorize. DestructiveMigrationView takes migrate_scriptproject for the cutover, activation, repoint and cleanup, because closing and deleting rows of the built-in feature is not a form of creating a Project. The cutover is offered while the crossing is unrecorded rather than while the state reads staging, so the one button that finishes an interrupted crossing stays up, and a notice beside it says the fence may already have closed. Staging, the cutover and cleanup confirm first and refuse while a pass of their own class is queued, the inventory and verification do neither, because they write nothing. The repoint button is withheld, with the Projects named, while any of them serves nothing, gated on the frozen map rather than on the recorded step because that is what the predicate reads.
-│   │   ├── project.py                  , [ScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the read-only Files tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate, Repair and Reconcile confirmation views. Activate reports through views/revision.py's shared activation_message(), so the two Activate routes cannot word the same outcome differently. Repair re-activates the revision already in force, which is the only route to the already-active path, because the per-revision Activate view now filters its queryset to ACTIVATABLE_REVISION_STATUSES and the project-level one resolves through activatable_revision(). Withholding the button was not enough: an action filters by permission and never by route. Its queryset is narrowed to projects serving something, and it reports a repair and a no-op differently, which is the defect it exists for. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
-│   │   ├── script_file.py               , List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
-│   │   ├── script.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one. Run declares a ViewTab gated on the run permission, so every view of the script offers it, and builds its form through execution.load_script_class(), which the REST run action shares. Result serves its body as a partial to an htmx poll, so a run that has not reached a terminal state refreshes itself, at a slower rate while it is only scheduled.
-│   │   └── revision.py             , Detail view for one revision, carrying the entrypoint paths its snapshot froze, which is where the Revisions tab's entrypoint count resolves. That table always renders, unlike the problems one, because an empty snapshot is why a revision publishes nothing. Plus Activate + Deactivate, GET confirms and POST performs, and activation_message(), the one wording both Activate routes report through. Gated on the PROJECT's activate permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
+│   │   ├── projects.py                  , [ScriptProject] List/Detail/Edit/Delete/BulkEdit/BulkDelete/BulkImport views, the Entrypoints tab, the read-only Files tab, the Revisions history tab, Upload (create) + Add Script (detail) upload views, and the Activate, Repair and Reconcile confirmation views. Activate reports through views/revisions.py's shared activation_message(), so the two Activate routes cannot word the same outcome differently. Repair re-activates the revision already in force, which is the only route to the already-active path, because the per-revision Activate view now filters its queryset to ACTIVATABLE_REVISION_STATUSES and the project-level one resolves through activatable_revision(). Withholding the button was not enough: an action filters by permission and never by route. Its queryset is narrowed to projects serving something, and it reports a repair and a no-op differently, which is the defect it exists for. Reconcile narrows its queryset to Data Source-backed projects, so the route does not apply to an uploaded one.
+│   │   ├── scripts.py               , List/Detail/Edit/BulkEdit views plus Run (GET builds the class's own form out of the active revision, POST enqueues) and Result (one run's log, read out of the Job). No add, delete, bulk delete or bulk import: rows are derived from an activated revision, and retirement replaces deletion. The Jobs tab needs no view, JobsMixin registers one. Run declares a ViewTab gated on the run permission, so every view of the script offers it, and builds its form through execution.load_script_class(), which the REST run action shares. Result serves its body as a partial to an htmx poll, so a run that has not reached a terminal state refreshes itself, at a slower rate while it is only scheduled. + List/Detail/Edit/Delete/BulkDelete views. No bulk edit or bulk import: selection happens on the Project.
+│   │   └── revisions.py             , Detail view for one revision, carrying the entrypoint paths its snapshot froze, which is where the Revisions tab's entrypoint count resolves. That table always renders, unlike the problems one, because an empty snapshot is why a revision publishes nothing. Plus Activate + Deactivate, GET confirms and POST performs, and activation_message(), the one wording both Activate routes report through. Gated on the PROJECT's activate permission, with the revision queryset narrowed to permitted projects. The tab links here rather than posting: its table is inside the bulk-action form, so a nested form would submit the outer one.
 │   ├── ui/
 │   │   ├── __init__.py            , [ScriptProject] Re-exports ScriptProjectPanel + ScriptProjectSourcePanel.
 │   │   └── panels.py              , [ScriptProject] ScriptProjectPanel (left) + ScriptProjectSourcePanel and ScriptProjectStatePanel (right) for the detail view layout, plus CustomScriptPanel and CustomScriptStatePanel, the two Module panels, and the two Revision panels. source_state sits on the Project panel rather than the State panel, because it is keyed on the NEWEST revision of all while every field of the panel titled 'Current revision' reads off current_revision, which is the active revision or, failing one, the newest stored revision. The two are often different revisions.
@@ -438,19 +424,19 @@ inline as the plugin grows.
   `ready()` method that imports `signals` once you create that module.
 - **Default model (ScriptProject)**, the scaffold ships a
   worked example object across every subsystem: model
-  (`models/project.py`),
-  table (`tables/project.py`),
-  forms (`forms/<type>/project.py`, by type: model_forms, bulk_edit, bulk_import, filtersets),
-  filterset (`filtersets/project.py`),
-  seven views (`views/project.py`),
+  (`models/projects.py`),
+  table (`tables/projects.py`),
+  forms (`forms/<type>/projects.py`, by type: model_forms, bulk_edit, bulk_import, filtersets),
+  filterset (`filtersets/projects.py`),
+  seven views (`views/projects.py`),
   URL routes (`urls.py`), nav menu (`navigation.py`),
   search index (`search.py`),
-  REST API (`api/views.py`, `api/serializers/project.py`, `api/urls.py`),
+  REST API (`api/views.py`, `api/serializers/projects.py`, `api/urls.py`),
   GraphQL (`graphql/{schema,types,filters,enums}.py`),
   and a per-area test suite covering model / API / view / table / form /
   filterset / GraphQL surfaces. Each test area mirrors that area's module layout:
   a flat area gets `tests/test_<area>.py`; a subpackage area gets
-  `tests/<area>/test_project.py` for the worked
+  `tests/<area>/test_projects.py` for the worked
   example, with related models grouped into topic leaves
   `tests/<area>/test_<topic>.py`, plus a `tests/<area>/__init__.py` anchor.
   The shared `tests/plugin_testing.py`

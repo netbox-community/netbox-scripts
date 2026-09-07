@@ -1,0 +1,22 @@
+{% extends "generic/object_children.html" %}
+{% load i18n %}
+{% comment %}
+The current revision's file list, with a line naming the revision it came from.
+
+Context:
+  - object: The Project whose current revision is listed
+{% endcomment %}
+{% block table_controls %}
+  {% url 'plugins:netbox_scripts:scriptproject_script_files' pk=object.pk as script_files_url %}
+  {% if object.current_revision %}
+    <p class="text-secondary">
+      {% blocktrans trimmed with revision=object.current_revision url=object.current_revision.get_absolute_url %}
+        These are the files of <a href="{{ url }}">{{ revision }}</a>, this Project's current revision.
+      {% endblocktrans %}
+      {% blocktrans trimmed %}
+        Which of them are script files is declared on the <a href="{{ script_files_url }}">Script Files</a> tab.
+      {% endblocktrans %}
+    </p>
+  {% endif %}
+  {{ block.super }}
+{% endblock table_controls %}

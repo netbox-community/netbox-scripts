@@ -189,6 +189,14 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
         url = reverse('plugins:netbox_scripts:scriptproject_script_files', args=[bare.pk])
         self.assertHttpStatus(self.client.get(url), 200)
 
+    def test_the_tab_says_what_saving_does_and_names_the_other_tab(self):
+        # ViewTab carries no description, so the line rides on the field's help text, which
+        # NetBox renders beneath the label.
+        self.grant_both()
+        body = self.client.get(self.url()).content.decode()
+        # The whole sentence, because the tab bar renders the words "Revision Files" regardless.
+        self.assertIn('Saving a change restages the source, and the Revision Files tab lists', body)
+
 
 class ScriptProjectSourceStateViewTestCase(TestCase):
     """The detail view surfaces source state, revision history, and the add-script action."""

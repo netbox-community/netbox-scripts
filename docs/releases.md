@@ -56,10 +56,10 @@
 * Source state on the Project page: a plain-language summary plus the current
   revision's date, status, digest, file count, size, and activation time, with
   the full revision history on its own Revisions tab
-* Repair Scripts on the Project page: republishes a serving Project's Custom
+* Repair Scripts on the Project page: republishes a serving Project's
   Script rows from the revision it already serves, reporting how many moved,
   behind the same activate permission as activation itself
-* A read-only Files tab on the Project: the current revision's files with
+* A read-only Revision Files tab on the Project: the current revision's files with
   size, short checksum, and script file state, annotating a declared path the
   source no longer holds
 * Fixed: the runtime cache created its intermediate directories at the process

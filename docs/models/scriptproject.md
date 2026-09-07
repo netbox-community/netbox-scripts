@@ -45,12 +45,13 @@ imports, and its detail page lists the [Script
 Files](scriptfile.md) it has declared. The selection is also a REST
 operation at `projects/<id>/script-files/`.
 
-A project's **Files** tab lists the files of its current revision, one row per
-manifest entry with its size and short checksum, and marks which paths are
-enabled script files. A declared path the revision does not hold is annotated,
-and the annotation distinguishes one that is gone from the source from one a
-newer revision holds that is not being served yet. The tab is empty until a
-revision holds content.
+A project's **Revision Files** tab lists the files of its current revision, one
+row per manifest entry with its size and short checksum, and marks which paths
+are enabled script files. It names the revision it is listing and links the
+Script Files tab, where the declarations are set. A declared path the revision
+does not hold is annotated, and the annotation distinguishes one that is gone
+from the source from one a newer revision holds that is not being served yet.
+The tab is empty until a revision holds content.
 
 ## Invariants
 

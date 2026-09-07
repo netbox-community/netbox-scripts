@@ -289,7 +289,7 @@ class ScriptProjectScriptFilesView(generic.ObjectEditView):
     additional_permissions = ('netbox_scripts.change_scriptfile',)
 
 
-@register_model_view(ScriptProject, 'files', path='files')
+@register_model_view(ScriptProject, 'files', path='revision-files')
 class ScriptProjectFilesView(generic.ObjectChildrenView):
     """
     The files a Script Project's current revision holds.
@@ -299,10 +299,11 @@ class ScriptProjectFilesView(generic.ObjectChildrenView):
     """
 
     queryset = ScriptProject.objects.select_related('active_revision')
+    template_name = 'netbox_scripts/scriptproject_revision_files.html'
     table = ScriptProjectFileTable
     actions = ()
     tab = ViewTab(
-        label=_('Files'),
+        label=_('Revision Files'),
         badge=lambda obj: obj.current_revision.file_count if obj.current_revision else 0,
         permission='netbox_scripts.view_scriptprojectrevision',
         weight=550,

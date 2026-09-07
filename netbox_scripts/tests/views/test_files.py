@@ -11,7 +11,7 @@ from utilities.testing import TestCase, create_test_user
 
 
 class ScriptProjectFilesViewTestCase(TestCase):
-    """The Files tab lists the current revision's manifest with the live declaration state."""
+    """The Revision Files tab lists the current revision's manifest with the live declaration state."""
 
     @classmethod
     def setUpTestData(cls):
@@ -173,3 +173,20 @@ class ScriptProjectFilesViewTestCase(TestCase):
         self.grant(ScriptProjectRevision, 'view')
         body = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(self.url(self.project), body)
+
+    def test_the_tab_names_the_revision_it_lists(self):
+        self.grant(ScriptProject, 'view')
+        self.grant(ScriptProjectRevision, 'view')
+        body = self.client.get(self.url(self.project)).content.decode()
+        self.assertIn('current revision', body)
+        # The revision's own string form, which is the short digest, so the line names which one.
+        self.assertIn('a' * 12, body)
+        self.assertNotIn('a' * 64, body)
+        self.assertIn(self.revision.get_absolute_url(), body)
+        self.assertIn(reverse('plugins:netbox_scripts:scriptproject_script_files', args=[self.project.pk]), body)
+
+    def test_the_line_is_absent_from_a_project_holding_no_revision(self):
+        self.grant(ScriptProject, 'view')
+        self.grant(ScriptProjectRevision, 'view')
+        body = self.client.get(self.url(self.empty)).content.decode()
+        self.assertNotIn('current revision', body)

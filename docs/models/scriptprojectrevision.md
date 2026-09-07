@@ -156,8 +156,8 @@ separate services.
 - **The storage service** takes a revision as far as `materialized`, meaning the
   tree is stored and matches its manifest.
 - **Project validation** promotes a materialized revision to `valid` or
-  `invalid` by importing every script file in the snapshot and running Custom
-  Script discovery on it. See [Runtime and Loading](../runtime.md) for what
+  `invalid` by importing every script file in the snapshot and running Script
+  discovery on it. See [Runtime and Loading](../runtime.md) for what
   makes a revision invalid and what counts as environment trouble instead.
 - **The activation service** accepts only `valid` or `retired` revisions.
 
@@ -328,7 +328,7 @@ for them.
 | Limitation | Impact |
 |---|---|
 | No list page and no global search | A revision is reached through its project, on the Revisions tab or by filtering the REST and GraphQL surfaces by project |
-| The manifest and the script file snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Files tab lists the current revision's files in the UI |
+| The manifest and the script file snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Revision Files tab lists the current revision's files in the UI |
 | Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
 | Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |

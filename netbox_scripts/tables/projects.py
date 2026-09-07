@@ -109,7 +109,7 @@ class ScriptProjectRevisionTable(BaseTable):
 
 class ScriptProjectFileTable(BaseTable):
     """
-    The files of a project's current revision, for the project's Files tab.
+    The files of a project's current revision, for the project's Revision Files tab.
 
     Rows are the manifest's plain dictionaries plus one row per declared path the served
     revision does not hold, so this table is fed a list and has no queryset behind it.

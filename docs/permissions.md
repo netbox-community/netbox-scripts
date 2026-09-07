@@ -32,7 +32,7 @@ is the same privilege.
 **Browsing revisions is a separate permission, `netbox_scripts.view_scriptprojectrevision`.**
 The line falls between what a Project is serving and its history. A Project's own
 page reports the revision in force, so `view` on the Project is enough to see
-that. The Revisions tab, the Files tab and a revision's own page list the
+that. The Revisions tab, the Revision Files tab and a revision's own page list the
 history and its stored file paths, so each asks for the Revision view
 permission, and the two tabs are hidden without it.
 

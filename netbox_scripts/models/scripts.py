@@ -225,13 +225,13 @@ class ScriptFile(PrimaryModel):
     project = models.ForeignKey(
         to='netbox_scripts.ScriptProject',
         on_delete=models.CASCADE,
-        related_name='modules',
+        related_name='script_files',
     )
     source_path = models.CharField(
         verbose_name=_('source path'),
         max_length=1000,
         db_collation='natural_sort',
-        help_text=_('POSIX-style relative path of the entrypoint Python file within the project source tree.'),
+        help_text=_('POSIX-style relative path of the script file within the project source tree.'),
     )
     enabled = models.BooleanField(
         verbose_name=_('enabled'),
@@ -309,9 +309,11 @@ class ScriptFile(PrimaryModel):
             )
             if original:
                 if original['project_id'] != self.project_id:
-                    errors['project'] = _('The project cannot be changed once the module has been created.')
+                    errors['project'] = _('The project cannot be changed once the script file has been created.')
                 if 'source_path' not in errors and original['source_path'] != self.source_path:
-                    errors['source_path'] = _('The source path cannot be changed once the module has been created.')
+                    errors['source_path'] = _(
+                        'The source path cannot be changed once the script file has been created.'
+                    )
 
         if errors:
             raise ValidationError(errors)
@@ -348,9 +350,11 @@ class ScriptFile(PrimaryModel):
             if original:
                 errors = {}
                 if original['project_id'] != self.project_id:
-                    errors['project'] = _('The project cannot be changed once the module has been created.')
+                    errors['project'] = _('The project cannot be changed once the script file has been created.')
                 if original['source_path'] != self.source_path:
-                    errors['source_path'] = _('The source path cannot be changed once the module has been created.')
+                    errors['source_path'] = _(
+                        'The source path cannot be changed once the script file has been created.'
+                    )
                 if errors:
                     raise ValidationError(errors)
         super().save(*args, **kwargs)
@@ -373,7 +377,7 @@ class ScriptFile(PrimaryModel):
             for form, node in case_insensitive_nodes(other.source_path).items():
                 if form in mine and mine[form] != node:
                     return _(
-                        'This path collides with module "{path}" of the same project, because "{mine}" and '
+                        'This path collides with script file "{path}" of the same project, because "{mine}" and '
                         '"{theirs}" differ only in letter case.'
                     ).format(path=other.source_path, mine=mine[form], theirs=node)
             try:

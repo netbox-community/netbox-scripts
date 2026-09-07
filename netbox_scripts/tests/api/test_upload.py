@@ -166,7 +166,7 @@ class UploadAPITestCase(APITestCase):
         response = self.upload()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_the_module_add_permission_is_required_too(self):
+    def test_the_script_file_add_permission_is_required_too(self):
         # The upload declares an entrypoint, which is what the UI view requires it for.
         self.add_permissions(
             'netbox_scripts.view_scriptproject',

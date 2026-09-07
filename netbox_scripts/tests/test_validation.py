@@ -17,7 +17,7 @@ from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusCho
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
-from netbox_scripts.runtime.exceptions import DiscoveryError, EntrypointImportError
+from netbox_scripts.runtime.exceptions import DiscoveryError, ScriptFileImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageError
@@ -27,7 +27,7 @@ from netbox_scripts.validation import (
     ValidationStateError,
     _top_level_module_names,
     build_error_sanitizer,
-    classify_entrypoint_error,
+    classify_script_file_error,
     validate_revision,
 )
 
@@ -127,7 +127,7 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.validation_job, self.job)
 
     def test_a_stale_worker_resuming_after_a_reclaim_commits_nothing(self):
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
         old_job = self.make_job()
         new_job = self.make_job()
@@ -151,9 +151,9 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(stale_result.status, RevisionStatusChoices.VALID)
         self.assertEqual(stale_result.validation_errors, [])
         self.assertEqual(stale_result.validation_job, new_job)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
-        self.assertEqual(module_row.discovery_error, '')
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(script_file.discovery_error, '')
 
 
 class SnapshotTestCase(ValidationTestMixin, TestCase):
@@ -161,7 +161,7 @@ class SnapshotTestCase(ValidationTestMixin, TestCase):
         self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
         ScriptProjectRevision.objects.filter(pk=revision.pk).update(
-            entrypoint_snapshot=[{'module': 1, 'source_path': 'deploy.py', 'extra': 'field'}]
+            script_file_snapshot=[{'script_file': 1, 'source_path': 'deploy.py', 'extra': 'field'}]
         )
         revision.refresh_from_db()
         with self.assertRaises(RevisionCorruptError):
@@ -171,10 +171,10 @@ class SnapshotTestCase(ValidationTestMixin, TestCase):
         self.assertIsNone(revision.validation_job)
         self.assertIsNone(revision.validation_started)
 
-    def test_the_verdict_follows_the_snapshot_not_live_module_rows(self):
-        module_row = self.declare('deploy.py')
+    def test_the_verdict_follows_the_snapshot_not_live_script_file_rows(self):
+        script_file = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
-        module_row.delete()
+        script_file.delete()
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
 
@@ -186,17 +186,17 @@ class SnapshotTestCase(ValidationTestMixin, TestCase):
 
 
 class VerdictTestCase(ValidationTestMixin, TestCase):
-    def test_two_entrypoints_validate_and_both_modules_discover(self):
+    def test_two_script_files_validate_and_both_modules_discover(self):
         first = self.declare('deploy.py')
         second = self.declare('audit.py')
         revision = self.stage({'deploy.py': script_source('Deploy'), 'audit.py': script_source('Audit')})
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
-        for module_row in (first, second):
-            module_row.refresh_from_db()
-            self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
-            self.assertEqual(module_row.discovery_error, '')
-            self.assertEqual(module_row.last_discovered_revision, result)
+        for script_file in (first, second):
+            script_file.refresh_from_db()
+            self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+            self.assertEqual(script_file.discovery_error, '')
+            self.assertEqual(script_file.last_discovered_revision, result)
 
     def test_a_syntax_error_is_an_invalid_verdict_and_spares_the_sibling(self):
         good = self.declare('deploy.py')
@@ -206,7 +206,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
         (record,) = result.validation_errors
         self.assertEqual(record['source_path'], 'broken.py')
-        self.assertEqual(record['code'], 'entrypoint_import_failed')
+        self.assertEqual(record['code'], 'script_file_import_failed')
         self.assertEqual(record['exception_type'], 'SyntaxError')
         good.refresh_from_db()
         bad.refresh_from_db()
@@ -231,7 +231,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
         (record,) = result.validation_errors
         self.assertEqual(record['source_path'], 'deploy.py')
-        self.assertEqual(record['code'], 'entrypoint_import_failed')
+        self.assertEqual(record['code'], 'script_file_import_failed')
         self.assertEqual(record['exception_type'], 'ImportError')
 
     def test_a_missing_revision_module_is_an_invalid_verdict(self):
@@ -247,16 +247,16 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
 
     def test_a_missing_external_distribution_reverts_and_reraises(self):
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
         self.assertIsNone(revision.validation_job)
         self.assertIsNone(revision.validation_started)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.PENDING)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.PENDING)
 
     def test_the_reason_a_verdict_could_not_be_reached_is_recorded(self):
         # The lease fields are given back, so this is the only thing that survives to say why a
@@ -264,7 +264,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
 
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
 
         revision.refresh_from_db()
@@ -273,7 +273,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
     def test_a_recorded_reason_is_cleared_when_a_verdict_is_reached(self):
         self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
         revision.refresh_from_db()
         self.assertTrue(revision.validation_error)
@@ -352,15 +352,15 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
         (record,) = result.discovered_scripts
         self.assertEqual(record['module_path'], 'deploy')
         self.assertEqual(record['class_name'], 'Deploy')
-        self.assertEqual(record['entrypoint_path'], 'deploy.py')
+        self.assertEqual(record['script_file_path'], 'deploy.py')
         self.assertEqual(record['position'], 0)
         self.assertEqual(record['metadata']['commit_default'], True)
 
-    def test_the_recorded_entrypoint_is_the_declaration_that_published_the_class(self):
-        module_row = self.declare('deploy.py')
+    def test_the_recorded_script_file_is_the_declaration_that_published_the_class(self):
+        script_file = self.declare('deploy.py')
         result = validate_revision(self.stage(SCRIPT_FILES), job=self.job)
         (record,) = result.discovered_scripts
-        self.assertEqual(record['entrypoint_module_id'], module_row.pk)
+        self.assertEqual(record['script_file_id'], script_file.pk)
 
     def test_a_helper_defined_class_records_its_defining_module(self):
         self.declare('deploy.py')
@@ -373,7 +373,7 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
         # No Module row names helpers.py, which is why a published class cannot be identified
         # by its entrypoint declaration.
         self.assertEqual(record['module_path'], 'helpers')
-        self.assertEqual(record['entrypoint_path'], 'deploy.py')
+        self.assertEqual(record['script_file_path'], 'deploy.py')
 
     def test_positions_number_the_publication_set_across_entries(self):
         self.declare('deploy.py')
@@ -469,7 +469,7 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
     def test_an_environment_failure_leaves_the_publication_set_alone(self):
         self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
@@ -500,7 +500,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
     """A revision whose enabled entrypoints import cleanly and publish no script."""
 
     def test_a_revision_publishing_nothing_is_invalid_and_says_why(self):
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'VALUE = 1\n'})
 
         result = validate_revision(revision, job=self.job)
@@ -513,11 +513,11 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertIsNone(record['exception_type'])
         self.assertIsNone(record['traceback'])
         self.assertEqual(result.discovered_scripts, [])
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
-        self.assertEqual(module_row.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
+        self.assertEqual(script_file.discovery_error, 'The module imports cleanly and defines no Custom Script.')
 
-    def test_an_entrypoint_publishing_nothing_beside_a_working_one_stays_valid(self):
+    def test_a_script_file_publishing_nothing_beside_a_working_one_stays_valid(self):
         working = self.declare('deploy.py')
         empty = self.declare('notes.py')
         revision = self.stage({'deploy.py': script_source('Deploy'), 'notes.py': b'VALUE = 1\n'})
@@ -544,7 +544,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         result = validate_revision(revision, job=self.job)
 
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
-        self.assertEqual({record['code'] for record in result.validation_errors}, {'entrypoint_import_failed'})
+        self.assertEqual({record['code'] for record in result.validation_errors}, {'script_file_import_failed'})
         empty.refresh_from_db()
         broken.refresh_from_db()
         self.assertEqual(empty.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
@@ -553,7 +553,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(broken.discovery_error, 'invalid syntax (broken.py, line 1)')
 
     def test_a_host_based_class_is_named_in_the_verdict(self):
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         # The documented bypass: importlib reaches the host module rather than the compat
         # stand-in, so the class subclasses NetBox Community's base and publishes nothing.
         source = (
@@ -571,10 +571,10 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(record['code'], 'no_scripts_published')
         self.assertIn('"NewIP" subclasses extras.scripts.Script', record['message'])
         self.assertIn('netbox_scripts.scripts', record['message'])
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
 
-    def test_a_snapshot_with_no_enabled_entrypoint_is_still_valid(self):
+    def test_a_snapshot_with_no_enabled_script_file_is_still_valid(self):
         # The boundary the ruling drew: a revision with nothing enabled publishes nothing by
         # definition, which is every fresh Data Source project. The declaration exists here and
         # is merely disabled, which is the case the snapshot suite's empty-snapshot test does
@@ -592,12 +592,12 @@ class ClassificationTestCase(TestCase):
     PREFIX = revision_module_name(uuid.UUID('9f1c6d24-0b2a-4d3e-8f57-2c9a4b6e1d80'), 'a' * 64)
 
     def wrap(self, cause):
-        detail = {'path': 'p.py', 'code': 'entrypoint_import_failed', 'message': 'm', 'exception_type': 'T'}
+        detail = {'path': 'p.py', 'code': 'script_file_import_failed', 'message': 'm', 'exception_type': 'T'}
         if cause is None:
-            return EntrypointImportError('m', detail)
+            return ScriptFileImportError('m', detail)
         try:
-            raise EntrypointImportError('m', detail) from cause
-        except EntrypointImportError as error:
+            raise ScriptFileImportError('m', detail) from cause
+        except ScriptFileImportError as error:
             return error
 
     def test_the_classification_table(self):
@@ -616,23 +616,23 @@ class ClassificationTestCase(TestCase):
         for cause, expected in cases:
             with self.subTest(cause=type(cause).__name__ if cause else 'None'):
                 error = self.wrap(cause)
-                self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), expected)
+                self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), expected)
 
     def test_a_missing_name_in_an_installed_module_is_content(self):
         # from dcim.models import Devices. The module is there, the name is not, so the author
         # gets an invalid revision naming the typo instead of a failed job with no verdict.
         error = self.wrap(ImportError("cannot import name 'Devices' from 'dcim.models'", name='dcim.models'))
-        self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), 'content')
+        self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), 'content')
 
     def test_an_absent_distribution_is_still_environment(self):
         error = self.wrap(ModuleNotFoundError("No module named 'netaddr'", name='netaddr'))
-        self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), 'environment')
+        self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), 'environment')
 
     def test_a_refused_legacy_import_is_content(self):
         # The compat tier raises a plain ImportError once the host drops a legacy name, and it
         # carries no name the prefix logic could match. Content is what records a verdict.
         error = self.wrap(ImportError('"extras.scripts" is no longer part of NetBox.', name='extras.scripts'))
-        self.assertEqual(classify_entrypoint_error(error, revision_prefix=self.PREFIX), 'content')
+        self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), 'content')
 
     def test_an_absolute_import_of_the_revisions_own_module_is_content(self):
         # "import helpers" instead of "from . import helpers" raises without the revision
@@ -640,18 +640,18 @@ class ClassificationTestCase(TestCase):
         # revision reverts to materialized forever instead of ever reaching invalid.
         error = self.wrap(ModuleNotFoundError('missing', name='helpers'))
         self.assertEqual(
-            classify_entrypoint_error(error, revision_prefix=self.PREFIX, revision_modules={'helpers'}),
+            classify_script_file_error(error, revision_prefix=self.PREFIX, revision_modules={'helpers'}),
             'content',
         )
         self.assertEqual(
-            classify_entrypoint_error(error, revision_prefix=self.PREFIX, revision_modules={'other'}),
+            classify_script_file_error(error, revision_prefix=self.PREFIX, revision_modules={'other'}),
             'environment',
         )
 
     def test_a_submodule_of_the_revisions_own_package_is_content(self):
         error = self.wrap(ModuleNotFoundError('missing', name='pkg.absent'))
         self.assertEqual(
-            classify_entrypoint_error(error, revision_prefix=self.PREFIX, revision_modules={'pkg'}),
+            classify_script_file_error(error, revision_prefix=self.PREFIX, revision_modules={'pkg'}),
             'content',
         )
 
@@ -677,23 +677,23 @@ class ClassificationTestCase(TestCase):
         self.assertIsNone(sanitize(None))
 
 
-class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
+class ScriptFilePersistenceTestCase(ValidationTestMixin, TestCase):
     def test_a_row_renamed_since_staging_is_skipped(self):
         # save() refuses a rename now that the identity fields are frozen, so the mismatch
         # is produced through QuerySet.update(), the one route that still reaches it. The
         # persistence guard has to hold on that route too.
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
-        ScriptFile.objects.filter(pk=module_row.pk).update(source_path='moved.py')
-        module_row.refresh_from_db()
+        ScriptFile.objects.filter(pk=script_file.pk).update(source_path='moved.py')
+        script_file.refresh_from_db()
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.PENDING)
-        self.assertIsNone(module_row.last_discovered_revision)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.PENDING)
+        self.assertIsNone(script_file.last_discovered_revision)
 
     def test_an_older_run_finishing_late_cannot_overwrite_a_newer_outcome(self):
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         older = self.stage({'deploy.py': script_source('One')})
         newer = self.stage({'deploy.py': script_source('Two')})
         newer_job = self.make_job()
@@ -712,15 +712,15 @@ class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
             result = validate_revision(older, job=self.job)
 
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.last_discovered_revision_id, newer.pk)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.last_discovered_revision_id, newer.pk)
 
-    def test_an_expired_lease_revalidation_refreshes_its_own_module_rows(self):
-        module_row = self.declare('deploy.py')
+    def test_an_expired_lease_revalidation_refreshes_its_own_script_file_rows(self):
+        script_file = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
         validate_revision(revision, job=self.job)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.last_discovered_revision_id, revision.pk)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.last_discovered_revision_id, revision.pk)
         # Simulate the terminal write being lost to a crash: back to a stale claim.
         ScriptProjectRevision.objects.filter(pk=revision.pk).update(
             status=RevisionStatusChoices.VALIDATING,
@@ -729,22 +729,22 @@ class ModulePersistenceTestCase(ValidationTestMixin, TestCase):
         revision.refresh_from_db()
         result = validate_revision(revision, job=self.make_job())
         self.assertEqual(result.status, RevisionStatusChoices.VALID)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.last_discovered_revision_id, revision.pk)
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.last_discovered_revision_id, revision.pk)
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
 
 
 class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
     def test_an_immediate_enqueue_validates_the_revision(self):
-        module_row = self.declare('deploy.py')
+        script_file = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
         job = RevisionValidationJob.enqueue_validation(revision, immediate=True)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
-        module_row.refresh_from_db()
-        self.assertEqual(module_row.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
 
     def test_enqueue_persists_the_revision_pk_on_the_job_row(self):
         revision = self.stage(SCRIPT_FILES)

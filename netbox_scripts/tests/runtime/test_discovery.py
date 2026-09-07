@@ -33,7 +33,7 @@ def discover(module):
 
 
 class DiscoverScriptsTestCase(TestCase):
-    def test_entrypoint_defined_scripts_publish_alphabetically(self):
+    def test_script_file_defined_scripts_publish_alphabetically(self):
         module = make_module(
             f'{PREFIX}.deploy',
             'class Beta(Script):\n    pass\n\nclass Alpha(Script):\n    pass\n',

@@ -55,7 +55,7 @@ class ScriptProjectRevisionFilter(ChangeLoggedModelFilter):
     project: ScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()
     digest: StrFilterLookup | None = strawberry_django.filter_field()
-    entrypoint_digest: StrFilterLookup | None = strawberry_django.filter_field()
+    script_file_digest: StrFilterLookup | None = strawberry_django.filter_field()
     status: (
         BaseFilterLookup[Annotated['RevisionStatusEnum', strawberry.lazy('netbox_scripts.graphql.enums')]] | None
     ) = strawberry_django.filter_field()

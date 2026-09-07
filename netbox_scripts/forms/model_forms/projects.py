@@ -12,13 +12,13 @@ from utilities.forms.widgets import HTMXSelect
 
 from ...choices import ProjectSourceTypeChoices
 from ...ingestion import check_upload_conflicts, current_source_tree, ingest_upload, uploaded_source_path
-from ...jobs import ProjectEntrypointRefreshJob
+from ...jobs import ProjectScriptFileRefreshJob
 from ...models import ScriptProject
 
 __all__ = (
     'ScriptProjectAddScriptForm',
     'ScriptProjectEditForm',
-    'ScriptProjectEntrypointsForm',
+    'ScriptProjectScriptFilesForm',
     'ScriptProjectUploadForm',
 )
 
@@ -215,23 +215,23 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         return self.instance
 
 
-class EntrypointCheckboxSelect(forms.CheckboxSelectMultiple):
+class ScriptFileCheckboxSelect(forms.CheckboxSelectMultiple):
     """A multiple-checkbox widget carrying the Bootstrap markup the rest of the form uses."""
 
-    template_name = 'netbox_scripts/widgets/entrypoint_checkboxes.html'
+    template_name = 'netbox_scripts/widgets/script_file_checkboxes.html'
 
 
-class ScriptProjectEntrypointsForm(PrimaryModelForm):
+class ScriptProjectScriptFilesForm(PrimaryModelForm):
     """Select which of a project's source modules are its executable entrypoints."""
 
-    entrypoints = forms.MultipleChoiceField(
+    script_files = forms.MultipleChoiceField(
         required=False,
-        widget=EntrypointCheckboxSelect(),
-        label=_('Entrypoints'),
-        help_text=_('Source modules whose Custom Scripts this Project publishes. Helpers need no selection.'),
+        widget=ScriptFileCheckboxSelect(),
+        label=_('Script Files'),
+        help_text=_('Source files whose Custom Scripts this Project publishes. Helpers need no selection.'),
     )
 
-    fieldsets = (FieldSet('entrypoints', name=_('Entrypoints')),)
+    fieldsets = (FieldSet('script_files', name=_('Script Files')),)
 
     class Meta:
         model = ScriptProject
@@ -244,8 +244,8 @@ class ScriptProjectEntrypointsForm(PrimaryModelForm):
         # They belong on the edit form, where saving them means something.
         for name in ('owner', 'owner_group', 'comments'):
             self.fields.pop(name, None)
-        declared = {module.source_path: module for module in self.instance.modules.all()}
-        candidates = set(self.instance.entrypoint_candidates())
+        declared = {script_file.source_path: script_file for script_file in self.instance.script_files.all()}
+        candidates = set(self.instance.script_file_candidates())
         # Only an uploaded project can have a path the served tree lacks and a stored revision
         # holds: for a Data Source the candidates come from the live directory.
         awaiting = (
@@ -253,33 +253,33 @@ class ScriptProjectEntrypointsForm(PrimaryModelForm):
             if self.instance.source_type == ProjectSourceTypeChoices.UPLOAD
             else set()
         )
-        self.fields['entrypoints'].choices = [
+        self.fields['script_files'].choices = [
             (path, self._label(path, declared.get(path), path in candidates, path in awaiting))
-            for path in self.instance.declarable_entrypoints()
+            for path in self.instance.declarable_script_files()
         ]
-        self.initial['entrypoints'] = [path for path, module in declared.items() if module.enabled]
+        self.initial['script_files'] = [path for path, script_file in declared.items() if script_file.enabled]
 
     @staticmethod
-    def _label(path, module, available, awaiting=False):
+    def _label(path, script_file, available, awaiting=False):
         """Return the checkbox label, annotated with why an operator might care about the path."""
         if not available:
             if awaiting:
                 return _('{path} (not in the active revision yet)').format(path=path)
             return _('{path} (missing from the source)').format(path=path)
-        if module is None:
+        if script_file is None:
             return path
-        return _('{path} ({status})').format(path=path, status=module.get_discovery_status_display())
+        return _('{path} ({status})').format(path=path, status=script_file.get_discovery_status_display())
 
     def save(self, *args, **kwargs):
         """Reconcile the declarations onto the selection, apply it to the source, and return the project."""
-        selection = self.cleaned_data['entrypoints']
-        changed = set(selection) != set(self.initial.get('entrypoints') or ())
-        self.instance.select_entrypoints(selection)
+        selection = self.cleaned_data['script_files']
+        changed = set(selection) != set(self.initial.get('script_files') or ())
+        self.instance.select_script_files(selection)
         if changed:
             # A revision freezes the enabled declarations at staging time, so the selection has
             # no effect until something restages. That is storage work, which never happens in a
             # request, so it is a job. A selection that did not move would resolve to the
             # revision that already exists, so the comparison keeps an unchanged save out of the
             # Job list rather than relying on the job to find nothing to do.
-            ProjectEntrypointRefreshJob.enqueue_refresh(self.instance)
+            ProjectScriptFileRefreshJob.enqueue_refresh(self.instance)
         return self.instance

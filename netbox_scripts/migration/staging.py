@@ -116,7 +116,7 @@ def _declare(project, members):
     with transaction.atomic(using=using):
         for member in publishing:
             path = data_source_relative_path(member.data_path, project.data_path)
-            ingestion.declare_entrypoint(project, path, using)
+            ingestion.declare_script_file(project, path, using)
 
 
 def _stage_content(project, members):

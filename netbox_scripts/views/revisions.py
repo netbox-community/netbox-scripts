@@ -13,7 +13,7 @@ from .. import activation
 from ..constants import ACTIVATABLE_REVISION_STATUSES
 from ..models import ScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
-from ..tables import ScriptProjectRevisionEntrypointTable, ScriptProjectRevisionProblemTable
+from ..tables import ScriptProjectRevisionProblemTable, ScriptProjectRevisionScriptFileTable
 from ..ui import ScriptProjectRevisionPanel, ScriptProjectRevisionStatePanel
 
 
@@ -51,7 +51,7 @@ class ScriptProjectRevisionView(generic.ObjectView):
         left_panels=[ScriptProjectRevisionPanel()],
         right_panels=[ScriptProjectRevisionStatePanel()],
         bottom_panels=[
-            ContextTablePanel('entrypoints_table', title=_('Entrypoints')),
+            ContextTablePanel('script_files_table', title=_('Script Files')),
             ContextTablePanel('problems_table', title=_('Recorded problems')),
         ],
     )
@@ -59,11 +59,11 @@ class ScriptProjectRevisionView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         """Supply the entrypoint and problem tables, withholding the problems key when there are none."""
         # The snapshot is already sorted by source path, so there is no other order to offer.
-        entrypoints = ScriptProjectRevisionEntrypointTable(instance.entrypoint_snapshot, orderable=False)
-        entrypoints.configure(request)
+        script_files = ScriptProjectRevisionScriptFileTable(instance.script_file_snapshot, orderable=False)
+        script_files.configure(request)
         # This one always renders: an empty snapshot is why a revision publishes nothing, which is
         # worth saying rather than leaving as a missing card.
-        context = {'entrypoints_table': entrypoints}
+        context = {'script_files_table': script_files}
         # ContextTablePanel renders nothing for an unresolved key, which is how a revision with
         # no problems avoids an empty card.
         if problems := instance.problems:

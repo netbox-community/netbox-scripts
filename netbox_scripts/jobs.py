@@ -20,7 +20,7 @@ from .constants import ACTIVATABLE_REVISION_STATUSES, STALLED_CLEANUP_GRACE_SECO
 from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
 from .models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from .models.migration import migration_lock
-from .runtime.exceptions import EntrypointImportError
+from .runtime.exceptions import ScriptFileImportError
 from .runtime.loader import revision_import_session, unload_revision
 from .runtime.resolution import resolve_script_class
 from .storage import config, service, store
@@ -271,7 +271,7 @@ class ProjectReconciliationJob(JobRunner):
         self.logger.info(f'Revision {revision.digest[:12]} is the active revision of its project again.')
 
 
-class ProjectEntrypointRefreshJob(JobRunner):
+class ProjectScriptFileRefreshJob(JobRunner):
     """
     Restage one project's stored source under its current entrypoint configuration.
 
@@ -285,7 +285,7 @@ class ProjectEntrypointRefreshJob(JobRunner):
     """
 
     class Meta:
-        name = 'Script Project entrypoint refresh'
+        name = 'Script Project script file refresh'
 
     @classmethod
     def enqueue_refresh(cls, project):
@@ -308,7 +308,7 @@ class ProjectEntrypointRefreshJob(JobRunner):
         """Recheck routing safety, then restage the stored tree under the current selection."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing a Script Project entrypoint refresh, because {reason}'
+            detail = f'Refusing a Script Project script file refresh, because {reason}'
             self.logger.error(detail)
             raise JobFailed()
         project = ScriptProject.objects.filter(pk=project_id).first()
@@ -322,9 +322,9 @@ class ProjectEntrypointRefreshJob(JobRunner):
             self.logger.info(f'"{project}" holds no stored source yet, so its selection applies to its next revision.')
             return
         try:
-            staged = service.refresh_revision_entrypoints(source)
+            staged = service.refresh_revision_script_files(source)
         except (StorageError, StorageConfigurationError, OSError) as error:
-            detail = f'Refreshing the entrypoints of "{project}" failed and needs another run: {error}'
+            detail = f'Refreshing the script files of "{project}" failed and needs another run: {error}'
             self.logger.error(detail)
             raise JobFailed() from error
 
@@ -388,7 +388,7 @@ class RevisionValidationJob(JobRunner):
         except ValidationStateError as error:
             self.logger.error(str(error))
             raise JobFailed() from error
-        except (EntrypointImportError, StorageError, OSError) as error:
+        except (ScriptFileImportError, StorageError, OSError) as error:
             # An expected environment failure: the claim was rolled back, the revision is
             # claimable again, and the failed job carries the sanitized reason. The message
             # is rendered up front, because the job log records it verbatim.

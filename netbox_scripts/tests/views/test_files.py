@@ -140,11 +140,11 @@ class ScriptProjectFilesViewTestCase(TestCase):
         ScriptFile.objects.create(project=project, source_path='added.py', enabled=True)
         return ScriptProject.objects.get(pk=project.pk), newer
 
-    def test_the_entrypoint_column_reads_the_live_declaration(self):
+    def test_the_script_file_column_reads_the_live_declaration(self):
         self.grant(ScriptProject, 'view')
         self.grant(ScriptProjectRevision, 'view')
         table = self.client.get(self.url(self.project)).context['table']
-        state = {row.record['path']: row.record['entrypoint'] for row in table.rows}
+        state = {row.record['path']: row.record['script_file'] for row in table.rows}
         self.assertTrue(state['deploy.py'])
         self.assertFalse(state['helpers.py'])
         self.assertTrue(state['removed.py'])

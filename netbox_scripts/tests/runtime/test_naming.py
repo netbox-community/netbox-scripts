@@ -5,9 +5,9 @@ from django.test import TestCase
 from netbox_scripts.runtime.exceptions import InvalidModulePathError
 from netbox_scripts.runtime.naming import (
     PRIVATE_ROOT,
-    entrypoint_dotted_name,
     project_module_name,
     revision_module_name,
+    script_file_dotted_name,
 )
 from netbox_scripts.storage.exceptions import UnsafePathError
 
@@ -47,27 +47,27 @@ class ModuleNameTestCase(TestCase):
         self.assertNotEqual(revision_module_name(STORAGE_KEY, DIGEST), revision_module_name(OTHER_KEY, DIGEST))
 
 
-class EntrypointDottedNameTestCase(TestCase):
+class ScriptFileDottedNameTestCase(TestCase):
     def test_a_module_path_maps_to_its_dotted_name(self):
-        self.assertEqual(entrypoint_dotted_name('deploy.py'), 'deploy')
-        self.assertEqual(entrypoint_dotted_name('tools/deploy.py'), 'tools.deploy')
+        self.assertEqual(script_file_dotted_name('deploy.py'), 'deploy')
+        self.assertEqual(script_file_dotted_name('tools/deploy.py'), 'tools.deploy')
 
     def test_a_subpackage_init_maps_to_the_package_name(self):
-        self.assertEqual(entrypoint_dotted_name('pkg/__init__.py'), 'pkg')
+        self.assertEqual(script_file_dotted_name('pkg/__init__.py'), 'pkg')
 
     def test_rejected_paths_carry_the_converter_code(self):
         cases = (
             ('deploy.txt', 'not_a_python_file'),
-            ('__init__.py', 'root_entrypoint'),
+            ('__init__.py', 'root_script_file'),
             ('tools/my-script.py', 'invalid_identifier'),
             ('class/deploy.py', 'reserved_keyword'),
         )
         for path, code in cases:
             with self.subTest(path=path), self.assertRaises(InvalidModulePathError) as caught:
-                entrypoint_dotted_name(path)
+                script_file_dotted_name(path)
             self.assertEqual(caught.exception.code, code)
             self.assertEqual(caught.exception.path, path)
 
     def test_the_rejection_is_an_unsafe_path_error(self):
         with self.assertRaises(UnsafePathError):
-            entrypoint_dotted_name('__init__.py')
+            script_file_dotted_name('__init__.py')

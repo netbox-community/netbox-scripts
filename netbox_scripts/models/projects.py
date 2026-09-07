@@ -12,7 +12,7 @@ from netbox.models import ChangeLoggedModel, PrimaryModel
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from ..constants import ACTIVATABLE_REVISION_STATUSES, UNSTORED_REVISION_STATUSES
-from ..storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
+from ..storage.script_files import EMPTY_SNAPSHOT_DIGEST
 from ..utils import data_source_relative_path
 from ..validators import data_paths_overlap, normalize_data_path
 
@@ -246,7 +246,7 @@ class ScriptProject(PrimaryModel):
         """Return the badge color configured for this project's activation policy."""
         return ActivationPolicyChoices.colors.get(self.activation_policy)
 
-    def entrypoint_candidates(self):
+    def script_file_candidates(self):
         """
         Return the importable modules of this project's source, at any depth.
 
@@ -254,12 +254,12 @@ class ScriptProject(PrimaryModel):
         """
         return sorted(path for path in self._source_paths() if path.endswith('.py'))
 
-    def declarable_entrypoints(self):
+    def declarable_script_files(self):
         """Return the candidates plus the already-declared paths, which stay selectable."""
-        declared = set(self.modules.using(self._read_alias()).values_list('source_path', flat=True))
-        return sorted(declared.union(self.entrypoint_candidates()))
+        declared = set(self.script_files.using(self._read_alias()).values_list('source_path', flat=True))
+        return sorted(declared.union(self.script_file_candidates()))
 
-    def select_entrypoints(self, paths):
+    def select_script_files(self, paths):
         """
         Reconcile the declarations onto the given paths, as `enabled` rather than row deletion.
 
@@ -268,10 +268,10 @@ class ScriptProject(PrimaryModel):
         from .scripts import ScriptFile
 
         selected = set(paths)
-        if unknown := selected.difference(self.declarable_entrypoints()):
+        if unknown := selected.difference(self.declarable_script_files()):
             raise ValidationError(
                 {
-                    'entrypoints': _('This project has no source file at {paths}.').format(
+                    'script_files': _('This project has no source file at {paths}.').format(
                         paths=', '.join(f'"{path}"' for path in sorted(unknown))
                     )
                 }
@@ -279,16 +279,19 @@ class ScriptProject(PrimaryModel):
 
         using = router.db_for_write(type(self), instance=self)
         with transaction.atomic(using=using):
-            existing = {module.source_path: module for module in self.modules.using(using).select_for_update().all()}
+            existing = {
+                script_file.source_path: script_file
+                for script_file in self.script_files.using(using).select_for_update().all()
+            }
             for path in sorted(selected.difference(existing)):
-                module = ScriptFile(project=self, source_path=path, enabled=True)
-                module.full_clean()
-                module.save(using=using)
-            for path, module in existing.items():
+                script_file = ScriptFile(project=self, source_path=path, enabled=True)
+                script_file.full_clean()
+                script_file.save(using=using)
+            for path, script_file in existing.items():
                 enabled = path in selected
-                if module.enabled != enabled:
-                    module.enabled = enabled
-                    module.save(using=using, update_fields=('enabled', 'last_updated'))
+                if script_file.enabled != enabled:
+                    script_file.enabled = enabled
+                    script_file.save(using=using, update_fields=('enabled', 'last_updated'))
 
     def activatable_revision(self):
         """
@@ -476,23 +479,23 @@ class ScriptProjectRevision(ChangeLoggedModel):
             'revision becomes valid.'
         ),
     )
-    entrypoint_snapshot = models.JSONField(
-        verbose_name=_('entrypoint snapshot'),
+    script_file_snapshot = models.JSONField(
+        verbose_name=_('script file snapshot'),
         default=list,
         blank=True,
-        help_text=_('Enabled Module declarations frozen at staging time, sorted by source path.'),
+        help_text=_('Enabled Script File declarations frozen at staging time, sorted by source path.'),
     )
-    entrypoint_digest = models.CharField(
-        verbose_name=_('entrypoint digest'),
+    script_file_digest = models.CharField(
+        verbose_name=_('script file digest'),
         max_length=64,
         default=EMPTY_SNAPSHOT_DIGEST,
         validators=[
             RegexValidator(
                 regex=r'^[0-9a-f]{64}$',
-                message=_('The entrypoint digest must be 64 lowercase hexadecimal characters.'),
+                message=_('The script file digest must be 64 lowercase hexadecimal characters.'),
             )
         ],
-        help_text=_('Content address of the entrypoint snapshot, part of the revision identity.'),
+        help_text=_('Content address of the script file snapshot, part of the revision identity.'),
     )
     validation_job = models.ForeignKey(
         to='core.Job',
@@ -535,9 +538,9 @@ class ScriptProjectRevision(ChangeLoggedModel):
             # One source tree under a changed entrypoint configuration is a separate,
             # separately validatable identity that reuses the stored content.
             models.UniqueConstraint(
-                fields=('project', 'digest', 'entrypoint_digest'),
+                fields=('project', 'digest', 'script_file_digest'),
                 condition=Q(digest__isnull=False),
-                name='unique_project_digest_entrypoints',
+                name='unique_project_digest_script_files',
             ),
             # Only a rejected staging attempt lacks a content address. Every other status
             # follows accepted content, so the row carries the digest that addresses it, and
@@ -577,8 +580,8 @@ class ScriptProjectRevision(ChangeLoggedModel):
                 'manifest',
                 'file_count',
                 'total_size',
-                'entrypoint_snapshot',
-                'entrypoint_digest',
+                'script_file_snapshot',
+                'script_file_digest',
             )
             original = type(self).objects.using(using).filter(pk=self.pk).values(*frozen).first()
             if original:
@@ -593,13 +596,13 @@ class ScriptProjectRevision(ChangeLoggedModel):
                     errors['file_count'] = _('The file count cannot be changed once the revision has been created.')
                 if original['total_size'] != self.total_size:
                     errors['total_size'] = _('The total size cannot be changed once the revision has been created.')
-                if original['entrypoint_snapshot'] != self.entrypoint_snapshot:
-                    errors['entrypoint_snapshot'] = _(
-                        'The entrypoint snapshot cannot be changed once the revision has been created.'
+                if original['script_file_snapshot'] != self.script_file_snapshot:
+                    errors['script_file_snapshot'] = _(
+                        'The script file snapshot cannot be changed once the revision has been created.'
                     )
-                if original['entrypoint_digest'] != self.entrypoint_digest:
-                    errors['entrypoint_digest'] = _(
-                        'The entrypoint digest cannot be changed once the revision has been created.'
+                if original['script_file_digest'] != self.script_file_digest:
+                    errors['script_file_digest'] = _(
+                        'The script file digest cannot be changed once the revision has been created.'
                     )
                 if errors:
                     raise ValidationError(errors)

@@ -73,7 +73,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         response = self.client.get(self.url())
         self.assertHttpStatus(response, 200)
         body = response.content.decode()
-        for internal in ('source_path', 'entrypoint_digest', 'storage_key', 'digest', 'manifest'):
+        for internal in ('source_path', 'script_file_digest', 'storage_key', 'digest', 'manifest'):
             self.assertNotIn(f'name="{internal}"', body)
 
     def test_an_upload_creates_the_project_the_declaration_and_the_revision(self):
@@ -85,9 +85,9 @@ class ScriptProjectUploadViewTestCase(TestCase):
         # Straight to the Project, which is where the source state and the entrypoints are.
         self.assertEqual(response.url, project.get_absolute_url())
         self.assertEqual(project.source_type, ProjectSourceTypeChoices.UPLOAD)
-        module = ScriptFile.objects.get(project=project)
-        self.assertEqual(module.source_path, 'deploy.py')
-        self.assertTrue(module.enabled)
+        script_file = ScriptFile.objects.get(project=project)
+        self.assertEqual(script_file.source_path, 'deploy.py')
+        self.assertTrue(script_file.enabled)
         revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['deploy.py'])
@@ -190,7 +190,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.grant(ScriptProject, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
-    def test_the_module_permission_alone_is_not_enough(self):
+    def test_the_script_file_permission_alone_is_not_enough(self):
         self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
@@ -241,7 +241,7 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['audit.py', 'deploy.py'])
         # Both are entrypoints, since an uploaded file always is.
         self.assertEqual(
-            sorted(entry['source_path'] for entry in revision.entrypoint_snapshot),
+            sorted(entry['source_path'] for entry in revision.script_file_snapshot),
             ['audit.py', 'deploy.py'],
         )
         self.enqueued.assert_called_once()
@@ -250,7 +250,7 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
         self.grant_both()
         self.post(upload_file=self.upload())
         self.assertEqual(
-            sorted(self.project.modules.filter(enabled=True).values_list('source_path', flat=True)),
+            sorted(self.project.script_files.filter(enabled=True).values_list('source_path', flat=True)),
             ['audit.py', 'deploy.py'],
         )
 
@@ -301,7 +301,7 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
         self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
-    def test_the_module_permission_alone_is_not_enough(self):
+    def test_the_script_file_permission_alone_is_not_enough(self):
         self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 

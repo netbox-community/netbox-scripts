@@ -32,10 +32,10 @@ __all__ = (
 # is derived rather than spelled out, so a field added to the run form is covered on arrival.
 RESERVED_VARIABLE_NAMES = frozenset(ScriptForm.declared_fields)
 
-_REQUIRED_TEXT_KEYS = ('module_path', 'class_name', 'entrypoint_path', 'display_name', 'description')
+_REQUIRED_TEXT_KEYS = ('module_path', 'class_name', 'script_file_path', 'display_name', 'description')
 
 
-def describe_script(discovered, *, entrypoint_module_id, entrypoint_path, position):
+def describe_script(discovered, *, script_file_id, script_file_path, position):
     """
     Describe one published script class as a JSON-safe record.
 
@@ -66,8 +66,8 @@ def describe_script(discovered, *, entrypoint_module_id, entrypoint_path, positi
     return {
         'module_path': discovered.logical_module,
         'class_name': discovered.name,
-        'entrypoint_module_id': entrypoint_module_id,
-        'entrypoint_path': entrypoint_path,
+        'script_file_id': script_file_id,
+        'script_file_path': script_file_path,
         'position': position,
         'display_name': display_name,
         'description': str(cls.description),
@@ -104,13 +104,13 @@ def validate_discovered_scripts(value):
                     code='invalid_entry',
                     name=key,
                 )
-        module_id = record.get('entrypoint_module_id')
+        script_file_id = record.get('script_file_id')
         # bool is a subclass of int, so True would otherwise pass as a module id.
-        if not isinstance(module_id, int) or isinstance(module_id, bool) or module_id <= 0:
+        if not isinstance(script_file_id, int) or isinstance(script_file_id, bool) or script_file_id <= 0:
             raise ScriptMetadataError(
-                f'Entry {index} of the discovered scripts is missing an entrypoint module id.',
+                f'Entry {index} of the discovered scripts is missing a script file id.',
                 code='invalid_entry',
-                name='entrypoint_module_id',
+                name='script_file_id',
             )
         if record.get('position') != index:
             raise ScriptMetadataError(

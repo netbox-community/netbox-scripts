@@ -302,7 +302,7 @@ class SharedDigestCleanupTestCase(CleanupFixtureMixin, TestCase):
             digest=DIGEST_A,
             status=RevisionStatusChoices.VALID,
             manifest=MANIFEST_A,
-            entrypoint_digest='b' * 64,
+            script_file_digest='b' * 64,
         )
 
     def test_deleting_one_of_two_rows_sharing_content_skips_cleanup(self):

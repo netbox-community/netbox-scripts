@@ -9,7 +9,7 @@ from django.core.files.storage import InMemoryStorage
 from django.test import TestCase
 
 from netbox_scripts.runtime import loader
-from netbox_scripts.runtime.exceptions import EntrypointImportError, InvalidModulePathError
+from netbox_scripts.runtime.exceptions import InvalidModulePathError, ScriptFileImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, project_module_name, revision_module_name
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.storage.manifest import compute_digest
@@ -51,16 +51,16 @@ class LoaderTestCase(TestCase):
         for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
             del sys.modules[name]
 
-    def load(self, storage_key, files, entrypoint, **kwargs):
+    def load(self, storage_key, files, script_file, **kwargs):
         manifest, digest = seed_revision(self.storage, storage_key, files)
-        module = self.load_again(storage_key, digest, entrypoint, manifest, **kwargs)
+        module = self.load_again(storage_key, digest, script_file, manifest, **kwargs)
         return module, manifest, digest
 
-    def load_again(self, storage_key, digest, entrypoint, manifest, **kwargs):
-        return loader.import_entrypoint(
+    def load_again(self, storage_key, digest, script_file, manifest, **kwargs):
+        return loader.import_script_file(
             storage_key,
             digest,
-            entrypoint,
+            script_file,
             storage=kwargs.pop('storage', self.storage),
             manifest=manifest,
             cache_root=self.cache_root,
@@ -120,13 +120,13 @@ class ImportBehaviorTestCase(LoaderTestCase):
         module, _, _ = self.load(STORAGE_KEY, files, 'deploy.py')
         self.assertEqual(module.VALUE, 'configured')
 
-    def test_a_subpackage_init_can_be_the_entrypoint(self):
+    def test_a_subpackage_init_can_be_the_script_file(self):
         files = {'pkg/__init__.py': b'VALUE = 11\n'}
         module, _, digest = self.load(STORAGE_KEY, files, 'pkg/__init__.py')
         self.assertEqual(module.VALUE, 11)
         self.assertEqual(module.__name__, f'{revision_module_name(STORAGE_KEY, digest)}.pkg')
 
-    def test_two_entrypoints_share_one_helper_module(self):
+    def test_two_script_files_share_one_helper_module(self):
         files = {
             'first.py': b'from . import helpers\n',
             'second.py': b'from . import helpers\n',
@@ -142,7 +142,7 @@ class ImportBehaviorTestCase(LoaderTestCase):
         self.load_again(STORAGE_KEY, digest, 'second.py', manifest)
         self.assertEqual(ROOT_RUNS, ['run'])
 
-    def test_reimporting_an_entrypoint_returns_the_same_module(self):
+    def test_reimporting_a_script_file_returns_the_same_module(self):
         module, manifest, digest = self.load(STORAGE_KEY, {'probe.py': b'VALUE = 1\n'}, 'probe.py')
         self.assertIs(self.load_again(STORAGE_KEY, digest, 'probe.py', manifest), module)
 
@@ -155,13 +155,13 @@ class FailureBoundaryTestCase(LoaderTestCase):
         if container is not None:
             self.assertFalse(hasattr(container, revision_name.rsplit('.', 1)[1]))
 
-    def test_a_failed_entrypoint_sweeps_the_helper_it_imported(self):
+    def test_a_failed_script_file_sweeps_the_helper_it_imported(self):
         files = {
             'probe.py': b'from . import helper\nraise RuntimeError("boom")\n',
             'helper.py': b'VALUE = 1\n',
         }
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, files)
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         self.assert_revision_absent(STORAGE_KEY, digest)
 
@@ -172,7 +172,7 @@ class FailureBoundaryTestCase(LoaderTestCase):
             'probe.py': b'VALUE = 2\n',
         }
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, files)
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         self.assert_revision_absent(STORAGE_KEY, digest)
 
@@ -183,7 +183,7 @@ class FailureBoundaryTestCase(LoaderTestCase):
             'helpers.py': b'VALUE = 3\n',
         }
         good, manifest, digest = self.load(STORAGE_KEY, files, 'good.py')
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             self.load_again(STORAGE_KEY, digest, 'bad.py', manifest)
         revision_name = revision_module_name(STORAGE_KEY, digest)
         self.assertIn(revision_name, sys.modules)
@@ -194,7 +194,7 @@ class FailureBoundaryTestCase(LoaderTestCase):
     def test_a_sibling_revision_survives_anothers_failure(self):
         good, good_manifest, good_digest = self.load(STORAGE_KEY, {'probe.py': b'VALUE = 3\n'}, 'probe.py')
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, {'probe.py': b'raise RuntimeError("boom")\n'})
-        with self.assertRaises(EntrypointImportError):
+        with self.assertRaises(ScriptFileImportError):
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         self.assert_revision_absent(STORAGE_KEY, digest)
         self.assertIs(self.load_again(STORAGE_KEY, good_digest, 'probe.py', good_manifest), good)
@@ -218,31 +218,31 @@ class FailureBoundaryTestCase(LoaderTestCase):
 
     def test_system_exit_wraps_as_an_import_failure(self):
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, {'probe.py': b'raise SystemExit(1)\n'})
-        with self.assertRaises(EntrypointImportError) as caught:
+        with self.assertRaises(ScriptFileImportError) as caught:
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         self.assertIsInstance(caught.exception.__cause__, SystemExit)
 
     def test_a_custom_base_exception_wraps_as_an_import_failure(self):
         files = {'probe.py': b'class Hostile(BaseException):\n    pass\nraise Hostile()\n'}
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, files)
-        with self.assertRaises(EntrypointImportError) as caught:
+        with self.assertRaises(ScriptFileImportError) as caught:
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         self.assertEqual(type(caught.exception.__cause__).__name__, 'Hostile')
 
     def test_a_syntax_error_wraps_as_an_import_failure(self):
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, {'probe.py': b'def broken(:\n'})
-        with self.assertRaises(EntrypointImportError) as caught:
+        with self.assertRaises(ScriptFileImportError) as caught:
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         self.assertIsInstance(caught.exception.__cause__, SyntaxError)
         self.assert_revision_absent(STORAGE_KEY, digest)
 
     def test_the_failure_detail_describes_the_original(self):
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, {'probe.py': b'raise RuntimeError("boom")\n'})
-        with self.assertRaises(EntrypointImportError) as caught:
+        with self.assertRaises(ScriptFileImportError) as caught:
             self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
         detail = caught.exception.detail
         self.assertEqual(detail['path'], 'probe.py')
-        self.assertEqual(detail['code'], 'entrypoint_import_failed')
+        self.assertEqual(detail['code'], 'script_file_import_failed')
         self.assertEqual(detail['exception_type'], 'RuntimeError')
         self.assertIn('boom', detail['message'])
         self.assertIn('probe.py', detail['traceback'])
@@ -257,12 +257,12 @@ class FastFailTestCase(LoaderTestCase):
         self.assertEqual(storage.opened, [])
         self.assertEqual(list(self.cache_root.iterdir()), [])
 
-    def test_an_entrypoint_outside_the_manifest_fails_before_any_io(self):
+    def test_a_script_file_outside_the_manifest_fails_before_any_io(self):
         storage = OpenRecordingStorage()
         manifest, digest = seed_revision(storage, STORAGE_KEY, {'probe.py': b'VALUE = 1\n'})
-        with self.assertRaises(EntrypointImportError) as caught:
+        with self.assertRaises(ScriptFileImportError) as caught:
             self.load_again(STORAGE_KEY, digest, 'other.py', manifest, storage=storage)
-        self.assertEqual(caught.exception.detail['code'], 'entrypoint_not_in_manifest')
+        self.assertEqual(caught.exception.detail['code'], 'script_file_not_in_manifest')
         self.assertIsNone(caught.exception.__cause__)
         self.assertEqual(storage.opened, [])
         self.assertEqual(list(self.cache_root.iterdir()), [])
@@ -299,7 +299,7 @@ class ConcurrencyTestCase(LoaderTestCase):
             thread.join(timeout=30)
         self.assertEqual(errors, [])
 
-    def test_concurrent_imports_of_one_entrypoint_yield_one_module(self):
+    def test_concurrent_imports_of_one_script_file_yield_one_module(self):
         files = {'__init__.py': ROOT_INIT, 'probe.py': b'VALUE = 1\n'}
         manifest, digest = seed_revision(self.storage, STORAGE_KEY, files)
         results = []

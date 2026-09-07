@@ -13,14 +13,14 @@ from netbox_scripts.scripts.forms import ScriptForm
 from netbox_scripts.scripts.variables import ScriptVariable, StringVar
 from netbox_scripts.tests.runtime.test_discovery import PREFIX, discover, make_module
 
-MODULE_ID = 12
-ENTRYPOINT = 'main.py'
+SCRIPT_FILE_ID = 12
+SCRIPT_FILE = 'main.py'
 
 
 def describe(module, position=0):
     """Describe every class one revision module publishes, in publication order."""
     return [
-        describe_script(item, entrypoint_module_id=MODULE_ID, entrypoint_path=ENTRYPOINT, position=position + offset)
+        describe_script(item, script_file_id=SCRIPT_FILE_ID, script_file_path=SCRIPT_FILE, position=position + offset)
         for offset, item in enumerate(discover(module))
     ]
 
@@ -30,17 +30,17 @@ def build(source, **namespace):
     namespace.setdefault('Script', Script)
     namespace.setdefault('StringVar', StringVar)
     namespace.setdefault('ScriptVariable', ScriptVariable)
-    return make_module(f'{PREFIX}.{ENTRYPOINT[:-3]}', source, **namespace)
+    return make_module(f'{PREFIX}.{SCRIPT_FILE[:-3]}', source, **namespace)
 
 
 class DescribeScriptTestCase(TestCase):
-    def test_a_record_carries_the_identity_and_its_entrypoint_provenance(self):
+    def test_a_record_carries_the_identity_and_its_script_file_provenance(self):
         module = build('class Sync(Script):\n    pass\n')
         (record,) = describe(module)
         self.assertEqual(record['module_path'], 'main')
         self.assertEqual(record['class_name'], 'Sync')
-        self.assertEqual(record['entrypoint_module_id'], MODULE_ID)
-        self.assertEqual(record['entrypoint_path'], ENTRYPOINT)
+        self.assertEqual(record['script_file_id'], SCRIPT_FILE_ID)
+        self.assertEqual(record['script_file_path'], SCRIPT_FILE)
         self.assertEqual(record['position'], 0)
 
     def test_a_helper_defined_class_records_where_it_is_defined_not_what_published_it(self):
@@ -51,8 +51,8 @@ class DescribeScriptTestCase(TestCase):
         self.assertEqual(record['class_name'], 'Shared')
         # The declaration that published it stays recorded, so provenance survives without
         # the row identity depending on an entrypoint that may later be removed.
-        self.assertEqual(record['entrypoint_path'], ENTRYPOINT)
-        self.assertEqual(record['entrypoint_module_id'], MODULE_ID)
+        self.assertEqual(record['script_file_path'], SCRIPT_FILE)
+        self.assertEqual(record['script_file_id'], SCRIPT_FILE_ID)
 
     def test_the_display_name_and_description_come_from_meta(self):
         module = build(
@@ -221,7 +221,7 @@ class ValidateDiscoveredScriptsTestCase(TestCase):
         self.assertEqual(captured.exception.code, 'invalid_entry')
 
     def test_a_missing_text_field_is_refused(self):
-        for key in ('module_path', 'class_name', 'entrypoint_path', 'display_name', 'description'):
+        for key in ('module_path', 'class_name', 'script_file_path', 'display_name', 'description'):
             damaged = [dict(self.snapshot[0])]
             del damaged[0][key]
             with self.subTest(key=key), self.assertRaises(ScriptMetadataError) as captured:
@@ -236,15 +236,15 @@ class ValidateDiscoveredScriptsTestCase(TestCase):
             validate_discovered_scripts(damaged)
         self.assertEqual(captured.exception.code, 'invalid_entry')
 
-    def test_an_entrypoint_module_id_that_is_not_a_positive_int_is_refused(self):
+    def test_a_script_file_id_that_is_not_a_positive_int_is_refused(self):
         # True is an int in Python and would otherwise pass as a module id.
         for value in (None, '3', 0, -1, True):
             damaged = [dict(self.snapshot[0])]
-            damaged[0]['entrypoint_module_id'] = value
+            damaged[0]['script_file_id'] = value
             with self.subTest(value=value), self.assertRaises(ScriptMetadataError) as captured:
                 validate_discovered_scripts(damaged)
             self.assertEqual(captured.exception.code, 'invalid_entry')
-            self.assertEqual(captured.exception.name, 'entrypoint_module_id')
+            self.assertEqual(captured.exception.name, 'script_file_id')
 
     def test_a_position_that_is_not_the_index_is_refused(self):
         damaged = [dict(record) for record in self.snapshot]

@@ -54,7 +54,7 @@ was a mistake that never validated.
 
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
-| `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `modules` |
+| `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `script_files` |
 | `last_discovered_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
 ## API
@@ -69,8 +69,8 @@ lists the importable modules of its source at any depth and never asks for a
 typed path. The same operation is available over REST:
 
 ```text
-GET  /api/plugins/netbox-scripts/projects/<id>/entrypoints/
-PUT  /api/plugins/netbox-scripts/projects/<id>/entrypoints/   {"paths": [...]}
+GET  /api/plugins/netbox-scripts/projects/<id>/script-files/
+PUT  /api/plugins/netbox-scripts/projects/<id>/script-files/   {"paths": [...]}
 ```
 
 `GET` reports every candidate with `selected`, `available`, and its

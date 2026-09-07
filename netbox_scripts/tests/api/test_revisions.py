@@ -99,7 +99,7 @@ class ScriptProjectRevisionAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.add_permissions('netbox_scripts.view_scriptprojectrevision')
         response = self.client.get(self._detail_url(), **self.header)
         self.assertNotIn('manifest', response.data)
-        self.assertNotIn('entrypoint_snapshot', response.data)
+        self.assertNotIn('script_file_snapshot', response.data)
 
     def test_the_lease_fields_are_absent(self):
         self.add_permissions('netbox_scripts.view_scriptprojectrevision')

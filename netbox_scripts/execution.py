@@ -33,8 +33,8 @@ from utilities.exceptions import AbortScript as LegacyAbortScript
 from . import branching
 from .runtime.exceptions import (
     DiscoveryError,
-    EntrypointImportError,
     InvalidModulePathError,
+    ScriptFileImportError,
     ScriptMetadataError,
     ScriptResolutionError,
 )
@@ -57,9 +57,9 @@ __all__ = (
 # statement about content or configuration, so a run fails rather than being retried blindly.
 RESOLUTION_FAILURES = (
     DiscoveryError,
-    EntrypointImportError,
     InvalidModulePathError,
     RevisionCorruptError,
+    ScriptFileImportError,
     ScriptMetadataError,
     ScriptResolutionError,
 )

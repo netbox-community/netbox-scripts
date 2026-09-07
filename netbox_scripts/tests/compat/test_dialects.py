@@ -58,7 +58,7 @@ class DialectTestCase(TestCase):
         # Enqueueing hands the task to a real queue, and these tests drive the job themselves.
         self.enterContext(mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None))
 
-    def stage_and_validate(self, files, key='dialects', entrypoints=None):
+    def stage_and_validate(self, files, key='dialects', script_files=None):
         """Stage one tree as a Data Source project, drive validation, and return the revision."""
         source = DataSource.objects.create(name=key, type='local', source_url=f'file:///tmp/{key}/')
         project = ScriptProject.objects.create(
@@ -71,7 +71,7 @@ class DialectTestCase(TestCase):
         )
         # Declarations are committed before staging, because staging freezes the enabled ones
         # into the revision's entrypoint snapshot.
-        for path in files if entrypoints is None else entrypoints:
+        for path in files if script_files is None else script_files:
             ScriptFile.objects.create(project=project, source_path=path, enabled=True)
         for path, source_text in files.items():
             content = source_text.encode()
@@ -109,7 +109,7 @@ class DialectTestCase(TestCase):
             '__init__.py': 'from extras.scripts import Script\n\n\nclass RootBase(Script):\n    pass\n',
             'entry.py': 'from . import RootBase\n\n\nclass Rooted(RootBase):\n    pass\n',
         }
-        revision = self.stage_and_validate(files, key='rooted', entrypoints=['entry.py'])
+        revision = self.stage_and_validate(files, key='rooted', script_files=['entry.py'])
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual([record['class_name'] for record in revision.discovered_scripts], ['Rooted'])
 

@@ -22,7 +22,7 @@ class ScriptProjectRevisionTableTestCase(TableTestCases.StandardTableTestCase):
     queryset_sources = (('ScriptProjectView', ScriptProjectRevision.objects.all()),)
 
 
-class RevisionEntrypointColumnTestCase(TestCase):
+class RevisionScriptFileColumnTestCase(TestCase):
     """Two revisions sharing a source digest are told apart by the entrypoint set they froze."""
 
     @classmethod
@@ -33,16 +33,16 @@ class RevisionEntrypointColumnTestCase(TestCase):
         cls.one = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
-            entrypoint_digest='b' * 64,
-            entrypoint_snapshot=[{'module': 1, 'source_path': 'deploy.py'}],
+            script_file_digest='b' * 64,
+            script_file_snapshot=[{'script_file': 1, 'source_path': 'deploy.py'}],
         )
         cls.two = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
-            entrypoint_digest='c' * 64,
-            entrypoint_snapshot=[
-                {'module': 1, 'source_path': 'audit.py'},
-                {'module': 2, 'source_path': 'deploy.py'},
+            script_file_digest='c' * 64,
+            script_file_snapshot=[
+                {'script_file': 1, 'source_path': 'audit.py'},
+                {'script_file': 2, 'source_path': 'deploy.py'},
             ],
         )
 
@@ -50,17 +50,17 @@ class RevisionEntrypointColumnTestCase(TestCase):
         # One row per table: Meta.order_by is '-created', and a table cannot be ordered by a
         # column it does not declare, so row order is not a thing to assert against here.
         table = ScriptProjectRevisionTable(ScriptProjectRevision.objects.filter(pk=revision.pk))
-        return table.rows[0].get_cell('entrypoint_count')
+        return table.rows[0].get_cell('script_file_count')
 
     def test_the_column_is_offered_by_default(self):
-        self.assertIn('entrypoint_count', ScriptProjectRevisionTable.Meta.default_columns)
+        self.assertIn('script_file_count', ScriptProjectRevisionTable.Meta.default_columns)
 
     def test_two_revisions_on_one_digest_render_distinguishably(self):
         self.assertEqual(self.one.short_digest, self.two.short_digest)
         self.assertNotEqual(self.count_for(self.one), self.count_for(self.two))
         self.assertEqual([self.count_for(self.one), self.count_for(self.two)], [1, 2])
 
-    def test_a_revision_declaring_no_entrypoints_renders_a_zero(self):
-        empty = ScriptProjectRevision.objects.create(project=self.project, digest='d' * 64, entrypoint_snapshot=[])
+    def test_a_revision_declaring_no_script_files_renders_a_zero(self):
+        empty = ScriptProjectRevision.objects.create(project=self.project, digest='d' * 64, script_file_snapshot=[])
 
         self.assertEqual(self.count_for(empty), 0)

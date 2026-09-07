@@ -41,7 +41,7 @@ class ScriptProjectType(PrimaryObjectType):
     name='NetBoxScriptProjectRevisionType',
     # The manifest and the entrypoint snapshot are stored documents, served by the
     # diagnostics surface rather than by a general-purpose query.
-    exclude=('manifest', 'entrypoint_snapshot', 'validation_job', 'validation_started'),
+    exclude=('manifest', 'script_file_snapshot', 'validation_job', 'validation_started'),
     filters=ScriptProjectRevisionFilter,
     pagination=True,
 )

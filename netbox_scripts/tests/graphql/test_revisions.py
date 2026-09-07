@@ -23,7 +23,7 @@ class ScriptProjectRevisionGraphQLTestCase(SimpleTestCase):
 
     def test_stored_documents_and_lease_fields_are_not_exposed(self):
         field_names = {field.name for field in ScriptProjectRevisionType.__strawberry_definition__.fields}
-        for absent in ('manifest', 'entrypoint_snapshot', 'validation_job', 'validation_started'):
+        for absent in ('manifest', 'script_file_snapshot', 'validation_job', 'validation_started'):
             with self.subTest(field=absent):
                 self.assertNotIn(absent, field_names)
 

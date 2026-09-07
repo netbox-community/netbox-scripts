@@ -8,8 +8,8 @@ from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevi
 from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tables import (
-    ScriptProjectRevisionEntrypointTable,
     ScriptProjectRevisionProblemTable,
+    ScriptProjectRevisionScriptFileTable,
 )
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
@@ -26,8 +26,8 @@ def record(class_name='Deploy', position=0):
     return {
         'module_path': 'deploy',
         'class_name': class_name,
-        'entrypoint_module_id': 1,
-        'entrypoint_path': 'deploy.py',
+        'script_file_id': 1,
+        'script_file_path': 'deploy.py',
         # Validation refuses a snapshot whose positions are not sequential.
         'position': position,
         'display_name': class_name,
@@ -392,19 +392,19 @@ class ScriptProjectRevisionProblemPanelTestCase(TestCase):
         self.assertEqual(self.invalid.problems[0]['path'], 'broken.py')
 
 
-class RevisionEntrypointPanelTestCase(TestCase):
+class RevisionScriptFilePanelTestCase(TestCase):
     """A revision's page lists the entrypoints it froze, which is where the tab's count resolves."""
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = ScriptProject.objects.create(name='Entrypoint Project', key='entrypoint-project')
+        cls.project = ScriptProject.objects.create(name='Script File Project', key='script-file-project')
         cls.declared = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
-            entrypoint_digest='b' * 64,
-            entrypoint_snapshot=[
-                {'module': 1, 'source_path': 'audit.py'},
-                {'module': 2, 'source_path': 'tools/deploy.py'},
+            script_file_digest='b' * 64,
+            script_file_snapshot=[
+                {'script_file': 1, 'source_path': 'audit.py'},
+                {'script_file': 2, 'source_path': 'tools/deploy.py'},
             ],
         )
         # Same source tree, different selection: the pair the Revisions tab cannot otherwise
@@ -412,10 +412,10 @@ class RevisionEntrypointPanelTestCase(TestCase):
         cls.narrowed = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,
-            entrypoint_digest='c' * 64,
-            entrypoint_snapshot=[{'module': 1, 'source_path': 'audit.py'}],
+            script_file_digest='c' * 64,
+            script_file_snapshot=[{'script_file': 1, 'source_path': 'audit.py'}],
         )
-        cls.empty = ScriptProjectRevision.objects.create(project=cls.project, digest='d' * 64, entrypoint_snapshot=[])
+        cls.empty = ScriptProjectRevision.objects.create(project=cls.project, digest='d' * 64, script_file_snapshot=[])
 
     def setUp(self):
         self.user = create_test_user()
@@ -434,7 +434,7 @@ class RevisionEntrypointPanelTestCase(TestCase):
     def test_the_panel_lists_every_frozen_path(self):
         body = self.body(self.declared)
 
-        self.assertIn('Entrypoints', body)
+        self.assertIn('Script Files', body)
         self.assertIn('audit.py', body)
         self.assertIn('tools/deploy.py', body)
 
@@ -446,10 +446,10 @@ class RevisionEntrypointPanelTestCase(TestCase):
     def test_a_revision_freezing_none_says_so_rather_than_rendering_no_panel(self):
         body = self.body(self.empty)
 
-        self.assertIn('Entrypoints', body)
+        self.assertIn('Script Files', body)
         self.assertIn('publishes nothing', body)
 
     def test_the_panel_offers_no_column_but_the_path(self):
         # The snapshot also carries Module primary keys, which are provenance rather than
         # something an operator reads, and the row they name may since have been deleted.
-        self.assertEqual(ScriptProjectRevisionEntrypointTable.Meta.fields, ('source_path',))
+        self.assertEqual(ScriptProjectRevisionScriptFileTable.Meta.fields, ('source_path',))

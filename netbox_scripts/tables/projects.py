@@ -72,9 +72,9 @@ class ScriptProjectRevisionTable(BaseTable):
         empty_values=(),
     )
     status = columns.ChoiceFieldColumn(verbose_name=_('Status'))
-    entrypoint_count = tables.Column(
-        verbose_name=_('Entrypoints'),
-        accessor='entrypoint_snapshot',
+    script_file_count = tables.Column(
+        verbose_name=_('Script Files'),
+        accessor='script_file_snapshot',
         # The accessor is the snapshot itself, so ordering would sort the JSON rather than
         # the length this column renders.
         orderable=False,
@@ -94,7 +94,7 @@ class ScriptProjectRevisionTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         model = ScriptProjectRevision
-        fields = ('created', 'short_digest', 'status', 'entrypoint_count', 'file_count', 'total_size', 'activated')
+        fields = ('created', 'short_digest', 'status', 'script_file_count', 'file_count', 'total_size', 'activated')
         default_columns = fields
         order_by = ('-created',)
 
@@ -102,7 +102,7 @@ class ScriptProjectRevisionTable(BaseTable):
         """Name a staging whose content was rejected before anything was stored."""
         return value or _('Not stored')
 
-    def render_entrypoint_count(self, value):
+    def render_script_file_count(self, value):
         """Count the declared entrypoints, which is what two revisions on one digest differ on."""
         return len(value)
 
@@ -127,16 +127,16 @@ class ScriptProjectFileTable(BaseTable):
         verbose_name=_('SHA256'),
         orderable=False,
     )
-    entrypoint = columns.BooleanColumn(
-        verbose_name=_('Entrypoint'),
+    script_file = columns.BooleanColumn(
+        verbose_name=_('Script file'),
     )
 
     class Meta(BaseTable.Meta):
         # ObjectChildrenView scopes saved table configurations by Meta.model, so the rows' source model stands in.
         model = ScriptProjectRevision
         empty_text = _('This project has no stored revision yet.')
-        fields = ('path', 'size', 'sha256', 'entrypoint')
-        default_columns = ('path', 'size', 'sha256', 'entrypoint')
+        fields = ('path', 'size', 'sha256', 'script_file')
+        default_columns = ('path', 'size', 'sha256', 'script_file')
 
     def render_path(self, value, record):
         """Annotate a declared path the served revision does not hold."""
@@ -151,7 +151,7 @@ class ScriptProjectFileTable(BaseTable):
         return value[:12]
 
 
-class ScriptProjectRevisionEntrypointTable(BaseTable):
+class ScriptProjectRevisionScriptFileTable(BaseTable):
     """
     The entrypoints one revision froze, for its detail view.
 
@@ -165,7 +165,7 @@ class ScriptProjectRevisionEntrypointTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         # Required rather than decorative: a table with no model derives no default empty text.
-        empty_text = _('This revision froze no entrypoints, so it publishes nothing.')
+        empty_text = _('This revision froze no script files, so it publishes nothing.')
         fields = ('source_path',)
         default_columns = fields
 

@@ -32,7 +32,7 @@ class ScriptProjectRevisionSerializer(ValidatedModelSerializer):
             'total_size',
             'validation_errors',
             'discovered_scripts',
-            'entrypoint_digest',
+            'script_file_digest',
             'activated',
             'created',
             'last_updated',

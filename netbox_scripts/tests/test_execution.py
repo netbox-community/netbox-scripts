@@ -375,9 +375,9 @@ class ScriptJobTestMixin:
         for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
             del sys.modules[name]
 
-    def publish(self, files, entrypoints=('deploy.py',), activate=True):
+    def publish(self, files, script_files=('deploy.py',), activate=True):
         """Stage, validate and optionally activate one tree, returning the revision."""
-        for path in entrypoints:
+        for path in script_files:
             ScriptFile.objects.get_or_create(project=self.project, source_path=path, defaults={'enabled': True})
         revision, _ = service.stage_revision(self.project, files)
         revision = validate_revision(revision, job=Job.objects.create(name='validation', job_id=uuid.uuid4()))

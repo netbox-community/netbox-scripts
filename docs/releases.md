@@ -23,7 +23,7 @@
   the discovery fields readable and filterable but writable only by project
   validation, and each project's modules listed on its detail page
 * Entrypoint selection as a Project setting: an Entrypoints tab and a
-  `projects/<id>/entrypoints/` REST operation list the importable modules of a
+  `projects/<id>/script-files/` REST operation list the importable modules of a
   project's source, at any depth, so a path is chosen rather than typed.
   Selection is expressed as `enabled`, so deselecting keeps a declaration's
   discovery history and its reserved path

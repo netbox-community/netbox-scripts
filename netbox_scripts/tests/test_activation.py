@@ -29,8 +29,8 @@ def record(module_path='deploy', class_name='DeployDevices', position=0, **overr
     values = {
         'module_path': module_path,
         'class_name': class_name,
-        'entrypoint_module_id': 12,
-        'entrypoint_path': 'deploy.py',
+        'script_file_id': 12,
+        'script_file_path': 'deploy.py',
         'position': position,
         'display_name': 'Deploy Devices',
         'description': 'Deploy devices at a site.',
@@ -278,7 +278,7 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
     def test_activation_imports_nothing(self):
         # Re-importing could disagree with the verdict the revision already carries.
         revision = self.valid_with([record()])
-        with mock.patch.object(loader, 'import_entrypoint', side_effect=AssertionError('imported')):
+        with mock.patch.object(loader, 'import_script_file', side_effect=AssertionError('imported')):
             activate_revision(revision)
         self.project.refresh_from_db()
         self.assertEqual(self.project.active_revision_id, revision.pk)

@@ -18,7 +18,7 @@ back, so the namespace has to outlive this call, and the session is the caller's
 from .discovery import discover_scripts
 from .exceptions import ScriptResolutionError
 from .introspection import validate_discovered_scripts
-from .loader import import_entrypoint
+from .loader import import_script_file
 from .naming import revision_module_name
 
 __all__ = ('resolve_script_class',)
@@ -56,10 +56,10 @@ def resolve_script_class(
             name=identity,
         )
 
-    module = import_entrypoint(
+    module = import_script_file(
         storage_key,
         digest,
-        record['entrypoint_path'],
+        record['script_file_path'],
         storage=storage,
         manifest=manifest,
         passthrough=passthrough,
@@ -71,7 +71,7 @@ def resolve_script_class(
             return found.cls
 
     raise ScriptResolutionError(
-        f'"{record["entrypoint_path"]}" no longer publishes "{identity}".',
+        f'"{record["script_file_path"]}" no longer publishes "{identity}".',
         code='no_longer_published',
         name=identity,
     )

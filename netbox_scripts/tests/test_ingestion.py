@@ -127,17 +127,17 @@ class IngestUploadTestCase(TestCase):
             mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None)
         )
 
-    def test_the_entrypoint_is_declared_and_enabled(self):
+    def test_the_script_file_is_declared_and_enabled(self):
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        module = ScriptFile.objects.get(project=self.project)
-        self.assertEqual(module.source_path, 'deploy.py')
-        self.assertTrue(module.enabled)
+        script_file = ScriptFile.objects.get(project=self.project)
+        self.assertEqual(script_file.source_path, 'deploy.py')
+        self.assertTrue(script_file.enabled)
 
     def test_the_declaration_exists_before_the_snapshot_is_built(self):
         # The revision freezes the enabled declarations at staging time, so a declaration made
         # afterwards would not be validated. The snapshot naming the path proves the order.
         staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        self.assertEqual([entry['source_path'] for entry in staged.revision.entrypoint_snapshot], ['deploy.py'])
+        self.assertEqual([entry['source_path'] for entry in staged.revision.script_file_snapshot], ['deploy.py'])
 
     def test_the_revision_is_materialized_and_holds_the_content(self):
         staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
@@ -190,14 +190,14 @@ class IngestUploadTestCase(TestCase):
         # An uploaded file is always an entrypoint, and the row is reused rather than replaced,
         # because Custom Script rows and Job history will reference the declaration.
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        module = ScriptFile.objects.get(project=self.project)
-        ScriptFile.objects.filter(pk=module.pk).update(
+        script_file = ScriptFile.objects.get(project=self.project)
+        ScriptFile.objects.filter(pk=script_file.pk).update(
             enabled=False, discovery_status=FileDiscoveryStatusChoices.DISCOVERED
         )
 
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT + b'# changed\n')
-        module.refresh_from_db()
-        self.assertTrue(module.enabled)
+        script_file.refresh_from_db()
+        self.assertTrue(script_file.enabled)
         self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 1)
 
     def test_identical_content_resolves_to_the_existing_revision(self):
@@ -315,7 +315,7 @@ class IngestUploadTestCase(TestCase):
             ['audit.py', 'deploy.py'],
         )
         self.assertEqual(
-            sorted(entry['source_path'] for entry in staged.revision.entrypoint_snapshot),
+            sorted(entry['source_path'] for entry in staged.revision.script_file_snapshot),
             ['audit.py', 'deploy.py'],
         )
 
@@ -402,29 +402,29 @@ class IngestDataSourceTestCase(TestCase):
         self.assertEqual(staged.revision.validation_errors[0]['path'], '{}.py'.format('x' * 300))
         self.enqueued.assert_not_called()
 
-    def test_no_entrypoint_is_declared(self):
+    def test_no_script_file_is_declared(self):
         # A new Python file becomes a candidate that has to be selected, never an entrypoint by
         # arrival, which is what makes the selection survive a synchronization.
         self.populate()
         staged = ingest_data_source(self.project)
         self.assertFalse(ScriptFile.objects.filter(project=self.project).exists())
-        self.assertEqual(staged.revision.entrypoint_snapshot, [])
+        self.assertEqual(staged.revision.script_file_snapshot, [])
 
     def test_an_enabled_declaration_is_frozen_into_the_snapshot(self):
         self.populate()
-        self.project.select_entrypoints(['deploy.py'])
+        self.project.select_script_files(['deploy.py'])
         staged = ingest_data_source(self.project)
-        self.assertEqual([entry['source_path'] for entry in staged.revision.entrypoint_snapshot], ['deploy.py'])
+        self.assertEqual([entry['source_path'] for entry in staged.revision.script_file_snapshot], ['deploy.py'])
 
     def test_a_declaration_whose_file_is_gone_is_still_frozen_in(self):
         # The verdict has to be able to name the missing path, so the snapshot carries the
         # declaration even though the manifest no longer holds the file.
         self.populate()
-        self.project.select_entrypoints(['deploy.py'])
+        self.project.select_script_files(['deploy.py'])
         DataFile.objects.filter(path='automation/netbox/deploy.py').delete()
 
         staged = ingest_data_source(self.project)
-        self.assertEqual([entry['source_path'] for entry in staged.revision.entrypoint_snapshot], ['deploy.py'])
+        self.assertEqual([entry['source_path'] for entry in staged.revision.script_file_snapshot], ['deploy.py'])
         self.assertNotIn('deploy.py', self.staged_paths(staged))
 
     def test_the_bytes_of_a_file_outside_the_directory_are_never_fetched(self):
@@ -595,12 +595,12 @@ class UploadToActiveTestCase(TestCase):
 
         staged.revision.refresh_from_db()
         project.refresh_from_db()
-        module = ScriptFile.objects.get(project=project)
+        script_file = ScriptFile.objects.get(project=project)
         self.assertEqual(staged.revision.validation_errors, [])
         self.assertEqual(staged.revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(project.active_revision_id, staged.revision.pk)
-        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
-        self.assertEqual(module.discovery_error, '')
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(script_file.discovery_error, '')
 
         # The point of the whole slice: the uploaded class is a first-class object now.
         script = NetBoxScript.objects.get(project=project)
@@ -673,10 +673,10 @@ class UploadToActiveTestCase(TestCase):
         self.run_validation(staged.revision)
 
         staged.revision.refresh_from_db()
-        module = ScriptFile.objects.get(project=project)
+        script_file = ScriptFile.objects.get(project=project)
         self.assertEqual(staged.revision.status, RevisionStatusChoices.INVALID)
         self.assertTrue(staged.revision.validation_errors)
-        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.FAILED)
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.FAILED)
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
@@ -720,13 +720,13 @@ class DataSourceToActiveTestCase(TestCase):
         self.project = ScriptProject.objects.get(pk=self.project.pk)
         return staged.revision
 
-    def test_the_selection_survives_and_a_vanished_entrypoint_spares_the_active_revision(self):
+    def test_the_selection_survives_and_a_vanished_script_file_spares_the_active_revision(self):
         data_file(self.source, 'scripts/hello_world.py', DISCOVERABLE_SCRIPT)
         # Nothing is declared yet, so the first synchronization publishes nothing.
         self.reconcile()
         self.assertFalse(NetBoxScript.objects.filter(project=self.project).exists())
 
-        self.project.select_entrypoints(['hello_world.py'])
+        self.project.select_script_files(['hello_world.py'])
         first = self.reconcile()
         self.assertEqual(first.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, first.pk)
@@ -738,7 +738,7 @@ class DataSourceToActiveTestCase(TestCase):
         data_file(self.source, 'scripts/audit.py', SCRIPT)
         active = self.reconcile()
         self.assertEqual(active.status, RevisionStatusChoices.ACTIVE)
-        self.assertEqual([entry['source_path'] for entry in active.entrypoint_snapshot], ['hello_world.py'])
+        self.assertEqual([entry['source_path'] for entry in active.script_file_snapshot], ['hello_world.py'])
         self.assertEqual(NetBoxScript.objects.filter(project=self.project, is_retired=False).count(), 1)
 
         # The selected file is deleted from the source.

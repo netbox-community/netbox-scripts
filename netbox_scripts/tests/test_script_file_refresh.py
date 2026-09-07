@@ -8,9 +8,9 @@ from django.test import TestCase, override_settings
 from core.choices import JobStatusChoices
 from netbox_scripts import branching
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
-from netbox_scripts.forms import ScriptProjectEntrypointsForm
+from netbox_scripts.forms import ScriptProjectScriptFilesForm
 from netbox_scripts.ingestion import current_source_tree, ingest_upload
-from netbox_scripts.jobs import ProjectEntrypointRefreshJob, RevisionValidationJob
+from netbox_scripts.jobs import ProjectScriptFileRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
     NetBoxScript,
     ScriptFile,
@@ -49,7 +49,7 @@ class Beta(Script):
 """
 
 
-def two_entrypoint_project(key='deploy-devices', **kwargs):
+def two_script_file_project(key='deploy-devices', **kwargs):
     """Return a project holding two uploaded files, both declared and enabled."""
     project = ScriptProject.objects.create(name=key.replace('-', ' ').title(), key=key, **kwargs)
     ingest_upload(project, filename='alpha.py', content=ALPHA)
@@ -61,35 +61,35 @@ def two_entrypoint_project(key='deploy-devices', **kwargs):
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class EntrypointRefreshEnqueueTestCase(TestCase):
+class ScriptFileRefreshEnqueueTestCase(TestCase):
     """What the tab leaves behind for a worker to pick up."""
 
     def setUp(self):
         self.enterContext(mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None))
-        self.project = two_entrypoint_project()
+        self.project = two_script_file_project()
 
     def test_the_job_row_carries_the_project(self):
         # The pk travels in the payload, because Job.clean() refuses an instance link for a model
         # without the jobs feature.
-        job = ProjectEntrypointRefreshJob.enqueue_refresh(self.project)
+        job = ProjectScriptFileRefreshJob.enqueue_refresh(self.project)
         job.refresh_from_db()
         self.assertEqual(job.data, {'project_id': self.project.pk})
 
     def test_enqueueing_does_no_storage_work_of_its_own(self):
-        with mock.patch.object(service, 'refresh_revision_entrypoints') as refresh:
-            ProjectEntrypointRefreshJob.enqueue_refresh(self.project)
+        with mock.patch.object(service, 'refresh_revision_script_files') as refresh:
+            ProjectScriptFileRefreshJob.enqueue_refresh(self.project)
         refresh.assert_not_called()
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class ProjectEntrypointRefreshJobTestCase(TestCase):
+class ProjectScriptFileRefreshJobTestCase(TestCase):
     """The Job body: it restages stored content under the selection as it stands now."""
 
     def setUp(self):
         self.validated = self.enterContext(
             mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None)
         )
-        self.project = two_entrypoint_project()
+        self.project = two_script_file_project()
         # An operator edits entrypoints on a project whose source already reached a verdict, so
         # the fixture gives it one. A revision still awaiting one is a separate case below.
         ScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
@@ -100,7 +100,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
 
     def run_job(self, project_id=None):
         """Run one refresh Job inline and return it, with the project re-read."""
-        job = ProjectEntrypointRefreshJob.enqueue(
+        job = ProjectScriptFileRefreshJob.enqueue(
             immediate=True, project_id=self.project.pk if project_id is None else project_id
         )
         job.refresh_from_db()
@@ -109,24 +109,24 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
 
     def test_a_changed_selection_stages_a_new_revision(self):
         before = self.project.revisions.count()
-        self.project.select_entrypoints(['alpha.py'])
+        self.project.select_script_files(['alpha.py'])
 
         self.assertEqual(self.run_job().status, JobStatusChoices.STATUS_COMPLETED)
 
         self.assertEqual(self.project.revisions.count(), before + 1)
         revision = self.project.latest_revision()
-        self.assertEqual([entry['source_path'] for entry in revision.entrypoint_snapshot], ['alpha.py'])
+        self.assertEqual([entry['source_path'] for entry in revision.script_file_snapshot], ['alpha.py'])
 
     def test_the_new_revision_holds_the_content_unchanged(self):
         # The whole point of the primitive: the same stored tree under a new configuration, so
         # the source digest is untouched and only the entrypoint digest moves.
         source = self.project.latest_revision()
-        self.project.select_entrypoints(['alpha.py'])
+        self.project.select_script_files(['alpha.py'])
         self.run_job()
 
         refreshed = self.project.latest_revision()
         self.assertEqual(refreshed.digest, source.digest)
-        self.assertNotEqual(refreshed.entrypoint_digest, source.entrypoint_digest)
+        self.assertNotEqual(refreshed.script_file_digest, source.script_file_digest)
         self.assertEqual([entry['path'] for entry in refreshed.manifest], ['alpha.py', 'beta.py'])
 
     def test_the_refresh_restages_the_newest_stored_tree_rather_than_the_active_one(self):
@@ -139,7 +139,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         self.assertEqual([entry['path'] for entry in active.manifest], ['alpha.py'])
 
         before = self.project.revisions.count()
-        self.project.select_entrypoints(['beta.py'])
+        self.project.select_script_files(['beta.py'])
         self.run_job()
 
         self.assertEqual(self.project.revisions.count(), before + 1)
@@ -147,7 +147,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
         self.assertEqual([entry['path'] for entry in refreshed.manifest], ['alpha.py', 'beta.py'])
 
     def test_a_changed_selection_hands_the_new_revision_to_validation(self):
-        self.project.select_entrypoints(['alpha.py'])
+        self.project.select_script_files(['alpha.py'])
         self.run_job()
         self.validated.assert_called_once_with(self.project.latest_revision())
 
@@ -174,7 +174,7 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
 
     def test_a_project_with_no_stored_content_completes_with_nothing_to_do(self):
         empty = ScriptProject.objects.create(name='Empty', key='empty')
-        job = ProjectEntrypointRefreshJob.enqueue(immediate=True, project_id=empty.pk)
+        job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=empty.pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertFalse(empty.revisions.exists())
@@ -182,21 +182,21 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
     def test_a_project_deleted_before_the_job_runs_completes_with_nothing_to_do(self):
         pk = self.project.pk
         self.project.delete()
-        job = ProjectEntrypointRefreshJob.enqueue(immediate=True, project_id=pk)
+        job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
 
     def test_unsafe_routing_fails_the_job_before_any_work(self):
         with (
             mock.patch.object(branching, 'unsafe_routing_reason', return_value='a branch is active'),
-            mock.patch.object(service, 'refresh_revision_entrypoints') as refresh,
+            mock.patch.object(service, 'refresh_revision_script_files') as refresh,
         ):
             job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         refresh.assert_not_called()
 
     def test_a_storage_failure_fails_the_job(self):
-        self.project.select_entrypoints(['alpha.py'])
+        self.project.select_script_files(['alpha.py'])
         with mock.patch.object(store, 'verify_revision_tree', side_effect=StorageError('the backend refused')):
             job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
@@ -204,18 +204,18 @@ class ProjectEntrypointRefreshJobTestCase(TestCase):
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class EntrypointsFormTestCase(TestCase):
+class ScriptFilesFormTestCase(TestCase):
     """The tab enqueues a refresh only when the selection actually moved."""
 
     def setUp(self):
         self.enterContext(mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None))
-        self.project = two_entrypoint_project()
+        self.project = two_script_file_project()
         self.enqueued = self.enterContext(
-            mock.patch.object(ProjectEntrypointRefreshJob, 'enqueue_refresh', return_value=None)
+            mock.patch.object(ProjectScriptFileRefreshJob, 'enqueue_refresh', return_value=None)
         )
 
     def save(self, paths):
-        form = ScriptProjectEntrypointsForm(data={'entrypoints': paths}, instance=self.project)
+        form = ScriptProjectScriptFilesForm(data={'script_files': paths}, instance=self.project)
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
         return form
@@ -244,13 +244,13 @@ class EntrypointsFormTestCase(TestCase):
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class EntrypointRefreshPolicyTestCase(TestCase):
+class ScriptFileRefreshPolicyTestCase(TestCase):
     """The chain a selection change sets off, and what the activation policy does with it."""
 
     def setUp(self):
         # A private cache root per test. The default sits under the shared temporary directory,
         # where a group-writable ancestor makes the tier refuse to import.
-        root = Path(tempfile.mkdtemp(prefix='nbcs-entrypoints-'))
+        root = Path(tempfile.mkdtemp(prefix='nbcs-script-files-'))
         root.chmod(0o700)
         self.addCleanup(shutil.rmtree, root, True)
         self.enterContext(override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(root)}}))
@@ -268,16 +268,16 @@ class EntrypointRefreshPolicyTestCase(TestCase):
 
     def refresh(self, project):
         """Run one refresh Job to completion and return the project's newest revision."""
-        job = ProjectEntrypointRefreshJob.enqueue(immediate=True, project_id=project.pk)
+        job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=project.pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         return ScriptProject.objects.get(pk=project.pk)
 
     def test_an_automatic_project_ends_up_serving_the_new_selection(self):
-        project = two_entrypoint_project(key='automatic', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+        project = two_script_file_project(key='automatic', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
         self.assertEqual(NetBoxScript.objects.filter(project=project).count(), 2)
 
-        project.select_entrypoints(['alpha.py'])
+        project.select_script_files(['alpha.py'])
         project = self.refresh(project)
 
         revision = project.latest_revision()
@@ -288,10 +288,10 @@ class EntrypointRefreshPolicyTestCase(TestCase):
         self.assertTrue(NetBoxScript.objects.get(project=project, class_name='Beta').is_retired)
 
     def test_a_manual_project_reaches_valid_and_keeps_serving_what_it_had(self):
-        project = two_entrypoint_project(key='manual', activation_policy=ActivationPolicyChoices.MANUAL)
+        project = two_script_file_project(key='manual', activation_policy=ActivationPolicyChoices.MANUAL)
         served = project.active_revision_id
 
-        project.select_entrypoints(['alpha.py'])
+        project.select_script_files(['alpha.py'])
         project = self.refresh(project)
 
         revision = project.latest_revision()
@@ -301,9 +301,9 @@ class EntrypointRefreshPolicyTestCase(TestCase):
     def test_an_upload_project_has_a_route_at_all(self):
         # The bug this fixes: an uploaded project could not apply a selection by any means,
         # because re-uploading identical content resolves to the revision that already exists.
-        project = two_entrypoint_project(key='uploaded', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
-        project.select_entrypoints([])
+        project = two_script_file_project(key='uploaded', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+        project.select_script_files([])
         project = self.refresh(project)
 
-        self.assertEqual(project.latest_revision().entrypoint_snapshot, [])
+        self.assertEqual(project.latest_revision().script_file_snapshot, [])
         self.assertFalse(NetBoxScript.objects.filter(project=project, is_retired=False).exists())

@@ -138,11 +138,11 @@ class NetBoxScriptTestCase(TestCase):
         instance.refresh_from_db()
         self.assertEqual(instance.description, description)
 
-    def test_deleting_a_module_leaves_the_scripts_intact(self):
+    def test_deleting_a_script_file_leaves_the_scripts_intact(self):
         # A script's publishing entrypoint is provenance, not a relational parent.
-        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         instance = self._script()
-        module.delete()
+        script_file.delete()
         instance.refresh_from_db()
         self.assertIsNotNone(instance.pk)
 
@@ -309,8 +309,8 @@ class SourcePathToDottedNameTestCase(TestCase):
 class ScriptFileTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.project = ScriptProject.objects.create(name='Module Project 1', key='module-project-1')
-        cls.other_project = ScriptProject.objects.create(name='Module Project 2', key='module-project-2')
+        cls.project = ScriptProject.objects.create(name='Script File Project 1', key='script-file-project-1')
+        cls.other_project = ScriptProject.objects.create(name='Script File Project 2', key='script-file-project-2')
 
     def test_create_scriptfile(self):
         instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
@@ -322,7 +322,7 @@ class ScriptFileTestCase(TestCase):
 
     def test_str(self):
         instance = ScriptFile(project=self.project, source_path='tools/deploy.py')
-        self.assertEqual(str(instance), 'Module Project 1: tools/deploy.py')
+        self.assertEqual(str(instance), 'Script File Project 1: tools/deploy.py')
 
     def test_the_discovery_fields_are_system_managed(self):
         # editable=False is what keeps them off every form and serializer.
@@ -414,7 +414,7 @@ class ScriptFileTestCase(TestCase):
         instance.save()
         self.assertIsNotNone(instance.pk)
 
-    def test_editing_a_module_does_not_collide_with_itself(self):
+    def test_editing_a_script_file_does_not_collide_with_itself(self):
         instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         instance.description = 'Edited by the test suite.'
         instance.full_clean()

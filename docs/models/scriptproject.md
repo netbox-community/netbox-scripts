@@ -43,7 +43,7 @@ classes an activated revision publishes are [Custom Scripts](netboxscript.md).
 A project's **Entrypoints** tab selects which of its source modules discovery
 imports, and its detail page lists the [Script
 Files](scriptfile.md) it has declared. The selection is also a REST
-operation at `projects/<id>/entrypoints/`.
+operation at `projects/<id>/script-files/`.
 
 A project's **Files** tab lists the files of its current revision, one row per
 manifest entry with its size and short checksum, and marks which paths are

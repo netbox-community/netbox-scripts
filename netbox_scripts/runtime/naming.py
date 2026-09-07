@@ -17,9 +17,9 @@ from .exceptions import InvalidModulePathError
 
 __all__ = (
     'PRIVATE_ROOT',
-    'entrypoint_dotted_name',
     'project_module_name',
     'revision_module_name',
+    'script_file_dotted_name',
 )
 
 PRIVATE_ROOT = '_netbox_scripts_runtime'
@@ -35,7 +35,7 @@ def revision_module_name(storage_key, digest):
     return f'{project_module_name(storage_key)}.r_{digest}'
 
 
-def entrypoint_dotted_name(path):
+def script_file_dotted_name(path):
     """
     Return the dotted name an entrypoint occupies below its revision package.
 

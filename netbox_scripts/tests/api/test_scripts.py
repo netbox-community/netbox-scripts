@@ -277,28 +277,28 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.project = ScriptProject.objects.create(name='API Module Project', key='api-module-project')
+        cls.project = ScriptProject.objects.create(name='API Script File Project', key='api-script-file-project')
 
-        ScriptFile.objects.create(project=cls.project, source_path='tools/first.py', description='First module')
-        ScriptFile.objects.create(project=cls.project, source_path='tools/second.py', description='Second module')
+        ScriptFile.objects.create(project=cls.project, source_path='tools/first.py', description='First script file')
+        ScriptFile.objects.create(project=cls.project, source_path='tools/second.py', description='Second script file')
         ScriptFile.objects.create(project=cls.project, source_path='tools/third.py', enabled=False)
 
         cls.create_data = [
-            {'project': cls.project.pk, 'source_path': 'tools/fourth.py', 'description': 'Fourth module'},
-            {'project': cls.project.pk, 'source_path': 'tools/fifth.py', 'description': 'Fifth module'},
+            {'project': cls.project.pk, 'source_path': 'tools/fourth.py', 'description': 'Fourth script file'},
+            {'project': cls.project.pk, 'source_path': 'tools/fifth.py', 'description': 'Fifth script file'},
             {'project': cls.project.pk, 'source_path': 'tools/sixth.py', 'description': '', 'enabled': False},
         ]
 
     def test_discovery_fields_are_read_only(self):
         self.add_permissions('netbox_scripts.change_scriptfile')
-        module = ScriptFile.objects.create(project=self.project, source_path='tools/system.py')
+        script_file = ScriptFile.objects.create(project=self.project, source_path='tools/system.py')
         revision = ScriptProjectRevision.objects.create(
             project=self.project,
             digest=FILE_DIGEST,
             status=RevisionStatusChoices.MATERIALIZED,
         )
         response = self.client.patch(
-            self._get_detail_url(module),
+            self._get_detail_url(script_file),
             {
                 'discovery_status': FileDiscoveryStatusChoices.DISCOVERED,
                 'discovery_error': 'Injected error',
@@ -308,27 +308,29 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
             **self.header,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        module.refresh_from_db()
-        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.PENDING)
-        self.assertEqual(module.discovery_error, '')
-        self.assertIsNone(module.last_discovered_revision)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.PENDING)
+        self.assertEqual(script_file.discovery_error, '')
+        self.assertIsNone(script_file.last_discovered_revision)
 
     def test_source_path_is_immutable(self):
         self.add_permissions('netbox_scripts.change_scriptfile')
-        module = ScriptFile.objects.create(project=self.project, source_path='tools/frozen.py')
+        script_file = ScriptFile.objects.create(project=self.project, source_path='tools/frozen.py')
         response = self.client.patch(
-            self._get_detail_url(module), {'source_path': 'tools/renamed.py'}, format='json', **self.header
+            self._get_detail_url(script_file), {'source_path': 'tools/renamed.py'}, format='json', **self.header
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('source_path', response.data)
-        module.refresh_from_db()
-        self.assertEqual(module.source_path, 'tools/frozen.py')
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.source_path, 'tools/frozen.py')
 
     def test_project_is_immutable(self):
         self.add_permissions('netbox_scripts.change_scriptfile')
         other = ScriptProject.objects.create(name='API Other Project', key='api-other-project')
-        module = ScriptFile.objects.create(project=self.project, source_path='tools/owned.py')
-        response = self.client.patch(self._get_detail_url(module), {'project': other.pk}, format='json', **self.header)
+        script_file = ScriptFile.objects.create(project=self.project, source_path='tools/owned.py')
+        response = self.client.patch(
+            self._get_detail_url(script_file), {'project': other.pk}, format='json', **self.header
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('project', response.data)
 

@@ -54,7 +54,7 @@ class ScriptFileEditForm(PrimaryModelForm):
             self.fields['project'].disabled = True
             self.fields['source_path'].disabled = True
 
-    fieldsets = (FieldSet('project', 'source_path', 'enabled', 'description', 'tags', name=_('Module')),)
+    fieldsets = (FieldSet('project', 'source_path', 'enabled', 'description', 'tags', name=_('Script File')),)
 
     class Meta:
         model = ScriptFile

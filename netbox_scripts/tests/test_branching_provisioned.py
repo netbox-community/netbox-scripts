@@ -120,7 +120,7 @@ class BranchingTestCase(_TestBase):
         self._schemas.append(branch.schema_name)
         return branch
 
-    def staged_revision(self, project, entrypoint_digest=''):
+    def staged_revision(self, project, script_file_digest=''):
         """Return one VALID revision of a project, with its single source file really stored."""
         store.write_revision(config.get_storage(), project.storage_key, DIGEST, SOURCE, MANIFEST)
         return ScriptProjectRevision.objects.create(
@@ -128,7 +128,7 @@ class BranchingTestCase(_TestBase):
             digest=DIGEST,
             status=RevisionStatusChoices.VALID,
             manifest=MANIFEST,
-            entrypoint_digest=entrypoint_digest,
+            script_file_digest=script_file_digest,
         )
 
     def revision_stored(self, project):
@@ -285,7 +285,7 @@ class BranchDeletionTestCase(BranchingTestCase):
     def test_a_branch_delete_withholds_cleanup_for_content_a_sibling_names(self):
         # Two rows share one stored tree, so deleting one must not hand off bytes the other names.
         first = self.staged_revision(self.project)
-        self.staged_revision(self.project, entrypoint_digest='b' * 64)
+        self.staged_revision(self.project, script_file_digest='b' * 64)
         branch = self.branch('Shared')
         with mock.patch.object(signals.ProjectStorageCleanupJob, 'enqueue_cleanup') as enqueue, activate_branch(branch):
             first.delete()

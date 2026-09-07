@@ -14,8 +14,8 @@ from core.models import DataSource
 from netbox_scripts import constants
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.models import ScriptProject, ScriptProjectRevision
-from netbox_scripts.storage.entrypoints import EMPTY_SNAPSHOT_DIGEST
 from netbox_scripts.storage.manifest import compute_digest
+from netbox_scripts.storage.script_files import EMPTY_SNAPSHOT_DIGEST
 
 DIGEST_A = 'a' * 64
 DIGEST_B = 'b' * 64
@@ -616,36 +616,36 @@ class ScriptProjectRevisionTestCase(TestCase):
         self.assertNotEqual(first.pk, second.pk)
         self.assertEqual(ScriptProjectRevision.objects.filter(digest__isnull=True).count(), 2)
 
-    def test_entrypoint_fields_default_to_the_empty_snapshot(self):
+    def test_script_file_fields_default_to_the_empty_snapshot(self):
         instance = self.make_revision()
-        self.assertEqual(instance.entrypoint_snapshot, [])
-        self.assertEqual(instance.entrypoint_digest, EMPTY_SNAPSHOT_DIGEST)
+        self.assertEqual(instance.script_file_snapshot, [])
+        self.assertEqual(instance.script_file_digest, EMPTY_SNAPSHOT_DIGEST)
 
-    def test_one_digest_is_allowed_under_two_entrypoint_configurations(self):
+    def test_one_digest_is_allowed_under_two_script_file_configurations(self):
         # The same source tree under a changed configuration is a new, separately
         # validatable identity that reuses the stored content.
         first = self.make_revision()
-        second = self.make_revision(entrypoint_digest='b' * 64)
+        second = self.make_revision(script_file_digest='b' * 64)
         self.assertNotEqual(first.pk, second.pk)
 
     def test_the_identity_triple_is_refused_when_repeated(self):
-        self.make_revision(entrypoint_digest='b' * 64)
+        self.make_revision(script_file_digest='b' * 64)
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self.make_revision(entrypoint_digest='b' * 64)
+            self.make_revision(script_file_digest='b' * 64)
 
-    def test_entrypoint_snapshot_immutable_on_save(self):
+    def test_script_file_snapshot_immutable_on_save(self):
         instance = self.make_revision()
-        instance.entrypoint_snapshot = [{'module': 1, 'source_path': 'a.py'}]
+        instance.script_file_snapshot = [{'script_file': 1, 'source_path': 'a.py'}]
         with self.assertRaises(ValidationError) as cm:
             instance.save()
-        self.assertIn('entrypoint_snapshot', cm.exception.message_dict)
+        self.assertIn('script_file_snapshot', cm.exception.message_dict)
 
-    def test_entrypoint_digest_immutable_on_save(self):
+    def test_script_file_digest_immutable_on_save(self):
         instance = self.make_revision()
-        instance.entrypoint_digest = 'b' * 64
+        instance.script_file_digest = 'b' * 64
         with self.assertRaises(ValidationError) as cm:
             instance.save()
-        self.assertIn('entrypoint_digest', cm.exception.message_dict)
+        self.assertIn('script_file_digest', cm.exception.message_dict)
 
     def test_every_status_but_invalid_requires_a_digest(self):
         # A digest is computed from accepted content before the row is created, so a status

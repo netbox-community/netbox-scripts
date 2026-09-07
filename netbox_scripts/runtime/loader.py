@@ -32,11 +32,11 @@ from contextlib import contextmanager
 from ..compat import wrap_loader
 from ..storage.manifest import validate_manifest
 from .cache import materialize_revision
-from .exceptions import EntrypointImportError
-from .naming import PRIVATE_ROOT, entrypoint_dotted_name, project_module_name, revision_module_name
+from .exceptions import ScriptFileImportError
+from .naming import PRIVATE_ROOT, project_module_name, revision_module_name, script_file_dotted_name
 
 __all__ = (
-    'import_entrypoint',
+    'import_script_file',
     'revision_import_session',
     'unload_revision',
 )
@@ -46,7 +46,7 @@ _revision_locks = {}
 _revision_locks_guard = threading.Lock()
 
 
-def import_entrypoint(storage_key, digest, entrypoint_path, *, storage, manifest, passthrough=(), cache_root=None):
+def import_script_file(storage_key, digest, script_file_path, *, storage, manifest, passthrough=(), cache_root=None):
     """
     Import one entrypoint from a revision and return its module.
 
@@ -60,17 +60,17 @@ def import_entrypoint(storage_key, digest, entrypoint_path, *, storage, manifest
     manifest or the import fails, and whatever materialization raises when storage or cache
     cannot deliver.
     """
-    dotted = entrypoint_dotted_name(entrypoint_path)
+    dotted = script_file_dotted_name(script_file_path)
     # The membership check below reads the manifest, so it is confirmed before that read.
     validate_manifest(manifest, digest)
     manifest_paths = {entry['path'] for entry in manifest}
-    if entrypoint_path not in manifest_paths:
-        message = f'The entrypoint "{entrypoint_path}" is not part of the revision manifest.'
-        raise EntrypointImportError(
+    if script_file_path not in manifest_paths:
+        message = f'The script file "{script_file_path}" is not part of the revision manifest.'
+        raise ScriptFileImportError(
             message,
             {
-                'path': entrypoint_path,
-                'code': 'entrypoint_not_in_manifest',
+                'path': script_file_path,
+                'code': 'script_file_not_in_manifest',
                 'message': message,
                 'exception_type': None,
                 'traceback': None,
@@ -93,9 +93,9 @@ def import_entrypoint(storage_key, digest, entrypoint_path, *, storage, manifest
             _sweep_added(revision_name, before, sys.modules.get(project_name))
             if isinstance(error, (*passthrough, KeyboardInterrupt, GeneratorExit)):
                 raise
-            raise EntrypointImportError(
-                f'The entrypoint "{entrypoint_path}" failed to import.',
-                _failure_detail(entrypoint_path, error, revision_dir),
+            raise ScriptFileImportError(
+                f'The script file "{script_file_path}" failed to import.',
+                _failure_detail(script_file_path, error, revision_dir),
             ) from error
 
 
@@ -219,7 +219,7 @@ def _sweep_added(revision_name, before, project_module):
         delattr(project_module, attribute)
 
 
-def _failure_detail(entrypoint_path, error, revision_dir):
+def _failure_detail(script_file_path, error, revision_dir):
     """
     Build the structured record describing one failed entrypoint import.
 
@@ -231,8 +231,8 @@ def _failure_detail(entrypoint_path, error, revision_dir):
     frames = traceback.extract_tb(error.__traceback__)
     local = [frame for frame in frames if frame.filename.startswith(str(revision_dir))]
     return {
-        'path': entrypoint_path,
-        'code': 'entrypoint_import_failed',
+        'path': script_file_path,
+        'code': 'script_file_import_failed',
         'message': str(error),
         'exception_type': type(error).__name__,
         'traceback': ''.join(traceback.format_list(local or frames)),

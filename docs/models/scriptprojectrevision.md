@@ -27,8 +27,8 @@ and validation services. They are not edited directly.
 | `total_size` | integer | yes | Combined size in bytes of every accepted source file |
 | `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
 | `discovered_scripts` | JSON | no | Custom Scripts the most recent successful validation published, in publication order. May be empty |
-| `entrypoint_snapshot` | JSON | yes | Enabled module declarations frozen at staging time, each with its `module` primary key and canonical `source_path`, sorted by path. May be empty |
-| `entrypoint_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
+| `script_file_snapshot` | JSON | yes | Enabled module declarations frozen at staging time, each with its `script_file` primary key and canonical `source_path`, sorted by path. May be empty |
+| `script_file_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
 | `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
 | `validation_started` | datetime | system | When the owning validation claimed the revision |
 | `activated` | datetime | no | When the revision last became the project's active revision |
@@ -66,10 +66,10 @@ Both surfaces are read-only. A revision is produced by ingestion and moved
 through its lifecycle by the storage and validation services, so every write
 method is refused at the router and activation stays an action rather than a
 writable status field. Filter the list by `project_id`, `project` (the project
-key), `status`, `digest`, or `entrypoint_digest`.
+key), `status`, `digest`, or `script_file_digest`.
 
 Two fields are deliberately absent from both surfaces. The `manifest` and the
-`entrypoint_snapshot` are stored documents rather than lookup keys, large enough
+`script_file_snapshot` are stored documents rather than lookup keys, large enough
 to dominate a list response and internal to how content is addressed. The
 validation lease fields are absent for the same reason: they are a fencing
 mechanism, not user-facing state. An advanced diagnostic surface is the right
@@ -209,14 +209,14 @@ fields nor module discovery results. The verdict keeps `validation_job` and
 
 | Invariant | Enforcement |
 |---|---|
-| `project`, `digest`, `manifest`, `file_count`, `total_size`, `entrypoint_snapshot`, and `entrypoint_digest` cannot change after creation | `save()` guard, no form or serializer exposes them |
+| `project`, `digest`, `manifest`, `file_count`, `total_size`, `script_file_snapshot`, and `script_file_digest` cannot change after creation | `save()` guard, no form or serializer exposes them |
 | A project cannot hold two revisions with the same digest and entrypoint digest | Partial `unique_project_digest` database constraint, applied only when a digest is set |
 | A revision whose tree is stored must have a digest | `stored_revision_requires_digest` database check constraint |
 | An invalid revision from rejected content carries no digest and is never content-deduplicated | The staging service stores a null digest, which the partial constraint ignores |
 | Only `valid` or `retired` revisions may be activated | The activation service raises `ActivationError` otherwise |
 | A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
 | A stored tree still matches its manifest before it is reused or activated | `store.verify_revision_tree()`, which raises `RevisionCorruptError` |
-| A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_entrypoint_snapshot()`, which raises `RevisionCorruptError` |
+| A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_script_file_snapshot()`, which raises `RevisionCorruptError` |
 | A persisted list of published Custom Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row |
 | Neither the tree nor what it publishes changed while the tree was being verified | The locked row is compared against the verified one, digests, manifest, snapshot, and published scripts alike |
 | Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |

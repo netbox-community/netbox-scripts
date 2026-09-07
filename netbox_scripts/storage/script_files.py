@@ -20,9 +20,9 @@ from .paths import case_insensitive_collisions, normalize_source_path
 
 __all__ = (
     'EMPTY_SNAPSHOT_DIGEST',
-    'build_entrypoint_snapshot',
-    'compute_entrypoint_digest',
-    'validate_entrypoint_snapshot',
+    'build_script_file_snapshot',
+    'compute_script_file_digest',
+    'validate_script_file_snapshot',
 )
 
 # What compute_entrypoint_digest returns for an empty snapshot, the digest a revision
@@ -30,10 +30,10 @@ __all__ = (
 # without the service still describes itself.
 EMPTY_SNAPSHOT_DIGEST = '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'
 
-_ENTRY_KEYS = ('module', 'source_path')
+_ENTRY_KEYS = ('script_file', 'source_path')
 
 
-def build_entrypoint_snapshot(modules):
+def build_script_file_snapshot(script_files):
     """
     Return (snapshot, digest) for an iterable of Module rows.
 
@@ -42,19 +42,19 @@ def build_entrypoint_snapshot(modules):
     so the byte form is stable across hosts and across a JSONField round trip.
     """
     snapshot = sorted(
-        ({'module': module.pk, 'source_path': module.source_path} for module in modules),
+        ({'script_file': script_file.pk, 'source_path': script_file.source_path} for script_file in script_files),
         key=lambda entry: entry['source_path'],
     )
-    return snapshot, compute_entrypoint_digest(snapshot)
+    return snapshot, compute_script_file_digest(snapshot)
 
 
-def compute_entrypoint_digest(snapshot):
+def compute_script_file_digest(snapshot):
     """Return the 64 character lowercase hex sha256 that addresses one snapshot."""
     payload = json.dumps(snapshot, sort_keys=True, separators=(',', ':'), ensure_ascii=True)
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
-def validate_entrypoint_snapshot(snapshot, entrypoint_digest):
+def validate_script_file_snapshot(snapshot, script_file_digest):
     """
     Check a persisted snapshot before it becomes authoritative input again.
 
@@ -66,15 +66,15 @@ def validate_entrypoint_snapshot(snapshot, entrypoint_digest):
     listing every problem found. Returns the entries as a tuple.
     """
     if not isinstance(snapshot, list):
-        raise RevisionCorruptError('The stored entrypoint snapshot is not a list.', ['snapshot_not_a_list'])
+        raise RevisionCorruptError('The stored script file snapshot is not a list.', ['snapshot_not_a_list'])
 
     reasons = []
-    module_ids = set()
+    script_file_ids = set()
     paths = set()
     claimants_by_name = {}
     previous_path = None
     for index, entry in enumerate(snapshot):
-        entry_reasons = _validate_entry(index, entry, module_ids, paths, claimants_by_name)
+        entry_reasons = _validate_entry(index, entry, script_file_ids, paths, claimants_by_name)
         reasons.extend(entry_reasons)
         if entry_reasons:
             continue
@@ -90,15 +90,15 @@ def validate_entrypoint_snapshot(snapshot, entrypoint_digest):
             reasons.extend(f'duplicate_module_name:{path}' for path in sorted(claimants))
 
     # The digest is computed from the entries, so it runs only once they are known sound.
-    if not reasons and compute_entrypoint_digest(snapshot) != entrypoint_digest:
-        reasons.append('entrypoint_digest_mismatch')
+    if not reasons and compute_script_file_digest(snapshot) != script_file_digest:
+        reasons.append('script_file_digest_mismatch')
 
     if reasons:
-        raise RevisionCorruptError('The stored entrypoint snapshot cannot be trusted.', reasons)
+        raise RevisionCorruptError('The stored script file snapshot cannot be trusted.', reasons)
     return tuple(snapshot)
 
 
-def _validate_entry(index, entry, module_ids, paths, claimants_by_name):
+def _validate_entry(index, entry, script_file_ids, paths, claimants_by_name):
     """Return the reasons one persisted entry cannot be used, recording what it claims."""
     if not isinstance(entry, dict):
         return [f'malformed_entry:{index}']
@@ -110,13 +110,13 @@ def _validate_entry(index, entry, module_ids, paths, claimants_by_name):
         return [f'unexpected_fields:{index}:{",".join(unexpected)}']
 
     reasons = []
-    module_id = entry['module']
-    if isinstance(module_id, bool) or not isinstance(module_id, int) or module_id < 1:
-        reasons.append(f'malformed_module_id:{index}')
+    script_file_id = entry['script_file']
+    if isinstance(script_file_id, bool) or not isinstance(script_file_id, int) or script_file_id < 1:
+        reasons.append(f'malformed_script_file_id:{index}')
     else:
-        if module_id in module_ids:
-            reasons.append(f'duplicate_module:{module_id}')
-        module_ids.add(module_id)
+        if script_file_id in script_file_ids:
+            reasons.append(f'duplicate_script_file:{script_file_id}')
+        script_file_ids.add(script_file_id)
 
     path = entry['source_path']
     if not isinstance(path, str):

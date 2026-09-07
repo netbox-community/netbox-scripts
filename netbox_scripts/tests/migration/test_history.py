@@ -14,7 +14,7 @@ from dcim.models import Site
 from extras.models import Script, ScriptModule
 from netbox_scripts.migration import cutover, references
 from netbox_scripts.models import NetBoxScript
-from netbox_scripts.runtime.exceptions import EntrypointImportError
+from netbox_scripts.runtime.exceptions import ScriptFileImportError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from users.models import ObjectPermission
 
@@ -344,7 +344,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         with patch(
             'netbox_scripts.migration.references.load_script_class',
-            side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
+            side_effect=ScriptFileImportError('deploy imports a module that is not there', {}),
         ):
             counts, warnings = references.recreate_schedules(self.migration)
 

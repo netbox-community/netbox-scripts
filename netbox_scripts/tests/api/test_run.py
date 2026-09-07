@@ -10,7 +10,7 @@ from core.models import Job, ObjectType
 from netbox_scripts.activation import activate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
-from netbox_scripts.runtime.exceptions import EntrypointImportError, LocalCacheError
+from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
 from netbox_scripts.tests.views.test_run import TAKES_A_NAME, RunViewTestMixin
@@ -350,7 +350,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
         with patch(
             'netbox_scripts.api.views.load_script_class',
-            side_effect=EntrypointImportError('deploy imports a module that is not there', {}),
+            side_effect=ScriptFileImportError('deploy imports a module that is not there', {}),
         ):
             response = self.post_run({'data': {'label': 'never-runs'}})
 

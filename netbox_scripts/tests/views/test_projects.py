@@ -101,7 +101,7 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         super().test_edit_object_with_constrained_permission()
 
 
-class ScriptProjectEntrypointsViewTestCase(TestCase):
+class ScriptProjectScriptFilesViewTestCase(TestCase):
     """The Entrypoints tab writes declarations, so it carries the Module permission."""
 
     @classmethod
@@ -119,7 +119,7 @@ class ScriptProjectEntrypointsViewTestCase(TestCase):
         self.client.force_login(self.user)
 
     def url(self):
-        return reverse('plugins:netbox_scripts:scriptproject_entrypoints', args=[self.project.pk])
+        return reverse('plugins:netbox_scripts:scriptproject_script_files', args=[self.project.pk])
 
     def grant(self, model, *actions, constraints=None):
         obj_perm = ObjectPermission(
@@ -144,26 +144,26 @@ class ScriptProjectEntrypointsViewTestCase(TestCase):
 
     def test_selecting_creates_declarations(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'entrypoints': ['deploy.py', 'tools/audit.py']})
+        response = self.client.post(self.url(), {'script_files': ['deploy.py', 'tools/audit.py']})
         self.assertHttpStatus(response, 302)
         self.assertEqual(
-            sorted(self.project.modules.filter(enabled=True).values_list('source_path', flat=True)),
+            sorted(self.project.script_files.filter(enabled=True).values_list('source_path', flat=True)),
             ['deploy.py', 'tools/audit.py'],
         )
 
     def test_deselecting_disables_and_keeps_the_row(self):
         self.grant_both()
-        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
-        self.assertHttpStatus(self.client.post(self.url(), {'entrypoints': []}), 302)
-        module.refresh_from_db()
-        self.assertFalse(module.enabled)
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        self.assertHttpStatus(self.client.post(self.url(), {'script_files': []}), 302)
+        script_file.refresh_from_db()
+        self.assertFalse(script_file.enabled)
 
     def test_the_project_permission_alone_is_not_enough(self):
         # Writing declarations needs their own permission, not just the project's.
         self.grant(ScriptProject, 'view', 'change')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
-    def test_the_module_permission_alone_is_not_enough(self):
+    def test_the_script_file_permission_alone_is_not_enough(self):
         self.grant(ScriptFile, 'view', 'change', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
@@ -186,7 +186,7 @@ class ScriptProjectEntrypointsViewTestCase(TestCase):
     def test_a_project_without_source_renders_an_empty_selection(self):
         self.grant_both()
         bare = ScriptProject.objects.create(name='Bare Project', key='bare-project')
-        url = reverse('plugins:netbox_scripts:scriptproject_entrypoints', args=[bare.pk])
+        url = reverse('plugins:netbox_scripts:scriptproject_script_files', args=[bare.pk])
         self.assertHttpStatus(self.client.get(url), 200)
 
 
@@ -275,7 +275,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         table = self.client.get(url).context['table']
         self.assertEqual([column.name for column in table.columns][:3], ['created', 'short_digest', 'status'])
 
-    def test_the_history_tab_shows_the_entrypoint_count(self):
+    def test_the_history_tab_shows_the_script_file_count(self):
         # Asserted on the configured table, because a declared column survives being dropped
         # from the displayed set and would still answer get_cell().
         self.grant(ScriptProject, 'view')
@@ -284,7 +284,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         response = self.client.get(url)
         visible = [name for name, _label in response.context['table'].selected_columns]
 
-        self.assertIn('entrypoint_count', visible)
+        self.assertIn('script_file_count', visible)
 
     def test_the_history_tab_links_each_revision(self):
         self.grant(ScriptProject, 'view')
@@ -357,7 +357,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
         self.assertIn(expected, self.body())
 
-    def test_the_add_script_action_is_inert_without_the_module_add_permission(self):
+    def test_the_add_script_action_is_inert_without_the_script_file_add_permission(self):
         # permissions_required cannot name another model, so without this check the button would
         # link somewhere the view refuses once a file has already been chosen.
         self.grant(ScriptProject, 'view', 'change')
@@ -522,8 +522,8 @@ class ScriptProjectActivateViewTestCase(TestCase):
                 {
                     'module_path': 'deploy',
                     'class_name': 'Deploy',
-                    'entrypoint_module_id': 1,
-                    'entrypoint_path': 'deploy.py',
+                    'script_file_id': 1,
+                    'script_file_path': 'deploy.py',
                     'position': 0,
                     'display_name': 'Deploy',
                     'description': '',
@@ -642,8 +642,8 @@ class ScriptProjectRepairViewTestCase(TestCase):
                 {
                     'module_path': 'deploy',
                     'class_name': 'Deploy',
-                    'entrypoint_module_id': 1,
-                    'entrypoint_path': 'deploy.py',
+                    'script_file_id': 1,
+                    'script_file_path': 'deploy.py',
                     'position': 0,
                     'display_name': 'Deploy',
                     'description': '',

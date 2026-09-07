@@ -313,7 +313,7 @@ def _inspect(module, read, proposal):
         # the operator is told rather than either one being guessed at.
         message = (
             f'{path} publishes no Script and defines no class that could, so it migrates as a helper '
-            f'file rather than an entrypoint. If it should publish one, check that its built-in '
+            f'file rather than a script file. If it should publish one, check that its built-in '
             f'module still imports.'
         )
         findings.append(_finding(WARNING, 'publishes_nothing', module, message))

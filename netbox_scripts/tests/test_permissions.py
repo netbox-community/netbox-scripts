@@ -34,8 +34,8 @@ CUSTOM = {
 RECORD = {
     'module_path': 'deploy',
     'class_name': 'Deploy',
-    'entrypoint_module_id': 1,
-    'entrypoint_path': 'deploy.py',
+    'script_file_id': 1,
+    'script_file_path': 'deploy.py',
     'position': 0,
     'display_name': 'Deploy',
     'description': '',

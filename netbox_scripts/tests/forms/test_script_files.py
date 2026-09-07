@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.forms import ScriptProjectEntrypointsForm
+from netbox_scripts.forms import ScriptProjectScriptFilesForm
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 
 
@@ -13,7 +13,7 @@ def manifest(*paths):
     return [{'path': path, 'size': 1, 'sha256': 'f' * 64} for path in sorted(paths)]
 
 
-class EntrypointSelectionTestCase(TestCase):
+class ScriptFileSelectionTestCase(TestCase):
     """Selection reconciles onto enabled, so a deselected declaration keeps its history."""
 
     @classmethod
@@ -27,12 +27,12 @@ class EntrypointSelectionTestCase(TestCase):
         )
 
     def form(self, paths):
-        return ScriptProjectEntrypointsForm(data={'entrypoints': paths}, instance=self.project)
+        return ScriptProjectScriptFilesForm(data={'script_files': paths}, instance=self.project)
 
     def test_the_choices_are_the_projects_importable_modules(self):
-        form = ScriptProjectEntrypointsForm(instance=self.project)
+        form = ScriptProjectScriptFilesForm(instance=self.project)
         self.assertEqual(
-            [value for value, _label in form.fields['entrypoints'].choices],
+            [value for value, _label in form.fields['script_files'].choices],
             ['deploy.py', 'tools/audit.py', 'tools/helpers.py'],
         )
 
@@ -41,34 +41,34 @@ class EntrypointSelectionTestCase(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
         self.assertEqual(
-            sorted(self.project.modules.filter(enabled=True).values_list('source_path', flat=True)),
+            sorted(self.project.script_files.filter(enabled=True).values_list('source_path', flat=True)),
             ['deploy.py', 'tools/audit.py'],
         )
 
     def test_deselecting_disables_without_deleting(self):
-        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
-        ScriptFile.objects.filter(pk=module.pk).update(discovery_status=FileDiscoveryStatusChoices.DISCOVERED)
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        ScriptFile.objects.filter(pk=script_file.pk).update(discovery_status=FileDiscoveryStatusChoices.DISCOVERED)
         form = self.form([])
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
-        module.refresh_from_db()
-        self.assertFalse(module.enabled)
-        self.assertEqual(module.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        script_file.refresh_from_db()
+        self.assertFalse(script_file.enabled)
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
 
     def test_reselecting_reuses_the_same_row(self):
-        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py', enabled=False)
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py', enabled=False)
         form = self.form(['deploy.py'])
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
-        self.assertEqual(self.project.modules.count(), 1)
-        module.refresh_from_db()
-        self.assertTrue(module.enabled)
+        self.assertEqual(self.project.script_files.count(), 1)
+        script_file.refresh_from_db()
+        self.assertTrue(script_file.enabled)
 
     def test_the_initial_selection_is_the_enabled_declarations(self):
         ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         ScriptFile.objects.create(project=self.project, source_path='tools/audit.py', enabled=False)
-        form = ScriptProjectEntrypointsForm(instance=self.project)
-        self.assertEqual(form.initial['entrypoints'], ['deploy.py'])
+        form = ScriptProjectScriptFilesForm(instance=self.project)
+        self.assertEqual(form.initial['script_files'], ['deploy.py'])
 
     def test_a_path_outside_the_source_is_refused(self):
         form = self.form(['nowhere.py'])
@@ -77,15 +77,15 @@ class EntrypointSelectionTestCase(TestCase):
     def test_a_declared_path_missing_from_the_source_stays_selectable(self):
         # Otherwise the form is unsubmittable until the operator drops the declaration.
         ScriptFile.objects.create(project=self.project, source_path='removed.py')
-        form = ScriptProjectEntrypointsForm(instance=self.project)
-        self.assertIn('removed.py', [value for value, _label in form.fields['entrypoints'].choices])
+        form = ScriptProjectScriptFilesForm(instance=self.project)
+        self.assertIn('removed.py', [value for value, _label in form.fields['script_files'].choices])
         submitted = self.form(['removed.py'])
         self.assertTrue(submitted.is_valid(), submitted.errors)
 
     def test_a_missing_path_is_labelled(self):
         ScriptFile.objects.create(project=self.project, source_path='removed.py')
-        form = ScriptProjectEntrypointsForm(instance=self.project)
-        labels = dict(form.fields['entrypoints'].choices)
+        form = ScriptProjectScriptFilesForm(instance=self.project)
+        labels = dict(form.fields['script_files'].choices)
         self.assertEqual(str(labels['removed.py']), 'removed.py (missing from the source)')
 
     def test_a_path_only_a_newer_revision_holds_is_labelled_not_yet_active(self):
@@ -106,17 +106,17 @@ class EntrypointSelectionTestCase(TestCase):
         ScriptFile.objects.create(project=project, source_path='added.py')
         ScriptFile.objects.create(project=project, source_path='gone.py')
 
-        labels = dict(ScriptProjectEntrypointsForm(instance=project).fields['entrypoints'].choices)
+        labels = dict(ScriptProjectScriptFilesForm(instance=project).fields['script_files'].choices)
         self.assertEqual(str(labels['added.py']), 'added.py (not in the active revision yet)')
         self.assertEqual(str(labels['gone.py']), 'gone.py (missing from the source)')
 
-    def test_select_entrypoints_refuses_an_unknown_path_directly(self):
+    def test_select_script_files_refuses_an_unknown_path_directly(self):
         with self.assertRaises(ValidationError):
-            self.project.select_entrypoints(['nowhere.py'])
+            self.project.select_script_files(['nowhere.py'])
 
-    def test_a_nested_entrypoint_is_accepted(self):
+    def test_a_nested_script_file_is_accepted(self):
         form = self.form(['tools/audit.py'])
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
-        module = self.project.modules.get(source_path='tools/audit.py')
-        self.assertTrue(module.enabled)
+        script_file = self.project.script_files.get(source_path='tools/audit.py')
+        self.assertTrue(script_file.enabled)

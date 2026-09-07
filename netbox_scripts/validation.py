@@ -33,21 +33,21 @@ from .constants import MAX_VALIDATION_ERROR_LENGTH, VALIDATION_LEASE_SECONDS
 from .models import ScriptFile, ScriptProjectRevision
 from .runtime.cache import local_revision_dir
 from .runtime.discovery import discover_scripts, zero_publication_reason
-from .runtime.exceptions import DiscoveryError, EntrypointImportError, InvalidModulePathError, ScriptMetadataError
+from .runtime.exceptions import DiscoveryError, InvalidModulePathError, ScriptFileImportError, ScriptMetadataError
 from .runtime.introspection import describe_script
-from .runtime.loader import import_entrypoint, revision_import_session, unload_revision
+from .runtime.loader import import_script_file, revision_import_session, unload_revision
 from .runtime.naming import PRIVATE_ROOT, project_module_name, revision_module_name
 from .storage import config
-from .storage.entrypoints import validate_entrypoint_snapshot
 from .storage.exceptions import RevisionCorruptError, StorageError
 from .storage.manifest import validate_manifest
+from .storage.script_files import validate_script_file_snapshot
 from .storage.service import require_default_database
 from .utils import source_path_to_dotted_name
 
 __all__ = (
     'ValidationStateError',
     'build_error_sanitizer',
-    'classify_entrypoint_error',
+    'classify_script_file_error',
     'validate_revision',
 )
 
@@ -94,7 +94,7 @@ def validate_revision(revision, *, job, passthrough=()):
     revision.refresh_from_db()
 
     try:
-        entries = validate_entrypoint_snapshot(revision.entrypoint_snapshot, revision.entrypoint_digest)
+        entries = validate_script_file_snapshot(revision.script_file_snapshot, revision.script_file_digest)
         validate_manifest(revision.manifest, revision.digest)
     except RevisionCorruptError:
         _revert_to_materialized(revision, job)
@@ -122,7 +122,7 @@ def validate_revision(revision, *, job, passthrough=()):
                 for entry in entries:
                     source_path = entry['source_path']
                     try:
-                        module = import_entrypoint(
+                        module = import_script_file(
                             storage_key,
                             digest,
                             source_path,
@@ -136,8 +136,8 @@ def validate_revision(revision, *, job, passthrough=()):
                     except (DiscoveryError, InvalidModulePathError) as error:
                         outcomes[source_path] = _content_failure(failures, sanitize, source_path, error)
                         continue
-                    except EntrypointImportError as error:
-                        classification = classify_entrypoint_error(
+                    except ScriptFileImportError as error:
+                        classification = classify_script_file_error(
                             error, revision_prefix=revision_prefix, revision_modules=revision_modules
                         )
                         if classification != 'content':
@@ -172,12 +172,12 @@ def validate_revision(revision, *, job, passthrough=()):
     status = RevisionStatusChoices.INVALID if failures else RevisionStatusChoices.VALID
     published = [] if failures else records
     if _finalize(revision, job, status, failures, published):
-        _persist_module_results(revision, entries, outcomes, failures, notes)
+        _persist_script_file_results(revision, entries, outcomes, failures, notes)
     revision.refresh_from_db()
     return revision
 
 
-def classify_entrypoint_error(error, *, revision_prefix, revision_modules=frozenset()):
+def classify_script_file_error(error, *, revision_prefix, revision_modules=frozenset()):
     """
     Return 'content' or 'environment' for one wrapped entrypoint import failure.
 
@@ -263,7 +263,7 @@ def _top_level_module_names(manifest):
 
 def _content_failure(failures, sanitize, source_path, error):
     """Record one sanitized content failure, returning the failed module outcome."""
-    if isinstance(error, EntrypointImportError):
+    if isinstance(error, ScriptFileImportError):
         detail = error.detail
         record = {
             'source_path': source_path,
@@ -314,8 +314,8 @@ def _collect_publications(failures, identities, records, sanitize, entry, found)
         try:
             record = describe_script(
                 item,
-                entrypoint_module_id=entry['module'],
-                entrypoint_path=source_path,
+                script_file_id=entry['script_file'],
+                script_file_path=source_path,
                 position=len(records),
             )
         except ScriptMetadataError as error:
@@ -361,7 +361,7 @@ def _revert_to_materialized(revision, job, reason=''):
     )
 
 
-def _persist_module_results(revision, entries, outcomes, failures, notes):
+def _persist_script_file_results(revision, entries, outcomes, failures, notes):
     """
     Record discovery outcomes on the Module rows the snapshot named.
 
@@ -389,7 +389,7 @@ def _persist_module_results(revision, entries, outcomes, failures, notes):
             Q(last_discovered_revision__isnull=True)
             | Q(last_discovered_revision=revision)
             | Q(last_discovered_revision__validation_started__lt=revision.validation_started),
-            pk=entry['module'],
+            pk=entry['script_file'],
             project_id=revision.project_id,
             source_path=source_path,
         ).update(

@@ -10,10 +10,10 @@ from ..storage.exceptions import StorageError, UnsafePathError
 
 __all__ = (
     'DiscoveryError',
-    'EntrypointImportError',
     'InvalidModulePathError',
     'LocalCacheCorruptError',
     'LocalCacheError',
+    'ScriptFileImportError',
     'ScriptMetadataError',
     'ScriptResolutionError',
 )
@@ -42,7 +42,7 @@ class InvalidModulePathError(UnsafePathError):
     """Raised when a source path names something Python could never import."""
 
 
-class EntrypointImportError(Exception):
+class ScriptFileImportError(Exception):
     """
     Raised when an entrypoint cannot be imported from its revision tree.
 

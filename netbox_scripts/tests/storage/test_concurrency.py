@@ -141,10 +141,10 @@ class ProjectLockHeldTestCase(SerializationTestCase):
             lambda: service.promote_revision(revision, on_promote=lambda **kwargs: None),
         )
 
-    def test_entrypoint_refresh_holds_the_lock_across_the_verification(self):
+    def test_script_file_refresh_holds_the_lock_across_the_verification(self):
         revision = self.materialize()
         ScriptFile.objects.create(project=self.project, source_path='hello.py', enabled=True)
-        self.assert_locked_during('verify_revision_tree', lambda: service.refresh_revision_entrypoints(revision))
+        self.assert_locked_during('verify_revision_tree', lambda: service.refresh_revision_script_files(revision))
 
     def test_cleanup_holds_the_lock_across_the_removal(self):
         revision = self.materialize()
@@ -175,7 +175,7 @@ class CleanupVersusRestageTestCase(SerializationTestCase):
         # rows. Reclaiming on the first delete would take content the survivor still names.
         revision = self.materialize()
         ScriptFile.objects.create(project=self.project, source_path='hello.py', enabled=True)
-        sibling = service.refresh_revision_entrypoints(revision).revision
+        sibling = service.refresh_revision_script_files(revision).revision
         self.assertNotEqual(sibling.pk, revision.pk)
 
         digest, paths = revision.digest, [entry['path'] for entry in revision.manifest]

@@ -178,7 +178,7 @@ class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):
         cls.form_data = {
             'project': projects[0].pk,
             'source_path': 'tools/created.py',
-            'description': 'Form-created module',
+            'description': 'Form-created script file',
             'enabled': True,
             'comments': 'Some notes',
             'tags': [t.pk for t in tags],

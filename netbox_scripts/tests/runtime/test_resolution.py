@@ -40,9 +40,9 @@ class ResolutionTestMixin:
         for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
             del sys.modules[name]
 
-    def validated(self, files, entrypoints):
+    def validated(self, files, script_files):
         """Stage one tree, drive it to a verdict, and return the refreshed revision."""
-        for source_path in entrypoints:
+        for source_path in script_files:
             ScriptFile.objects.create(project=self.project, source_path=source_path, enabled=True)
         revision, _ = service.stage_revision(self.project, files)
         job = Job.objects.create(name='resolution-test', job_id=uuid.uuid4())
@@ -84,7 +84,7 @@ class ResolveScriptClassTestCase(ResolutionTestMixin, TestCase):
         self.assertEqual(resolved.module, 'deploy')
         self.assertEqual(resolved.full_name, 'deploy.Deploy')
 
-    def test_a_class_published_through_script_order_resolves_through_its_entrypoint(self):
+    def test_a_class_published_through_script_order_resolves_through_its_script_file(self):
         revision = self.validated(
             {
                 'helpers.py': script_source('Shared'),
@@ -97,7 +97,7 @@ class ResolveScriptClassTestCase(ResolutionTestMixin, TestCase):
         # The defining module has no declaration of its own, which is why the snapshot has to
         # record the entrypoint that surfaced the class.
         self.assertEqual(record['module_path'], 'helpers')
-        self.assertEqual(record['entrypoint_path'], 'deploy.py')
+        self.assertEqual(record['script_file_path'], 'deploy.py')
 
         resolved = self.resolve(revision, 'helpers', 'Shared')
 
@@ -113,7 +113,7 @@ class ResolveScriptClassTestCase(ResolutionTestMixin, TestCase):
         self.assertEqual(caught.exception.code, 'not_published')
         self.assertEqual(caught.exception.name, 'deploy.Missing')
 
-    def test_an_identity_the_entrypoint_no_longer_publishes_is_refused(self):
+    def test_an_identity_the_script_file_no_longer_publishes_is_refused(self):
         revision = self.validated({'deploy.py': script_source('Deploy')}, ['deploy.py'])
         # A snapshot that is well formed but names a class the entrypoint does not define.
         stale = [dict(revision.discovered_scripts[0], module_path='deploy', class_name='Ghost')]

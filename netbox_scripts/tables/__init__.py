@@ -1,7 +1,7 @@
 from .projects import (
     ScriptProjectFileTable,
-    ScriptProjectRevisionEntrypointTable,
     ScriptProjectRevisionProblemTable,
+    ScriptProjectRevisionScriptFileTable,
     ScriptProjectRevisionTable,
     ScriptProjectTable,
 )
@@ -12,8 +12,8 @@ __all__ = (
     'NetBoxScriptTable',
     'ScriptFileTable',
     'ScriptProjectFileTable',
-    'ScriptProjectRevisionEntrypointTable',
     'ScriptProjectRevisionProblemTable',
+    'ScriptProjectRevisionScriptFileTable',
     'ScriptProjectRevisionTable',
     'ScriptProjectTable',
 )

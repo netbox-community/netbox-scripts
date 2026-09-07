@@ -36,7 +36,7 @@ class ScriptProjectRevisionFilterSet(ChangeLoggedModelFilterSet):
             'id',
             'digest',
             'status',
-            'entrypoint_digest',
+            'script_file_digest',
             'file_count',
             'total_size',
             'activated',

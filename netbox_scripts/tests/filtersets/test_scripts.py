@@ -131,7 +131,7 @@ class ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
             status=RevisionStatusChoices.MATERIALIZED,
         )
 
-        modules = (
+        script_files = (
             ScriptFile(
                 project=cls.projects[0],
                 source_path='deploy.py',
@@ -150,7 +150,7 @@ class ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
                 description='Summarizes results',
                 enabled=False,
                 discovery_status=FileDiscoveryStatusChoices.FAILED,
-                discovery_error='The entrypoint could not be imported.',
+                discovery_error='The script file could not be imported.',
             ),
             ScriptFile(
                 project=cls.projects[1],
@@ -170,8 +170,8 @@ class ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
                 description='Refreshes cached state',
             ),
         )
-        for module in modules:
-            module.save()
+        for script_file in script_files:
+            script_file.save()
 
     def test_q(self):
         params = {'q': 'Summarizes'}
@@ -211,7 +211,7 @@ class ScriptFileFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 4)
 
     def test_discovery_error(self):
-        params = {'discovery_error': 'The entrypoint could not be imported.'}
+        params = {'discovery_error': 'The script file could not be imported.'}
         self.assertEqual(self.filterset(params, self.queryset).qs.count(), 1)
 
     def test_last_discovered_revision(self):

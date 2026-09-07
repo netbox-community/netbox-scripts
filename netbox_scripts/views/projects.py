@@ -28,8 +28,8 @@ from ..forms import (
     ScriptProjectBulkEditForm,
     ScriptProjectBulkImportForm,
     ScriptProjectEditForm,
-    ScriptProjectEntrypointsForm,
     ScriptProjectFilterForm,
+    ScriptProjectScriptFilesForm,
     ScriptProjectUploadForm,
 )
 from ..jobs import ProjectReconciliationJob
@@ -273,15 +273,15 @@ class ScriptProjectRevisionsView(generic.ObjectChildrenView):
         return parent.revisions.restrict(request.user, 'view')
 
 
-@register_model_view(ScriptProject, 'entrypoints', path='entrypoints')
-class ScriptProjectEntrypointsView(generic.ObjectEditView):
+@register_model_view(ScriptProject, 'script_files', path='script-files')
+class ScriptProjectScriptFilesView(generic.ObjectEditView):
     """Select a Script Project's executable entrypoints from its own source."""
 
     queryset = ScriptProject.objects.select_related('data_source')
-    form = ScriptProjectEntrypointsForm
+    form = ScriptProjectScriptFilesForm
     tab = ViewTab(
-        label=_('Entrypoints'),
-        badge=lambda obj: obj.modules.filter(enabled=True).count(),
+        label=_('Script Files'),
+        badge=lambda obj: obj.script_files.filter(enabled=True).count(),
         weight=500,
     )
 
@@ -318,16 +318,16 @@ class ScriptProjectFilesView(generic.ObjectChildrenView):
             or not ScriptProjectRevision.objects.restrict(request.user, 'view').filter(pk=revision.pk).exists()
         ):
             return []
-        declared = {module.source_path: module.enabled for module in parent.modules.all()}
+        declared = {script_file.source_path: script_file.enabled for script_file in parent.script_files.all()}
         present = {entry['path'] for entry in revision.manifest}
         awaiting = parent.paths_awaiting_activation()
-        rows = [{**entry, 'entrypoint': declared.get(entry['path'], False)} for entry in revision.manifest]
+        rows = [{**entry, 'script_file': declared.get(entry['path'], False)} for entry in revision.manifest]
         rows += [
             {
                 'path': path,
                 'size': None,
                 'sha256': None,
-                'entrypoint': enabled,
+                'script_file': enabled,
                 'missing': True,
                 'awaiting': path in awaiting,
             }

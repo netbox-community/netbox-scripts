@@ -38,7 +38,7 @@ from .utils import data_source_relative_path
 __all__ = (
     'check_upload_conflicts',
     'current_source_tree',
-    'declare_entrypoint',
+    'declare_script_file',
     'ingest_data_source',
     'ingest_upload',
     'uploaded_source_path',
@@ -148,7 +148,7 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True, 
     using = service.require_default_database(project)
     if declare:
         with transaction.atomic(using=using):
-            declare_entrypoint(project, path, using)
+            declare_script_file(project, path, using)
 
     staged = service.stage_revision(project, files)
     # Content addressing means identical bytes resolve to the existing revision, carrying whatever
@@ -220,20 +220,20 @@ def _data_source_tree(project):
     return {wanted[pk]: content for pk, content in rows}
 
 
-def declare_entrypoint(project, path, using):
+def declare_script_file(project, path, using):
     """
     Make one path an enabled entrypoint of a project, creating its declaration if needed.
 
     A path that was turned off is turned back on. The row is reused rather than replaced,
     because Custom Script rows and Job history reference the declaration.
     """
-    module = ScriptFile.objects.using(using).filter(project=project, source_path=path).first()
-    if module is None:
-        module = ScriptFile(project=project, source_path=path, enabled=True)
-        module.full_clean()
-        module.save(using=using)
-        return module
-    if not module.enabled:
-        module.enabled = True
-        module.save(using=using, update_fields=('enabled', 'last_updated'))
-    return module
+    script_file = ScriptFile.objects.using(using).filter(project=project, source_path=path).first()
+    if script_file is None:
+        script_file = ScriptFile(project=project, source_path=path, enabled=True)
+        script_file.full_clean()
+        script_file.save(using=using)
+        return script_file
+    if not script_file.enabled:
+        script_file.enabled = True
+        script_file.save(using=using, update_fields=('enabled', 'last_updated'))
+    return script_file

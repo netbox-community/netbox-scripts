@@ -29,7 +29,7 @@ from ..ingestion import (
     ingest_upload,
     uploaded_source_path,
 )
-from ..jobs import NetBoxScriptJob, ProjectEntrypointRefreshJob
+from ..jobs import NetBoxScriptJob, ProjectScriptFileRefreshJob
 from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from ..storage import config
 from .serializers import (
@@ -114,33 +114,33 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
-    @action(detail=True, methods=['get', 'put'], url_path='entrypoints')
-    def entrypoints(self, request, pk=None):
+    @action(detail=True, methods=['get', 'put'], url_path='script-files')
+    def script_files(self, request, pk=None):
         """Report or replace which of a project's source modules are its entrypoints."""
         # Token permissions already require the project's change permission for a PUT here.
         project = self.get_object()
         if request.method == 'PUT':
             if not request.user.has_perm('netbox_scripts.change_scriptfile'):
-                raise PermissionDenied('Changing entrypoints requires the Script File change permission.')
+                raise PermissionDenied('Changing script files requires the Script File change permission.')
             paths = request.data.get('paths')
             if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
                 raise APIValidationError({'paths': 'Provide a list of source paths.'})
-            selected = set(project.modules.filter(enabled=True).values_list('source_path', flat=True))
+            selected = set(project.script_files.filter(enabled=True).values_list('source_path', flat=True))
             try:
-                project.select_entrypoints(paths)
+                project.select_script_files(paths)
             except ValidationError as error:
                 raise APIValidationError(error.message_dict) from error
             if set(paths) != selected:
                 # The same rule the Entrypoints tab follows, so the two surfaces cannot disagree
                 # about what saving a selection does.
-                ProjectEntrypointRefreshJob.enqueue_refresh(project)
-        return Response(self._entrypoint_state(project))
+                ProjectScriptFileRefreshJob.enqueue_refresh(project)
+        return Response(self._script_file_state(project))
 
     @staticmethod
-    def _entrypoint_state(project):
+    def _script_file_state(project):
         """Return the candidate inventory annotated with what the project has declared."""
-        declared = {module.source_path: module for module in project.modules.all()}
-        available = set(project.entrypoint_candidates())
+        declared = {script_file.source_path: script_file for script_file in project.script_files.all()}
+        available = set(project.script_file_candidates())
         return {
             'mode': 'ui',
             'candidates': [
@@ -152,7 +152,7 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
                     # where the Module serializer renders the value and label pair.
                     'discovery_status': declared[path].discovery_status if path in declared else None,
                 }
-                for path in project.declarable_entrypoints()
+                for path in project.declarable_script_files()
             ],
         }
 

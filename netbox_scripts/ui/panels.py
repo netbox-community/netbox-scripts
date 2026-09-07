@@ -39,7 +39,7 @@ class ScriptProjectRevisionPanel(ObjectAttributesPanel):
 
     project = attrs.RelatedObjectAttr('project', label=_('Script Project'))
     digest = attrs.TextAttr('digest', label=_('Digest'))
-    entrypoint_digest = attrs.TextAttr('entrypoint_digest', label=_('Entrypoint digest'))
+    script_file_digest = attrs.TextAttr('script_file_digest', label=_('Script file digest'))
     file_count = attrs.NumericAttr('file_count', label=_('Files'))
     total_size = attrs.NumericAttr('total_size', label=_('Size'))
 
@@ -57,7 +57,7 @@ class ScriptProjectRevisionStatePanel(ObjectAttributesPanel):
 class ScriptFilePanel(ObjectAttributesPanel):
     """Declaration attributes of a Script File (detail view, left column)."""
 
-    title = _('Module')
+    title = _('Script File')
 
     project = attrs.RelatedObjectAttr('project', label=_('Script Project'))
     source_path = attrs.TextAttr('source_path', label=_('Source path'))

@@ -53,7 +53,7 @@ class DataSourceCandidatesTestCase(TestCase):
 
     def test_lists_python_modules_at_every_depth(self):
         self.assertEqual(
-            self.project.entrypoint_candidates(),
+            self.project.script_file_candidates(),
             [
                 'bundle/__init__.py',
                 'bundle/helpers.py',
@@ -64,17 +64,17 @@ class DataSourceCandidatesTestCase(TestCase):
         )
 
     def test_excludes_non_python_files(self):
-        candidates = self.project.entrypoint_candidates()
+        candidates = self.project.script_file_candidates()
         self.assertNotIn('README.md', candidates)
         self.assertNotIn('config.yaml', candidates)
 
     def test_the_data_path_prefix_is_matched_by_segment(self):
         # A sibling directory sharing a textual prefix must not leak in.
-        self.assertNotIn('legacy.py', self.project.entrypoint_candidates())
-        self.assertNotIn('../netbox-old/legacy.py', self.project.entrypoint_candidates())
+        self.assertNotIn('legacy.py', self.project.script_file_candidates())
+        self.assertNotIn('../netbox-old/legacy.py', self.project.script_file_candidates())
 
     def test_excludes_files_outside_the_project_directory(self):
-        self.assertNotIn('other.py', self.project.entrypoint_candidates())
+        self.assertNotIn('other.py', self.project.script_file_candidates())
 
     def test_a_project_at_a_sibling_directory_sees_only_its_own(self):
         sibling = ScriptProject.objects.create(
@@ -84,7 +84,7 @@ class DataSourceCandidatesTestCase(TestCase):
             data_source=self.source,
             data_path='automation/netbox-old',
         )
-        self.assertEqual(sibling.entrypoint_candidates(), ['legacy.py'])
+        self.assertEqual(sibling.script_file_candidates(), ['legacy.py'])
 
     def test_an_unsynchronized_data_source_yields_nothing(self):
         empty = DataSource.objects.create(name='Empty', type='local', source_url='file:///tmp/empty/')
@@ -95,7 +95,7 @@ class DataSourceCandidatesTestCase(TestCase):
             data_source=empty,
             data_path='scripts',
         )
-        self.assertEqual(project.entrypoint_candidates(), [])
+        self.assertEqual(project.script_file_candidates(), [])
 
 
 class RevisionManifestCandidatesTestCase(TestCase):
@@ -106,7 +106,7 @@ class RevisionManifestCandidatesTestCase(TestCase):
         cls.project = ScriptProject.objects.create(name='Upload Project', key='upload-project')
 
     def test_a_project_without_source_yields_nothing(self):
-        self.assertEqual(self.project.entrypoint_candidates(), [])
+        self.assertEqual(self.project.script_file_candidates(), [])
 
     def test_reads_the_newest_stored_revision(self):
         ScriptProjectRevision.objects.create(
@@ -118,11 +118,11 @@ class RevisionManifestCandidatesTestCase(TestCase):
         ScriptProjectRevision.objects.create(
             project=self.project,
             digest='b' * 64,
-            entrypoint_digest='b' * 64,
+            script_file_digest='b' * 64,
             manifest=manifest('deploy.py', 'tools/audit.py', 'notes.txt'),
             status=RevisionStatusChoices.MATERIALIZED,
         )
-        self.assertEqual(self.project.entrypoint_candidates(), ['deploy.py', 'tools/audit.py'])
+        self.assertEqual(self.project.script_file_candidates(), ['deploy.py', 'tools/audit.py'])
 
     def test_the_active_revision_wins(self):
         active = ScriptProjectRevision.objects.create(
@@ -136,11 +136,11 @@ class RevisionManifestCandidatesTestCase(TestCase):
         ScriptProjectRevision.objects.create(
             project=self.project,
             digest='e' * 64,
-            entrypoint_digest='e' * 64,
+            script_file_digest='e' * 64,
             manifest=manifest('staged.py'),
             status=RevisionStatusChoices.MATERIALIZED,
         )
-        self.assertEqual(self.project.entrypoint_candidates(), ['active.py'])
+        self.assertEqual(self.project.script_file_candidates(), ['active.py'])
 
     def test_a_revision_without_a_digest_is_ignored(self):
         ScriptProjectRevision.objects.create(
@@ -148,4 +148,4 @@ class RevisionManifestCandidatesTestCase(TestCase):
             manifest=manifest('rejected.py'),
             status=RevisionStatusChoices.INVALID,
         )
-        self.assertEqual(self.project.entrypoint_candidates(), [])
+        self.assertEqual(self.project.script_file_candidates(), [])

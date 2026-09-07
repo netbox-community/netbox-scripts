@@ -71,14 +71,14 @@ class EventBodyTestCase(TestCase):
         # The manifest and the entrypoint snapshot are the revision's stored documents, and a
         # webhook body travels to whatever is on the other end.
         self.assertNotIn('manifest', body)
-        self.assertNotIn('entrypoints', body)
+        self.assertNotIn('script_files', body)
 
     def test_every_model_serializes(self):
         revision = ScriptProjectRevision.objects.create(project=self.project, digest='c' * 64)
-        module = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         script = NetBoxScript.objects.create(project=self.project, module_path='deploy', class_name='Deploy')
 
-        for instance in (self.project, revision, module, script):
+        for instance in (self.project, revision, script_file, script):
             with self.subTest(model=type(instance).__name__):
                 self.assertEqual(serialize_for_event(instance)['id'], instance.pk)
 

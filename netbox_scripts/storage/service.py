@@ -22,7 +22,6 @@ from .. import branching, constants
 from ..choices import RevisionStatusChoices
 from ..models import ScriptFile, ScriptProject, ScriptProjectRevision
 from . import config, store
-from .entrypoints import build_entrypoint_snapshot, validate_entrypoint_snapshot
 from .exceptions import (
     ActivationError,
     ProjectVanishedError,
@@ -32,12 +31,13 @@ from .exceptions import (
 )
 from .locks import project_lock
 from .manifest import build_manifest, compute_digest, validate_manifest
+from .script_files import build_script_file_snapshot, validate_script_file_snapshot
 
 __all__ = (
     'StagedRevision',
     'project_or_vanished',
     'promote_revision',
-    'refresh_revision_entrypoints',
+    'refresh_revision_script_files',
     'require_default_database',
     'revision_or_vanished',
     'stage_revision',
@@ -76,14 +76,14 @@ def stage_revision(project, files):
     entries, errors = build_manifest(source_files, limits)
     # The enabled Module declarations are frozen into the revision at staging time, so the
     # verdict validation later reaches keeps meaning when the live declarations change.
-    snapshot, entrypoint_digest = build_entrypoint_snapshot(
+    snapshot, script_file_digest = build_script_file_snapshot(
         ScriptFile.objects.using(using).filter(project=project.pk, enabled=True)
     )
     totals = {
         'manifest': entries,
         'file_count': len(entries),
         'total_size': sum(entry['size'] for entry in entries),
-        'entrypoint_snapshot': snapshot,
+        'script_file_snapshot': snapshot,
     }
 
     if errors:
@@ -92,7 +92,7 @@ def stage_revision(project, files):
             digest=None,
             status=RevisionStatusChoices.INVALID,
             validation_errors=errors,
-            entrypoint_digest=entrypoint_digest,
+            script_file_digest=script_file_digest,
             **totals,
         )
         return StagedRevision(revision, True)
@@ -112,7 +112,7 @@ def stage_revision(project, files):
         revision, created = ScriptProjectRevision.objects.using(using).get_or_create(
             project=project,
             digest=compute_digest(entries),
-            entrypoint_digest=entrypoint_digest,
+            script_file_digest=script_file_digest,
             defaults={'status': RevisionStatusChoices.STAGING, **totals},
         )
         while True:
@@ -161,7 +161,7 @@ def stage_revision(project, files):
         return StagedRevision(revision, created)
 
 
-def refresh_revision_entrypoints(revision):
+def refresh_revision_script_files(revision):
     """
     Stage a revision's stored content under the project's current entrypoint configuration.
 
@@ -188,7 +188,7 @@ def refresh_revision_entrypoints(revision):
     if not source.digest:
         raise ValueError(f'Revision {source.pk} has no digest, so there is no stored content to refresh.')
     manifest = _validated_manifest(source)
-    snapshot, entrypoint_digest = build_entrypoint_snapshot(
+    snapshot, script_file_digest = build_script_file_snapshot(
         ScriptFile.objects.using(using).filter(project=source.project_id, enabled=True)
     )
     storage_key = project_or_vanished(
@@ -203,13 +203,13 @@ def refresh_revision_entrypoints(revision):
         candidate, created = ScriptProjectRevision.objects.using(using).get_or_create(
             project_id=source.project_id,
             digest=source.digest,
-            entrypoint_digest=entrypoint_digest,
+            script_file_digest=script_file_digest,
             defaults={
                 'status': RevisionStatusChoices.MATERIALIZED,
                 'manifest': manifest,
                 'file_count': source.file_count,
                 'total_size': source.total_size,
-                'entrypoint_snapshot': snapshot,
+                'script_file_snapshot': snapshot,
             },
         )
         return StagedRevision(candidate, created)
@@ -252,7 +252,7 @@ def promote_revision(revision, *, on_promote):
     # The entrypoint snapshot is persisted input that execution will trust, so it is checked
     # against its own digest here, at the same position the manifest gets its return-trip
     # check, before any row is locked.
-    validate_entrypoint_snapshot(snapshot.entrypoint_snapshot, snapshot.entrypoint_digest)
+    validate_script_file_snapshot(snapshot.script_file_snapshot, snapshot.script_file_digest)
     # The project lock covers the verification and the pointer move together, so nothing
     # reclaims or restages this tree between proving it present and promoting it. It is a
     # session lock rather than a transactional one precisely so the verification below can take
@@ -284,8 +284,8 @@ def _promote(snapshot, revision_pk, using, on_promote):
         if (
             locked.digest != snapshot.digest
             or locked.manifest != snapshot.manifest
-            or locked.entrypoint_digest != snapshot.entrypoint_digest
-            or locked.entrypoint_snapshot != snapshot.entrypoint_snapshot
+            or locked.script_file_digest != snapshot.script_file_digest
+            or locked.script_file_snapshot != snapshot.script_file_snapshot
             or locked.discovered_scripts != snapshot.discovered_scripts
         ):
             raise ActivationError(f'Revision {locked.pk} changed while its stored tree was being verified.')

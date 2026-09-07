@@ -28,26 +28,26 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.21
+    rev: v0.16.6
     hooks:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
 
   - repo: https://github.com/adamchainz/django-upgrade
-    rev: 1.30.0
+    rev: 1.32.0
     hooks:
       - id: django-upgrade
         args: [--target-version, "6.0"]
 
   - repo: https://github.com/djlint/djLint
-    rev: v1.36.4
+    rev: v1.45.2
     hooks:
       - id: djlint-django
       - id: djlint-reformat-django
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.2
+    rev: v2.4.3
     hooks:
       - id: codespell
         additional_dependencies: [tomli]

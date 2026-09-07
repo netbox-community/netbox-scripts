@@ -125,7 +125,7 @@ def run(self, data, commit):
     if self.event is None:
         self.log_info('Started by hand.')
     else:
-        self.log_info(f"Started by the rule {self.event['event_rule']}.")
+        self.log_info(f'Started by the rule {self.event["event_rule"]}.')
 ```
 
 ## Aborting a script
@@ -269,10 +269,10 @@ stored exactly as you supplied it and is never rewritten.
 Every form of the import resolves, whichever one the script happens to use:
 
 ```python
-from extras.scripts import Script, StringVar     # named, aliased, or a wildcard
-import extras.scripts                            # dotted, with or without "as"
-from extras import scripts                       # the submodule from the package
-import extras                                    # then extras.scripts.Script
+from extras.scripts import Script, StringVar  # named, aliased, or a wildcard
+import extras.scripts  # dotted, with or without "as"
+from extras import scripts  # the submodule from the package
+import extras  # then extras.scripts.Script
 ```
 
 An import inside a function or a method body resolves the same way. Only one
@@ -280,7 +280,7 @@ form is out of reach, because it does not go through the import statement at
 all:
 
 ```python
-importlib.import_module('extras.scripts')        # reaches NetBox, not this plugin
+importlib.import_module('extras.scripts')  # reaches NetBox, not this plugin
 ```
 
 A script using that form publishes nothing, since the class it derives from is

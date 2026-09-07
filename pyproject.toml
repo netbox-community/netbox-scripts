@@ -56,19 +56,19 @@ Changelog = "https://github.com/netboxlabs/netbox-custom-scripts/releases"
 [project.optional-dependencies]
 # Pinned for reproducible CI; items 4 and 5 may extend each group.
 dev = [
-    "build==1.2.2",
-    "twine==6.1.0",
+    "build==1.6.0",
+    "twine==7.0.0",
 ]
 test = [
     "check-manifest==0.51",
-    "coverage[toml]==7.10.6",
-    "moto[s3]==5.2.2",
+    "coverage[toml]==7.16.0",
+    "moto[s3]==5.2.3",
     "tblib==3.2.2",
 ]
 docs = [
     "mkdocs==1.6.1",
-    "mkdocs-material==9.7.6",
-    "zensical==0.0.43",
+    "mkdocs-material==9.7.7",
+    "zensical==0.0.59",
 ]
 
 [tool.check-manifest]

@@ -44,7 +44,7 @@ class LegacyJobMixin(ReferenceMigrationMixin):
         self.addCleanup(self.queue.empty)
 
     def legacy_job(self, *, script=None, status=JobStatusChoices.STATUS_COMPLETED, **fields):
-        """One built-in Script Job row, in whatever state the case needs."""
+        """One built-in Custom Script Job row, in whatever state the case needs."""
         return Job.objects.create(
             name='Deploy',
             object_type=self.script_type,
@@ -79,7 +79,7 @@ class LegacyJobMixin(ReferenceMigrationMixin):
 
 
 class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
-    """Job history moves onto the Custom Script before anything can delete it."""
+    """Job history moves onto the Script before anything can delete it."""
 
     def test_a_completed_job_is_reachable_from_the_netbox_script(self):
         job = self.legacy_job()
@@ -183,7 +183,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
 
 
 class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
-    """Every schedule the fence cancelled goes back into service against the Custom Script."""
+    """Every schedule the fence cancelled goes back into service against the Script."""
 
     def future(self):
         return timezone.now() + timedelta(days=1)
@@ -242,7 +242,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertTrue(any('script module' in warning for warning in warnings))
 
     def plugin_script_pk(self):
-        """A built-in Script key to collide with, which is what makes the bare lookup unsafe."""
+        """A built-in Custom Script key to collide with, which is what makes the bare lookup unsafe."""
         return self.script.pk
 
     def test_a_queued_run_is_recreated_to_run_at_once_and_says_so(self):
@@ -395,8 +395,8 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         return user
 
     def grant_run(self, user):
-        """Give one account permission to run every Custom Script."""
-        permission = ObjectPermission(name='run custom scripts', actions=['run'])
+        """Give one account permission to run every Script."""
+        permission = ObjectPermission(name='run scripts', actions=['run'])
         permission.save()
         permission.users.add(user)
         permission.object_types.add(ObjectType.objects.get_for_model(NetBoxScript))

@@ -131,7 +131,7 @@ Context:
             <div class="alert alert-warning mt-3" role="alert">
               <h3 class="alert-heading fs-5">{% trans "The reference pass will refuse" %}</h3>
               <p>
-                {% trans "These migrated Script Projects are serving no revision, so an Event Rule or a repointed job would have no Custom Script to name. Put each one into service, then run the activation again." %}
+                {% trans "These migrated Script Projects are serving no revision, so an Event Rule or a repointed job would have no Script to name. Put each one into service, then run the activation again." %}
               </p>
               <table class="table table-sm mb-0">
                 <tr>
@@ -160,9 +160,9 @@ Context:
           {% if helper_count %}
             <p class="text-secondary mt-3">
               {% blocktrans count total=helper_count %}
-                One module publishes no Custom Script, so it migrates as a helper file rather than a script file.
+                One module publishes no Script, so it migrates as a helper file rather than a script file.
               {% plural %}
-                {{ total }} modules publish no Custom Script, so they migrate as helper files rather than script files.
+                {{ total }} modules publish no Script, so they migrate as helper files rather than script files.
               {% endblocktrans %}
               {% trans "The inventory names each one." %}
             </p>
@@ -177,7 +177,7 @@ Context:
                 <th scope="col">{% trans "Script Project" %}</th>
                 <th scope="col">{% trans "Revision" %}</th>
                 <th scope="col">{% trans "Status" %}</th>
-                <th scope="col">{% trans "Custom Scripts" %}</th>
+                <th scope="col">{% trans "Scripts" %}</th>
               </tr>
               {% for row in rows %}
                 <tr>

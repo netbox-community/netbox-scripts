@@ -9,7 +9,7 @@ from .revisions import ScriptProjectRevisionSerializer
 
 
 class NetBoxScriptSerializer(PrimaryModelSerializer):
-    """Serializer for the Custom Script model."""
+    """Serializer for the Script model."""
 
     project = ScriptProjectSerializer(nested=True, read_only=True)
     last_seen_revision = ScriptProjectRevisionSerializer(nested=True, read_only=True)

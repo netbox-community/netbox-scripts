@@ -1,6 +1,6 @@
 {% load i18n %}
 {% comment %}
-Run button for one Custom Script.
+Run button for one Script.
 
 Rendered inert rather than hidden when the script cannot run, so an operator sees that running
 is unavailable instead of finding no button and wondering where it went.
@@ -22,7 +22,7 @@ Context:
   {% endcomment %}
   <span class="d-inline-block"
         tabindex="0"
-        title="{% blocktrans with reason=refusal_reason %}This Custom Script cannot be run right now. {{ reason }}{% endblocktrans %}">
+        title="{% blocktrans with reason=refusal_reason %}This Script cannot be run right now. {{ reason }}{% endblocktrans %}">
     <button type="button" class="btn btn-primary" disabled>
       <i class="mdi mdi-play" aria-hidden="true"></i> {{ label }}
     </button>

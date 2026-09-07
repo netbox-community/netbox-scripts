@@ -10,7 +10,7 @@ __all__ = ('ScriptForm',)
 
 class ScriptForm(forms.Form):
     """
-    Base form for executing a Custom Script.
+    Base form for executing a Script.
 
     The script's variable fields are added dynamically by BaseScript.as_form(). The two
     scheduling fields are dropped when the class declares scheduling_enabled = False, so a

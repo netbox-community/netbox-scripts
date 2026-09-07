@@ -124,24 +124,24 @@ def _refusal_for(module, references, stranded):
     if references['retired_script_jobs']:
         return True, _(
             'Built-in script module {name} holds Job history for a class that left the file, which no '
-            'Custom Script replaces, so it stays where it is.'
+            'Script replaces, so it stays where it is.'
         ).format(name=name)
     # Ahead of the two history refusals these can accompany, since they are the ones naming an action.
     if stranded == 'unresolved':
         return False, _(
-            'Built-in script module {name} publishes a class no Custom Script resolves to, so deleting it '
+            'Built-in script module {name} publishes a class no Script resolves to, so deleting it '
             'would leave that script unable to run at all. Fix the source and stage it again.'
         ).format(name=name)
     if stranded == 'retired':
         return False, _(
-            'Built-in script module {name} publishes a class whose Custom Script is retired, so deleting it '
+            'Built-in script module {name} publishes a class whose Script is retired, so deleting it '
             'would leave that script unable to run at all. Activate a revision that publishes it, then run '
             'this again.'
         ).format(name=name)
     if references['live_script_jobs']:
         return False, _(
-            'Built-in script module {name} has a Script that still holds Job history the reference pass '
-            'did not move. Run that pass again. If this module still blocks, that history was created '
+            'Built-in script module {name} has a built-in Custom Script that still holds Job history the '
+            'reference pass did not move. Run that pass again. If this module still blocks, that history was created '
             'after the pass ran and only deleting those jobs would release it.'
         ).format(name=name)
     if references['event_rules']:

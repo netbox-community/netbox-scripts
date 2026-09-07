@@ -6,7 +6,7 @@ from .models.scripts import NetBoxScript, ScriptFile
 
 @register_search
 class NetBoxScriptIndex(SearchIndex):
-    """Global search index for the Custom Script model."""
+    """Global search index for the Script model."""
 
     model = NetBoxScript
     fields = (

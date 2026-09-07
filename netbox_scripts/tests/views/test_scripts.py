@@ -40,7 +40,7 @@ class NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
 
 
 class NetBoxScriptViewTestCase(TestCase):
-    """The detail view and the change-log rendering that reverses a Custom Script's URL."""
+    """The detail view and the change-log rendering that reverses a Script's URL."""
 
     user_permissions = ('netbox_scripts.view_netboxscript',)
 

@@ -19,7 +19,7 @@ __all__ = (
 
 class BaseScript:
     """
-    Foundation for Custom Scripts.
+    Foundation for Scripts.
 
     Authors normally subclass Script. Subclassing this class directly is for shared
     building blocks that must not show up as runnable scripts themselves.
@@ -153,7 +153,7 @@ class BaseScript:
 
     def run(self, data, commit):
         """Run the script. Authors must override this method."""
-        raise NotImplementedError('A Custom Script must define a run(self, data, commit) method.')
+        raise NotImplementedError('A Script must define a run(self, data, commit) method.')
 
     def get_job_data(self):
         """Bundle the run's log and output for storage on the executing Job."""

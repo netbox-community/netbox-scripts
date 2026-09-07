@@ -16,7 +16,7 @@ authoring API with variable classes, form generation, and structured logging,
 immutable project revisions held in plugin-owned project storage with manifest
 verification, activation, and cleanup, and the loading engine: declared
 script files, a manifest-verified runtime cache, a name-isolating package
-loader, Custom Script discovery, and leased revision validation. Source reaches
+loader, Script discovery, and leased revision validation. Source reaches
 a Project two ways, both driven through staging, validation, discovery, and
 activation: one uploaded script at a time, or a directory of a Data Source
 rebuilt every time that source synchronizes. Published `NetBoxScript` objects and
@@ -34,10 +34,10 @@ current boundaries.
 | [Uploading Scripts](uploading.md) | Adding source to a Project and putting it in service |
 | [Data Source Projects](data-sources.md) | Mirroring a Data Source directory, and what a synchronization does |
 | [Migration](migration.md) | Moving off NetBox's built-in Custom Scripts |
-| [Authoring](authoring.md) | Writing Custom Scripts against the plugin API |
+| [Authoring](authoring.md) | Writing Scripts against the plugin API |
 | [Runtime and Loading](runtime.md) | How revisions load, get discovered, and validate |
-| [Running Custom Scripts](execution.md) | Requesting a run, revision pinning, commit and dry run, reading a result |
-| [Event Rules](event-rules.md) | Running a Custom Script from a rule, and reacting to the plugin's own objects |
+| [Running Scripts](execution.md) | Requesting a run, revision pinning, commit and dry run, reading a result |
+| [Event Rules](event-rules.md) | Running a Script from a rule, and reacting to the plugin's own objects |
 | [Permissions](permissions.md) | The standard permissions and the four the plugin adds |
 | [Releases](releases.md) | Version history and upgrade notes |
 

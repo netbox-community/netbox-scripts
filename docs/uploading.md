@@ -26,7 +26,7 @@ plugin derives all of it. What happens when the form is submitted:
 4. A revision is staged: the content is written to project storage, verified against its
    manifest, and reaches `materialized`.
 5. Validation is enqueued. It runs in a worker, imports the script file, and discovers the
-   Custom Scripts it publishes.
+   Scripts it publishes.
 6. On a `valid` verdict, the revision is activated if you ticked **Activate this upload**, or if
    the Project's activation policy allows it.
 

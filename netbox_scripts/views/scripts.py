@@ -38,7 +38,7 @@ POLL_INTERVALS = {JobStatusChoices.STATUS_SCHEDULED: '60s'}
 
 @register_model_view(NetBoxScript, 'list', path='', detail=False)
 class NetBoxScriptListView(generic.ObjectListView):
-    """List view for Custom Scripts, retired ones included."""
+    """List view for Scripts, retired ones included."""
 
     # ObjectListView defaults to add, import, export, bulk edit, rename, and delete, and
     # ActionsMixin filters those by permission alone, never by whether the route exists. Rows
@@ -54,7 +54,7 @@ class NetBoxScriptListView(generic.ObjectListView):
 
 @register_model_view(NetBoxScript)
 class NetBoxScriptView(generic.ObjectView):
-    """Detail view for a single Custom Script."""
+    """Detail view for a single Script."""
 
     queryset = NetBoxScript.objects.all()
     # No clone or delete: rows are derived from an activated revision, so the only authored
@@ -78,7 +78,7 @@ class NetBoxScriptView(generic.ObjectView):
 # requires the change permission.
 @register_model_view(NetBoxScript, 'edit')
 class NetBoxScriptEditView(generic.ObjectEditView):
-    """Edit view for the administrator-owned fields of a Custom Script."""
+    """Edit view for the administrator-owned fields of a Script."""
 
     queryset = NetBoxScript.objects.all()
     form = NetBoxScriptEditForm
@@ -86,7 +86,7 @@ class NetBoxScriptEditView(generic.ObjectEditView):
 
 @register_model_view(NetBoxScript, 'bulk_edit', path='edit', detail=False)
 class NetBoxScriptBulkEditView(generic.BulkEditView):
-    """Bulk edit view for Custom Scripts, so enabled can be set across many rows."""
+    """Bulk edit view for Scripts, so enabled can be set across many rows."""
 
     queryset = NetBoxScript.objects.select_related('project')
     filterset = NetBoxScriptFilterSet
@@ -97,7 +97,7 @@ class NetBoxScriptBulkEditView(generic.BulkEditView):
 @register_model_view(NetBoxScript, 'run', path='run')
 class NetBoxScriptRunView(generic.ObjectView):
     """
-    Collect one Custom Script's inputs and enqueue a run of them.
+    Collect one Script's inputs and enqueue a run of them.
 
     GET builds the script's own run form out of the revision its project is serving, so the
     fields are whatever that source declares. POST validates and enqueues, then sends the
@@ -177,11 +177,11 @@ class NetBoxScriptRunView(generic.ObjectView):
     def _load(self, script):
         """Return an instance of the script's class, or None and the reason there is not one."""
         if not script.is_executable:
-            return None, _('This Custom Script cannot be run. {reason}').format(reason=script.run_refusal_reason)
+            return None, _('This Script cannot be run. {reason}').format(reason=script.run_refusal_reason)
         try:
             script_class = load_script_class(script)
         except LOAD_FAILURES as error:
-            return None, _('The Custom Script could not be loaded from its source: {error}').format(error=error)
+            return None, _('The Script could not be loaded from its source: {error}').format(error=error)
         instance = script_class()
         # Withheld by omission, so the POST needs no guard: a form without the fields cannot
         # receive them.
@@ -209,7 +209,7 @@ class NetBoxScriptRunView(generic.ObjectView):
 @register_model_view(NetBoxScript, 'result', path='results/<int:job_pk>')
 class NetBoxScriptResultView(generic.ObjectView):
     """
-    Show what one run of a Custom Script recorded.
+    Show what one run of a Script recorded.
 
     The log lives in the Job's data rather than in a model of ours, so the table is fed the
     entries the run wrote. Anything below the requested level is left out, which is how a

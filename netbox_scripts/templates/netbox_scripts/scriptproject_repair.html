@@ -4,24 +4,24 @@
 Repair confirmation for a Project serving a revision.
 
 Context:
-  - object:     The Project whose Custom Script rows would be republished
+  - object:     The Project whose Script rows would be republished
   - return_url: Where Cancel goes, the Project detail view
 {% endcomment %}
 {% block title %}
-  {% trans "Repair Custom Scripts" %}
+  {% trans "Repair Scripts" %}
 {% endblock title %}
 {% block confirmation_title %}
-  {% trans "Repair Custom Scripts" %}
+  {% trans "Repair Scripts" %}
 {% endblock confirmation_title %}
 {% block message %}
   <p>
     {% blocktrans with project=object revision=object.active_revision.short_digest %}
-      Republish the Custom Scripts of {{ project }} from revision {{ revision }}?
+      Republish the Scripts of {{ project }} from revision {{ revision }}?
     {% endblocktrans %}
   </p>
   <p class="text-secondary">
     {% trans "Only the fields each row derives from the revision are written, and a row that already matches is left alone." %}
-    {% trans "Whether a Custom Script is enabled is never touched, because that belongs to the administrator." %}
+    {% trans "Whether a Script is enabled is never touched, because that belongs to the administrator." %}
     {% trans "The stored tree is verified first, so this takes as long as an activation." %}
   </p>
 {% endblock message %}

@@ -10,7 +10,7 @@ from ..scripts.logging import LogLevelChoices
 
 
 class NetBoxScriptTable(PrimaryModelTable):
-    """Table for the Custom Script list view. Retirement is a default column, not a filter."""
+    """Table for the Script list view. Retirement is a default column, not a filter."""
 
     display_name = tables.Column(
         linkify=True,

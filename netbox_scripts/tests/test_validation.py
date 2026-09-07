@@ -509,13 +509,13 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         (record,) = result.validation_errors
         self.assertEqual(record['source_path'], 'deploy.py')
         self.assertEqual(record['code'], 'no_scripts_published')
-        self.assertEqual(record['message'], 'The module imports cleanly and defines no Custom Script.')
+        self.assertEqual(record['message'], 'The module imports cleanly and defines no Script.')
         self.assertIsNone(record['exception_type'])
         self.assertIsNone(record['traceback'])
         self.assertEqual(result.discovered_scripts, [])
         script_file.refresh_from_db()
         self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
-        self.assertEqual(script_file.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+        self.assertEqual(script_file.discovery_error, 'The module imports cleanly and defines no Script.')
 
     def test_a_script_file_publishing_nothing_beside_a_working_one_stays_valid(self):
         working = self.declare('deploy.py')
@@ -532,7 +532,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(working.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
         self.assertEqual(working.discovery_error, '')
         self.assertEqual(empty.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
-        self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+        self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Script.')
 
     def test_an_empty_module_beside_a_failing_one_keeps_its_own_message(self):
         # The only case where a failure message and a zero-publication note are both in play,
@@ -548,7 +548,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
         empty.refresh_from_db()
         broken.refresh_from_db()
         self.assertEqual(empty.discovery_status, FileDiscoveryStatusChoices.NO_SCRIPTS)
-        self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Custom Script.')
+        self.assertEqual(empty.discovery_error, 'The module imports cleanly and defines no Script.')
         self.assertEqual(broken.discovery_status, FileDiscoveryStatusChoices.FAILED)
         self.assertEqual(broken.discovery_error, 'invalid syntax (broken.py, line 1)')
 

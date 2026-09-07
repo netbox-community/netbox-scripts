@@ -8,7 +8,7 @@
   version where every shipped feature works rather than the oldest that loads
 * `ScriptProject` model with full UI, REST API, GraphQL, and
   global-search surfaces
-* Custom Script authoring API: `Script` base classes, variable types, dynamic
+* Script authoring API: `Script` base classes, variable types, dynamic
   form generation, structured logging, and `AbortScript`
 * Project storage: configurable storage roots and size limits, source-path
   safety checks, canonical manifests, and content digests
@@ -35,7 +35,7 @@
 * Private package loader: revision code imports under a generated namespace
   with real package semantics, isolated per project and revision, never
   shadowing installed distributions, with failed imports swept cleanly
-* Custom Script discovery publishing the classes script files define, with
+* Script discovery publishing the classes script files define, with
   `script_order` for ordering and explicit re-export, and project-qualified
   identity and logger markers on every published class
 * Leased revision validation service and background job driving revisions to
@@ -75,11 +75,11 @@
 * `NetBoxScript` UI, REST API, GraphQL, and global-search surfaces. Rows are
   derived rather than authored, so the surface offers list, detail, edit, and
   bulk edit, and refuses create, delete, and bulk import on every one of them
-* An administrator can set a Custom Script's `enabled` from its edit form, in
+* An administrator can set a Script's `enabled` from its edit form, in
   bulk from the list view, or with a REST PATCH. The field was documented as the
   administrator's from the start but no surface could write it, so it was
   effectively always true. Synchronization still never touches it
-* A Project's detail page lists the Custom Scripts it has published, retired
+* A Project's detail page lists the Scripts it has published, retired
   ones included, filtered to that Project
 * Fixed: a Project holding an active revision could not be deleted through any
   user-facing path, because the active-revision reference protected the Project
@@ -87,7 +87,7 @@
 * Fixed: re-uploading source a Project has held before resolved to the existing
   content-addressed revision, which already carried a verdict, so validation was
   enqueued against a terminal revision and left a failed job
-* Custom Script execution: a published script is run from its own page, against
+* Script execution: a published script is run from its own page, against
   the revision its Project was serving when the run was requested, so a queued
   run executes the source the operator was looking at even after the Project has
   moved on. The form is built from the class's own variables and fieldsets, and
@@ -106,7 +106,7 @@
 * Both this plugin's `AbortScript` and the one a script written for NetBox's
   built-in runner raises end a run cleanly, which matters while the two
   implementations coexist
-* A Custom Script is executable only while its Project is serving a revision.
+* A Script is executable only while its Project is serving a revision.
   That was previously implied by retirement rather than checked
 * Data Source reconciliation: every completed synchronization of a Data Source
   rebuilds the source of each Project on it from the whole directory as it
@@ -116,7 +116,7 @@
   or affects its siblings, and a synchronization that changed nothing produces no
   revision at all
 * A Python file appearing in a synchronized directory is a candidate rather than
-  a script file, so a repository cannot publish a Custom Script by itself and an
+  a script file, so a repository cannot publish a Script by itself and an
   administrator's script file selection survives every synchronization. A
   selected script file that disappears from the source makes the new revision
   `invalid` naming the path, while the Project keeps serving the revision it
@@ -144,7 +144,7 @@
   behind it, now restages the stored source under the new selection and drives it
   to a verdict, and does so only when the selection actually moved
 * Scheduled and recurring runs: a run can be deferred to a time in the future or
-  set to repeat, and a Custom Script whose author disabled scheduling offers
+  set to repeat, and a Script whose author disabled scheduling offers
   neither field. A one-shot run stays pinned to the revision it was requested
   against, while a recurrence resolves the active revision at each occurrence,
   because a pinned recurrence would execute one frozen revision indefinitely
@@ -157,7 +157,7 @@
   either digest, and each one has a detail page of its own. The manifest, the
   script file snapshot, and the validation lease stay off both surfaces, being
   internal to the storage and validation services rather than user-facing state
-* A Custom Script can be run over REST, with `POST scripts/<id>/run/`. The
+* A Script can be run over REST, with `POST scripts/<id>/run/`. The
   request body is the shape NetBox's built-in script endpoint already accepts, so
   a caller moving over changes the URL and nothing else, and the reply is the Job
   that was queued. Variable values nest under `data`, which keeps a variable
@@ -168,7 +168,7 @@
   Activating a revision and reconciling a source each take their own permission,
   `activate` and `reconcile`, rather than borrowing `change`, so someone who may
   rename a Project cannot thereby choose the code it serves. Scheduling is a
-  third new permission on the Custom Script, `schedule`, which composes with the
+  third new permission on the Script, `schedule`, which composes with the
   author's own setting: the run form withholds the two scheduling fields unless
   both allow them, and REST refuses the values because it has no form to leave
   them out of. Changing script files and reading run results deliberately get no

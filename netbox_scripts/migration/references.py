@@ -26,7 +26,7 @@ __all__ = (
 # loader of a module PluginConfig is meant to resolve on its own.
 ACTION_SLUG = 'netbox_scripts.run'
 
-# The one object type a rule's action may name and still resolve to a Custom Script.
+# The one object type a rule's action may name and still resolve to a Script.
 LEGACY_SCRIPT_TYPE = 'extras.script'
 
 EVENT_RULES_STEP = 'repoint_event_rules'
@@ -48,7 +48,7 @@ _ACTIONS = {
 }
 
 # Appended to the name of the permission created when a mixed one is split.
-_SIBLING_SUFFIX = ' (Custom Scripts)'
+_SIBLING_SUFFIX = ' (Scripts)'
 
 # Marks a captured schedule whose time has passed and which must not simply be run instead.
 _UNSCHEDULABLE = object()
@@ -170,7 +170,7 @@ def repoint_permissions(run):
 
 def repoint_job_history(run):
     """
-    Move the built-in Scripts' Job history onto the Custom Scripts that replaced them.
+    Move the built-in Custom Scripts' Job history onto the Scripts that replaced them.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. A job whose script does not resolve is left where it is, reported, and leaves
@@ -195,7 +195,7 @@ def repoint_job_history(run):
         counts['moved'] += Job.objects.filter(object_type=legacy, object_id=legacy_pk).update(
             object_type_id=target.pk, object_id=script.pk
         )
-    # Whatever still names the built-in Script type is what did not resolve, because the updates
+    # Whatever still names the built-in Custom Script type is what did not resolve, because the updates
     # above moved everything that did. Scoped by object type rather than by key, since a job on a
     # built-in module can hold a key equal to a Script's and would otherwise be repointed at it.
     stranded = Job.objects.filter(object_type=legacy).values_list('object_id', flat=True).distinct()
@@ -206,22 +206,22 @@ def repoint_job_history(run):
             warnings.append(
                 _(
                     'Job history for built-in Custom Script {key} was left where it is, because that class '
-                    'left its file and no Custom Script replaces it.'
+                    'left its file and no Script replaces it.'
                 ).format(key=legacy_pk)
             )
             continue
         counts['outstanding'] += 1
         warnings.append(
             _(
-                'Job history for built-in Custom Script {key} was left where it is, because no Custom '
-                'Script resolves to it. Deleting that Script would take its jobs with it.'
+                'Job history for built-in Custom Script {key} was left where it is, because no Script '
+                'resolves to it. Deleting that built-in row would take its jobs with it.'
             ).format(key=legacy_pk)
         )
     counts['modules'] = Job.objects.filter(object_type=_legacy_type('extras.scriptmodule')).count()
     if counts['modules']:
         warnings.append(
             _(
-                '{count} Job(s) name a built-in script module rather than a Script, and a Custom Script '
+                '{count} Job(s) name a built-in script module rather than a Custom Script, and a Script '
                 'Project holds no jobs, so they were left where they are.'
             ).format(count=counts['modules'])
         )
@@ -236,7 +236,7 @@ def repoint_job_history(run):
 
 def recreate_schedules(run):
     """
-    Put every schedule the fence cancelled back into service against the Custom Script.
+    Put every schedule the fence cancelled back into service against the Script.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
     step has completed. Each recreated job is recorded against the captured one inside the
@@ -262,7 +262,7 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" ran a built-in script module rather than a Script, which no Custom '
+                    'Schedule "{name}" ran a built-in script module rather than a Custom Script, which no '
                     'Script corresponds to, so it was not recreated.'
                 ).format(name=entry['name'])
             )
@@ -274,7 +274,7 @@ def recreate_schedules(run):
                 counts['outstanding'] += 1
                 warnings.append(
                     _(
-                        'Schedule "{name}" ran built-in Custom Script {key}, which no Custom Script '
+                        'Schedule "{name}" ran built-in Custom Script {key}, which no Script '
                         'resolves to, so it was not recreated.'
                     ).format(name=entry['name'], key=entry['legacy_script_pk'])
                 )
@@ -282,7 +282,7 @@ def recreate_schedules(run):
             warnings.append(
                 _(
                     'Schedule "{name}" ran built-in Custom Script {key}, whose class left its file, so no '
-                    'Custom Script will ever replace it and it was not recreated. Schedule it again by '
+                    'Script will ever replace it and it was not recreated. Schedule it again by '
                     'hand against whatever replaces it.'
                 ).format(name=entry['name'], key=entry['legacy_script_pk'])
             )
@@ -433,7 +433,7 @@ def _user(user_pk):
 
 
 def _mapped_script_keys(run):
-    """Return the built-in Script keys the frozen map covers, which is all any pass can resolve."""
+    """Return the built-in Custom Script keys the frozen map covers, which is all any pass can resolve."""
     # Everything else is a class that left its file. build_map excludes it and the map is frozen,
     # so no repair and no re-run ever brings it back, and holding a step open for one would leave
     # a migration that can never close.
@@ -445,7 +445,7 @@ def _require_activated(run):
     cutover.require_staged(run)
     if not run.step_done(cutover.ACTIVATE_STEP):
         raise cutover.CutoverRefused(
-            _('The staged Projects have not been activated yet, so there are no Custom Scripts to point at.')
+            _('The staged Projects have not been activated yet, so there are no Scripts to point at.')
         )
     return run
 
@@ -453,14 +453,14 @@ def _require_activated(run):
 def _require_serving(run):
     """Return the run, raising CutoverRefused unless every migrated Project still here is serving."""
     _require_activated(run)
-    # Not taken by the permission pass, which maps object types and names no Custom Script. The
+    # Not taken by the permission pass, which maps object types and names no Script. The
     # fence withdrew every grant on the built-in feature, so blocking that pass over an unrelated
     # Project would keep every non-superuser locked out of both sides until it was repaired.
     if outstanding := cutover.projects_not_serving(run):
         raise cutover.CutoverRefused(
             _(
                 '{count} migrated Script Project(s) are serving nothing: {keys}. Put each one into '
-                'service and run the activation again, because a reference can only name a Custom Script '
+                'service and run the activation again, because a reference can only name a Script '
                 'that exists.'
             ).format(count=len(outstanding), keys=', '.join(outstanding))
         )
@@ -489,8 +489,8 @@ def _repoint_action(rule, entry, resolved, plugin_types, mapped):
     # .get, because a run captured before this key existed must keep its old behaviour.
     if entry.get('action_object_type') not in (None, LEGACY_SCRIPT_TYPE):
         refusal = _(
-            'Event rule "{name}" runs a built-in script module rather than a Script, which the '
-            'conversion to Script rows was meant to rewrite and did not. It was left withdrawn, so '
+            'Event rule "{name}" runs a built-in script module rather than a built-in Custom Script, which '
+            "NetBox's own conversion to those rows was meant to rewrite and did not. It was left withdrawn, so "
             'repoint it or delete it by hand.'
         ).format(name=entry['name'])
         return False, 'withdrawn', refusal
@@ -499,12 +499,12 @@ def _repoint_action(rule, entry, resolved, plugin_types, mapped):
         if entry['action_object_id'] not in mapped:
             refusal = _(
                 'Event rule "{name}" runs built-in Custom Script {key}, whose class left its file, so no '
-                'Custom Script will ever replace it and the rule was left withdrawn. Delete it, or point '
+                'Script will ever replace it and the rule was left withdrawn. Delete it, or point '
                 'it at a script yourself.'
             ).format(name=entry['name'], key=entry['action_object_id'])
             return False, 'withdrawn', refusal
         refusal = _(
-            'Event rule "{name}" runs built-in Custom Script {key}, which no Custom Script resolves to, '
+            'Event rule "{name}" runs built-in Custom Script {key}, which no Script resolves to, '
             'so it was left withdrawn.'
         ).format(name=entry['name'], key=entry['action_object_id'])
         return False, 'unresolved', refusal

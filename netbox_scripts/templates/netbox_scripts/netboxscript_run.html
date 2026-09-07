@@ -4,7 +4,7 @@
 {% load i18n %}
 {% load tabs %}
 {% comment %}
-Run page for one Custom Script.
+Run page for one Script.
 
 Renders the form the script's own class declares, grouped by the fieldsets that class resolves,
 or the reason there is no form to render.
@@ -12,7 +12,7 @@ or the reason there is no form to render.
 `form.object-edit` centres the form and caps its width, so it needs no grid column of its own.
 
 Context:
-  - object:   The Custom Script
+  - object:   The Script
   - form:     Its run form, or None
   - instance: The loaded script class instance, which owns the fieldset layout
   - reason:   Why there is no form, or None
@@ -23,7 +23,7 @@ Context:
     <div class="d-flex justify-content-between align-items-center mt-2">
       <ol class="breadcrumb" aria-label="breadcrumbs">
         <li class="breadcrumb-item">
-          <a href="{% url 'plugins:netbox_scripts:netboxscript_list' %}">{% trans "Custom Scripts" %}</a>
+          <a href="{% url 'plugins:netbox_scripts:netboxscript_list' %}">{% trans "Scripts" %}</a>
         </li>
         <li class="breadcrumb-item">
           <a href="{{ object.get_absolute_url }}">{{ object }}</a>

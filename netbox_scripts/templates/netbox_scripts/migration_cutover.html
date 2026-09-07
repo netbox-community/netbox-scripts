@@ -22,7 +22,7 @@ Context:
   <p class="text-secondary">
     {% trans "Permissions granting access to the built-in Custom Scripts are withdrawn, Event Rules that use one are disabled, queued and scheduled runs are cancelled, and the source directories are deregistered from synchronization." %}
     {% trans "Nothing that carries history is deleted, and every reference is recorded first so the next steps can move it onto the plugin." %}
-    {% trans "The cutover refuses while any built-in Script job is still running, so wait for those to finish first." %}
+    {% trans "The cutover refuses while any built-in Custom Script job is still running, so wait for those to finish first." %}
   </p>
   {% render_field form.backup_taken %}
 {% endblock message %}

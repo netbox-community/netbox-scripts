@@ -3,7 +3,7 @@
 {% load i18n %}
 {% load tabs %}
 {% comment %}
-Result page for one run of a Custom Script.
+Result page for one run of a Script.
 
 The log and the output come from the Job's recorded data, so a run still in flight renders the
 status and nothing else. The body is a partial the view also serves on its own, which is what
@@ -17,7 +17,7 @@ Context: see NetBoxScriptResultView.
     <div class="d-flex justify-content-between align-items-center mt-2">
       <ol class="breadcrumb" aria-label="breadcrumbs">
         <li class="breadcrumb-item">
-          <a href="{% url 'plugins:netbox_scripts:netboxscript_list' %}">{% trans "Custom Scripts" %}</a>
+          <a href="{% url 'plugins:netbox_scripts:netboxscript_list' %}">{% trans "Scripts" %}</a>
         </li>
         <li class="breadcrumb-item">
           <a href="{{ object.get_absolute_url }}">{{ object }}</a>

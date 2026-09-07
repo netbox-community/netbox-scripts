@@ -1,6 +1,6 @@
-# Custom Script
+# Script
 
-A Custom Script is one Script class a validated revision publishes. It is the
+A Script is one Script class a validated revision publishes. It is the
 object a run is requested against and the object a Job history belongs to, so it
 outlives any single revision of the project's source.
 
@@ -12,7 +12,7 @@ revision with its old scripts or the new revision with its new ones.
 
 ## Identity
 
-A Custom Script is identified by its project and by the dotted module path and
+A Script is identified by its project and by the dotted module path and
 class name of the module that **defines** it.
 
 The parent is the Project rather than the [Script
@@ -38,9 +38,9 @@ its old location is retired.
 | `class_name` | string | yes | Name of the Script class |
 | `display_name` | string | system | `Meta.name`, defaulting to the class name |
 | `description` | text | system | `Meta.description`, empty when the class declares none |
-| `enabled` | boolean | yes | Whether this Custom Script may be executed. Default is true |
-| `is_retired` | boolean | system | Set when the active revision no longer publishes this Custom Script |
-| `last_seen_revision` | FK | system | The revision whose activation last published this Custom Script |
+| `enabled` | boolean | yes | Whether this Script may be executed. Default is true |
+| `is_retired` | boolean | system | Set when the active revision no longer publishes this Script |
+| `last_seen_revision` | FK | system | The revision whose activation last published this Script |
 | `metadata` | JSON | system | Execution defaults the most recent validation read from the class |
 
 Everything marked system is owned by synchronization. No form, serializer, or
@@ -73,7 +73,7 @@ the others, because standing a project down retires every script it publishes in
 the same transaction, but it is checked in its own right so a run always resolves
 its class out of source that is actually being served.
 
-Set `enabled` from the Custom Script edit form, in bulk from the list view, or
+Set `enabled` from the Script edit form, in bulk from the list view, or
 with a REST PATCH. Because synchronization never writes it, an activation cannot
 undo an administrator's decision.
 
@@ -113,15 +113,15 @@ The UI has the same shape: list, detail, edit, and bulk edit, with no add, no
 delete, and no bulk import. Retirement replaces deletion, so a script that stops
 being published keeps its primary key and the Job history attached to it.
 
-A project's detail page carries a Custom Scripts panel listing everything that
+A project's detail page carries a Scripts panel listing everything that
 project has published, retired scripts included.
 
 ## Running
 
-A Custom Script is run from its own page, against the revision its project is
+A Script is run from its own page, against the revision its project is
 serving when the run is requested. Running is its own permission, `run`, granted
 separately from `change`, and every run is recorded as a Job attached to the row.
-See [Running Custom Scripts](../execution.md).
+See [Running Scripts](../execution.md).
 
 ## Invariants
 
@@ -138,6 +138,6 @@ synchronizes every time it runs, including when it re-activates the revision
 already in force, so an unconditional save would log a change and queue an event
 for every script on every activation.
 
-Custom Scripts are installation-global, like projects, revisions, and script files.
+Scripts are installation-global, like projects, revisions, and script files.
 Under NetBox Branching they read and write the main schema from every branch,
 because the scripts an installation offers cannot differ per branch.

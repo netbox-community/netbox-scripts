@@ -238,7 +238,7 @@ class ScriptFilesFormTestCase(TestCase):
         self.save(['alpha.py'])
         enabled = ScriptFile.objects.filter(project=self.project, enabled=True)
         self.assertEqual(set(enabled.values_list('source_path', flat=True)), {'alpha.py'})
-        # Deselection is `enabled`, never a row delete, because Custom Script rows and Job
+        # Deselection is `enabled`, never a row delete, because Script rows and Job
         # history reference the declaration.
         self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 2)
 

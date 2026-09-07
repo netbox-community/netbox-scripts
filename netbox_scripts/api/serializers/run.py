@@ -40,7 +40,7 @@ class NetBoxScriptRunInputSerializer(serializers.Serializer):
         # The run form honours the author's flag by omitting the fields, which is presentation.
         # A caller that never saw a form has to be refused instead.
         if value and not self.context['script_class'].scheduling_enabled:
-            raise serializers.ValidationError(_('Scheduling is not enabled for this Custom Script.'))
+            raise serializers.ValidationError(_('Scheduling is not enabled for this Script.'))
         return value
 
     def validate(self, data):

@@ -27,10 +27,10 @@ Implemented:
   of a NetBox Data Source that rebuilds on every synchronization
 - script file selection as a Project setting, on a tab or over REST
 - the loading engine: a manifest-verified runtime cache, a private package
-  loader, Custom Script discovery, and leased revision validation
+  loader, Script discovery, and leased revision validation
 - execution: running a script from the UI or over REST, committing or as a dry
   run, deferred and recurring runs, and a result page with the run log
-- running a Custom Script from an Event Rule, and using the plugin's own objects
+- running a Script from an Event Rule, and using the plugin's own objects
   as Event Rule sources (the action needs NetBox 4.7)
 - migration off the built-in Custom Scripts feature: an inventory pass, a
   staging pass, and a cutover that moves Job history, Event Rules, permissions,

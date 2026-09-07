@@ -28,7 +28,7 @@ UNSTORED_REVISION_STATUSES = ('staging', 'storage_failed')
 # through a refusal rendered on a page, so it is bounded rather than allowed to hold a traceback.
 MAX_VALIDATION_ERROR_LENGTH = 500
 
-# Persisted bounds on a published Custom Script. The model fields the discovery snapshot
+# Persisted bounds on a published Script. The model fields the discovery snapshot
 # feeds declare these lengths, and validation enforces them while it still owns a verdict,
 # so an over-long name is a content failure rather than a database error at activation.
 # Every bounded column the snapshot feeds belongs here, not only the identity, because

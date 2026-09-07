@@ -350,7 +350,7 @@ class RevisionValidationJob(JobRunner):
     """
 
     class Meta:
-        name = 'Custom Script Revision validation'
+        name = 'Revision validation'
 
     @classmethod
     def enqueue_validation(cls, revision, **kwargs):
@@ -427,7 +427,7 @@ class RevisionValidationJob(JobRunner):
 
 class NetBoxScriptJob(JobRunner):
     """
-    Run one Custom Script against the revision its enqueue pinned.
+    Run one Script against the revision its enqueue pinned.
 
     The revision is fixed when the run is requested, not when the worker picks it up, so a
     queued run executes the source the operator was looking at even if the project has moved
@@ -443,7 +443,7 @@ class NetBoxScriptJob(JobRunner):
     """
 
     class Meta:
-        name = 'Run Custom Script'
+        name = 'Run Script'
 
     @classmethod
     def enqueue_run(
@@ -462,7 +462,7 @@ class NetBoxScriptJob(JobRunner):
         **kwargs,
     ):
         """
-        Enqueue one run of a Custom Script, immediately, at a given time, or on a recurrence.
+        Enqueue one run of a Script, immediately, at a given time, or on a recurrence.
 
         A one-shot run is pinned to the revision its project serves now, and the pinned identity
         is saved on the Job row inside the enqueueing transaction, so the queue can never run a
@@ -585,7 +585,7 @@ class NetBoxScriptJob(JobRunner):
         """Resolve the class out of its revision and run it, recording the result."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            self.logger.error(f'Refusing to run a Custom Script, because {reason}')
+            self.logger.error(f'Refusing to run a Script, because {reason}')
             raise JobFailed()
         # Enabled is the administrator's field, so turning it off has to stop a run that was
         # already queued. A pinned revision is deliberately not rechecked: the point of
@@ -620,7 +620,7 @@ class NetBoxScriptJob(JobRunner):
             raise JobFailed() from error
         except Exception as error:
             # The run log already carries the detail, so this line only fails the Job.
-            self.logger.error(sanitize(f'The Custom Script did not finish: {error}'))
+            self.logger.error(sanitize(f'The Script did not finish: {error}'))
             raise JobFailed() from error
 
     def _revision_for(self, revision_id, script, module_path, class_name):
@@ -631,7 +631,7 @@ class NetBoxScriptJob(JobRunner):
             if revision is None:
                 self.logger.error(
                     f'This recurring run has no active revision to resolve, so {module_path}.{class_name} '
-                    'was not run. Its project is serving nothing, or the Custom Script is gone.'
+                    'was not run. Its project is serving nothing, or the Script is gone.'
                 )
                 raise JobFailed()
             return revision
@@ -856,7 +856,7 @@ class MigrationCutoverJob(JobRunner):
 
 class MigrationActivationJob(JobRunner):
     """
-    Put the staged Projects into service, so the plugin serves and its Custom Script rows exist.
+    Put the staged Projects into service, so the plugin serves and its Script rows exist.
 
     Runs after the fence and before the references move. Safe to run again: a project already
     serving its newest revision has its rows repaired.
@@ -889,7 +889,7 @@ class MigrationActivationJob(JobRunner):
         published = NetBoxScript.objects.filter(project__key__in=keys).count()
         self.logger.info(
             f'{serving} of {len(results)} Script Project(s) are serving a revision, '
-            f'publishing {published} Custom Script(s). Repoint the references next.'
+            f'publishing {published} Script(s). Repoint the references next.'
         )
 
 
@@ -939,7 +939,7 @@ class MigrationReferencesJob(JobRunner):
             f'{permissions.get("split", 0)}, leaving {left} withdrawn for manual attention.'
         )
         self.logger.info(
-            f'Moved {history.get("moved", 0)} Job(s) of history onto the Custom Scripts, leaving '
+            f'Moved {history.get("moved", 0)} Job(s) of history onto the Scripts, leaving '
             f'{history.get("unresolved", 0)} unresolved script(s), {history.get("outstanding", 0)} of them '
             f'for a later run, and {history.get("modules", 0)} module Job(s) where they are.'
         )
@@ -987,7 +987,7 @@ class MigrationCleanupJob(JobRunner):
         if counts.get('retained'):
             self.logger.info(
                 f'{counts["retained"]} module(s) stay in place for good, because they hold history or a '
-                'reference no Custom Script row can take over. Each one is named above.'
+                'reference no Script row can take over. Each one is named above.'
             )
         if counts.get('blocked') or counts.get('unserved'):
             self.logger.info(

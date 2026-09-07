@@ -38,7 +38,7 @@ the plugin contract allows explicitly.
 | `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | A queued run's input, which lives only on the RQ task because `Job.enqueue()` keeps it off the row, and then dropping that task so nothing can execute it |
 | `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | The miss RQ raises when a queued run's task is already gone. The capture records that run's input as unrecoverable, and the closure treats the task as already dropped |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Deregistering the built-in source, so no later synchronization rewrites it. Filtered on the **concrete** `ManagedFile` type, the inverse of the proxy rule below |
-| `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repointing a rule onto the Custom Script that replaced its built-in one. `full_clean()` first, because a rule can be invalid for reasons that predate the migration |
+| `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repointing a rule onto the Script that replaced its built-in one. `full_clean()` first, because a rule can be invalid for reasons that predate the migration |
 | `users.models.ObjectPermission` creation, `.actions`, `.object_types`, `.users`, `.groups` | `migration/references.py` | Moving a grant onto the plugin's models, and splitting one that also named something else |
 | `users.models.Group` | `migration/references.py` | Resolving a captured grant's groups to live rows before the sibling permission takes them, so a group deleted since the cutover is reported rather than written as a raw key |
 | `core.models.Job.object_type` / `.object_id` update | `migration/references.py` | Repointing run history, batched, and done before anything is deleted because a Script's jobs go with it |
@@ -133,7 +133,7 @@ start, roll back a dry run without the caller raising an internal exception, cle
 pending events when the body raises, and restore the request context on every
 exit path including the one where the body failed.
 
-Nothing in that list is specific to Custom Scripts. It is what any plugin running
+Nothing in that list is specific to this plugin. It is what any plugin running
 user-supplied code inside NetBox's transaction and event machinery needs.
 
 The one execution row it would not replace is `AbortScript`, and that row needs

@@ -133,7 +133,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(len(job.data['projects']), 2)
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('2 of 2 Script Project(s) are serving', messages)
-        self.assertIn('publishing 2 Custom Script(s)', messages)
+        self.assertIn('publishing 2 Script(s)', messages)
 
     def test_the_job_fails_when_the_fence_has_not_been_crossed(self):
         MigrationRun.objects.filter(pk=self.migration.pk).update(state=MigrationStateChoices.STAGING, journal={})

@@ -1,12 +1,12 @@
 # Event Rules
 
-Custom Scripts connect to NetBox's Event Rules in both directions. A rule can run a Custom
-Script when something happens, and the plugin's own objects can be what a rule reacts to.
+Scripts connect to NetBox's Event Rules in both directions. A rule can run a Script when
+something happens, and the plugin's own objects can be what a rule reacts to.
 
-## Running a Custom Script from an Event Rule
+## Running a Script from an Event Rule
 
-Choose **Run Custom Script** as the rule's action type, then pick the script it should run.
-The picker lists every published Custom Script, including ones currently disabled, so an
+Choose **Run Script** as the rule's action type, then pick the script it should run.
+The picker lists every published Script, including ones currently disabled, so an
 administrator can build a rule before the script is ready to serve.
 
 The rule needs the NetBox release that supports plugin-provided Event Rule actions. On an
@@ -47,7 +47,7 @@ written to a Job row, and both already reach the script by their own route.
 
 ### What is refused, and when
 
-A Custom Script has several states that stop it running, and they are reported at two
+A Script has several states that stop it running, and they are reported at two
 different moments on purpose.
 
 | State | When it is reported |
@@ -67,7 +67,7 @@ event. The rule itself is the authorization: an administrator who can create an 
 has already chosen what it runs. Restrict who may manage Event Rules accordingly. See
 [Permissions](permissions.md) for what the plugin's own actions require.
 
-## Custom Scripts as event sources
+## Scripts as event sources
 
 All four of the plugin's object types can drive an Event Rule, so a rule can react to them
 exactly as it would to a Device or an IP address.
@@ -77,7 +77,7 @@ exactly as it would to a Device or an IP address.
 | Script Project | A project created, changed, or deleted |
 | Script Project Revision | A revision appearing, or its validation status changing |
 | Script File | A script file declaration added, changed, or removed |
-| Custom Script | A script appearing, retiring, or being enabled or disabled |
+| Script | A script appearing, retiring, or being enabled or disabled |
 
 A webhook fired by one of these carries the same body the REST API returns for that object,
 so the receiver reads the fields it already knows. A revision's stored documents are not part

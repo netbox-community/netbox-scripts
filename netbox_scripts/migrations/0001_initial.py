@@ -134,12 +134,12 @@ class Migration(migrations.Migration):
                 ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
             ],
             options={
-                'verbose_name': 'custom script',
-                'verbose_name_plural': 'custom scripts',
+                'verbose_name': 'script',
+                'verbose_name_plural': 'scripts',
                 'ordering': ('project', 'module_path', 'class_name'),
                 'permissions': (
-                    ('run', 'Can run a Custom Script'),
-                    ('schedule', 'Can schedule a Custom Script'),
+                    ('run', 'Can run a Script'),
+                    ('schedule', 'Can schedule a Script'),
                 ),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),

@@ -188,7 +188,7 @@ class IngestUploadTestCase(TestCase):
 
     def test_re_uploading_a_disabled_path_turns_it_back_on(self):
         # An uploaded file is always a script file, and the row is reused rather than replaced,
-        # because Custom Script rows and Job history will reference the declaration.
+        # because Script rows and Job history will reference the declaration.
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         script_file = ScriptFile.objects.get(project=self.project)
         ScriptFile.objects.filter(pk=script_file.pk).update(

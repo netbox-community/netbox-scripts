@@ -13,7 +13,7 @@ DIGEST = 'e' * 64
 
 
 class NetBoxScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
-    """The update-only Custom Script endpoint and the identity fields NetBox reverses."""
+    """The update-only Script endpoint and the identity fields NetBox reverses."""
 
     model = NetBoxScript
 

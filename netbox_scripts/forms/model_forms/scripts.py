@@ -13,10 +13,10 @@ __all__ = (
 
 
 class NetBoxScriptEditForm(PrimaryModelForm):
-    """Edit form for the administrator-owned fields of a Custom Script."""
+    """Edit form for the administrator-owned fields of a Script."""
 
     fieldsets = (
-        FieldSet('enabled', 'tags', name=_('Custom Script')),
+        FieldSet('enabled', 'tags', name=_('Script')),
         FieldSet(
             'commit_default_override',
             'job_timeout_override',

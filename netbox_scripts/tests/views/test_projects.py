@@ -516,7 +516,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
 
     def publish(self):
-        """Record one Custom Script on the revision, so activation has something to publish."""
+        """Record one Script on the revision, so activation has something to publish."""
         ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(
             discovered_scripts=[
                 {
@@ -534,7 +534,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.revision.refresh_from_db()
 
     def script_changes(self):
-        """Count the change-log entries recorded against Custom Scripts."""
+        """Count the change-log entries recorded against Scripts."""
         return ObjectChange.objects.filter(changed_object_type=ObjectType.objects.get_for_model(NetBoxScript)).count()
 
     def test_the_success_message_reports_what_this_route_published(self):
@@ -544,14 +544,14 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.publish()
         response = self.client.post(self.url(), follow=True)
 
-        self.assertIn('publishing 1 Custom Script.', str(list(response.context['messages'])[0]))
+        self.assertIn('publishing 1 Script.', str(list(response.context['messages'])[0]))
 
     def test_a_revision_publishing_nothing_says_so_on_this_route_too(self):
         # The fixture records no discovered scripts, which is a real and easily misread state.
         self.grant('view', 'activate')
         response = self.client.post(self.url(), follow=True)
 
-        self.assertIn('publishes no Custom Scripts', str(list(response.context['messages'])[0]))
+        self.assertIn('publishes no Scripts', str(list(response.context['messages'])[0]))
 
     def test_activating_through_the_view_publishes_scripts_and_logs_the_change(self):
         # A request-bound write reverses the model's own routes during event serialization, so
@@ -693,7 +693,7 @@ class ScriptProjectRepairViewTestCase(TestCase):
         response = self.client.post(self.url(), follow=True)
 
         self.assertTrue(NetBoxScript.objects.filter(project=self.project, class_name='Deploy').exists())
-        self.assertIn('Repaired 1 Custom Script', self.message(response))
+        self.assertIn('Repaired 1 Script', self.message(response))
 
     def test_posting_with_nothing_wrong_says_so_instead_of_claiming_a_repair(self):
         self.grant('view', 'activate')

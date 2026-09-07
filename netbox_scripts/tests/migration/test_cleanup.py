@@ -48,7 +48,7 @@ class CleanupMixin(ReferenceMigrationMixin):
         return self.script_job(stranded)
 
     def script_job(self, script):
-        """One Job naming a built-in Script, as a run before the migration left behind."""
+        """One Job naming a built-in Custom Script, as a run before the migration left behind."""
         return Job.objects.create(
             name=script.name,
             object_type=self.script_type,

@@ -21,7 +21,7 @@ from ..utils import source_path_to_dotted_name
 
 class NetBoxScript(JobsMixin, PrimaryModel):
     """
-    One Custom Script class published by a validated revision.
+    One Script class published by a validated revision.
 
     A script is identified by its project and by the dotted module path and class name of
     the module that defines it, so a class re-exported by a second script file publishes
@@ -95,7 +95,7 @@ class NetBoxScript(JobsMixin, PrimaryModel):
         verbose_name=_('retired'),
         default=False,
         editable=False,
-        help_text=_('Set when the active revision no longer publishes this Custom Script.'),
+        help_text=_('Set when the active revision no longer publishes this Script.'),
     )
     last_seen_revision = models.ForeignKey(
         to='netbox_scripts.ScriptProjectRevision',
@@ -117,14 +117,14 @@ class NetBoxScript(JobsMixin, PrimaryModel):
     class Meta:
         app_label = 'netbox_scripts'
         ordering = ('project', 'module_path', 'class_name')
-        verbose_name = _('custom script')
-        verbose_name_plural = _('custom scripts')
+        verbose_name = _('script')
+        verbose_name_plural = _('scripts')
         # Their own actions, not forms of changing the row. The codename is the bare action,
         # because the permission picker offers it verbatim and the backend composes
         # f'{app}.{action}_{model}' from what an administrator ticked.
         permissions = (
-            ('run', 'Can run a Custom Script'),
-            ('schedule', 'Can schedule a Custom Script'),
+            ('run', 'Can run a Script'),
+            ('schedule', 'Can schedule a Script'),
         )
         constraints = [
             models.UniqueConstraint(
@@ -154,7 +154,7 @@ class NetBoxScript(JobsMixin, PrimaryModel):
 
     @property
     def scheduling_enabled(self):
-        """Whether the published class allows this Custom Script to be scheduled."""
+        """Whether the published class allows this Script to be scheduled."""
         return bool(self.metadata.get('scheduling_enabled', True))
 
     @property
@@ -175,7 +175,7 @@ class NetBoxScript(JobsMixin, PrimaryModel):
 
     @property
     def notifications_default(self):
-        """Who is notified when a run of this Custom Script finishes."""
+        """Who is notified when a run of this Script finishes."""
         return (
             self.notifications_default_override
             or self.metadata.get('notifications_default')

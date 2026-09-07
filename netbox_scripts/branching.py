@@ -35,7 +35,7 @@ BRANCHING_APP_LABEL = 'netbox_branching'
 # behaviour, which is the right default for one that holds no storage. Two things are worth
 # checking when adding one: whether it owns bytes on disk, in which case it belongs here, and
 # whether it gains a concrete relation to a branch-aware model, which would leave a row in the
-# main schema pointing at a row that exists only inside a branch. Custom Scripts hold no bytes
+# main schema pointing at a row that exists only inside a branch. Scripts hold no bytes
 # and are listed for a third reason: activation writes them in the same transaction that moves
 # a project's active revision, so splitting them across schemas would split that transaction.
 # A migration run is listed for a fourth reason: a run started inside a branch would leave the

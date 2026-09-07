@@ -1,5 +1,5 @@
 """
-The context one Custom Script run happens inside.
+The context one Script run happens inside.
 
 A run is not a plain function call. Database changes have to land in the right database and be
 reverted whole on a dry run or an error, change attribution and event delivery have to behave
@@ -69,7 +69,7 @@ LOAD_FAILURES = RESOLUTION_FAILURES + (StorageError, OSError)
 
 
 class ScriptNotExecutableError(Exception):
-    """Raised when a Custom Script is asked to run while something is holding it back."""
+    """Raised when a Script is asked to run while something is holding it back."""
 
 
 # Both classes end a run cleanly. The plugin's own is what its authoring API documents, and the
@@ -136,7 +136,7 @@ def run_script(instance, *, data, commit, request=None):
 
 def load_script_class(script):
     """
-    Return the class one Custom Script row names, out of the revision its project serves.
+    Return the class one Script row names, out of the revision its project serves.
 
     This is the same resolution the worker performs, against the same revision, so a form built
     from the class matches the source that will execute. The namespace is unloaded before this

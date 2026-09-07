@@ -22,12 +22,12 @@ def activation_message(revision, scripts):
     if not scripts.published:
         # A revision can validate and publish nothing, which is the state an operator is most
         # likely to misread as success.
-        return _('Revision {revision} is now the active revision. It publishes no Custom Scripts.').format(
+        return _('Revision {revision} is now the active revision. It publishes no Scripts.').format(
             revision=revision.short_digest
         )
     published = ngettext(
-        'Revision {revision} is now the active revision, publishing {count} Custom Script.',
-        'Revision {revision} is now the active revision, publishing {count} Custom Scripts.',
+        'Revision {revision} is now the active revision, publishing {count} Script.',
+        'Revision {revision} is now the active revision, publishing {count} Scripts.',
         scripts.published,
     ).format(revision=revision.short_digest, count=scripts.published)
     if not scripts.retired:
@@ -35,8 +35,8 @@ def activation_message(revision, scripts):
     # A revision that drops a script retires its row, which is the outcome least likely to be
     # expected and was previously counted as though it had been published.
     retired = ngettext(
-        'It retired {count} Custom Script the previous revision published.',
-        'It retired {count} Custom Scripts the previous revision published.',
+        'It retired {count} Script the previous revision published.',
+        'It retired {count} Scripts the previous revision published.',
         scripts.retired,
     ).format(count=scripts.retired)
     return f'{published} {retired}'

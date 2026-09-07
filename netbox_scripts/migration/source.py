@@ -29,7 +29,7 @@ __all__ = (
 
 @dataclass(frozen=True)
 class LegacyScript:
-    """One built-in Script as its row stands."""
+    """One built-in Custom Script as its row stands."""
 
     # The primary key is carried because every reference a migration repoints names it: an Event
     # Rule's action object, a Job's object id, and a permission's constraint all hold it.
@@ -109,7 +109,7 @@ def script_jobs():
 
 
 def running_script_jobs():
-    """Return every built-in Script job executing right now."""
+    """Return every built-in Custom Script job executing right now."""
     from core.choices import JobStatusChoices
 
     return script_jobs().filter(status=JobStatusChoices.STATUS_RUNNING)
@@ -124,7 +124,7 @@ def cancellable_statuses():
 
 
 def enqueued_script_jobs():
-    """Return every built-in Script job waiting to run, one-shot, scheduled or recurring."""
+    """Return every built-in Custom Script job waiting to run, one-shot, scheduled or recurring."""
     return script_jobs().filter(status__in=cancellable_statuses())
 
 

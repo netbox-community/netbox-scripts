@@ -367,7 +367,7 @@ class VerificationAfterCleanupTestCase(VerificationMixin, TestCase):
         check = self.named(verification.verify(run), verification.SCRIPTS)
 
         self.assertEqual(check['level'], plan.BLOCKING)
-        self.assertIn('publish no Custom Script', str(check['message']))
+        self.assertIn('publish no Script', str(check['message']))
 
 
 class VerificationOfRepointedRulesTestCase(VerificationMixin, TestCase):

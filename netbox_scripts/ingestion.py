@@ -225,7 +225,7 @@ def declare_script_file(project, path, using):
     Make one path an enabled script file of a project, creating its declaration if needed.
 
     A path that was turned off is turned back on. The row is reused rather than replaced,
-    because Custom Script rows and Job history reference the declaration.
+    because Script rows and Job history reference the declaration.
     """
     script_file = ScriptFile.objects.using(using).filter(project=project, source_path=path).first()
     if script_file is None:

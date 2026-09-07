@@ -13,7 +13,7 @@ from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevis
 
 @register_filterset
 class NetBoxScriptFilterSet(PrimaryModelFilterSet):
-    """Filter set for the Custom Script model. metadata is deliberately unfiltered."""
+    """Filter set for the Script model. metadata is deliberately unfiltered."""
 
     project_id = django_filters.ModelMultipleChoiceFilter(
         field_name='project',

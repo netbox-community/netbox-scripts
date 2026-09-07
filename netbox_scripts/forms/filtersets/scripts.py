@@ -16,7 +16,7 @@ __all__ = (
 
 
 class NetBoxScriptFilterForm(PrimaryModelFilterSetForm):
-    """Filter form for the Custom Script list view."""
+    """Filter form for the Script list view."""
 
     model = NetBoxScript
     project_id = DynamicModelMultipleChoiceField(

@@ -108,7 +108,7 @@ class RepairScripts(ObjectAction):
 
 class RunScript(ObjectAction):
     """
-    Run one Custom Script against the revision its project is serving.
+    Run one Script against the revision its project is serving.
 
     Its own permission rather than change, because running a script is not editing the row, and
     the two are granted to different people. The button is rendered inert rather than hidden

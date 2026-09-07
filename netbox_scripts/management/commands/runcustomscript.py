@@ -20,12 +20,12 @@ LISTED_CANDIDATES = 5
 
 
 class Command(BaseCommand):
-    """Run one Custom Script and wait for it, reporting the outcome in the exit status."""
+    """Run one Script and wait for it, reporting the outcome in the exit status."""
 
     # cloud-compat: ok, additive only. Every run this starts is equally available over the
     # REST route, so nothing here is the sole way to reach a capability.
     help = (
-        'Run a Custom Script and wait for it to finish. The run happens in this process, so a job '
+        'Run a Script and wait for it to finish. The run happens in this process, so a job '
         'timeout declared by the script is not enforced and the run is bounded only by this command.'
     )
 
@@ -58,7 +58,7 @@ class Command(BaseCommand):
         try:
             instance = load_script_class(script)()
         except LOAD_FAILURES as error:
-            raise CommandError(f'The Custom Script could not be loaded from its source: {error}') from error
+            raise CommandError(f'The Script could not be loaded from its source: {error}') from error
 
         values = self.values(instance, options['data'])
         user = self.user(options['user'])
@@ -82,7 +82,7 @@ class Command(BaseCommand):
             raise CommandError(f'{script} finished with status "{job.status}".')
 
     def resolve(self, identifier):
-        """Return the one Custom Script an identifier names, or raise naming what it matched."""
+        """Return the one Script an identifier names, or raise naming what it matched."""
         project_key, _, full_name = identifier.rpartition(':')
         module_path, _, class_name = full_name.rpartition('.')
         if not module_path or not class_name:
@@ -92,7 +92,7 @@ class Command(BaseCommand):
             matches = matches.filter(project__key=project_key)
         found = list(matches.select_related('project', 'project__active_revision')[: LISTED_CANDIDATES + 1])
         if not found:
-            raise CommandError(f'No Custom Script matches "{identifier}".')
+            raise CommandError(f'No Script matches "{identifier}".')
         if len(found) == 1:
             return found[0]
         # Retirement never deletes a row, so a name shared with a retired one is not ambiguous
@@ -100,7 +100,7 @@ class Command(BaseCommand):
         runnable = [item for item in found if item.is_executable]
         if len(runnable) == 1:
             return runnable[0]
-        raise CommandError(f'"{identifier}" matches more than one Custom Script: {self.candidates(found)}.')
+        raise CommandError(f'"{identifier}" matches more than one Script: {self.candidates(found)}.')
 
     def candidates(self, found):
         """Return the qualified names to offer, saying so when more matched than are listed."""

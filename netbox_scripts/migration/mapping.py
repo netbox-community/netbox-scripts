@@ -1,4 +1,4 @@
-"""Which plugin Custom Script one built-in Script becomes."""
+"""Which Script one built-in Custom Script becomes."""
 
 from django.core.exceptions import ValidationError
 
@@ -19,7 +19,7 @@ __all__ = (
 
 def build_map(modules=None):
     """
-    Return the plugin identity every built-in Script would migrate to, reading no plugin rows.
+    Return the plugin identity every built-in Custom Script would migrate to, reading no plugin rows.
 
     Pass modules to map supplied data rather than the live installation, as build_report does.
     Grouping comes from plan.group(), so a project key here is the key staging creates, and the

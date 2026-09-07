@@ -1,12 +1,12 @@
-# Authoring Custom Scripts
+# Authoring Scripts
 
-Custom Scripts are Python classes that extend NetBox with on-demand automation.
+Scripts are Python classes that extend NetBox with on-demand automation.
 This page covers the authoring API that ships with the plugin and how a project
 publishes its scripts. Uploads, execution, and scheduling are planned
 follow-ups, so scripts written today validate and are discovered but cannot be
 run through the plugin yet.
 
-## A minimal Custom Script
+## A minimal Script
 
 Import the authoring API from `netbox_scripts` and subclass `Script`:
 
@@ -26,7 +26,7 @@ class RenameDevice(Script):
         return data['new_name']
 ```
 
-Every Custom Script defines a `run(self, data, commit)` method. `data` carries
+Every Script defines a `run(self, data, commit)` method. `data` carries
 the cleaned form values for the script's variables, keyed by attribute name.
 `commit` tells the script whether database changes should persist (`False`
 means a dry-run). The value returned from `run()` becomes the script's output.
@@ -182,7 +182,7 @@ script executes, so keep module bodies to imports and definitions and put work
 in `run()`. See [Runtime and Loading](runtime.md) for the loading model and
 what makes a revision invalid.
 
-Each published class becomes a [Custom Script](models/netboxscript.md) once the
+Each published class becomes a [Script](models/netboxscript.md) once the
 revision is activated, identified by the module that defines it, so a class
 re-exported through `script_order` keeps the identity of its own file.
 
@@ -201,7 +201,7 @@ of a failure at the first attempt to run:
 - A `Meta.fieldsets` entry naming something that is not a variable. Fieldsets are
   not filtered, so an unknown name reaches the template and breaks the page.
 - A `Meta.name` longer than 255 characters, which is more than the published
-  Custom Script can record.
+  Script can record.
 
 ## Differences from NetBox's built-in scripts
 
@@ -263,7 +263,7 @@ surface built into NetBox. The deliberate differences:
 
 A script written for NetBox's built-in runner imports its authoring API from
 `extras.scripts`. That import keeps working here, so an existing script
-publishes and runs as a Custom Script with no edit at all. Your source is
+publishes and runs as a Script with no edit at all. Your source is
 stored exactly as you supplied it and is never rewritten.
 
 Every form of the import resolves, whichever one the script happens to use:

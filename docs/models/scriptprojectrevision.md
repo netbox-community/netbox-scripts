@@ -26,7 +26,7 @@ and validation services. They are not edited directly.
 | `file_count` | integer | yes | Number of accepted source files |
 | `total_size` | integer | yes | Combined size in bytes of every accepted source file |
 | `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
-| `discovered_scripts` | JSON | no | Custom Scripts the most recent successful validation published, in publication order. May be empty |
+| `discovered_scripts` | JSON | no | Scripts the most recent successful validation published, in publication order. May be empty |
 | `script_file_snapshot` | JSON | yes | Enabled script file declarations frozen at staging time, each with its `script_file` primary key and canonical `source_path`, sorted by path. May be empty |
 | `script_file_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
 | `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
@@ -80,9 +80,9 @@ surface. A revision has a detail page, reached from the project's **Revisions**
 tab, which also renders two actions per row:
 
 - **Activate** on any revision whose status is `valid` or `retired`, which puts
-  it into service and publishes its [Custom Scripts](netboxscript.md).
+  it into service and publishes its [Scripts](netboxscript.md).
 - **Deactivate** on the revision in force, which retires it, leaves the project
-  serving nothing, and retires its Custom Scripts.
+  serving nothing, and retires its Scripts.
 
 Both need the owning project's change permission, because what they change is
 what the project serves. Each opens a confirmation page that posts back, rather
@@ -104,7 +104,7 @@ is a request-bound path, so it records entries. Automatic activation happens
 inside a job, where NetBox records no change-log entries at all, so a project
 whose policy activates automatically leaves none.
 
-## Recorded Custom Scripts
+## Recorded Scripts
 
 `discovered_scripts` is what project validation learned by importing the tree:
 one record per published class, in publication order, each carrying the defining
@@ -113,7 +113,7 @@ name, description, and execution defaults read from the class. It is written onc
 in the same statement as the verdict, so no reader ever sees a valid revision
 without it. An invalid verdict records an empty list.
 
-[Activation](../runtime.md) derives [Custom Script](netboxscript.md) rows from
+[Activation](../runtime.md) derives [Script](netboxscript.md) rows from
 it, which is why a revision from before this field existed publishes nothing when
 re-activated: it has no record to derive from, and only re-validation writes one.
 
@@ -217,7 +217,7 @@ fields nor script file discovery results. The verdict keeps `validation_job` and
 | A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
 | A stored tree still matches its manifest before it is reused or activated | `store.verify_revision_tree()`, which raises `RevisionCorruptError` |
 | A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_script_file_snapshot()`, which raises `RevisionCorruptError` |
-| A persisted list of published Custom Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row |
+| A persisted list of published Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row |
 | Neither the tree nor what it publishes changed while the tree was being verified | The locked row is compared against the verified one, digests, manifest, snapshot, and published scripts alike |
 | Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |
 

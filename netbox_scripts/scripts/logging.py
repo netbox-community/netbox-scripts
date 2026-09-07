@@ -9,7 +9,7 @@ __all__ = ('LogLevelChoices',)
 
 class LogLevelChoices(ChoiceSet):
     """
-    Message severity levels for Custom Script logging.
+    Message severity levels for Script logging.
 
     Each level maps to a stdlib logging level through SYSTEM_LEVELS.
     """

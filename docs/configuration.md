@@ -333,7 +333,7 @@ does not change. The routing and execution statements below are verified against
 v1.2.0-beta1 by `netbox_scripts/tests/test_branching_provisioned.py`, which provisions a
 real branch.
 
-Script Projects, Script Files, Custom Scripts, revisions and migration runs are
+Script Projects, Script Files, Scripts, revisions and migration runs are
 installation-global. The plugin routes all five to the main schema, so a Project edited
 inside a branch applies everywhere at once, appears in no branch diff, and is neither
 replayed by a merge nor rolled back by reverting one. None of their tables is replicated
@@ -356,5 +356,5 @@ so the run stands that branch down before the script is called.
 The alternative was rejected on what it does to a recurring run. A schedule re-enqueues with the
 same request, so a run following the branch would keep writing to it for as long as it stayed
 ready, then move to the main schema without a word the day it was merged, with nothing recording
-which schema any earlier occurrence had used. A Custom Script cannot be used to stage changes
+which schema any earlier occurrence had used. A Script cannot be used to stage changes
 inside a branch, and that is deliberate.

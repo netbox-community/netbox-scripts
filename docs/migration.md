@@ -14,8 +14,8 @@ irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 | Inventory | Reads every built-in script module, classifies its authoring dialect, works out which Projects a migration would create, and counts the Event Rules, permissions and Jobs a migration would touch. Writes nothing. | Nothing to undo |
 | Staging | Creates those Projects, declares their script files, and stages their content as revisions. Activates nothing. | Yes, delete what it created |
 | Cutover | Records every reference the repointing pass replays, then withdraws permissions on the built-in feature, disables its Event Rules, cancels its queued runs, and deregisters its source from synchronization. | **No** |
-| Activation | Puts every staged Project into service, so its Custom Scripts exist as rows. | After the cutover |
-| Repointing | Moves Event Rules, permissions and Job history onto those Custom Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
+| Activation | Puts every staged Project into service, so its Scripts exist as rows. | After the cutover |
+| Repointing | Moves Event Rules, permissions and Job history onto those Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
 | Cleanup | Deletes the built-in script modules this migration mapped, the Scripts under them, and their stored source. Records the migration as complete. | **No** |
 | Verification | Reports whether the migration landed. Reads only, and is safe to run at any point and as often as you like. | Nothing to undo |
 
@@ -37,7 +37,7 @@ irreversible, so do all of it before you press **Enter cutover**.
    permissions UI can make, and no more. A superuser is unaffected. Treat the window as the real
    fence and this pass as the tidying.
 2. **Pause the workers.** A run that starts while the cutover is capturing is a run the migration
-   cannot account for. The cutover refuses outright while a built-in Script job is executing, so
+   cannot account for. The cutover refuses outright while a built-in Custom Script job is executing, so
    pausing first is what stops you having to wait mid-migration.
 3. **Back up the database and the source storage together, as one restore point.** The plugin's
    Projects live in the database and their content lives in the storage backend, so a database
@@ -59,7 +59,7 @@ It also lists every Script Project the inventory and staging passes name, with t
 now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
 so running one pass without the other is visible rather than implied. Each state is read as the
 page renders, so it is the verdict validation reached rather than what a pass recorded, and the
-count beside it is how many Custom Scripts that revision publishes.
+count beside it is how many Scripts that revision publishes.
 
 **Run inventory** queues the report. It changes nothing, so run it as often as you like.
 
@@ -103,7 +103,7 @@ and keeps synchronizing exactly as it did.
 The inventory reports how many it found and left, as a warning rather than a blocker, so the exclusion
 is visible instead of silent. Reports use an authoring API this plugin does not serve at all, and its
 own discovery refuses a report-style class outright, so there is nothing for a migration to move them
-onto. Moving a Report means rewriting it as a Custom Script by hand.
+onto. Moving a Report means rewriting it as a Script by hand.
 
 ## Reading the inventory
 
@@ -182,14 +182,14 @@ Putting a valid one in service is the separate, deliberate step described under
 
 A built-in module that publishes nothing migrates as a **helper file** rather than a script file.
 Its content is staged like any other file, but nothing declares it, so the Project it belongs to
-never claims it publishes a Custom Script. A module counts as publishing when the built-in feature
+never claims it publishes a Script. A module counts as publishing when the built-in feature
 recorded a Script for it, or when its source defines a class that could publish one, so source
 already written against this plugin's API is declared even though the built-in feature never
 recognised it.
 
 The inventory names every module this applies to, because a genuine helper and a module that has
 stopped importing look the same from the built-in rows. If one of them should be publishing a
-Custom Script, fix it in the built-in feature and run the inventory again.
+Script, fix it in the built-in feature and run the inventory again.
 
 If the report is `blocking`, staging logs every blocking finding and stops without creating
 anything. Fix the source, run the inventory again, and stage once it is clear.
@@ -208,7 +208,7 @@ Nothing is captured twice and nothing is closed twice.
 
 **It captures first.** Every permission granting an action on the built-in feature, with who holds
 it. Every Event Rule naming the built-in feature, as an action or as a source. Every waiting
-built-in Script job, with the input it was going to run with. All three go on the migration run's
+built-in Custom Script job, with the input it was going to run with. All three go on the migration run's
 journal, which is what makes the later passes replayable and what makes a half-finished migration
 resumable rather than stuck. Capture happens once, because a second capture would read the closed
 state back as though it were the original.
@@ -228,7 +228,7 @@ does anything `DEFAULT_PERMISSIONS` or a plain Django permission grant confers. 
 a maintenance window rather than relying on this alone.
 
 **What it refuses.** A run that has not staged anything, a run that has already moved past the
-cutover, and any installation where a built-in Script job is still running. Wait for those to
+cutover, and any installation where a built-in Custom Script job is still running. Wait for those to
 finish rather than cancelling them.
 
 It also refuses while any Project this migration mapped could serve nothing on the far side, naming
@@ -252,7 +252,7 @@ input includes an uploaded file cannot have that value journalled, so it is recr
 ## Activating the staged Projects
 
 **Activate Projects** puts every Project this migration staged into service. It comes after the
-fence and before repointing, because a Custom Script row exists only once a revision is active, and
+fence and before repointing, because a Script row exists only once a revision is active, and
 an Event Rule's action has to name one.
 
 Per Project it takes the newest valid revision. A Project already serving its newest revision is
@@ -268,7 +268,7 @@ Safe to run again.
 **Repoint references** replays the journal onto the plugin's rows, in four steps.
 
 Three of the four steps refuse while any migrated Project is serving no revision, because an Event
-Rule and a repointed job both have to name a Custom Script that exists, and only a Project in
+Rule and a repointed job both have to name a Script that exists, and only a Project in
 service publishes one. The Migration page withholds the button and names each Project. Put them
 into service, run **Activate Projects** again, and the pass proceeds. Permissions is the exception
 and runs regardless: it moves object types rather than scripts, and the cutover withdrew every
@@ -277,10 +277,10 @@ until an unrelated Project was fixed.
 
 | Step | What moves |
 |---|---|
-| Event Rules | Each captured rule's action is pointed at the Custom Script that replaced its built-in Script, and the built-in object types it watched are replaced with the plugin's. A rule that moved completely is re-enabled. |
+| Event Rules | Each captured rule's action is pointed at the Script that replaced its built-in Custom Script, and the built-in object types it watched are replaced with the plugin's. A rule that moved completely is re-enabled. |
 | Permissions | Each captured grant is moved onto the plugin's object types. An action with no counterpart on the plugin is dropped and reported. |
-| Job history | The built-in Scripts' Jobs are moved onto the Custom Scripts that replaced them, so a run's history stays reachable from the script that replaced it. |
-| Schedules | Every schedule the cutover cancelled is enqueued again against the Custom Script. |
+| Job history | The built-in Custom Scripts' Jobs are moved onto the Scripts that replaced them, so a run's history stays reachable from the script that replaced it. |
+| Schedules | Every schedule the cutover cancelled is enqueued again against the Script. |
 
 Recreating a schedule follows five rules worth knowing, because between them they decide when a
 migration runs your code and who it runs as.
@@ -300,11 +300,11 @@ migration runs your code and who it runs as.
 **A run that was merely queued rather than scheduled is recreated to run at once**, with the commit
 setting it was queued with, because that is what the cutover promised the owner when it cancelled it.
 That is the one case where this pass executes your script, so if you would rather it did not, let the
-queue drain before you enter the cutover. It refuses to start while a built-in Script job is actually
+queue drain before you enter the cutover. It refuses to start while a built-in Custom Script job is actually
 running, but a job still waiting is captured and replayed.
 
 Each of the four steps records its completion only once it has left nothing a later run could still
-do. So a reference it could not move, because the Custom Script it names does not resolve yet, is
+do. So a reference it could not move, because the Script it names does not resolve yet, is
 picked up the next time you run the pass rather than skipped for good.
 
 What it reports as **permanent** is not retried: it is what you would have to redo by hand rather
@@ -324,7 +324,7 @@ dealing with before that upgrade rather than after.
 ## Retiring the built-in rows
 
 Cleanup is the last pass and the only one that deletes anything. It refuses until every part of the
-repointing pass has finished, because deleting a built-in Script deletes its Job rows with it and a
+repointing pass has finished, because deleting a built-in Custom Script deletes its Job rows with it and a
 captured schedule can only be recreated while the built-in rows are still there.
 
 It deletes only the modules this migration mapped, one at a time, and the stored source of each goes
@@ -351,7 +351,7 @@ open:
   pass again, then retry cleanup.
 - An Event Rule still names the module, which means the repointing pass has not run or did not
   finish.
-- The module publishes a class no Custom Script resolves to. Deleting it would leave a script that
+- The module publishes a class no Script resolves to. Deleting it would leave a script that
   used to run unable to run at all, so fix the source and stage it again first.
 - The Project replacing the module is not serving a revision. Activate it, then retry.
 
@@ -383,7 +383,7 @@ refuse that. It is a fresh script rather than a returning one, because the old r
 
 **A stale built-in job cannot execute.** The cutover fails every waiting job closed and drops its
 task from the queue, so there is nothing left for a worker to pick up. Recurring runs are recreated
-against the Custom Script that replaced the built-in one, subject to the owner rules above, which is
+against the Script that replaced the built-in one, subject to the owner rules above, which is
 why the reference pass comes before cleanup rather than after.
 
 ## Recovery
@@ -420,7 +420,7 @@ stays readable.
 | Check | Passes when |
 |---|---|
 | Modules | Every Project this migration activated exists and serves a revision |
-| Scripts | Every built-in Script has a live Custom Script that is not retired |
+| Scripts | Every built-in Custom Script has a live Script that is not retired |
 | Event Rules | No Event Rule names the built-in feature, and every rule that was enabled before the cutover is enabled again |
 | Permissions | No permission names the built-in feature |
 | Jobs | No Job names the built-in feature, every captured schedule has a live counterpart, and one still waiting holds a task in the queue |

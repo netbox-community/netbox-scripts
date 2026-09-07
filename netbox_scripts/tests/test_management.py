@@ -84,7 +84,7 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
         with self.assertRaises(CommandError) as caught:
             self.run_command('deploy.Absent')
 
-        self.assertIn('No Custom Script matches', str(caught.exception))
+        self.assertIn('No Script matches', str(caught.exception))
 
     def test_a_name_without_a_class_is_refused(self):
         with self.assertRaises(CommandError) as caught:

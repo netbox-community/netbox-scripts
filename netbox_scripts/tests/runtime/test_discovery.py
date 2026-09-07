@@ -260,7 +260,7 @@ class ZeroPublicationReasonTestCase(TestCase):
 
         self.assertEqual(
             zero_publication_reason(module),
-            'The module imports cleanly and defines no Custom Script.',
+            'The module imports cleanly and defines no Script.',
         )
 
     def test_a_helper_defining_plain_classes_gets_the_generic_reason(self):
@@ -268,7 +268,7 @@ class ZeroPublicationReasonTestCase(TestCase):
 
         self.assertEqual(
             zero_publication_reason(module),
-            'The module imports cleanly and defines no Custom Script.',
+            'The module imports cleanly and defines no Script.',
         )
 
     def test_a_class_from_an_installed_package_is_not_blamed(self):
@@ -278,5 +278,5 @@ class ZeroPublicationReasonTestCase(TestCase):
 
         self.assertEqual(
             zero_publication_reason(module),
-            'The module imports cleanly and defines no Custom Script.',
+            'The module imports cleanly and defines no Script.',
         )

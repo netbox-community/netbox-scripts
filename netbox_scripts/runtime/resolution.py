@@ -2,10 +2,10 @@
 Recovery of a live script class from a stored identity.
 
 Validation records what a revision publishes. This module walks that record back: given the
-project-qualified identity a Custom Script row holds, it finds the script file that surfaced
+project-qualified identity a Script row holds, it finds the script file that surfaced
 the class, imports it, and returns the class itself.
 
-Going through the recorded script file is what makes the walk possible at all. A Custom Script
+Going through the recorded script file is what makes the walk possible at all. A Script
 is identified by the module that defines it, and script_order lets a class defined in a helper
 publish through a script file elsewhere, so the defining module is often not importable as a
 script file and has no declaration of its own. The provenance the snapshot carries is the only

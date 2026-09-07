@@ -112,9 +112,9 @@ def _verify_modules(run, live_modules):
 
 
 def _verify_scripts(run, live_modules):
-    """Every built-in Script has a live Custom Script, read from whichever side still holds them."""
+    """Every built-in Custom Script has a live Script, read from whichever side still holds them."""
     if not run.step_done(cutover.ACTIVATE_STEP):
-        return _check(SCRIPTS, plan.WARNING, _('No Custom Script exists yet, because nothing has been activated.'))
+        return _check(SCRIPTS, plan.WARNING, _('No Script exists yet, because nothing has been activated.'))
     if live_modules:
         # The frozen map where there is one, so a partial cleanup cannot move the comparison.
         plugin_map = mapping.recorded(run) or mapping.build_map(modules=live_modules)
@@ -123,7 +123,7 @@ def _verify_scripts(run, live_modules):
             return _check(
                 SCRIPTS,
                 plan.BLOCKING,
-                _('{count} built-in Script(s) resolve to no Custom Script: {names}.').format(
+                _('{count} built-in Custom Script(s) resolve to no Script: {names}.').format(
                     count=len(unresolved), names=', '.join(sorted(entry['legacy_name'] for entry in unresolved))
                 ),
                 source=_('the built-in rows'),
@@ -132,7 +132,7 @@ def _verify_scripts(run, live_modules):
             return _check(
                 SCRIPTS,
                 plan.BLOCKING,
-                _('{count} Custom Script(s) that replace a built-in one are retired: {names}.').format(
+                _('{count} Script(s) that replace a built-in one are retired: {names}.').format(
                     count=len(retired), names=', '.join(retired)
                 ),
                 source=_('the built-in rows'),
@@ -140,7 +140,7 @@ def _verify_scripts(run, live_modules):
         return _check(
             SCRIPTS,
             plan.READY,
-            _('All {count} built-in Script(s) resolve to a Custom Script that can run.').format(count=len(resolved)),
+            _('All {count} built-in Custom Script(s) resolve to a Script that can run.').format(count=len(resolved)),
             source=_('the built-in rows'),
         )
     # The built-in rows are gone, so what a Project publishes is the only remaining evidence.
@@ -153,7 +153,7 @@ def _verify_scripts(run, live_modules):
         return _check(
             SCRIPTS,
             plan.BLOCKING,
-            _('The built-in rows are gone and {count} migrated Project(s) publish no Custom Script: {keys}.').format(
+            _('The built-in rows are gone and {count} migrated Project(s) publish no Script: {keys}.').format(
                 count=len(barren), keys=', '.join(barren)
             ),
         )
@@ -162,16 +162,16 @@ def _verify_scripts(run, live_modules):
             SCRIPTS,
             plan.WARNING,
             _(
-                'The built-in rows are gone. {count} of the {total} Custom Script(s) the migrated Projects '
+                'The built-in rows are gone. {count} of the {total} Script(s) the migrated Projects '
                 'publish are retired.'
             ).format(count=retired, total=published.count()),
         )
     return _check(
         SCRIPTS,
         plan.READY,
-        _(
-            'The built-in rows are gone and the migrated Projects publish {count} Custom Script(s), none retired.'
-        ).format(count=published.count()),
+        _('The built-in rows are gone and the migrated Projects publish {count} Script(s), none retired.').format(
+            count=published.count()
+        ),
     )
 
 

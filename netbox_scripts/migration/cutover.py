@@ -48,7 +48,7 @@ def enter_cutover(run):
 
     Captures once. Closing is idempotent. Returns the counts recorded on the run, and returns them
     unchanged without touching anything when the step has already completed. Raises CutoverRefused
-    when the run is not in a state that may cross, while a built-in Script job is still running, or
+    when the run is not in a state that may cross, while a built-in Custom Script job is still running, or
     when a Project this migration mapped could serve nothing on the far side.
     """
     if run is None:
@@ -59,7 +59,7 @@ def enter_cutover(run):
         return run.recorded_counts(STEP)
     if running := list(legacy_source.running_script_jobs().values_list('pk', flat=True)):
         raise CutoverRefused(
-            _('{count} built-in Script job(s) are still running: {keys}. Wait for them to finish.').format(
+            _('{count} built-in Custom Script job(s) are still running: {keys}. Wait for them to finish.').format(
                 count=len(running), keys=', '.join(str(key) for key in running)
             )
         )
@@ -278,7 +278,7 @@ def _capture_event_rules():
 
 
 def _capture_schedules():
-    """Record every waiting built-in Script job with what a replay needs, and what could not be read."""
+    """Record every waiting built-in Custom Script job with what a replay needs, and what could not be read."""
     captured, warnings = [], []
     for job in legacy_source.enqueued_script_jobs().select_related('object_type'):
         entry, dropped = _capture_schedule(job)

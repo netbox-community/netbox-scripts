@@ -173,7 +173,7 @@ class ScriptProjectRevisionViewSet(NetBoxReadOnlyModelViewSet):
 
 class NetBoxScriptViewSet(NetBoxModelViewSet):
     """
-    REST API viewset for Custom Scripts.
+    REST API viewset for Scripts.
 
     Update only, plus a run action. Rows are derived from an activated revision, so creation and
     deletion are refused and the serializer accepts the administrator's fields alone. Requesting
@@ -207,11 +207,11 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         http_method_names=('post', 'options'),
     )
     def run(self, request, pk=None):
-        """Enqueue one run of this Custom Script and return the Job it created."""
+        """Enqueue one run of this Script and return the Job it created."""
         script = self.get_object()
         if not script.is_executable:
             raise APIValidationError(
-                {'detail': _('This Custom Script cannot be run. {reason}').format(reason=script.run_refusal_reason)}
+                {'detail': _('This Script cannot be run. {reason}').format(reason=script.run_refusal_reason)}
             )
         # Checked before the source is loaded, so a run nothing can pick up does no storage I/O.
         if not any_workers_for_queue('default'):
@@ -219,9 +219,7 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         try:
             instance = load_script_class(script)()
         except LOAD_FAILURES as error:
-            raise APIValidationError(
-                {'detail': f'The Custom Script could not be loaded from its source: {error}'}
-            ) from error
+            raise APIValidationError({'detail': f'The Script could not be loaded from its source: {error}'}) from error
 
         input_serializer = NetBoxScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
         input_serializer.is_valid(raise_exception=True)
@@ -231,7 +229,7 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         if (parameters.get('schedule_at') or parameters.get('interval')) and not request.user.has_perm(
             get_permission_for_model(NetBoxScript, 'schedule'), script
         ):
-            raise PermissionDenied('Scheduling a Custom Script requires the schedule permission.')
+            raise PermissionDenied('Scheduling a Script requires the schedule permission.')
 
         # The declared variables are the only authority on what is valid, so the class's own form
         # validates them.

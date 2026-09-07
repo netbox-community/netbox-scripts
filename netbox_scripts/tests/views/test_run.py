@@ -339,7 +339,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
 class ResultViewTestCase(RunViewTestMixin, TestCase):
     def finished_job(self, **overrides):
         job = Job.objects.create(
-            name='Run Custom Script',
+            name='Run Script',
             job_id=uuid.uuid4(),
             object_type=ObjectType.objects.get_for_model(NetBoxScript),
             object_id=self.script.pk,
@@ -598,7 +598,7 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
 
         self.assertNotIn(self.url('run'), content)
         # Specific to our own button, so a stray "disabled" elsewhere on the page cannot pass it.
-        self.assertIn('This Custom Script cannot be run right now.', content)
+        self.assertIn('This Script cannot be run right now.', content)
         self.assertIn('It is retired', content)
 
     def test_the_detail_page_offers_the_run_button_too(self):
@@ -620,7 +620,7 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
         # The Run ViewTab is gated on the permission rather than on executability, so its link
         # is still here. It is the button that goes inert.
         self.assertIn('disabled', content)
-        self.assertIn('This Custom Script cannot be run right now. It is retired', content)
+        self.assertIn('This Script cannot be run right now. It is retired', content)
 
 
 class OverriddenDefaultsTestCase(RunViewTestMixin, TestCase):

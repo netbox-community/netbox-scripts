@@ -1,4 +1,4 @@
-"""The Event Rule action that runs a Custom Script."""
+"""The Event Rule action that runs a Script."""
 
 import logging
 
@@ -21,24 +21,24 @@ logger = logging.getLogger('netbox.plugins.netbox_scripts.event_rules')
 
 
 class RunNetBoxScriptAction(EventRuleAction):
-    """Runs the selected Custom Script when an Event Rule fires."""
+    """Runs the selected Script when an Event Rule fires."""
 
     slug = 'netbox_scripts.run'
-    label = _('Run Custom Script')
-    description = _('Run a Custom Script published by an activated project revision')
+    label = _('Run Script')
+    description = _('Run a Script published by an activated project revision')
     object_model = NetBoxScript
     object_required = True
 
     def validate(self, *, action_object, action_data):
-        """Refuse a Custom Script that can never run again."""
+        """Refuse a Script that can never run again."""
         # Retirement is permanent, because the active revision has stopped publishing the class.
         # A disabled script or project is temporary state an administrator flips back, so those
         # are reported at dispatch instead of blocking the rule from being saved.
         if action_object.is_retired:
-            raise ValidationError({'action_object_id': _('This Custom Script is retired and cannot be run.')})
+            raise ValidationError({'action_object_id': _('This Script is retired and cannot be run.')})
 
     def enqueue(self, *, event_rule, event_context, action_object, action_data):
-        """Queue one run of the Custom Script, reporting a script that cannot run."""
+        """Queue one run of the Script, reporting a script that cannot run."""
         request = event_context.get('request')
         try:
             NetBoxScriptJob.enqueue_run(
@@ -58,7 +58,7 @@ class RunNetBoxScriptAction(EventRuleAction):
             logger.error(f'Event rule "{event_rule}" could not run {action_object}: {error}')
 
     def resolve_import_object(self, value):
-        """Resolve "<project key>:<module path>.<class name>" to one Custom Script."""
+        """Resolve "<project key>:<module path>.<class name>" to one Script."""
         # The dotted name alone is not unique, because two projects may publish the same one.
         project_key, _separator, full_name = value.partition(':')
         module_path, _dot, class_name = full_name.rpartition('.')

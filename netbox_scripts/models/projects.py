@@ -475,8 +475,7 @@ class ScriptProjectRevision(ChangeLoggedModel):
         default=list,
         blank=True,
         help_text=_(
-            'Custom Scripts this revision published, in publication order. Written once, when the '
-            'revision becomes valid.'
+            'Scripts this revision published, in publication order. Written once, when the revision becomes valid.'
         ),
     )
     script_file_snapshot = models.JSONField(

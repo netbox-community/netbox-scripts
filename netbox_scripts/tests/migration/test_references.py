@@ -34,11 +34,11 @@ class ReferenceMigrationMixin(LegacySourceMixin):
         self.migration.refresh_from_db()
 
     def plugin_script(self):
-        """Return the Custom Script the built-in Deploy migrated to."""
+        """Return the Script the built-in Deploy migrated to."""
         return NetBoxScript.objects.get(class_name='Deploy')
 
     def action_rule(self, name='on device change'):
-        """A rule that runs the built-in Script."""
+        """A rule that runs the built-in Custom Script."""
         rule = EventRule.objects.create(
             name=name,
             event_types=[OBJECT_UPDATED],

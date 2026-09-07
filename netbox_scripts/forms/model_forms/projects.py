@@ -228,7 +228,7 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
         required=False,
         widget=ScriptFileCheckboxSelect(),
         label=_('Script Files'),
-        help_text=_('Source files whose Custom Scripts this Project publishes. Helpers need no selection.'),
+        help_text=_('Source files whose Scripts this Project publishes. Helpers need no selection.'),
     )
 
     fieldsets = (FieldSet('script_files', name=_('Script Files')),)

@@ -88,21 +88,21 @@ class RevisionServiceViewTestCase(TestCase):
         response = self.client.post(self.url(revision, 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
 
-        self.assertIn('publishing 2 Custom Scripts', message)
+        self.assertIn('publishing 2 Scripts', message)
 
     def test_the_success_message_is_singular_for_one_script(self):
         self.grant(ScriptProject, 'view', 'activate')
         response = self.client.post(self.url(self.valid_revision(), 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
 
-        self.assertIn('publishing 1 Custom Script.', message)
+        self.assertIn('publishing 1 Script.', message)
 
     def test_a_revision_publishing_nothing_says_so_rather_than_reporting_zero(self):
         self.grant(ScriptProject, 'view', 'activate')
         response = self.client.post(self.url(self.valid_revision(records=[]), 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
 
-        self.assertIn('publishes no Custom Scripts', message)
+        self.assertIn('publishes no Scripts', message)
         self.assertNotIn('publishing 0', message)
 
     def test_a_retirement_is_reported_separately_from_what_is_published(self):
@@ -114,8 +114,8 @@ class RevisionServiceViewTestCase(TestCase):
         response = self.client.post(self.url(second, 'activate'), follow=True)
         message = str(list(response.context['messages'])[0])
 
-        self.assertIn('publishing 1 Custom Script.', message)
-        self.assertIn('retired 1 Custom Script', message)
+        self.assertIn('publishing 1 Script.', message)
+        self.assertIn('retired 1 Script', message)
         self.assertNotIn('publishing 2', message)
 
     def test_the_route_refuses_the_revision_already_in_force(self):

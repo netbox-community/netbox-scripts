@@ -142,7 +142,7 @@ class ScriptProjectActivateView(generic.ObjectView):
 @register_model_view(ScriptProject, 'repair', path='repair')
 class ScriptProjectRepairView(generic.ObjectView):
     """
-    Republish a Project's Custom Script rows from the revision it is already serving.
+    Republish a Project's Script rows from the revision it is already serving.
 
     A recovery action for rows that drifted from the snapshot they derive from, which the
     Activate routes cannot reach: both exclude the revision in force, so re-activating it has no
@@ -176,14 +176,14 @@ class ScriptProjectRepairView(generic.ObjectView):
             result = activation.activate_revision(project.active_revision)
         except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
-            messages.error(request, _('The Custom Scripts could not be repaired: {error}').format(error=error))
+            messages.error(request, _('The Scripts could not be repaired: {error}').format(error=error))
             return redirect(project.get_absolute_url())
         if result.scripts.written:
             messages.success(
                 request,
                 ngettext(
-                    'Repaired {count} Custom Script of {project}.',
-                    'Repaired {count} Custom Scripts of {project}.',
+                    'Repaired {count} Script of {project}.',
+                    'Repaired {count} Scripts of {project}.',
                     result.scripts.written,
                 ).format(count=result.scripts.written, project=project),
             )
@@ -191,7 +191,7 @@ class ScriptProjectRepairView(generic.ObjectView):
             # The whole point of the action: a repair and a no-op must not look the same.
             messages.success(
                 request,
-                _('Every Custom Script of {project} already matched its revision, so nothing was written.').format(
+                _('Every Script of {project} already matched its revision, so nothing was written.').format(
                     project=project
                 ),
             )

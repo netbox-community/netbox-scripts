@@ -29,7 +29,7 @@ __all__ = (
 
 class ScriptVariable:
     """
-    Base class for Custom Script variables.
+    Base class for Script variables.
 
     A variable declares one input of a script and knows how to materialize itself as a
     Django form field. Subclasses pick the field through form_field and seed

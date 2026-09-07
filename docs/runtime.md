@@ -164,7 +164,7 @@ itself are described on the [revision page](models/scriptprojectrevision.md).
 ## What activation does
 
 Activation makes one validated revision the project's active revision and
-publishes its [Custom Scripts](models/netboxscript.md) as rows. Both happen in a
+publishes its [Scripts](models/netboxscript.md) as rows. Both happen in a
 single database transaction, so a reader sees either the old revision with its old
 scripts or the new revision with its new ones, never a mix.
 
@@ -192,7 +192,7 @@ That trail is what a recovery action most needs, so it is kept rather than
 suppressed.
 
 Deactivation is the reverse: it retires the revision, clears the project's
-pointer, and retires every Custom Script, because a project serving no revision
+pointer, and retires every Script, because a project serving no revision
 publishes nothing. It reads no storage and imports nothing, for the same reason.
 Both operations lock the project row and then the revision row, in that order, so
 a concurrent activation settles on one side or the other rather than interleaving.

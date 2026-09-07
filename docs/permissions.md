@@ -2,7 +2,7 @@
 
 Managing what code a Project runs is more privileged than running it. That
 principle is why this plugin does not settle for the four standard actions:
-someone trusted to run a Custom Script is not thereby trusted to change the
+someone trusted to run a Script is not thereby trusted to change the
 source it runs from, and someone who may rename a Project is not thereby
 allowed to choose the code it serves.
 
@@ -17,8 +17,8 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 | `view` | See Projects, their Script Files and their state, including the revision in force |
 | `add` | Create a Project, including the Upload form that creates one from a file. The Upload form also needs Script File `add` |
 | `change` | Edit a Project's own fields, and upload a further script into one. Adding a script also needs Script File `add` |
-| `delete` | Delete a Project, which cascades its Revisions and Custom Scripts |
-| `activate` | Put a Revision into service, stand a Project down from one, and repair its Custom Scripts |
+| `delete` | Delete a Project, which cascades its Revisions and Scripts |
+| `activate` | Put a Revision into service, stand a Project down from one, and repair its Scripts |
 | `migrate` | Move this installation off the built-in Custom Scripts feature |
 | `reconcile` | Rebuild a Project's source from its Data Source directory on demand |
 
@@ -65,16 +65,16 @@ grant it to the person running the migration and not as a matter of course. A
 user holding `add` alone still sees the page, the inventory and staging, and is
 not offered the four steps past the fence.
 
-## Custom Script
+## Script
 
 | Action | What it allows |
 |---|---|
-| `view` | See Custom Scripts, their execution defaults and their run history |
+| `view` | See Scripts, their execution defaults and their run history |
 | `change` | Edit the administrator's fields: enabled, comments, owner, tags, custom fields |
-| `run` | Run a Custom Script, from the UI or over REST |
+| `run` | Run a Script, from the UI or over REST |
 | `schedule` | Ask for a run at a set time or on a recurrence |
 
-Custom Scripts have no `add` or `delete` action in practice. Rows are derived
+Scripts have no `add` or `delete` action in practice. Rows are derived
 from an activated Revision rather than authored, and a Script the active
 Revision stops publishing is retired rather than deleted.
 
@@ -88,14 +88,14 @@ absent rather than two. Over REST there is no form to leave them out of, so
 
 ## An Event Rule authorizes a run without the run permission
 
-An Event Rule that names a Custom Script runs it whenever the rule fires, and the
+An Event Rule that names a Script runs it whenever the rule fires, and the
 run is attributed to the user whose action triggered the event, not to whoever
 wrote the rule. Nothing checks that the rule's author holds `run_netboxscript`,
 and nothing checks it for the triggering user either.
 
 **So `extras.add_eventrule` and `extras.change_eventrule` are both privileged
 grants here.** Anyone who can create an Event Rule, or repoint an existing one,
-can arrange for a Custom Script to run without holding the permission that
+can arrange for a Script to run without holding the permission that
 governs running one directly. An existing rule's action type and action object
 are editable on the form and over REST, so the two permissions carry the same
 escalation. Grant either to the same people you would grant `run_netboxscript`.

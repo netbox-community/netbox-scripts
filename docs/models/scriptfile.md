@@ -2,7 +2,7 @@
 
 A Script File declares one executable file within a Script
 Project: a Python file of the project's source tree that discovery
-imports and publishes Custom Scripts from. Helper files need no Script File row,
+imports and publishes Scripts from. Helper files need no Script File row,
 they stay importable by the script files without being one, so a script file list is
 the project's explicit statement of what runs rather than an inventory of every
 file.

@@ -80,7 +80,7 @@ class ScriptFileFilter(PrimaryModelFilter):
 # which would need a JobNotificationChoices enum core does not export.
 @strawberry_django.filter_type(NetBoxScript, lookups=True, name='NetBoxScriptFilter')
 class NetBoxScriptFilter(PrimaryModelFilter):
-    """GraphQL filter for the Custom Script model."""
+    """GraphQL filter for the Script model."""
 
     project: ScriptProjectFilter | None = strawberry_django.filter_field()
     project_id: ID | None = strawberry_django.filter_field()

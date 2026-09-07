@@ -1,13 +1,13 @@
-# Running Custom Scripts
+# Running Scripts
 
-A Custom Script is run from the Custom Scripts list or from its own page. The
+A Script is run from the Scripts list or from its own page. The
 plugin builds the run form out of the source the project is currently serving,
 queues a background Job against a fixed revision of that source, and records the
 run's log and output on the Job.
 
 ## Requesting a run
 
-Choose **Run**, either from the row on the Custom Scripts list or from the
+Choose **Run**, either from the row on the Scripts list or from the
 script's own page. The form is whatever the class declares: one field per
 variable, grouped by the class's own fieldsets, plus the execution parameters.
 Submitting queues a Job and takes you to its result page.
@@ -28,15 +28,15 @@ reverse holds too. Scheduling is a second permission again, `schedule`. See
 
 ### Reaching a script you run often
 
-An operator who runs the same two or three Custom Scripts repeatedly can bookmark
+An operator who runs the same two or three Scripts repeatedly can bookmark
 them, using NetBox's own bookmarks rather than anything this plugin adds. A
-bookmarked Custom Script appears on your dashboard, one click from any page.
+bookmarked Script appears on your dashboard, one click from any page.
 Script Projects and Script Files can be bookmarked the same way.
 Revisions cannot, since they are history rather than something you return to.
 
 Bookmarks are per user. Each person curates their own, and nothing an
 administrator sets changes what another operator sees. A bookmark names the
-Custom Script row, and a script that stops being published is retired rather
+Script row, and a script that stops being published is retired rather
 than deleted, so a bookmark survives a retirement and works again the moment the
 script is republished.
 
@@ -106,7 +106,7 @@ argument set is otherwise the built-in command's:
 
 | `runscript` | Here |
 |---|---|
-| `script`, as `module.ClassName` | The same, as `project:module.ClassName`. The project may be left off when the name matches only one Custom Script, and an ambiguous name is refused with the candidates listed |
+| `script`, as `module.ClassName` | The same, as `project:module.ClassName`. The project may be left off when the name matches only one Script, and an ambiguous name is refused with the candidates listed |
 | `--commit` | The same |
 | `--data '<json>'` | The same. Values are validated by the script's own form, so a bad one is named rather than reaching the script |
 | `--user <name>` | The same, but a name that matches no user is refused. The built-in command silently ran as the first superuser instead. Left off, the first superuser is used |
@@ -167,7 +167,7 @@ A script author declares execution defaults in the class `Meta`, and on a shared
 installation the author and the operator are rarely the same person. A timeout
 tuned on a developer laptop is the wrong number in production, and who gets told
 about a run is local policy. Three of the four defaults therefore carry an
-operator override, editable on the Custom Script itself, singly or in bulk, and
+operator override, editable on the Script itself, singly or in bulk, and
 over REST.
 
 | Setting | Overridable | Resolved as |
@@ -181,7 +181,7 @@ Scheduling is not overridable on purpose. `scheduling_enabled` is the author's
 statement that the script is safe to run unattended, and an operator override
 would be an override of a safety claim rather than of a preference.
 
-An override survives activation. Every other field on a Custom Script is rewritten
+An override survives activation. Every other field on a Script is rewritten
 from the class each time a revision is activated, which is exactly why an override
 is stored separately from the values validation records.
 

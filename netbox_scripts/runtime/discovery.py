@@ -75,7 +75,7 @@ def zero_publication_reason(module):
                     f'"{candidate.__name__}" subclasses {base.__module__}.{base.__name__}, which belongs to '
                     f'NetBox Community rather than to this plugin. {MIGRATION_HINTS[base.__module__]}'
                 )
-    return 'The module imports cleanly and defines no Custom Script.'
+    return 'The module imports cleanly and defines no Script.'
 
 
 def _order_entries(module, revision_prefix):
@@ -128,7 +128,7 @@ def _publish(cls, project_key, revision_prefix):
     """Stamp one class with its identity markers and describe the publication."""
     if _report_style(cls):
         raise DiscoveryError(
-            f'"{cls.__name__}" is a report rather than a Custom Script. Reports are not supported. '
+            f'"{cls.__name__}" is a report rather than a Script. Reports are not supported. '
             f'Give the class a run(self, data, commit) method to publish it as a script.',
             code='report_style',
             name=cls.__name__,

@@ -83,7 +83,7 @@ class ScriptFileType(PrimaryObjectType):
     pagination=True,
 )
 class NetBoxScriptType(PrimaryObjectType):
-    """GraphQL object type for the Custom Script model."""
+    """GraphQL object type for the Script model."""
 
     project: ScriptProjectType
     last_seen_revision: ScriptProjectRevisionType | None

@@ -14,7 +14,7 @@ __all__ = ('NetBoxScriptBulkEditForm',)
 
 
 class NetBoxScriptBulkEditForm(PrimaryModelBulkEditForm):
-    """Bulk edit form for the administrator-owned fields of a Custom Script."""
+    """Bulk edit form for the administrator-owned fields of a Script."""
 
     enabled = forms.NullBooleanField(
         required=False,
@@ -43,7 +43,7 @@ class NetBoxScriptBulkEditForm(PrimaryModelBulkEditForm):
 
     model = NetBoxScript
     fieldsets = (
-        FieldSet('enabled', name=_('Custom Script')),
+        FieldSet('enabled', name=_('Script')),
         FieldSet(
             'commit_default_override',
             'job_timeout_override',

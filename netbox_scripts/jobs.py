@@ -76,7 +76,7 @@ class ProjectStorageCleanupJob(JobRunner):
         # deleted out from under it, which is why the project lock covers both and why staging
         # takes the same lock across its write.
         with project_lock(storage_key):
-            # The digest can be re-staged under a new entrypoint configuration between the
+            # The digest can be re-staged under a new script file configuration between the
             # delete that recorded this job and this run. Content a current revision references
             # is left in place and the run succeeds, since there is nothing left to reclaim.
             if ScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
@@ -273,9 +273,9 @@ class ProjectReconciliationJob(JobRunner):
 
 class ProjectScriptFileRefreshJob(JobRunner):
     """
-    Restage one project's stored source under its current entrypoint configuration.
+    Restage one project's stored source under its current script file configuration.
 
-    A revision freezes the project's enabled declarations into its entrypoint snapshot at
+    A revision freezes the project's enabled declarations into its script file snapshot at
     staging time, so changing the selection has no effect until something restages. A Data
     Source-backed project gets that from a reconciliation, and an uploaded one only from here.
 
@@ -290,7 +290,7 @@ class ProjectScriptFileRefreshJob(JobRunner):
     @classmethod
     def enqueue_refresh(cls, project):
         """
-        Enqueue one project's entrypoint refresh with its pk persisted on the Job row.
+        Enqueue one project's script file refresh with its pk persisted on the Job row.
 
         The pk travels in the payload rather than as an instance link. The atomic block nests
         inside any caller transaction, so the Job and its payload commit together and the queue

@@ -23,13 +23,13 @@ class ScriptProjectRevisionTableTestCase(TableTestCases.StandardTableTestCase):
 
 
 class RevisionScriptFileColumnTestCase(TestCase):
-    """Two revisions sharing a source digest are told apart by the entrypoint set they froze."""
+    """Two revisions sharing a source digest are told apart by the script file set they froze."""
 
     @classmethod
     def setUpTestData(cls):
         cls.project = ScriptProject.objects.create(name='Column Project', key='column-project')
-        # Identity is project plus source digest plus entrypoint digest, so one digest with two
-        # entrypoint sets is a legal pair and the pair a reader cannot otherwise tell apart.
+        # Identity is project plus source digest plus script file digest, so one digest with two
+        # script file sets is a legal pair and the pair a reader cannot otherwise tell apart.
         cls.one = ScriptProjectRevision.objects.create(
             project=cls.project,
             digest='a' * 64,

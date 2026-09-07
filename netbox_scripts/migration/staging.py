@@ -16,7 +16,7 @@ __all__ = ('stage',)
 
 def stage(proposed, modules):
     """
-    Create or reuse each proposed Project, declare its entrypoints, and stage its content.
+    Create or reuse each proposed Project, declare its script files, and stage its content.
 
     Idempotent by identity: a Data Source Project resolves on the pair its unique constraint
     already covers, an uploaded one on its deterministic key, and identical content resolves to
@@ -104,7 +104,7 @@ def _publishes(module):
 
 
 def _declare(project, members):
-    """Declare each member that would publish a Script as an enabled entrypoint of the project."""
+    """Declare each member that would publish a Script as an enabled script file of the project."""
     # Staging freezes the project's enabled declarations into the revision, so these commit
     # first. An uploaded project needs none of this, ingest_upload declares the file it carries.
     if project.source_type == ProjectSourceTypeChoices.UPLOAD:

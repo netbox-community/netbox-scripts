@@ -149,7 +149,7 @@ A Data Source staging reads the paths on the source first and fetches bytes only
 files under the project's `data_path`, so a repository holding several projects does not put
 all of them in one worker. That runs in an RQ worker, as migration staging does.
 
-Verification and the entrypoint refresh are not affected. Both read one file at a time.
+Verification and the script file refresh are not affected. Both read one file at a time.
 
 A limit set to a non-positive or non-integer value is rejected as a configuration error
 when it is read.
@@ -333,7 +333,7 @@ does not change. The routing and execution statements below are verified against
 v1.2.0-beta1 by `netbox_scripts/tests/test_branching_provisioned.py`, which provisions a
 real branch.
 
-Script Projects, Modules, Custom Scripts, revisions and migration runs are
+Script Projects, Script Files, Custom Scripts, revisions and migration runs are
 installation-global. The plugin routes all five to the main schema, so a Project edited
 inside a branch applies everywhere at once, appears in no branch diff, and is neither
 replayed by a merge nor rolled back by reverting one. None of their tables is replicated

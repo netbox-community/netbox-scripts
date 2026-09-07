@@ -14,7 +14,7 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 
 | Action | What it allows |
 |---|---|
-| `view` | See Projects, their Modules and their state, including the revision in force |
+| `view` | See Projects, their Script Files and their state, including the revision in force |
 | `add` | Create a Project, including the Upload form that creates one from a file. The Upload form also needs Script File `add` |
 | `change` | Edit a Project's own fields, and upload a further script into one. Adding a script also needs Script File `add` |
 | `delete` | Delete a Project, which cascades its Revisions and Custom Scripts |
@@ -114,10 +114,10 @@ administrator sizing up `run_netboxscript` should know the second route exists.
 Both of these are deliberate. A second name for the same privilege would mean
 granting it twice and choosing between the spellings.
 
-**Changing which modules are entrypoints** requires the Script File
-`change` action. A Module *is* an entrypoint declaration, so that action already
+**Changing which files are script files** requires the Script File
+`change` action. A Script File *is* a declaration, so that action already
 describes the privilege exactly. Changing the selection restages the Project's
-source, which makes the Module permission a source-management one in its own
+source, which makes the Script File permission a source-management one in its own
 right.
 
 **Viewing execution results** requires the NetBox `core.view_job` permission.

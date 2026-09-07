@@ -29,7 +29,7 @@ def source_path_to_dotted_name(path):
     Return the dotted module name a canonical source path imports as.
 
     'tools/deploy.py' maps to 'tools.deploy' and 'pkg/__init__.py' to 'pkg'. A bare
-    '__init__.py' names the project root package rather than a separate entrypoint. Every
+    '__init__.py' names the project root package rather than a separate script file. Every
     segment must be a valid Python identifier and not a reserved keyword, or no loader
     could ever import the module this path names. Raises ValidationError naming the
     problem.

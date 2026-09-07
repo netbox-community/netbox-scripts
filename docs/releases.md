@@ -16,13 +16,13 @@
   lifecycle, and content-addressed deduplication of identical source trees
 * Revision staging and activation, with one active revision per project and
   storage reclaimed when a project or revision is deleted
-* `ScriptFile` model declaring project entrypoints, with enabled
-  declarations frozen into each revision as its entrypoint snapshot and the
+* `ScriptFile` model declaring which of a project's files publish scripts, with enabled
+  declarations frozen into each revision as its script file snapshot and the
   snapshot digest joining the revision identity
 * `ScriptFile` UI, REST API, GraphQL, and global-search surfaces, with
   the discovery fields readable and filterable but writable only by project
-  validation, and each project's modules listed on its detail page
-* Entrypoint selection as a Project setting: an Entrypoints tab and a
+  validation, and each project's script files listed on its detail page
+* Script File selection as a Project setting: a Script Files tab and a
   `projects/<id>/script-files/` REST operation list the importable modules of a
   project's source, at any depth, so a path is chosen rather than typed.
   Selection is expressed as `enabled`, so deselecting keeps a declaration's
@@ -35,21 +35,21 @@
 * Private package loader: revision code imports under a generated namespace
   with real package semantics, isolated per project and revision, never
   shadowing installed distributions, with failed imports swept cleanly
-* Custom Script discovery publishing entrypoint-defined classes, with
+* Custom Script discovery publishing the classes script files define, with
   `script_order` for ordering and explicit re-export, and project-qualified
   identity and logger markers on every published class
 * Leased revision validation service and background job driving revisions to
   `valid` or `invalid` verdicts, with owner-fenced transitions, sanitized
-  stored errors, and per-module discovery results
+  stored errors, and per-file discovery results
 * Script upload: a Script Project can be created from one uploaded `.py`
-  file, which is declared as an entrypoint, staged as a revision, validated in a
+  file, which is declared as a script file, staged as a revision, validated in a
   worker, and activated when the Project's activation policy allows. Adding
   another script stages a revision holding the existing tree plus the new file,
   and replacing a path the Project already holds needs explicit confirmation
 * Manual activation: a Project whose activation policy is manual can be put into
   service from its own page, naming the revision that would go live and retiring
   the previous one in the same step
-* Project-scoped serialization for the storage lifecycle: staging, entrypoint
+* Project-scoped serialization for the storage lifecycle: staging, script file
   refresh, activation, and physical cleanup hold one advisory lock keyed by the
   Project's immutable storage key, and cleanup rechecks for a referencing
   revision under that lock before reclaiming content
@@ -60,12 +60,12 @@
   Script rows from the revision it already serves, reporting how many moved,
   behind the same activate permission as activation itself
 * A read-only Files tab on the Project: the current revision's files with
-  size, short checksum, and entrypoint state, annotating a declared path the
+  size, short checksum, and script file state, annotating a declared path the
   source no longer holds
 * Fixed: the runtime cache created its intermediate directories at the process
   umask while applying its private mode to the leaf only, so its own privacy
   check rejected the default cache root on any host with a group-writable umask
-* Fixed: activation compared a revision's entrypoint digest but not the snapshot
+* Fixed: activation compared a revision's script file digest but not the snapshot
   itself, so a snapshot swapped after its return-trip check could be activated
 * `NetBoxScript` model recording one published Script class per row, parented on
   the Project because `script_order` lets a helper module publish a class.
@@ -116,9 +116,9 @@
   or affects its siblings, and a synchronization that changed nothing produces no
   revision at all
 * A Python file appearing in a synchronized directory is a candidate rather than
-  an entrypoint, so a repository cannot publish a Custom Script by itself and an
-  administrator's entrypoint selection survives every synchronization. A
-  selected entrypoint that disappears from the source makes the new revision
+  a script file, so a repository cannot publish a Custom Script by itself and an
+  administrator's script file selection survives every synchronization. A
+  selected script file that disappears from the source makes the new revision
   `invalid` naming the path, while the Project keeps serving the revision it
   already had
 * Compiled Python files and `__pycache__` directories are skipped wherever they
@@ -127,7 +127,7 @@
   Python modules, because a script reads templates and data next to it
 * Reconcile Source: a Data Source-backed Project can be rebuilt from the current
   file inventory on demand, which covers a Project created between
-  synchronizations and an entrypoint selection that should take effect now. It
+  synchronizations and a script file selection that should take effect now. It
   deliberately does not synchronize the Data Source itself
 * Returning a synchronized directory to a tree the Project has held before
   resolves to the revision that already validated it, and an automatically
@@ -137,10 +137,10 @@
   the upload with a server error, because ingestion refuses an upload into a
   Project whose source is synchronized and the refusal surfaced out of the form's
   save rather than its validation
-* Fixed: changing the entrypoint selection reported a change it never applied. A
+* Fixed: changing the script file selection reported a change it never applied. A
   revision freezes the Project's enabled declarations when it is staged, so a new
   selection took effect only at the next ingestion, and an uploaded Project had
-  no route to one at all. Saving the Entrypoints tab, or the REST operation
+  no route to one at all. Saving the Script Files tab, or the REST operation
   behind it, now restages the stored source under the new selection and drives it
   to a verdict, and does so only when the selection actually moved
 * Scheduled and recurring runs: a run can be deferred to a time in the future or
@@ -155,7 +155,7 @@
   the same files
 * Revisions are readable over REST and GraphQL, filtered by Project, status, or
   either digest, and each one has a detail page of its own. The manifest, the
-  entrypoint snapshot, and the validation lease stay off both surfaces, being
+  script file snapshot, and the validation lease stay off both surfaces, being
   internal to the storage and validation services rather than user-facing state
 * A Custom Script can be run over REST, with `POST scripts/<id>/run/`. The
   request body is the shape NetBox's built-in script endpoint already accepts, so
@@ -171,7 +171,7 @@
   third new permission on the Custom Script, `schedule`, which composes with the
   author's own setting: the run form withholds the two scheduling fields unless
   both allow them, and REST refuses the values because it has no form to leave
-  them out of. Changing entrypoints and reading run results deliberately get no
+  them out of. Changing script files and reading run results deliberately get no
   new codename, because the Script File `change` permission and NetBox's
   own Job permission already name those privileges exactly
 * A script written for NetBox's built-in runner works unmodified. Its

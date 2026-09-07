@@ -4,8 +4,8 @@ Keep this plugin's models out of NetBox Branching's per-branch schemas.
 A Script Project and its revisions address one source tree through the project's storage
 key and the revision's digest. That path carries no branch or schema component, so rows living in
 two schemas would name the same bytes on disk, and a revision deleted inside a branch would
-remove source that the main schema still serves. Module rows are part of that same configuration:
-entrypoint declarations feed the snapshot a revision is validated against, so a branch-local set
+remove source that the main schema still serves. Script File rows are part of that same configuration:
+script file declarations feed the snapshot a revision is validated against, so a branch-local set
 of declarations would change what an installation-global revision means.
 
 NetBox Branching's own exempt_models setting is the documented way to route models to the main

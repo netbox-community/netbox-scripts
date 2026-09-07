@@ -632,7 +632,7 @@ class SourceMappingContractTestCase(StorageServiceMixin, TestCase):
 
 
 class ScriptFileIdentityTestCase(StorageServiceMixin, TestCase):
-    """Staging freezes the enabled Module declarations into the revision's identity."""
+    """Staging freezes the enabled Script File declarations into the revision's identity."""
 
     def script_file(self, path, **kwargs):
         return ScriptFile.objects.create(project=self.project, source_path=path, **kwargs)
@@ -675,7 +675,7 @@ class ScriptFileIdentityTestCase(StorageServiceMixin, TestCase):
 
 
 class RefreshScriptFilesTestCase(StorageServiceMixin, TestCase):
-    """refresh_revision_entrypoints restages stored content under the current configuration."""
+    """refresh_revision_script_files restages stored content under the current configuration."""
 
     def test_refresh_stages_the_content_under_the_current_configuration(self):
         first = self.materialize()
@@ -720,7 +720,7 @@ class RefreshScriptFilesTestCase(StorageServiceMixin, TestCase):
 
 
 class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
-    """Activation trusts the entrypoint snapshot only after its return-trip check."""
+    """Activation trusts the script file snapshot only after its return-trip check."""
 
     def test_activation_rejects_a_tampered_snapshot(self):
         revision = self.validated()
@@ -737,7 +737,7 @@ class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):
     def test_activation_rejects_a_snapshot_swapped_after_its_return_trip_check(self):
         # The pre-lock check proves the snapshot matched its digest when it was read. Only
         # the locked comparison can prove it still does, so the swap goes in that window
-        # and leaves entrypoint_digest untouched.
+        # and leaves script_file_digest untouched.
         script_file = ScriptFile.objects.create(project=self.project, source_path='hello.py')
         revision = self.validated()
         real_verify = store.verify_revision_tree

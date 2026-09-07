@@ -22,10 +22,10 @@ plugin derives all of it. What happens when the form is submitted:
 1. The Project is created with source type `upload`.
 2. The uploaded file's name becomes its path within the Project, canonicalized under the
    [source path policy](configuration.md#source-path-policy).
-3. A Script File is created for that path and enabled, so the file is an entrypoint.
+3. A Script File is created for that path and enabled, so discovery imports the file.
 4. A revision is staged: the content is written to project storage, verified against its
    manifest, and reaches `materialized`.
-5. Validation is enqueued. It runs in a worker, imports the entrypoint, and discovers the
+5. Validation is enqueued. It runs in a worker, imports the script file, and discovers the
    Custom Scripts it publishes.
 6. On a `valid` verdict, the revision is activated if you ticked **Activate this upload**, or if
    the Project's activation policy allows it.
@@ -33,11 +33,11 @@ plugin derives all of it. What happens when the form is submitted:
 Steps 5 and 6 need a running RQ worker. Without one the revision stays `materialized` and the
 Project reports that new source is waiting to be validated.
 
-### An uploaded file is always an entrypoint
+### An uploaded file is always a script file
 
-For this release, every uploaded `.py` file is declared as an entrypoint. Uploading a dedicated
-helper module is not supported, and a Project that bundles helpers alongside its executable
-modules is managed through a Data Source rather than through uploads. The data model and the
+For this release, every uploaded `.py` file is declared as a script file. Uploading a dedicated
+helper module is not supported, and a Project that bundles helpers alongside its script
+files is managed through a Data Source rather than through uploads. The data model and the
 package loader both support helper files already, so this is a restriction of the upload form
 rather than of the engine.
 
@@ -48,7 +48,7 @@ artifacts, because a compiled file imports without the source anyone would revie
 
 A browser sends only the base name of an uploaded file, so `automation/deploy.py` arrives as
 `deploy.py`. An upload therefore always names a file at the root of the Project, and it can
-never create a nested entrypoint. Nested paths reach a Project through its Data Source
+never create a nested script file. Nested paths reach a Project through its Data Source
 directory instead.
 
 The consequence worth knowing: two files you think of as different, `automation/deploy.py` and
@@ -100,7 +100,7 @@ a second one.
 
 Authorization is the same pair the **Add Script** page needs: the change permission on the
 Project, because the Project exists and its source is being changed, and the add permission on
-Script Files, because the upload declares its own entrypoint. The Project's add
+Script Files, because the upload declares its own script file. The Project's add
 permission is not what authorizes this.
 
 ## Putting a revision in service
@@ -133,22 +133,22 @@ count, size, and activation time. The two panels can describe different revision
 why they are not stacked in one.
 
 The **Revisions** tab lists every revision the Project has ever had. Two rows can show the same
-digest, because a revision is identified by its source tree **and** the entrypoint set it froze,
-so changing the selection over unchanged source produces a second revision. The **Entrypoints**
+digest, because a revision is identified by its source tree **and** the script file set it froze,
+so changing the selection over unchanged source produces a second revision. The **Script Files**
 column is what tells those two apart, and a revision's own page lists the paths it froze. The
-**Entrypoints** tab shows which modules discovery imports, with each declaration's discovery
+**Script Files** tab shows which files discovery imports, with each declaration's discovery
 outcome.
 
-### Changing which modules are entrypoints
+### Changing which files are script files
 
-Saving the Entrypoints tab applies the new selection to the source the Project already holds.
+Saving the Script Files tab applies the new selection to the source the Project already holds.
 Each revision freezes the enabled declarations at the moment it is staged, so the change needs
-a revision of its own: the same stored content under the new entrypoint configuration, which is
+a revision of its own: the same stored content under the new script file configuration, which is
 validated and then activated if the Project's activation policy allows. That work runs as a
 background job, so the tab reports it is under way rather than showing the result.
 
 Saving a selection that did not move stages nothing and queues nothing. A revision is
-identified by its content together with its entrypoint configuration, so the unchanged pair
+identified by its content together with its script file configuration, so the unchanged pair
 resolves to the revision that already exists.
 
 ## Where the bytes go

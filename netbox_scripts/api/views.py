@@ -82,7 +82,7 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
     def upload(self, request, pk=None):
         """Stage one uploaded Python file as a new revision of this project's source."""
         project = self.get_object()
-        # The upload declares its own entrypoint, so it creates a Module. The browser upload
+        # The upload declares its own script file, so it creates a Script File. The browser upload
         # asks for the same pair, and the two surfaces must not disagree about what it costs.
         if not request.user.has_perm('netbox_scripts.add_scriptfile'):
             raise PermissionDenied('Uploading source requires the Script File add permission.')
@@ -116,7 +116,7 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
 
     @action(detail=True, methods=['get', 'put'], url_path='script-files')
     def script_files(self, request, pk=None):
-        """Report or replace which of a project's source modules are its entrypoints."""
+        """Report or replace which of a project's source modules are its script files."""
         # Token permissions already require the project's change permission for a PUT here.
         project = self.get_object()
         if request.method == 'PUT':
@@ -131,7 +131,7 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
             except ValidationError as error:
                 raise APIValidationError(error.message_dict) from error
             if set(paths) != selected:
-                # The same rule the Entrypoints tab follows, so the two surfaces cannot disagree
+                # The same rule the Script Files tab follows, so the two surfaces cannot disagree
                 # about what saving a selection does.
                 ProjectScriptFileRefreshJob.enqueue_refresh(project)
         return Response(self._script_file_state(project))
@@ -149,7 +149,7 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
                     'selected': path in declared and declared[path].enabled,
                     'available': path in available,
                     # Tab state, not a serializer representation, so this stays a bare value
-                    # where the Module serializer renders the value and label pair.
+                    # where the Script File serializer renders the value and label pair.
                     'discovery_status': declared[path].discovery_status if path in declared else None,
                 }
                 for path in project.declarable_script_files()

@@ -90,7 +90,7 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
             mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=None)
         )
         self.project = two_script_file_project()
-        # An operator edits entrypoints on a project whose source already reached a verdict, so
+        # An operator edits script files on a project whose source already reached a verdict, so
         # the fixture gives it one. A revision still awaiting one is a separate case below.
         ScriptProjectRevision.objects.filter(pk=self.project.current_revision.pk).update(
             status=RevisionStatusChoices.VALID
@@ -119,7 +119,7 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
 
     def test_the_new_revision_holds_the_content_unchanged(self):
         # The whole point of the primitive: the same stored tree under a new configuration, so
-        # the source digest is untouched and only the entrypoint digest moves.
+        # the source digest is untouched and only the script file digest moves.
         source = self.project.latest_revision()
         self.project.select_script_files(['alpha.py'])
         self.run_job()

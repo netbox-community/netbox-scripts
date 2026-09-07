@@ -8,7 +8,7 @@ combination Django rejects is invisible until something asks for the form. Askin
 a fault of that kind reaches a verdict instead of the first execution attempt.
 
 The result is a JSON-safe snapshot the revision keeps, and the build and validate pair works
-like the manifest and the entrypoint snapshot: whatever comes back out of the database is
+like the manifest and the script file snapshot: whatever comes back out of the database is
 checked before use. It carries no digest, unlike those two, because activation re-derives
 rows from it rather than executing it.
 """

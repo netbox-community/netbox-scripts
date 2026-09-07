@@ -1,7 +1,7 @@
 """
-Script discovery for imported entrypoint modules.
+Script discovery for imported script files.
 
-An entrypoint publishes the Script subclasses its own body defines. Classes living in
+A script file publishes the Script subclasses its own body defines. Classes living in
 other revision modules publish only through an explicit script_order listing, which also
 fixes presentation order, and classes imported from installed packages never publish, so
 what a revision offers is always spelled out in the revision itself. A class declaring
@@ -38,7 +38,7 @@ class DiscoveredScript(NamedTuple):
 
 def discover_scripts(module, *, project_key, revision_prefix):
     """
-    Return the scripts one imported entrypoint publishes, in presentation order.
+    Return the scripts one imported script file publishes, in presentation order.
 
     script_order entries come first in their listed order, every other Script subclass
     the module body defines follows alphabetically by bound name, and one class publishes
@@ -59,7 +59,7 @@ def discover_scripts(module, *, project_key, revision_prefix):
 
 def zero_publication_reason(module):
     """
-    Return why one imported entrypoint published nothing.
+    Return why one imported script file published nothing.
 
     Names the class and its base when a class defined here inherits from a legacy authoring
     module the compatibility tier maps, and otherwise states that the module defines no script.

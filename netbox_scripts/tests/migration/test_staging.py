@@ -343,7 +343,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
 
 
 class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
-    """A built-in module that published no Script migrates as a file rather than an entrypoint."""
+    """A built-in module that published no Script migrates as a file rather than a script file."""
 
     def test_a_synced_helper_in_its_own_folder_is_not_declared(self):
         # A sibling folder never collapses into a script-holding one, so this is its own Project.
@@ -356,7 +356,7 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(list(ScriptFile.objects.filter(project=project)), [])
 
     def test_the_helper_only_revision_reaches_a_valid_verdict(self):
-        # An empty entrypoint set is vacuously valid, which is what lets the Project be activated.
+        # An empty script file set is vacuously valid, which is what lets the Project be activated.
         self.legacy_synced_module('shared/util.py', HELPER)
 
         self.stage_and_validate()

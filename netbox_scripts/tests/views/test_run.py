@@ -172,7 +172,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertNotIn('disabled or retired', content)
 
     def test_a_load_failure_outside_the_narrow_set_re_renders_with_the_reason(self):
-        # EntrypointImportError is not rooted in StorageError, so the narrow tuple missed it.
+        # ScriptFileImportError is not rooted in StorageError, so the narrow tuple missed it.
         self.grant('view', 'run')
 
         with patch(

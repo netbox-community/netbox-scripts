@@ -2,13 +2,13 @@
 Recovery of a live script class from a stored identity.
 
 Validation records what a revision publishes. This module walks that record back: given the
-project-qualified identity a Custom Script row holds, it finds the entrypoint that surfaced
+project-qualified identity a Custom Script row holds, it finds the script file that surfaced
 the class, imports it, and returns the class itself.
 
-Going through the recorded entrypoint is what makes the walk possible at all. A Custom Script
+Going through the recorded script file is what makes the walk possible at all. A Custom Script
 is identified by the module that defines it, and script_order lets a class defined in a helper
-publish through an entrypoint elsewhere, so the defining module is often not importable as an
-entrypoint and has no declaration of its own. The provenance the snapshot carries is the only
+publish through a script file elsewhere, so the defining module is often not importable as a
+script file and has no declaration of its own. The provenance the snapshot carries is the only
 route from one to the other.
 
 Nothing here opens an import session or unloads afterwards. The caller runs the class it gets
@@ -38,12 +38,12 @@ def resolve_script_class(
     cache_root=None,
 ):
     """
-    Return the class one stored identity names, importing the entrypoint that publishes it.
+    Return the class one stored identity names, importing the script file that publishes it.
 
     The discovery snapshot is validated before it is read, so a record changed outside
     validation is refused rather than followed. passthrough lists exception types that must
     escape the import unwrapped. Raises ScriptResolutionError when the snapshot does not name
-    the identity or the entrypoint no longer publishes it, ScriptMetadataError for a snapshot
+    the identity or the script file no longer publishes it, ScriptMetadataError for a snapshot
     a build could not have produced, and whatever the import raises for a revision that cannot
     be imported.
     """

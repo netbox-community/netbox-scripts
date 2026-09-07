@@ -428,7 +428,7 @@ class FindingsTestCase(SimpleTestCase):
                 self.assertEqual(report['status'], expected)
 
     def test_a_module_publishing_nothing_is_reported_as_a_helper(self):
-        # It migrates as a file rather than an entrypoint, which has to be visible before staging.
+        # It migrates as a file rather than a script file, which has to be visible before staging.
         modules = [legacy(1, 'deploy.py', scripts=[(11, 'Deploy')]), legacy(2, 'util.py')]
 
         report = plan.build_report(modules=modules, read=lambda module: b'def describe():\n    return 1\n')

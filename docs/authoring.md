@@ -143,25 +143,25 @@ def run(self, data, commit):
 
 ## Publishing scripts from a project
 
-A project offers scripts through its declared entrypoints, the
-[Script Files](models/scriptfile.md). An entrypoint is one
+A project offers scripts through its declared script files, the
+[Script Files](models/scriptfile.md). A script file is one
 Python file of the project tree, and project validation imports it and
 publishes the `Script` subclasses its own body defines, alphabetically:
 
 ```text
 my-project/
 ├── tools/
-│   ├── deploy.py      <- declared entrypoint, its Script classes publish
+│   ├── deploy.py      <- declared script file, its Script classes publish
 │   └── naming.py      <- helper, importable but never published
-└── audit.py           <- declared entrypoint
+└── audit.py           <- declared script file
 ```
 
-Helper modules need no declaration. Entrypoints import them with normal
+Helper modules need no declaration. Script files import them with normal
 relative imports (`from . import naming`, `from .tools import naming`), and a
 root `__init__.py` executes once per revision like any package initializer.
 
 To pin presentation order, or to publish a Script class that lives in a helper
-module, list the classes in a `script_order` at the top of the entrypoint:
+module, list the classes in a `script_order` at the top of the script file:
 
 ```python
 from .helpers import SharedAudit
@@ -173,11 +173,11 @@ Every entry must be a `Script` subclass defined in this project, listed once.
 Classes imported from installed packages never publish, and `BaseScript`
 building blocks stay unpublished unless they also subclass `Script`.
 
-Two published classes cannot share one module path and class name, within an
-entrypoint or across a revision's entrypoints, while one class re-exported by
-several entrypoints publishes once.
+Two published classes cannot share one module path and class name, within a
+script file or across a revision's script files, while one class re-exported by
+several script files publishes once.
 
-Module-level code runs when validation imports the entrypoint, not only when a
+Module-level code runs when validation imports the script file, not only when a
 script executes, so keep module bodies to imports and definitions and put work
 in `run()`. See [Runtime and Loading](runtime.md) for the loading model and
 what makes a revision invalid.
@@ -248,7 +248,7 @@ surface built into NetBox. The deliberate differences:
   gives it for that purpose.
 - The Report harness is absent, `self._current_test` with it. Report-style
   classes are refused at discovery rather than emulated.
-- Discovery publishes only what the entrypoint itself defines or explicitly
+- Discovery publishes only what the script file itself defines or explicitly
   lists in `script_order`. The built-in implementation publishes any Script
   subclass bound in the module, including ones imported from installed
   packages.

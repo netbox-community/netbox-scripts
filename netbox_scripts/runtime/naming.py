@@ -37,7 +37,7 @@ def revision_module_name(storage_key, digest):
 
 def script_file_dotted_name(path):
     """
-    Return the dotted name an entrypoint occupies below its revision package.
+    Return the dotted name a script file occupies below its revision package.
 
     Wraps the shared converter so loader callers deal in one exception family: a path the
     converter rejects raises InvalidModulePathError carrying the converter's code.

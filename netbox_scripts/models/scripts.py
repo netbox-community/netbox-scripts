@@ -24,10 +24,10 @@ class NetBoxScript(JobsMixin, PrimaryModel):
     One Custom Script class published by a validated revision.
 
     A script is identified by its project and by the dotted module path and class name of
-    the module that defines it, so a class re-exported by a second entrypoint publishes
+    the module that defines it, so a class re-exported by a second script file publishes
     once, and a class that moves between files becomes a new identity. The publishing
-    entrypoint is provenance recorded in the revision snapshot, not a relational parent,
-    because a helper file can publish a class without being an entrypoint itself.
+    script file is provenance recorded in the revision snapshot, not a relational parent,
+    because a helper file can publish a class without being a script file itself.
 
     Rows are derived from an activated revision rather than authored. Synchronization owns
     the display name, description, metadata, retirement, and last seen revision, while
@@ -209,11 +209,11 @@ class NetBoxScript(JobsMixin, PrimaryModel):
 
 class ScriptFile(PrimaryModel):
     """
-    One executable entrypoint within a Script Project.
+    One declared executable file within a Script Project.
 
-    A module names one Python file of the project's source tree that discovery imports
-    and publishes Scripts from. Helper files need no module row, they stay importable by
-    the entrypoints without being one. Enabled module declarations are snapshotted into
+    A Script File names one Python file of the project's source tree that discovery imports
+    and publishes Scripts from. Helper files need no Script File row, they stay importable by
+    the script files without being one. Enabled script file declarations are snapshotted into
     each revision at staging time, so editing them changes future revisions and never
     what an existing revision was validated against. The discovery fields describe the
     most recent validation of the current declaration and are system-managed. A
@@ -275,7 +275,7 @@ class ScriptFile(PrimaryModel):
         return f'{self.project}: {self.source_path}'
 
     def clean(self):
-        """Canonicalize the source path, validate it declares an importable entrypoint, and freeze identity."""
+        """Canonicalize the source path, validate it declares an importable script file, and freeze identity."""
         super().clean()
         errors = {}
 
@@ -319,7 +319,7 @@ class ScriptFile(PrimaryModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        """Persist the module in canonical importable form, refusing any change to an identity field."""
+        """Persist the script file in canonical importable form, refusing any change to an identity field."""
         # Snapshot building reads rows straight from the ORM, so canonical form is an
         # at-rest invariant rather than a clean() nicety. QuerySet.update() bypasses this
         # and must supply canonical values itself.
@@ -360,7 +360,7 @@ class ScriptFile(PrimaryModel):
         super().save(*args, **kwargs)
 
     def get_discovery_status_color(self):
-        """Return the badge color configured for this module's discovery status."""
+        """Return the badge color configured for this script file's discovery status."""
         return FileDiscoveryStatusChoices.colors.get(self.discovery_status)
 
     def _read_alias(self):

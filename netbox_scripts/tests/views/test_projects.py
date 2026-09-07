@@ -102,7 +102,7 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
 
 
 class ScriptProjectScriptFilesViewTestCase(TestCase):
-    """The Entrypoints tab writes declarations, so it carries the Module permission."""
+    """The Script Files tab writes declarations, so it carries the Script File permission."""
 
     @classmethod
     def setUpTestData(cls):
@@ -351,7 +351,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('No source', response.content.decode())
 
     def test_the_add_script_action_links_to_the_upload_route(self):
-        # Both halves: an upload creates a Module, so the route needs that permission too.
+        # Both halves: an upload creates a Script File, so the route needs that permission too.
         self.grant(ScriptProject, 'view', 'change')
         self.grant(ScriptFile, 'add')
         expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
@@ -369,7 +369,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
         self.assertIn('Script File add permission', body)
 
     def test_the_add_script_action_is_hidden_without_the_change_permission(self):
-        # The Module half is granted so the inert branch cannot satisfy the assertion for us.
+        # The Script File half is granted so the inert branch cannot satisfy the assertion for us.
         self.grant(ScriptProject, 'view')
         self.grant(ScriptFile, 'add')
         expected = reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
@@ -387,7 +387,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
 
     def test_the_add_script_action_is_absent_on_a_data_source_project(self):
         # Ingestion refuses an upload into a synchronized project, so offering the button would
-        # put a user on a path that can only fail. The Module half is granted for the same reason
+        # put a user on a path that can only fail. The Script File half is granted for the same reason
         # as the test above.
         self.grant(ScriptProject, 'view', 'change')
         self.grant(ScriptFile, 'add')

@@ -345,7 +345,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertIn('Created made-over-rest', [entry['message'] for entry in job.data['log']])
 
     def test_a_load_failure_outside_the_narrow_set_is_reported_rather_than_raised(self):
-        # EntrypointImportError is not rooted in StorageError, so the narrow tuple missed it.
+        # ScriptFileImportError is not rooted in StorageError, so the narrow tuple missed it.
         self.grant('view', 'run')
 
         with patch(

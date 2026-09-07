@@ -25,7 +25,7 @@ Implemented:
   and cleanup on deletion
 - both source routes: uploading one script at a time, and mirroring a directory
   of a NetBox Data Source that rebuilds on every synchronization
-- entrypoint selection as a Project setting, on a tab or over REST
+- script file selection as a Project setting, on a tab or over REST
 - the loading engine: a manifest-verified runtime cache, a private package
   loader, Custom Script discovery, and leased revision validation
 - execution: running a script from the UI or over REST, committing or as a dry
@@ -39,8 +39,8 @@ Implemented:
 Not yet implemented, planned for follow-up releases:
 
 - uploading helper modules, archives, and other resources, since an upload is
-  one executable module at a time. A Project needing helpers uses a Data Source
-- a manifest in the repository declaring its own entrypoints
+  one script file at a time. A Project needing helpers uses a Data Source
+- a manifest in the repository declaring its own script files
 - declared pip requirements, which are neither read nor installed
 - recording the input values a run was given
 - overriding the timeout, notification policy, and commit default per

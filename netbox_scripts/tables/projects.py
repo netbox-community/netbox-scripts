@@ -103,7 +103,7 @@ class ScriptProjectRevisionTable(BaseTable):
         return value or _('Not stored')
 
     def render_script_file_count(self, value):
-        """Count the declared entrypoints, which is what two revisions on one digest differ on."""
+        """Count the declared script files, which is what two revisions on one digest differ on."""
         return len(value)
 
 
@@ -153,10 +153,10 @@ class ScriptProjectFileTable(BaseTable):
 
 class ScriptProjectRevisionScriptFileTable(BaseTable):
     """
-    The entrypoints one revision froze, for its detail view.
+    The script files one revision froze, for its detail view.
 
-    Rows are the entrypoint snapshot's own dictionaries, so this table is fed a list and has no
-    queryset behind it. It is where the Revisions tab's entrypoint count resolves.
+    Rows are the script file snapshot's own dictionaries, so this table is fed a list and has no
+    queryset behind it. It is where the Revisions tab's script file count resolves.
     """
 
     source_path = tables.Column(

@@ -46,7 +46,7 @@ class ScriptProjectFilter(PrimaryModelFilter):
     enabled: FilterLookup[bool] | None = strawberry_django.filter_field()
 
 
-# The manifest and the entrypoint snapshot are not filterable: both are stored documents rather
+# The manifest and the script file snapshot are not filterable: both are stored documents rather
 # than lookup keys, and the diagnostics surface is where their contents belong.
 @strawberry_django.filter_type(ScriptProjectRevision, lookups=True, name='NetBoxScriptProjectRevisionFilter')
 class ScriptProjectRevisionFilter(ChangeLoggedModelFilter):

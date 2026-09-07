@@ -16,13 +16,13 @@ A Custom Script is identified by its project and by the dotted module path and
 class name of the module that **defines** it.
 
 The parent is the Project rather than the [Script
-File](scriptfile.md), which may look surprising, because a module is
+File](scriptfile.md), which may look surprising, because a script file is
 what discovery imports. The reason is `script_order`: a class defined in a
-helper file can be published by an entrypoint that re-exports it, and helper
-files have no module row, because module rows are entrypoint declarations only.
+helper file can be published by a script file that re-exports it, and helper
+files have no Script File row, because Script File rows are declarations only.
 Deriving identity from the defining module keeps one class one script no matter
-how many entrypoints re-export it, and there would be no module row to point at
-in the helper case. Which entrypoint published a class is recorded as provenance
+how many script files re-export it, and there would be no Script File row to point at
+in the helper case. Which script file published a class is recorded as provenance
 inside the [revision's](scriptprojectrevision.md) snapshot, not as a
 relational parent.
 
@@ -85,7 +85,7 @@ undo an administrator's decision.
 | `last_seen_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
 Deleting a Script File leaves its scripts alone, since the publishing
-entrypoint is provenance rather than a parent. Deleting the project takes its
+script file is provenance rather than a parent. Deleting the project takes its
 scripts with it. Pruning an old revision never takes scripts with it, so
 `last_seen_revision` simply becomes empty.
 
@@ -138,6 +138,6 @@ synchronizes every time it runs, including when it re-activates the revision
 already in force, so an unconditional save would log a change and queue an event
 for every script on every activation.
 
-Custom Scripts are installation-global, like projects, revisions, and modules.
+Custom Scripts are installation-global, like projects, revisions, and script files.
 Under NetBox Branching they read and write the main schema from every branch,
 because the scripts an installation offers cannot differ per branch.

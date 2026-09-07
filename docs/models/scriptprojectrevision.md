@@ -1,15 +1,15 @@
 # Script Project Revision
 
 A Script Project Revision is one immutable snapshot of a Script
-Project's complete source tree together with the entrypoint configuration it
+Project's complete source tree together with the script file configuration it
 was staged under. A revision records what was staged, not how it is served, so
 a job can be replayed against exactly the tree it ran on.
 
-Revision identity is the project, the source digest, and the entrypoint
+Revision identity is the project, the source digest, and the script file
 digest. The same source tree staged under a changed set of enabled
 [Script Files](scriptfile.md) is a new, separately validatable
 revision that reuses the stored content, which is what keeps a validation
-verdict meaningful: fixing a module declaration produces a fresh revision to
+verdict meaningful: fixing a script file declaration produces a fresh revision to
 validate instead of silently changing what an existing verdict was about.
 
 Revisions are created and moved through their lifecycle by the plugin's storage
@@ -27,7 +27,7 @@ and validation services. They are not edited directly.
 | `total_size` | integer | yes | Combined size in bytes of every accepted source file |
 | `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
 | `discovered_scripts` | JSON | no | Custom Scripts the most recent successful validation published, in publication order. May be empty |
-| `script_file_snapshot` | JSON | yes | Enabled module declarations frozen at staging time, each with its `script_file` primary key and canonical `source_path`, sorted by path. May be empty |
+| `script_file_snapshot` | JSON | yes | Enabled script file declarations frozen at staging time, each with its `script_file` primary key and canonical `source_path`, sorted by path. May be empty |
 | `script_file_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
 | `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
 | `validation_started` | datetime | system | When the owning validation claimed the revision |
@@ -108,7 +108,7 @@ whose policy activates automatically leaves none.
 
 `discovered_scripts` is what project validation learned by importing the tree:
 one record per published class, in publication order, each carrying the defining
-module path and class name, the entrypoint that published it, and the display
+module path and class name, the script file that published it, and the display
 name, description, and execution defaults read from the class. It is written once,
 in the same statement as the verdict, so no reader ever sees a valid revision
 without it. An invalid verdict records an empty list.
@@ -117,21 +117,21 @@ without it. An invalid verdict records an empty list.
 it, which is why a revision from before this field existed publishes nothing when
 re-activated: it has no record to derive from, and only re-validation writes one.
 
-Unlike the manifest and the entrypoint snapshot, it carries no digest. Those two
+Unlike the manifest and the script file snapshot, it carries no digest. Those two
 are inputs execution trusts, so they are bound to an address that proves they are
 unchanged. This one is derived data that activation rebuilds rows from rather than
 content it executes, so a shape validator on the return trip is the whole
 requirement. Validation is its only writer, so a value that fails that check
 means the row was changed outside that path.
 
-## Entrypoint snapshot
+## Script file snapshot
 
-The snapshot freezes the project's enabled module declarations at staging time,
-so a verdict is always about a fixed set of entrypoints. Editing, disabling, or
+The snapshot freezes the project's enabled script file declarations at staging time,
+so a verdict is always about a fixed set of script files. Editing, disabling, or
 deleting a Script File never changes an existing revision. To validate
 stored content under the declarations as they are now, the storage service
 offers a refresh operation that creates or returns the revision row for the
-same source digest and the current entrypoint digest, without the content being
+same source digest and the current script file digest, without the content being
 uploaded again.
 
 Like the manifest, the snapshot is persisted data that later becomes
@@ -143,8 +143,8 @@ authoritative: the refresh operation, project validation, and activation. A
 snapshot that fails is revision corruption and never a content verdict, so
 tampering fails closed.
 
-A valid revision whose snapshot references a since-deleted module row remains
-activatable. The snapshot is the immutable contract, module deletion is not
+A valid revision whose snapshot references a since-deleted Script File row remains
+activatable. The snapshot is the immutable contract, script file deletion is not
 restricted by it.
 
 ## Status lifecycle
@@ -155,7 +155,7 @@ separate services.
 - **The storage service** takes a revision as far as `materialized`, meaning the
   tree is stored and matches its manifest.
 - **Project validation** promotes a materialized revision to `valid` or
-  `invalid` by importing every entrypoint in the snapshot and running Custom
+  `invalid` by importing every script file in the snapshot and running Custom
   Script discovery on it. See [Runtime and Loading](../runtime.md) for what
   makes a revision invalid and what counts as environment trouble instead.
 - **The activation service** accepts only `valid` or `retired` revisions.
@@ -202,7 +202,7 @@ so a run is stopped before its claim can be handed on.
 Every final transition, to `valid`, to `invalid`, and the roll-back to
 `materialized`, is fenced on the owning job: a stale worker resuming after its
 lease was reclaimed matches nothing and commits nothing, neither revision
-fields nor module discovery results. The verdict keeps `validation_job` and
+fields nor script file discovery results. The verdict keeps `validation_job` and
 `validation_started` as its provenance, only the roll-back clears them.
 
 ## Invariants
@@ -210,7 +210,7 @@ fields nor module discovery results. The verdict keeps `validation_job` and
 | Invariant | Enforcement |
 |---|---|
 | `project`, `digest`, `manifest`, `file_count`, `total_size`, `script_file_snapshot`, and `script_file_digest` cannot change after creation | `save()` guard, no form or serializer exposes them |
-| A project cannot hold two revisions with the same digest and entrypoint digest | Partial `unique_project_digest` database constraint, applied only when a digest is set |
+| A project cannot hold two revisions with the same digest and script file digest | Partial `unique_project_digest_script_files` database constraint, applied only when a digest is set |
 | A revision whose tree is stored must have a digest | `stored_revision_requires_digest` database check constraint |
 | An invalid revision from rejected content carries no digest and is never content-deduplicated | The staging service stores a null digest, which the partial constraint ignores |
 | Only `valid` or `retired` revisions may be activated | The activation service raises `ActivationError` otherwise |
@@ -236,7 +236,7 @@ but not immutability.
 
 Revision rows and stored content are two systems, and the database cannot see the second one.
 Every operation that touches a project's stored content therefore holds a lock scoped to that
-project while it does: staging, restaging under a new entrypoint configuration, activation, and
+project while it does: staging, restaging under a new script file configuration, activation, and
 the cleanup that reclaims content. The lock is keyed on the project's immutable storage key, so
 it names the content itself and cannot be moved by anything an author edits.
 
@@ -251,7 +251,7 @@ Two operations deliberately stay outside it:
   stored content is still claimed, and it rechecks for a referencing row *under* the lock
   before removing anything. A bare check before the lock would lose to a revision staged
   between the check and the delete.
-- **Validation holds it only for its row transitions.** Importing a revision's entrypoints runs
+- **Validation holds it only for its row transitions.** Importing a revision's script files runs
   arbitrary project code and can take minutes, and the [validation lease](#the-validation-lease)
   plus job fencing already own that span. Holding the project lock across a whole run would
   queue every upload to that project behind it.
@@ -287,7 +287,7 @@ makes a write safe to repeat: a key already holding the recorded size and
 checksum is left alone, and one holding anything else is replaced, so an
 interrupted write is completed by the next attempt rather than blocking it.
 
-Two revisions that share one source digest under different entrypoint digests
+Two revisions that share one source digest under different script file digests
 share one stored content tree. Deletion accounts for that: the deletion signal
 skips enqueueing cleanup while another revision of the project still references
 the digest, and the cleanup job repeats that check when it runs, leaving shared
@@ -327,7 +327,7 @@ for them.
 | Limitation | Impact |
 |---|---|
 | No list page and no global search | A revision is reached through its project, on the Revisions tab or by filtering the REST and GraphQL surfaces by project |
-| The manifest and the entrypoint snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Files tab lists the current revision's files in the UI |
+| The manifest and the script file snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Files tab lists the current revision's files in the UI |
 | Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
 | Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |

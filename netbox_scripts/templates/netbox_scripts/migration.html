@@ -160,9 +160,9 @@ Context:
           {% if helper_count %}
             <p class="text-secondary mt-3">
               {% blocktrans count total=helper_count %}
-                One module publishes no Custom Script, so it migrates as a helper file rather than an entrypoint.
+                One module publishes no Custom Script, so it migrates as a helper file rather than a script file.
               {% plural %}
-                {{ total }} modules publish no Custom Script, so they migrate as helper files rather than entrypoints.
+                {{ total }} modules publish no Custom Script, so they migrate as helper files rather than script files.
               {% endblocktrans %}
               {% trans "The inventory names each one." %}
             </p>

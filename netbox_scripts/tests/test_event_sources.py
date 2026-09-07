@@ -68,7 +68,7 @@ class EventBodyTestCase(TestCase):
         body = serialize_for_event(revision)
 
         self.assertEqual(body['digest'], 'a' * 64)
-        # The manifest and the entrypoint snapshot are the revision's stored documents, and a
+        # The manifest and the script file snapshot are the revision's stored documents, and a
         # webhook body travels to whatever is on the other end.
         self.assertNotIn('manifest', body)
         self.assertNotIn('script_files', body)

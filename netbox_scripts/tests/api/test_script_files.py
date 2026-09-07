@@ -10,7 +10,7 @@ from utilities.testing import APITestCase
 
 
 class ScriptFilesAPITestCase(APITestCase):
-    """Entrypoint selection is a project operation, not free-text Module creation."""
+    """Selecting script files is a project operation, not free-text row creation."""
 
     @classmethod
     def setUpTestData(cls):

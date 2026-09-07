@@ -393,7 +393,7 @@ class ScriptProjectRevisionProblemPanelTestCase(TestCase):
 
 
 class RevisionScriptFilePanelTestCase(TestCase):
-    """A revision's page lists the entrypoints it froze, which is where the tab's count resolves."""
+    """A revision's page lists the script files it froze, which is where the tab's count resolves."""
 
     @classmethod
     def setUpTestData(cls):
@@ -450,6 +450,6 @@ class RevisionScriptFilePanelTestCase(TestCase):
         self.assertIn('publishes nothing', body)
 
     def test_the_panel_offers_no_column_but_the_path(self):
-        # The snapshot also carries Module primary keys, which are provenance rather than
+        # The snapshot also carries Script File primary keys, which are provenance rather than
         # something an operator reads, and the row they name may since have been deleted.
         self.assertEqual(ScriptProjectRevisionScriptFileTable.Meta.fields, ('source_path',))

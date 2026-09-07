@@ -1,10 +1,10 @@
 """
-Canonical entrypoint snapshots for a project's revisions.
+Canonical script file snapshots for a project's revisions.
 
-A revision freezes the enabled Module declarations it was staged under, so its validation
-verdict keeps meaning when the live declarations change. build_entrypoint_snapshot turns
-Module rows into the deterministic list a revision stores plus the digest that joins the
-revision's identity. validate_entrypoint_snapshot covers the return trip, checking a
+A revision freezes the enabled Script File declarations it was staged under, so its validation
+verdict keeps meaning when the live declarations change. build_script_file_snapshot turns
+Script File rows into the deterministic list a revision stores plus the digest that joins the
+revision's identity. validate_script_file_snapshot covers the return trip, checking a
 snapshot that has been persisted and read back before it becomes the authoritative input
 to validation, activation, or execution.
 """
@@ -25,8 +25,8 @@ __all__ = (
     'validate_script_file_snapshot',
 )
 
-# What compute_entrypoint_digest returns for an empty snapshot, the digest a revision
-# staged with no enabled Modules carries. Also the model field default, so a row created
+# What compute_script_file_digest returns for an empty snapshot, the digest a revision
+# staged with no enabled Script Files carries. Also the model field default, so a row created
 # without the service still describes itself.
 EMPTY_SNAPSHOT_DIGEST = '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945'
 
@@ -35,9 +35,9 @@ _ENTRY_KEYS = ('script_file', 'source_path')
 
 def build_script_file_snapshot(script_files):
     """
-    Return (snapshot, digest) for an iterable of Module rows.
+    Return (snapshot, digest) for an iterable of Script File rows.
 
-    The snapshot is a list of {'module', 'source_path'} dicts sorted by source path, and
+    The snapshot is a list of {'script_file', 'source_path'} dicts sorted by source path, and
     the digest is the sha256 over its canonical JSON form, computed like a manifest digest
     so the byte form is stable across hosts and across a JSONField round trip.
     """

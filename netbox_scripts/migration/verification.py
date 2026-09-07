@@ -147,7 +147,7 @@ def _verify_scripts(run, live_modules):
     keys = _activated_keys(run)
     published = NetBoxScript.objects.filter(project__key__in=keys)
     # Only the Projects the map recorded a script for. One holding nothing but helper files was
-    # never expected to publish, and staging declared no entrypoint on it.
+    # never expected to publish, and staging declared no script file on it.
     expected = {entry['project_key'] for entry in (mapping.recorded(run) or {}).get('scripts') or []}
     if barren := sorted((set(keys) & expected) - set(published.values_list('project__key', flat=True))):
         return _check(

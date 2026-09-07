@@ -2,17 +2,17 @@
 Source ingestion for Script Projects.
 
 This module turns supplied source files into a revision that is on its way to a verdict: it
-declares the entrypoints the source implies, stages the tree, and enqueues validation. Upload and
+declares the script files the source implies, stages the tree, and enqueues validation. Upload and
 Data Source reconciliation are its two callers, which is why an entry point here takes a project
 that already exists rather than creating one.
 
-The two differ in what the source implies. An uploaded file is an entrypoint unless its caller
+The two differ in what the source implies. An uploaded file is a script file unless its caller
 says otherwise, which only migration does, for a built-in module that published no Script. A
 synchronized directory declares nothing, because a Python file that appears in a repository is a
 candidate somebody selects rather than something to publish on arrival.
 
 Ordering here is load bearing. A revision freezes the project's enabled declarations into its
-entrypoint snapshot at staging time, so a declaration created afterwards would not be part of
+script file snapshot at staging time, so a declaration created afterwards would not be part of
 the revision that gets validated. The declarations are therefore committed first, and only then
 is the tree staged.
 
@@ -44,7 +44,7 @@ __all__ = (
     'uploaded_source_path',
 )
 
-# The first release treats every uploaded file as an executable entrypoint, so only Python
+# The first release treats every uploaded file as an executable script file, so only Python
 # source can be uploaded. Projects that bundle helper modules are managed through Git.
 SOURCE_SUFFIX = '.py'
 
@@ -125,7 +125,7 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True, 
     that already reached a verdict resolves to that revision and leaves it alone.
 
     Pass declare=False to stage the file without declaring it, so the project gains the content
-    and no entrypoint. Pass activate_once=True to activate this one revision on a valid verdict
+    and no script file. Pass activate_once=True to activate this one revision on a valid verdict
     whatever the project's standing policy says.
 
     Raises ValidationError for a name the path policy or the source rule refuses,
@@ -143,7 +143,7 @@ def ingest_upload(project, *, filename, content, base_files=None, declare=True, 
     files[path] = bytes(content)
 
     # The same pair stage_revision opens with, taken here because the declaration commits first
-    # and a refusal after it would leave a stray entrypoint behind.
+    # and a refusal after it would leave a stray script file behind.
     branching.require_safe_routing()
     using = service.require_default_database(project)
     if declare:
@@ -165,7 +165,7 @@ def ingest_data_source(project):
 
     The complete current directory is staged every time, so a file deleted from the source is
     simply absent from the new revision. Nothing is declared, and staging freezes the
-    declarations that are already enabled, which is what carries an entrypoint selection across a
+    declarations that are already enabled, which is what carries a script file selection across a
     synchronization. Returns the StagedRevision.
 
     Compiled artifacts are skipped. Every other path the policy refuses is left to staging, which
@@ -222,7 +222,7 @@ def _data_source_tree(project):
 
 def declare_script_file(project, path, using):
     """
-    Make one path an enabled entrypoint of a project, creating its declaration if needed.
+    Make one path an enabled script file of a project, creating its declaration if needed.
 
     A path that was turned off is turned back on. The row is reused rather than replaced,
     because Custom Script rows and Job history reference the declaration.

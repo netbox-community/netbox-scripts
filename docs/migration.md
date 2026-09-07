@@ -12,7 +12,7 @@ irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 | Pass | What it does | Reversible |
 |---|---|---|
 | Inventory | Reads every built-in script module, classifies its authoring dialect, works out which Projects a migration would create, and counts the Event Rules, permissions and Jobs a migration would touch. Writes nothing. | Nothing to undo |
-| Staging | Creates those Projects, declares their entrypoints, and stages their content as revisions. Activates nothing. | Yes, delete what it created |
+| Staging | Creates those Projects, declares their script files, and stages their content as revisions. Activates nothing. | Yes, delete what it created |
 | Cutover | Records every reference the repointing pass replays, then withdraws permissions on the built-in feature, disables its Event Rules, cancels its queued runs, and deregisters its source from synchronization. | **No** |
 | Activation | Puts every staged Project into service, so its Custom Scripts exist as rows. | After the cutover |
 | Repointing | Moves Event Rules, permissions and Job history onto those Custom Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
@@ -180,7 +180,7 @@ not whether they are good. A revision that fails records what it found, which it
 Putting a valid one in service is the separate, deliberate step described under
 [Putting a revision in service](data-sources.md#putting-a-revision-in-service).
 
-A built-in module that publishes nothing migrates as a **helper file** rather than an entrypoint.
+A built-in module that publishes nothing migrates as a **helper file** rather than a script file.
 Its content is staged like any other file, but nothing declares it, so the Project it belongs to
 never claims it publishes a Custom Script. A module counts as publishing when the built-in feature
 recorded a Script for it, or when its source defines a class that could publish one, so source

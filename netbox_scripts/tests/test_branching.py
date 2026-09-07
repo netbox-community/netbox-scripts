@@ -124,7 +124,7 @@ class ResolverTestCase(TestCase):
 
     def test_the_global_models_are_not_branchable(self):
         # False is what routes a model to the main schema, so one project keeps one row set,
-        # one source tree, and one entrypoint configuration no matter which branch is active.
+        # one source tree, and one script file configuration no matter which branch is active.
         for model in GLOBAL_MODELS:
             with self.subTest(model=model.__name__):
                 self.assertIs(branching.resolve_branching_support(model), False)

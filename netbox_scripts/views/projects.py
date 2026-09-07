@@ -275,7 +275,7 @@ class ScriptProjectRevisionsView(generic.ObjectChildrenView):
 
 @register_model_view(ScriptProject, 'script_files', path='script-files')
 class ScriptProjectScriptFilesView(generic.ObjectEditView):
-    """Select a Script Project's executable entrypoints from its own source."""
+    """Select a Script Project's executable script files from its own source."""
 
     queryset = ScriptProject.objects.select_related('data_source')
     form = ScriptProjectScriptFilesForm
@@ -285,7 +285,7 @@ class ScriptProjectScriptFilesView(generic.ObjectEditView):
         weight=500,
     )
 
-    # The project's change permission is what restrict() needs, and the selection writes Modules.
+    # The project's change permission is what restrict() needs, and the selection writes Script Files.
     additional_permissions = ('netbox_scripts.change_scriptfile',)
 
 
@@ -295,7 +295,7 @@ class ScriptProjectFilesView(generic.ObjectChildrenView):
     The files a Script Project's current revision holds.
 
     Read-only rows out of the revision's manifest, so no revision means an empty tab. The live
-    declarations supply the entrypoint marker and any declared path the source no longer holds.
+    declarations supply the script file marker and any declared path the source no longer holds.
     """
 
     queryset = ScriptProject.objects.select_related('active_revision')
@@ -353,7 +353,7 @@ class ScriptProjectUploadView(generic.ObjectEditView):
     queryset = ScriptProject.objects.select_related('data_source')
     form = ScriptProjectUploadForm
 
-    # The upload declares its own entrypoint, so it creates a Module.
+    # The upload declares its own script file, so it creates a Script File.
     additional_permissions = ('netbox_scripts.add_scriptfile',)
 
 
@@ -370,7 +370,7 @@ class ScriptProjectAddScriptView(generic.ObjectEditView):
     queryset = ScriptProject.objects.select_related('data_source')
     form = ScriptProjectAddScriptForm
 
-    # The upload declares its own entrypoint, so it creates a Module.
+    # The upload declares its own script file, so it creates a Script File.
     additional_permissions = ('netbox_scripts.add_scriptfile',)
 
 

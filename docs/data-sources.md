@@ -27,7 +27,7 @@ package boundaries at once. A Project at the Data Source root contains every oth
 a source with a root Project holds that Project alone.
 
 Before the first synchronization the Project has no source and its page says so. The
-Entrypoints tab is usable straight away, because the candidate list is read from the Data
+Script Files tab is usable straight away, because the candidate list is read from the Data
 Source's file inventory rather than from a revision.
 
 ## What a synchronization does
@@ -43,7 +43,7 @@ from the source is simply absent from the next revision. Every file is stored, n
 modules, because a script legitimately reads templates and data sitting next to it.
 
 A synchronization that changed nothing produces nothing. A revision is addressed by the digest
-of its content together with its entrypoint configuration, so an unchanged directory resolves
+of its content together with its script file configuration, so an unchanged directory resolves
 to the revision that already holds it and no second revision, validation, or activation
 happens.
 
@@ -53,22 +53,22 @@ bytecode is not source and cannot be reviewed as source. Every other path the
 revision is `invalid` and names the offending paths, and the Project keeps serving whatever it
 served before.
 
-## A new file is a candidate, not an entrypoint
+## A new file is a candidate, not a script file
 
 A Python file that appears in the directory becomes a **candidate**. Nothing imports or
-publishes it until somebody selects it on the Project's Entrypoints tab. That is what makes
+publishes it until somebody selects it on the Project's Script Files tab. That is what makes
 synchronization safe to leave running: adding a file to a repository cannot publish a Custom
 Script by itself, and the selection an administrator made is not overwritten by whatever the
 repository happens to contain.
 
 The selection is stored on the Project, and each revision freezes the enabled declarations at
-the moment it is staged. Saving the Entrypoints tab therefore applies the change to the source
-the Project already holds: the same content staged under the new entrypoint configuration is a
+the moment it is staged. Saving the Script Files tab therefore applies the change to the source
+the Project already holds: the same content staged under the new script file configuration is a
 new revision, which is validated and activated like any other. That runs as a background job,
 so the tab reports it is under way rather than showing the result.
 
 Saving a selection that did not move stages nothing, because a revision is identified by its
-content together with its entrypoint configuration, so the unchanged pair resolves to the
+content together with its script file configuration, so the unchanged pair resolves to the
 revision that already exists.
 
 **Reconcile Source** does the same thing against the directory as it stands now, so use it
@@ -78,7 +78,7 @@ when the source has changed as well as the selection.
 
 **Reconcile Source** on a Data Source-backed Project's page rebuilds its source from the
 directory as it stands right now. It is the answer to two situations: a Project created between
-synchronizations, which would otherwise have no source for hours, and an entrypoint selection
+synchronizations, which would otherwise have no source for hours, and a script file selection
 that should take effect without waiting.
 
 It does not synchronize the Data Source itself. The file inventory NetBox already holds is what
@@ -88,20 +88,20 @@ operation, on its own page.
 The action needs the Project's `reconcile` permission, granted separately from `change`, because
 what it changes is what the Project serves. See [Permissions](permissions.md).
 
-## When a selected entrypoint disappears
+## When a selected script file disappears
 
-Deleting a file that is a selected entrypoint is the one case where a synchronization produces
+Deleting a file that is a selected script file is the one case where a synchronization produces
 a revision that cannot work. The new revision holds the tree without that file while its
-entrypoint snapshot still names it, so validation cannot import it and records an `invalid`
+script file snapshot still names it, so validation cannot import it and records an `invalid`
 verdict naming the path.
 
 That is the intended outcome, and the important part is what does not happen: the previous
 revision keeps serving. Activation only ever follows a `valid` verdict, so a repository change
 that breaks the source cannot take a working Project out of service. The Project's page reports
-that its newest source failed validation, and the Revisions tab and the Entrypoints tab carry
+that its newest source failed validation, and the Revisions tab and the Script Files tab carry
 the detail.
 
-Deselect the entrypoint if the file is gone for good, then reconcile.
+Deselect the script file if the file is gone for good, then reconcile.
 
 ## Putting a revision in service
 
@@ -131,7 +131,7 @@ matter of choosing it, not of rebuilding it.
 
 | Area | Status |
 |---|---|
-| A manifest in the repository declaring its own entrypoints | Planned. Entrypoint selection is a Project setting, made in NetBox |
+| A manifest in the repository declaring its own script files | Planned. Script file selection is a Project setting, made in NetBox |
 | Declared pip requirements | Planned. A revision's requirements are not read or installed |
 | Reconciling one file at a time | Not planned. A revision is a whole tree by design |
 | Driving a Data Source's synchronization from a Project | Not planned. Synchronize the Data Source itself |

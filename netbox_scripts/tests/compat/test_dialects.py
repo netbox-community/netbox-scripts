@@ -70,7 +70,7 @@ class DialectTestCase(TestCase):
             activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID,
         )
         # Declarations are committed before staging, because staging freezes the enabled ones
-        # into the revision's entrypoint snapshot.
+        # into the revision's script file snapshot.
         for path in files if script_files is None else script_files:
             ScriptFile.objects.create(project=project, source_path=path, enabled=True)
         for path, source_text in files.items():

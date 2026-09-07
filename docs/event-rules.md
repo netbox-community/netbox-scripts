@@ -76,12 +76,12 @@ exactly as it would to a Device or an IP address.
 |---|---|
 | Script Project | A project created, changed, or deleted |
 | Script Project Revision | A revision appearing, or its validation status changing |
-| Script File | An entrypoint declaration added, changed, or removed |
+| Script File | A script file declaration added, changed, or removed |
 | Custom Script | A script appearing, retiring, or being enabled or disabled |
 
 A webhook fired by one of these carries the same body the REST API returns for that object,
 so the receiver reads the fields it already knows. A revision's stored documents are not part
-of it: the manifest and the entrypoint snapshot stay in NetBox.
+of it: the manifest and the script file snapshot stay in NetBox.
 
 Reacting to a revision reaching `invalid` is the useful case worth calling out. It is how an
 operator finds out that synchronized source stopped being importable, without watching the

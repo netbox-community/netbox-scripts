@@ -171,7 +171,7 @@ class CleanupVersusRestageTestCase(SerializationTestCase):
         self.assertEqual(self.keys_present(digest), set())
 
     def test_a_reference_under_a_second_identity_keeps_the_content(self):
-        # Entrypoint configuration is part of revision identity, so one tree can carry several
+        # Script File configuration is part of revision identity, so one tree can carry several
         # rows. Reclaiming on the first delete would take content the survivor still names.
         revision = self.materialize()
         ScriptFile.objects.create(project=self.project, source_path='hello.py', enabled=True)

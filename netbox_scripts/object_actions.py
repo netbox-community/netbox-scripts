@@ -44,7 +44,7 @@ class AddScript(ObjectAction):
     rebuilds its source from its directory and ingestion refuses an upload into one.
 
     The change permission, not add, because the target route is the project's own detail route
-    and what it changes is the project's source. The view also requires the Module add
+    and what it changes is the project's source. The view also requires the Script File add
     permission, which permissions_required cannot express because it names another model, so the
     button checks it here and renders inert rather than refusing after the operator has clicked.
     """

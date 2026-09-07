@@ -141,8 +141,8 @@ def synchronize_scripts(*, project, revision, records, using):
     rows = {(row.module_path, row.class_name): row for row in project.scripts.using(using)}
     for record in records:
         identity = (record['module_path'], record['class_name'])
-        # entrypoint_module_id and entrypoint_path stay in the revision's snapshot. Which
-        # entrypoint published a class is provenance, not part of what the class is.
+        # script_file_id and script_file_path stay in the revision's snapshot. Which
+        # script file published a class is provenance, not part of what the class is.
         values = {
             'display_name': record['display_name'],
             'description': record['description'],

@@ -18,7 +18,7 @@ _scriptproject_item = PluginMenuItem(
             link='plugins:netbox_scripts:scriptproject_upload',
             title=_('Upload Script'),
             icon_class='mdi mdi-file-upload-outline',
-            # Both, because the upload declares an entrypoint and the view requires the Module
+            # Both, because the upload declares a script file and the view requires the Script File
             # half too. A menu button offers no inert state, so a missing half hides it.
             permissions=[
                 'netbox_scripts.add_scriptproject',

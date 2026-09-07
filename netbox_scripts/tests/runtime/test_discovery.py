@@ -234,7 +234,7 @@ class DiscoveryIntegrationTestCase(LoaderTestCase):
 
 
 class ZeroPublicationReasonTestCase(TestCase):
-    """Why an entrypoint that imported cleanly still published nothing."""
+    """Why a script file that imported cleanly still published nothing."""
 
     def test_a_host_based_class_is_named_with_its_migration_hint(self):
         # The base is crafted rather than imported, so the rule is exercised without this test

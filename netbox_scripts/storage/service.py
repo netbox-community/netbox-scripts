@@ -58,7 +58,7 @@ def stage_revision(project, files):
     Reaches MATERIALIZED, never VALID: a verdict belongs to project validation. Bad content
     never raises, it lands as an INVALID revision with a null digest, and repeated bad uploads
     stay distinct. Valid content is content-addressed, so an identical tree under an unchanged
-    entrypoint configuration returns the existing revision once its stored tree verifies, and a
+    script file configuration returns the existing revision once its stored tree verifies, and a
     changed configuration yields a new identity over the same content. Only a revision whose
     write never completed is re-driven. A row a concurrent owner advanced is returned as that
     owner left it.
@@ -74,7 +74,7 @@ def stage_revision(project, files):
     using = require_default_database(project)
     source_files = _frozen_source(files)
     entries, errors = build_manifest(source_files, limits)
-    # The enabled Module declarations are frozen into the revision at staging time, so the
+    # The enabled Script File declarations are frozen into the revision at staging time, so the
     # verdict validation later reaches keeps meaning when the live declarations change.
     snapshot, script_file_digest = build_script_file_snapshot(
         ScriptFile.objects.using(using).filter(project=project.pk, enabled=True)
@@ -163,10 +163,10 @@ def stage_revision(project, files):
 
 def refresh_revision_script_files(revision):
     """
-    Stage a revision's stored content under the project's current entrypoint configuration.
+    Stage a revision's stored content under the project's current script file configuration.
 
-    A verdict binds to the entrypoint snapshot a revision froze at staging time, so fixing a
-    Module declaration cannot revalidate an existing row. This creates or returns the row for
+    A verdict binds to the script file snapshot a revision froze at staging time, so fixing a
+    Script File declaration cannot revalidate an existing row. This creates or returns the row for
     the same stored content under the configuration as it is now, without the content being
     uploaded again. The source revision only needs a digest, so even an INVALID verdict on
     the old configuration stays untouched while its content gets a fresh candidate. Returns
@@ -249,7 +249,7 @@ def promote_revision(revision, *, on_promote):
         snapshot.status == RevisionStatusChoices.ACTIVE and project_state['active_revision_id'] == snapshot.pk
     )
     _require_activatable(snapshot, already_active)
-    # The entrypoint snapshot is persisted input that execution will trust, so it is checked
+    # The script file snapshot is persisted input that execution will trust, so it is checked
     # against its own digest here, at the same position the manifest gets its return-trip
     # check, before any row is locked.
     validate_script_file_snapshot(snapshot.script_file_snapshot, snapshot.script_file_digest)

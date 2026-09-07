@@ -12,7 +12,7 @@ Project code first runs inside one failure boundary that snapshots the revision'
 sys.modules footprint, so a failed import sweeps every module it managed to register,
 including helpers a root __init__ pulled in before dying. Callers name the worker-control
 exception types that must escape untouched, and everything else project code raises
-arrives as EntrypointImportError with the original chained.
+arrives as ScriptFileImportError with the original chained.
 
 One process lock guards the shared containers, and one reentrant lock per revision
 serializes import, discovery, and unload. revision_import_session holds the latter across
@@ -48,7 +48,7 @@ _revision_locks_guard = threading.Lock()
 
 def import_script_file(storage_key, digest, script_file_path, *, storage, manifest, passthrough=(), cache_root=None):
     """
-    Import one entrypoint from a revision and return its module.
+    Import one script file from a revision and return its module.
 
     The manifest is validated before anything reads it, the path is mapped to its dotted
     name and checked against the manifest before any I/O, the tree comes from the cache
@@ -56,7 +56,7 @@ def import_script_file(storage_key, digest, script_file_path, *, storage, manife
     described in the module docstring. passthrough lists exception types that re-raise
     unchanged after the sweep, as KeyboardInterrupt and GeneratorExit always do. Raises
     InvalidModulePathError for a path that could never import, RevisionCorruptError for a
-    manifest that cannot be trusted, EntrypointImportError when the path is not part of the
+    manifest that cannot be trusted, ScriptFileImportError when the path is not part of the
     manifest or the import fails, and whatever materialization raises when storage or cache
     cannot deliver.
     """
@@ -104,7 +104,7 @@ def revision_import_session(storage_key, digest):
     """
     Hold one revision's lock across a whole multi-step session.
 
-    A validation imports several entrypoints, inspects the results, and unloads at the
+    A validation imports several script files, inspects the results, and unloads at the
     end. Two revision rows can share one source digest and therefore one namespace, so
     without the session a concurrent holder could unload between a sibling's steps. Inner
     import and unload calls nest through the lock's reentrancy.
@@ -209,7 +209,7 @@ def _sweep_added(revision_name, before, project_module):
     Remove every module a failed import added below one revision namespace.
 
     The container binding goes too when the revision package itself was new. Names loaded
-    before the boundary opened stay, a failed sibling entrypoint must not tear down what
+    before the boundary opened stay, a failed sibling script file must not tear down what
     an earlier import legitimately published.
     """
     for name in _loaded_names(revision_name) - before:
@@ -221,7 +221,7 @@ def _sweep_added(revision_name, before, project_module):
 
 def _failure_detail(script_file_path, error, revision_dir):
     """
-    Build the structured record describing one failed entrypoint import.
+    Build the structured record describing one failed script file import.
 
     The traceback keeps only frames inside the revision tree when any exist, so the
     record centers on project code rather than import machinery. Raw runtime paths may

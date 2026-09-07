@@ -50,7 +50,7 @@ class UploadAPITestCase(APITestCase):
 
     def allow_uploads(self):
         # The project's change permission is what the action resolves POST to, and the upload
-        # declares an entrypoint, so it creates a Module as well. The project's add permission
+        # declares a script file, so it creates a Script File as well. The project's add permission
         # is deliberately absent, which is what makes every passing case here also a check that
         # the queryset is narrowed by change: the method-derived narrowing would resolve POST to
         # add, restrict to an empty set, and return 404 instead.
@@ -167,7 +167,7 @@ class UploadAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_the_script_file_add_permission_is_required_too(self):
-        # The upload declares an entrypoint, which is what the UI view requires it for.
+        # The upload declares a script file, which is what the UI view requires it for.
         self.add_permissions(
             'netbox_scripts.view_scriptproject',
             'netbox_scripts.change_scriptproject',

@@ -182,12 +182,12 @@ class IngestUploadTestCase(TestCase):
             ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
-        # The declaration survives, so the retry stages the same entrypoint configuration.
+        # The declaration survives, so the retry stages the same script file configuration.
         self.assertTrue(ScriptFile.objects.filter(project=self.project, enabled=True).exists())
         self.enqueued.assert_not_called()
 
     def test_re_uploading_a_disabled_path_turns_it_back_on(self):
-        # An uploaded file is always an entrypoint, and the row is reused rather than replaced,
+        # An uploaded file is always a script file, and the row is reused rather than replaced,
         # because Custom Script rows and Job history will reference the declaration.
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         script_file = ScriptFile.objects.get(project=self.project)
@@ -380,7 +380,7 @@ class IngestDataSourceTestCase(TestCase):
 
     def test_a_non_python_file_is_stored(self):
         # A directory legitimately holds helper data a script reads. The Python-only rule binds
-        # uploads, where every file is an entrypoint.
+        # uploads, where every file is a script file.
         self.populate()
         self.assertIn('README.md', self.staged_paths(ingest_data_source(self.project)))
 
@@ -403,7 +403,7 @@ class IngestDataSourceTestCase(TestCase):
         self.enqueued.assert_not_called()
 
     def test_no_script_file_is_declared(self):
-        # A new Python file becomes a candidate that has to be selected, never an entrypoint by
+        # A new Python file becomes a candidate that has to be selected, never a script file by
         # arrival, which is what makes the selection survive a synchronization.
         self.populate()
         staged = ingest_data_source(self.project)
@@ -452,7 +452,7 @@ class IngestDataSourceTestCase(TestCase):
         self.assertNotIn('activate_once', self.enqueued.call_args.kwargs)
 
     def test_a_synchronization_that_changed_nothing_is_a_no_op(self):
-        # Identical content under an unchanged entrypoint configuration resolves to the revision
+        # Identical content under an unchanged script file configuration resolves to the revision
         # that already holds a verdict, and only a materialized revision is claimable, so
         # enqueueing it again would fail a job over a synchronization that changed nothing.
         self.populate()
@@ -684,7 +684,7 @@ class DataSourceToActiveTestCase(TestCase):
     """
     A Data Source-backed project through real validation, one synchronization at a time.
 
-    The entrypoint selection survives a synchronization, and a selected entrypoint that
+    The script file selection survives a synchronization, and a selected script file that
     disappears from the source invalidates the new revision while the project keeps serving
     the one it already had.
     """

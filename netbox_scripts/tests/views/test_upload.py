@@ -26,7 +26,7 @@ SCRIPT = b'from netbox_scripts.scripts import Script\n\n\nclass Deploy(Script):\
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
 class ScriptProjectUploadViewTestCase(TestCase):
-    """The upload view creates a Project from one script and declares its entrypoint."""
+    """The upload view creates a Project from one script and declares its script file."""
 
     def setUp(self):
         self.user = create_test_user()
@@ -46,7 +46,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def grant_both(self):
-        # The view creates a Project and declares its entrypoint, so it needs both.
+        # The view creates a Project and declares its script file, so it needs both.
         self.grant(ScriptProject, 'view', 'add')
         self.grant(ScriptFile, 'view', 'add')
 
@@ -82,7 +82,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.assertHttpStatus(response, 302)
 
         project = ScriptProject.objects.get(key='deploy-devices')
-        # Straight to the Project, which is where the source state and the entrypoints are.
+        # Straight to the Project, which is where the source state and the script files are.
         self.assertEqual(response.url, project.get_absolute_url())
         self.assertEqual(project.source_type, ProjectSourceTypeChoices.UPLOAD)
         script_file = ScriptFile.objects.get(project=project)
@@ -157,7 +157,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.assertFalse(ScriptProject.objects.exists())
 
     def test_a_nested_file_name_is_reduced_to_its_basename(self):
-        # An upload can therefore never create a nested entrypoint. Nesting reaches a project
+        # An upload can therefore never create a nested script file. Nesting reaches a project
         # through its Data Source directory instead.
         self.grant_both()
         self.assertHttpStatus(self.post(upload_file=self.upload('automation/deploy.py')), 302)
@@ -186,7 +186,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.enqueued.assert_not_called()
 
     def test_the_project_permission_alone_is_not_enough(self):
-        # The upload declares an entrypoint, so it needs the Module permission too.
+        # The upload declares a script file, so it needs the Script File permission too.
         self.grant(ScriptProject, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
@@ -239,7 +239,7 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
 
         revision = ScriptProjectRevision.objects.exclude(pk=self.first.pk).get()
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['audit.py', 'deploy.py'])
-        # Both are entrypoints, since an uploaded file always is.
+        # Both are script files, since an uploaded file always is.
         self.assertEqual(
             sorted(entry['source_path'] for entry in revision.script_file_snapshot),
             ['audit.py', 'deploy.py'],

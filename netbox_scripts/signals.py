@@ -124,7 +124,7 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
             f'This revision was deleted on "{using}", where its cleanup Job cannot be recorded '
             'in the same transaction.'
         )
-    # Since entrypoint configuration joined revision identity, several rows can reference
+    # Since script file configuration joined revision identity, several rows can reference
     # one stored tree. Content a surviving row still names is kept, the check fails on the
     # side of retaining bytes, and a project cascade that deletes every referencing row in
     # one pass enqueues per row, which the job's exact-key, already-gone-tolerant deletion

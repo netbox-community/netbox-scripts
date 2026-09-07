@@ -33,7 +33,7 @@ from netbox_scripts.validation import (
 
 
 def script_source(class_name):
-    """Return entrypoint source publishing one Script subclass."""
+    """Return script file source publishing one Script subclass."""
     return f'from netbox_scripts.scripts import Script\n\n\nclass {class_name}(Script):\n    pass\n'.encode()
 
 
@@ -370,8 +370,8 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
         }
         result = validate_revision(self.stage(files), job=self.job)
         (record,) = result.discovered_scripts
-        # No Module row names helpers.py, which is why a published class cannot be identified
-        # by its entrypoint declaration.
+        # No Script File row names helpers.py, which is why a published class cannot be identified
+        # by its script file declaration.
         self.assertEqual(record['module_path'], 'helpers')
         self.assertEqual(record['script_file_path'], 'deploy.py')
 
@@ -497,7 +497,7 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
 
 
 class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
-    """A revision whose enabled entrypoints import cleanly and publish no script."""
+    """A revision whose enabled script files import cleanly and publish no script."""
 
     def test_a_revision_publishing_nothing_is_invalid_and_says_why(self):
         script_file = self.declare('deploy.py')
@@ -536,7 +536,7 @@ class ZeroPublicationTestCase(ValidationTestMixin, TestCase):
 
     def test_an_empty_module_beside_a_failing_one_keeps_its_own_message(self):
         # The only case where a failure message and a zero-publication note are both in play,
-        # so each Module row has to receive its own.
+        # so each Script File row has to receive its own.
         empty = self.declare('notes.py')
         broken = self.declare('broken.py')
         revision = self.stage({'notes.py': b'VALUE = 1\n', 'broken.py': b'def broken(:\n'})

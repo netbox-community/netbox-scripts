@@ -20,7 +20,7 @@ from netbox_scripts.validation import validate_revision
 
 
 def script_source(class_name):
-    """Return entrypoint source publishing one Script subclass."""
+    """Return script file source publishing one Script subclass."""
     return f'from netbox_scripts.scripts import Script\n\n\nclass {class_name}(Script):\n    pass\n'.encode()
 
 
@@ -95,7 +95,7 @@ class ResolveScriptClassTestCase(ResolutionTestMixin, TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
         record = revision.discovered_scripts[0]
         # The defining module has no declaration of its own, which is why the snapshot has to
-        # record the entrypoint that surfaced the class.
+        # record the script file that surfaced the class.
         self.assertEqual(record['module_path'], 'helpers')
         self.assertEqual(record['script_file_path'], 'deploy.py')
 
@@ -115,7 +115,7 @@ class ResolveScriptClassTestCase(ResolutionTestMixin, TestCase):
 
     def test_an_identity_the_script_file_no_longer_publishes_is_refused(self):
         revision = self.validated({'deploy.py': script_source('Deploy')}, ['deploy.py'])
-        # A snapshot that is well formed but names a class the entrypoint does not define.
+        # A snapshot that is well formed but names a class the script file does not define.
         stale = [dict(revision.discovered_scripts[0], module_path='deploy', class_name='Ghost')]
 
         with self.assertRaises(ScriptResolutionError) as caught:

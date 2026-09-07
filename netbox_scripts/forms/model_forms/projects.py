@@ -83,7 +83,7 @@ class ScriptProjectUploadForm(PrimaryModelForm):
     Create a Script Project from one uploaded script.
 
     The form asks for what a user knows and nothing the plugin can work out for itself. The
-    uploaded file's name becomes the source path, the entrypoint is declared automatically, and
+    uploaded file's name becomes the source path, the script file is declared automatically, and
     the checkbox decides whether a valid revision goes live without a second step. Source paths,
     module names, digests, and storage locations are never asked for.
     """
@@ -222,7 +222,7 @@ class ScriptFileCheckboxSelect(forms.CheckboxSelectMultiple):
 
 
 class ScriptProjectScriptFilesForm(PrimaryModelForm):
-    """Select which of a project's source modules are its executable entrypoints."""
+    """Select which of a project's source modules are its executable script files."""
 
     script_files = forms.MultipleChoiceField(
         required=False,

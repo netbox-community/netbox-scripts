@@ -30,7 +30,7 @@ package boundary used when loading and executing scripts.
 
 Each project owns a history of immutable source snapshots, documented on the
 [Script Project Revision](scriptprojectrevision.md) page. Its
-declared entrypoints are [Script Files](scriptfile.md) and the
+declared script files are [Script Files](scriptfile.md) and the
 classes an activated revision publishes are [Custom Scripts](netboxscript.md).
 
 ## API
@@ -40,14 +40,14 @@ classes an activated revision publishes are [Custom Scripts](netboxscript.md).
 | REST | `/api/plugins/netbox-scripts/projects/` |
 | GraphQL | `netbox_script_project` / `netbox_script_project_list` |
 
-A project's **Entrypoints** tab selects which of its source modules discovery
+A project's **Script Files** tab selects which of its source modules discovery
 imports, and its detail page lists the [Script
 Files](scriptfile.md) it has declared. The selection is also a REST
 operation at `projects/<id>/script-files/`.
 
 A project's **Files** tab lists the files of its current revision, one row per
 manifest entry with its size and short checksum, and marks which paths are
-enabled entrypoints. A declared path the revision does not hold is annotated,
+enabled script files. A declared path the revision does not hold is annotated,
 and the annotation distinguishes one that is gone from the source from one a
 newer revision holds that is not being served yet. The tab is empty until a
 revision holds content.
@@ -195,4 +195,4 @@ an execution-model decision that lands with the execution work.
 |---|---|
 | A project owns one source, never both kinds | `source_type` is immutable, so moving a project from uploads to a Data Source means creating a new one |
 | No revision REST or GraphQL surface | Revisions are read-only history in the UI, so automation cannot stage or activate one |
-| An entrypoint selection does not restage by itself | An upload project applies a changed selection when its next revision is staged. A Data Source-backed one applies it with **Reconcile Source** |
+| A script file selection does not restage by itself | An upload project applies a changed selection when its next revision is staged. A Data Source-backed one applies it with **Reconcile Source** |

@@ -373,7 +373,7 @@ class ScriptProject(PrimaryModel):
         """Return every project-relative path of the source this project currently has."""
         # A data source is readable before anything is staged, so it wins over the manifest.
         if self.source_type == ProjectSourceTypeChoices.DATA_SOURCE and self.data_source_id:
-            # Only the paths, never the content: the Entrypoints tab calls this on every render.
+            # Only the paths, never the content: the Script Files tab calls this on every render.
             return [
                 relative
                 for path in self.data_source.datafiles.values_list('path', flat=True)
@@ -415,8 +415,8 @@ class ScriptProjectRevision(ChangeLoggedModel):
     its errors and partial manifest stay inspectable, and so two different broken trees
     that happen to share an accepted subset cannot collide on one digest.
 
-    Revision identity is the project, the source digest, and the entrypoint digest. The
-    snapshot freezes the enabled Module declarations staging saw, so a validation verdict
+    Revision identity is the project, the source digest, and the script file digest. The
+    snapshot freezes the enabled Script File declarations staging saw, so a validation verdict
     keeps meaning when the live declarations change, and the same source tree under a
     changed configuration is a new, separately validatable revision that reuses the
     stored content.
@@ -535,7 +535,7 @@ class ScriptProjectRevision(ChangeLoggedModel):
         verbose_name_plural = _('script project revisions')
         constraints = [
             # Partial, so invalid revisions (digest NULL) coexist while valid content dedupes.
-            # One source tree under a changed entrypoint configuration is a separate,
+            # One source tree under a changed script file configuration is a separate,
             # separately validatable identity that reuses the stored content.
             models.UniqueConstraint(
                 fields=('project', 'digest', 'script_file_digest'),
@@ -616,7 +616,7 @@ class ScriptProjectRevision(ChangeLoggedModel):
     @property
     def problems(self):
         """One row per recorded problem, in the single shape a reader needs."""
-        # Storage names the rejected file "path" and validation the entrypoint "source_path".
+        # Storage names the rejected file "path" and validation the script file "source_path".
         # Normalizing here keeps that split out of every reader.
         return [
             {

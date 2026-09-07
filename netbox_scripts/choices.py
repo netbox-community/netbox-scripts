@@ -58,7 +58,7 @@ class RevisionStatusChoices(ChoiceSet):
     Storing a source tree and judging it fit to execute are separate steps. The storage
     layer takes a revision as far as MATERIALIZED, meaning the tree is stored and matches
     its manifest, and STAGING covers its whole write window. VALIDATING, VALID, and INVALID
-    belong to project validation, which checks imports, entrypoints, and Script discovery.
+    belong to project validation, which checks imports, script files, and Script discovery.
 
     The groupings the services branch on live in constants.py, since a ChoiceSet carries
     choices and nothing else.

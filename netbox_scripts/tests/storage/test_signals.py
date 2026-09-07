@@ -293,10 +293,10 @@ class DeletionIdentityTestCase(CleanupFixtureMixin, TestCase):
 
 
 class SharedDigestCleanupTestCase(CleanupFixtureMixin, TestCase):
-    """Rows sharing one stored tree since entrypoint configuration joined revision identity."""
+    """Rows sharing one stored tree since script file configuration joined revision identity."""
 
     def sibling(self):
-        """Return a second row referencing DIGEST_A under another entrypoint configuration."""
+        """Return a second row referencing DIGEST_A under another script file configuration."""
         return ScriptProjectRevision.objects.create(
             project=self.project,
             digest=DIGEST_A,

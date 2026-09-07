@@ -2,7 +2,7 @@
 Project validation for stored revisions.
 
 Validation is the lifecycle step between MATERIALIZED and a verdict. It imports every
-entrypoint the revision's snapshot names, discovers the Scripts they publish, builds each one's
+script file the revision's snapshot names, discovers the Scripts they publish, builds each one's
 run form to prove it usable, and records VALID or INVALID along with the published set a valid
 revision offers. A verdict is a statement about revision content, so environment trouble
 (an unreachable backend, a broken cache, a missing external distribution) never produces
@@ -13,7 +13,7 @@ Ownership works as a lease. A run claims its revision with a compare-and-swap th
 the owning Job and the claim time, and the claim is reclaimable purely by age, because a
 killed worker leaves its Job row running forever. Every final transition filters on the
 owning job again, so a stale worker resuming after a reclaim commits nothing, neither
-revision fields nor Module rows.
+revision fields nor Script File rows.
 
 Stored records never carry runtime identities. The private namespace, the storage key, the
 digest, and cache paths are stripped from everything persisted to validation_errors, and
@@ -62,11 +62,11 @@ def validate_revision(revision, *, job, passthrough=()):
 
     The claim moves MATERIALIZED to VALIDATING recording the owning job and the start
     time, and can take over an expired lease regardless of what the previous owner's Job
-    row says. The verdict input is the validated entrypoint snapshot exclusively, never
-    live Module rows, and an empty snapshot is vacuously VALID. Content problems across
+    row says. The verdict input is the validated script file snapshot exclusively, never
+    live Script File rows, and an empty snapshot is vacuously VALID. Content problems across
     all entries collect into one INVALID verdict with sanitized validation_errors, as does
-    a snapshot whose entrypoints all import cleanly and publish nothing between them, under
-    the code no_scripts_published. Module rows named by the snapshot receive their discovery
+    a snapshot whose script files all import cleanly and publish nothing between them, under
+    the code no_scripts_published. Script File rows named by the snapshot receive their discovery
     outcomes only after the verdict commits under the ownership fence. A VALID verdict carries the described
     publication set, an INVALID one carries an empty set. passthrough lists exception types that
     must escape unwrapped, they roll the claim back and re-raise, as does every
@@ -155,8 +155,8 @@ def validate_revision(revision, *, job, passthrough=()):
         _revert_to_materialized(revision, job, sanitize(_failure_reason(error)))
         raise
 
-    # A revision serving enabled entrypoints and publishing nothing at all cannot run, so it
-    # is refused rather than activated. One entrypoint publishing nothing beside a working one
+    # A revision serving enabled script files and publishing nothing at all cannot run, so it
+    # is refused rather than activated. One script file publishing nothing beside a working one
     # is reported on its own row and leaves the verdict alone.
     if not failures and not records:
         failures.extend(
@@ -179,7 +179,7 @@ def validate_revision(revision, *, job, passthrough=()):
 
 def classify_script_file_error(error, *, revision_prefix, revision_modules=frozenset()):
     """
-    Return 'content' or 'environment' for one wrapped entrypoint import failure.
+    Return 'content' or 'environment' for one wrapped script file import failure.
 
     The loader chains the original exception, so the cause is what gets judged. Content
     means the revision itself can never import: bad syntax, a reference to a revision
@@ -288,7 +288,7 @@ def _collect_publications(failures, identities, records, sanitize, entry, found)
     """
     Fold one entry's discoveries into the revision-wide identity map and snapshot.
 
-    One class re-exported by several entrypoints is one publication, so it is described once
+    One class re-exported by several script files is one publication, so it is described once
     and keeps the position of the entry that surfaced it first. Two different classes sharing
     one logical identity are a content failure charged to the entry that surfaced the
     collision, as is a class whose run form cannot be built.
@@ -340,7 +340,7 @@ def _finalize(revision, job, status, validation_errors, discovered_scripts):
 
 def _failure_reason(error):
     """Return one failure as the text an operator can act on."""
-    # EntrypointImportError's own message names the entrypoint, and its structured record carries
+    # ScriptFileImportError's own message names the script file, and its structured record carries
     # the underlying failure, which is the part naming what is actually missing.
     detail = getattr(error, 'detail', None)
     inner = detail.get('message') if isinstance(detail, dict) else None
@@ -363,7 +363,7 @@ def _revert_to_materialized(revision, job, reason=''):
 
 def _persist_script_file_results(revision, entries, outcomes, failures, notes):
     """
-    Record discovery outcomes on the Module rows the snapshot named.
+    Record discovery outcomes on the Script File rows the snapshot named.
 
     Matching is by primary key, project, and unchanged source path, so a row deleted,
     moved, or renamed since staging is skipped, the snapshot stays the authoritative

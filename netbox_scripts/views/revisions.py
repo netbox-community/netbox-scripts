@@ -57,7 +57,7 @@ class ScriptProjectRevisionView(generic.ObjectView):
     )
 
     def get_extra_context(self, request, instance):
-        """Supply the entrypoint and problem tables, withholding the problems key when there are none."""
+        """Supply the script file and problem tables, withholding the problems key when there are none."""
         # The snapshot is already sorted by source path, so there is no other order to offer.
         script_files = ScriptProjectRevisionScriptFileTable(instance.script_file_snapshot, orderable=False)
         script_files.configure(request)

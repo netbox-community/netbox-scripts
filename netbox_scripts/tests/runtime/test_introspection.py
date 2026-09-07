@@ -26,7 +26,7 @@ def describe(module, position=0):
 
 
 def build(source, **namespace):
-    """Build one revision entrypoint from literal source, with the authoring API in scope."""
+    """Build one revision script file from literal source, with the authoring API in scope."""
     namespace.setdefault('Script', Script)
     namespace.setdefault('StringVar', StringVar)
     namespace.setdefault('ScriptVariable', ScriptVariable)
@@ -50,7 +50,7 @@ class DescribeScriptTestCase(TestCase):
         self.assertEqual(record['module_path'], 'helpers')
         self.assertEqual(record['class_name'], 'Shared')
         # The declaration that published it stays recorded, so provenance survives without
-        # the row identity depending on an entrypoint that may later be removed.
+        # the row identity depending on a script file that may later be removed.
         self.assertEqual(record['script_file_path'], SCRIPT_FILE)
         self.assertEqual(record['script_file_id'], SCRIPT_FILE_ID)
 
@@ -237,7 +237,7 @@ class ValidateDiscoveredScriptsTestCase(TestCase):
         self.assertEqual(captured.exception.code, 'invalid_entry')
 
     def test_a_script_file_id_that_is_not_a_positive_int_is_refused(self):
-        # True is an int in Python and would otherwise pass as a module id.
+        # True is an int in Python and would otherwise pass as a script file id.
         for value in (None, '3', 0, -1, True):
             damaged = [dict(self.snapshot[0])]
             damaged[0]['script_file_id'] = value

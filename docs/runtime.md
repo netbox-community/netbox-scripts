@@ -31,11 +31,11 @@ These generated names are internal. Everything user-facing, from logger names
 to stored validation errors, uses the project key and project-relative module
 paths instead.
 
-## How an entrypoint loads
+## How a script file loads
 
 Loading follows four steps, each gated on the one before it:
 
-1. **Check the path.** The manifest is validated, then the entrypoint must map
+1. **Check the path.** The manifest is validated, then the script file must map
    to an importable dotted name and must be part of that manifest. All three
    checks run before any I/O.
 2. **Materialize a verified tree.** The [runtime
@@ -49,7 +49,7 @@ Loading follows four steps, each gated on the one before it:
    revision content.
 4. **Import inside the failure boundary.** The revision package is built on the
    verified tree, its root `__init__.py` executes if the tree ships one, and
-   the entrypoint imports as a normal submodule. Relative imports between
+   the script file imports as a normal submodule. Relative imports between
    project files work exactly as they would in an installed package.
 
 A failed import sweeps every module it managed to register, including helpers a
@@ -88,11 +88,11 @@ an environment fault and leave the revision with no verdict recorded at all.
 
 ## What discovery publishes
 
-After an entrypoint imports, discovery decides which classes it offers:
+After a script file imports, discovery decides which classes it offers:
 
-- Every `Script` subclass the entrypoint module's own body defines is
+- Every `Script` subclass the script file's own body defines is
   published, ordered alphabetically by bound name.
-- A `script_order` list in the entrypoint pins presentation order, and it is
+- A `script_order` list in the script file pins presentation order, and it is
   also the one way to publish a Script class defined in another module of the
   revision. Entries must be Script subclasses defined in this revision, listed
   at most once.
@@ -110,7 +110,7 @@ log routing survives new revisions.
 
 ## Import-safe module-level code
 
-Validation imports entrypoints to judge them, so module-level code runs at
+Validation imports script files to judge them, so module-level code runs at
 validation time, not only when a script is executed. Keep module bodies to
 imports and definitions:
 
@@ -123,12 +123,12 @@ Work belongs in `run()`, which executes only when a user runs the script.
 ## How validation reaches a verdict
 
 Project validation drives a revision from `materialized` to `valid` or
-`invalid` by importing every entrypoint in the revision's snapshot and running
+`invalid` by importing every script file in the revision's snapshot and running
 discovery on it. The verdict rules:
 
 - A verdict is a statement about revision content. Bad syntax, a reference to a
   revision module that does not exist, project code raising at import time, an
-  unimportable declared path, a publication conflict, or an entrypoint missing
+  unimportable declared path, a publication conflict, or a script file missing
   from the manifest all make the revision `invalid`, terminally.
 - Environment trouble never produces a verdict. A missing external
   distribution, an unreachable backend, cache failure, or host I/O failure
@@ -136,16 +136,16 @@ discovery on it. The verdict rules:
   a fair attempt. An import naming a module the revision itself ships is
   content, not environment, so writing `import helpers` where the tree holds
   `helpers.py` reports as an authoring mistake rather than retrying forever.
-- An empty entrypoint set is valid. A project whose revision declares no
-  modules validates and can be activated, it simply offers no scripts.
-- A revision whose entrypoints all import cleanly and publish nothing is
-  `invalid`. Each such entrypoint is reported under the code
-  `no_scripts_published`, and its Module row reads `no_scripts` with the reason,
-  which names the base class when the entrypoint subclassed one of NetBox's own.
-  One entrypoint publishing nothing beside a working one leaves the verdict
-  alone and is reported on its own row. A project whose only enabled entrypoint
-  publishes nothing does stop activating, so declare a helper file as an
-  entrypoint only alongside one that publishes.
+- An empty script file set is valid. A project whose revision declares no
+  script files validates and can be activated, it simply offers no scripts.
+- A revision whose script files all import cleanly and publish nothing is
+  `invalid`. Each such script file is reported under the code
+  `no_scripts_published`, and its Script File row reads `no_scripts` with the reason,
+  which names the base class when the script file subclassed one of NetBox's own.
+  One script file publishing nothing beside a working one leaves the verdict
+  alone and is reported on its own row. A project whose only enabled script file
+  publishes nothing does stop activating, so declare a helper file as a
+  script file only alongside one that publishes.
 - Stored validation errors are sanitized. Runtime namespaces, storage
   identities, and cache paths never appear in them or in job logs, module
   references read project-relative.

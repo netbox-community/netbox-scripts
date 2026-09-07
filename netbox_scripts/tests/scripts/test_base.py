@@ -121,7 +121,7 @@ class ScriptMetaTestCase(TestCase):
         class TestScript(Script):
             pass
 
-        # The loader will import entrypoints beneath a generated namespace and assign
+        # The loader will import script files beneath a generated namespace and assign
         # the logical module name through _netbox_script_module
         TestScript.__module__ = '_netbox_scripts_runtime.p_1234.r_abcd.deploy_devices'
         TestScript._netbox_script_module = 'deploy_devices'

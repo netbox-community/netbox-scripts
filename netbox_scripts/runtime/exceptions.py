@@ -44,7 +44,7 @@ class InvalidModulePathError(UnsafePathError):
 
 class ScriptFileImportError(Exception):
     """
-    Raised when an entrypoint cannot be imported from its revision tree.
+    Raised when a script file cannot be imported from its revision tree.
 
     The detail attribute keeps a structured record of the failure (path, code, message,
     exception type, traceback) and __cause__ carries the original exception whenever one
@@ -58,7 +58,7 @@ class ScriptFileImportError(Exception):
 
 class DiscoveryError(Exception):
     """
-    Raised when an imported entrypoint declares an invalid script publication.
+    Raised when an imported script file declares an invalid script publication.
 
     A content statement about the revision: the module imported fine but its script_order
     or class layout breaks the publication contract. The code attribute holds one of the

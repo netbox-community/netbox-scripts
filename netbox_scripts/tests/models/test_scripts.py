@@ -139,7 +139,7 @@ class NetBoxScriptTestCase(TestCase):
         self.assertEqual(instance.description, description)
 
     def test_deleting_a_script_file_leaves_the_scripts_intact(self):
-        # A script's publishing entrypoint is provenance, not a relational parent.
+        # A script's publishing script file is provenance, not a relational parent.
         script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         instance = self._script()
         script_file.delete()

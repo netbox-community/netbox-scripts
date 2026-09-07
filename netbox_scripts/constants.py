@@ -26,7 +26,7 @@ UNSTORED_REVISION_STATUSES = ('staging', 'storage_failed')
 
 # A revision records why a validation could not reach a verdict, and that text reaches an operator
 # through a refusal rendered on a page, so it is bounded rather than allowed to hold a traceback.
-MAX_VALIDATION_ERROR_LENGTH = 500
+MAX_VALIDATION_FAILURE_LENGTH = 500
 
 # Persisted bounds on a published Script. The model fields the discovery snapshot
 # feeds declare these lengths, and validation enforces them while it still owns a verdict,

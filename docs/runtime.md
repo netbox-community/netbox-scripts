@@ -130,12 +130,14 @@ discovery on it. The verdict rules:
   revision module that does not exist, project code raising at import time, an
   unimportable declared path, a publication conflict, or a script file missing
   from the manifest all make the revision `invalid`, terminally.
-- Environment trouble never produces a verdict. A missing external
-  distribution, an unreachable backend, cache failure, or host I/O failure
-  rolls the revision back to `materialized` and fails the job, so a retry gets
-  a fair attempt. An import naming a module the revision itself ships is
-  content, not environment, so writing `import helpers` where the tree holds
-  `helpers.py` reports as an authoring mistake rather than retrying forever.
+- Environment trouble never produces a verdict. An unreachable backend, cache
+  failure, host I/O failure, or an import failure a repaired host could answer
+  differently rolls the revision back to `materialized` and fails the job, so a
+  retry gets a fair attempt. The test is whether a later run could reach a
+  different answer, so a name this interpreter cannot resolve at all is content:
+  a distribution the host does not have, and `import helpers` where the tree
+  holds `helpers.py`, both report as authoring mistakes naming the module rather
+  than leaving the revision unjudged forever.
 - An empty script file set is valid. A project whose revision declares no
   script files validates and can be activated, it simply offers no scripts.
 - A revision whose script files all import cleanly and publish nothing is

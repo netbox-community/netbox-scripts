@@ -100,7 +100,7 @@ def unservable_projects(run):
     keys = mapping.project_keys(mapping.build_map())
     projects = {project.key: project for project in ScriptProject.objects.filter(key__in=keys)}
     by_project = {}
-    columns = ScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created', 'validation_error')
+    columns = ScriptProjectRevision.objects.only('pk', 'project_id', 'status', 'created', 'last_validation_failure')
     for revision in columns.filter(project__key__in=keys).order_by('-created', '-pk'):
         by_project.setdefault(revision.project_id, []).append(revision)
     blocked = []
@@ -143,7 +143,7 @@ def _reason_for(newest):
     if newest.status in PENDING_VERDICT_REVISION_STATUSES:
         # An environment failure gives the lease fields back, so the recorded reason is the only
         # thing left saying a retry would land in exactly the same place.
-        if reason := (newest.validation_error or '').strip():
+        if reason := (newest.last_validation_failure or '').strip():
             return _('cannot be validated at all: {error}').format(error=reason)
         return _('is still awaiting a verdict on its newest revision, which is {status}').format(status=status)
     return _('has no valid revision to activate and its newest is {status}').format(status=status)

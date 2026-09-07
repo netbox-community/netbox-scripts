@@ -27,6 +27,7 @@ and validation services. They are not edited directly.
 | `total_size` | integer | yes | Combined size in bytes of every accepted source file |
 | `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
 | `discovered_scripts` | JSON | no | Scripts the most recent successful validation published, in publication order. May be empty |
+| `last_validation_failure` | string | system | Why the last attempt reached no verdict at all, distinct from `validation_errors`, which records what a verdict found wrong with the source. Empty once a verdict is reached |
 | `script_file_snapshot` | JSON | yes | Enabled script file declarations frozen at staging time, each with its `script_file` primary key and canonical `source_path`, sorted by path. May be empty |
 | `script_file_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
 | `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
@@ -221,9 +222,9 @@ fields nor script file discovery results. The verdict keeps `validation_job` and
 | Neither the tree nor what it publishes changed while the tree was being verified | The locked row is compared against the verified one, digests, manifest, snapshot, and published scripts alike |
 | Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |
 
-`status`, `validation_errors`, `discovered_scripts`, `activated`, and the lease
-fields stay mutable, because they are the lifecycle fields the storage and
-validation services move.
+`status`, `validation_errors`, `last_validation_failure`, `discovered_scripts`,
+`activated`, and the lease fields stay mutable, because they are the lifecycle
+fields the storage and validation services move.
 
 Two different rejected trees can share the same accepted subset of files. Storing
 them with a null digest is what keeps them from colliding on one content address.

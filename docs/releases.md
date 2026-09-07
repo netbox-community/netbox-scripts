@@ -192,7 +192,8 @@
 * Fixed: an import error naming a member that does not exist was classified as an
   environment fault, so an author's typo failed the validation job with no
   verdict recorded rather than producing an invalid revision naming the line.
-  Only an absent module is treated as the environment's now
+  Environment is now reserved for a failure a repaired host could answer
+  differently, so a name this interpreter cannot resolve is a verdict too
 * A migration inventory pass reports what moving off NetBox's built-in Custom
   Scripts would do, and changes nothing. It classifies every built-in module's
   authoring dialect by parsing the stored source rather than importing it, names

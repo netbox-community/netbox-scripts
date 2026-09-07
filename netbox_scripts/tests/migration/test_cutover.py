@@ -560,7 +560,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         revision = project.revisions.order_by('-created').first()
         ScriptProjectRevision.objects.filter(pk=revision.pk).update(
-            validation_error='ModuleNotFoundError: No module named "vendor_sdk"'
+            last_validation_failure='ModuleNotFoundError: No module named "vendor_sdk"'
         )
 
         entry = next(item for item in cutover.unservable_projects(self.migration) if item['project_key'] == project.key)

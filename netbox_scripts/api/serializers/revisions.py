@@ -31,6 +31,7 @@ class ScriptProjectRevisionSerializer(ValidatedModelSerializer):
             'file_count',
             'total_size',
             'validation_errors',
+            'last_validation_failure',
             'discovered_scripts',
             'script_file_digest',
             'activated',

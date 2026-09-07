@@ -512,8 +512,8 @@ class ScriptProjectRevision(ChangeLoggedModel):
         null=True,
         editable=False,
     )
-    validation_error = models.TextField(
-        verbose_name=_('validation error'),
+    last_validation_failure = models.TextField(
+        verbose_name=_('last validation failure'),
         blank=True,
         editable=False,
         help_text=_(

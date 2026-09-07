@@ -20,6 +20,7 @@ digest, and cache paths are stripped from everything persisted to validation_err
 the job layer routes its log lines through the same sanitizer.
 """
 
+import importlib.util
 import uuid
 from datetime import timedelta
 
@@ -29,7 +30,7 @@ from django.utils import timezone
 
 from .branching import require_safe_routing
 from .choices import FileDiscoveryStatusChoices, RevisionStatusChoices
-from .constants import MAX_VALIDATION_ERROR_LENGTH, VALIDATION_LEASE_SECONDS
+from .constants import MAX_VALIDATION_FAILURE_LENGTH, VALIDATION_LEASE_SECONDS
 from .models import ScriptFile, ScriptProjectRevision
 from .runtime.cache import local_revision_dir
 from .runtime.discovery import discover_scripts, zero_publication_reason
@@ -84,7 +85,7 @@ def validate_revision(revision, *, job, passthrough=()):
         status=RevisionStatusChoices.VALIDATING,
         validation_job=job,
         validation_started=now,
-        validation_error='',
+        last_validation_failure='',
     )
     if not claimed:
         raise ValidationStateError(
@@ -184,14 +185,16 @@ def classify_script_file_error(error, *, revision_prefix, revision_modules=froze
     The loader chains the original exception, so the cause is what gets judged. Content
     means the revision itself can never import: bad syntax, a reference to a revision
     module that does not exist, or project code raising at import time. Environment means
-    the process could not give the revision a fair try: an absent external distribution,
-    backend or cache trouble, or host I/O failure. Only an absent module can be that, a name
-    missing from a module that did import never is. A missing cause is the loader's own
-    manifest-membership refusal, which is content by construction.
+    the process could not give the revision a fair try, and the test for it is whether a
+    later run on a repaired host could reach a different answer: backend or cache trouble,
+    host I/O failure, or a name this interpreter can resolve whose import still failed. A
+    name it cannot resolve at all fails the same way on every retry, so it is content. A
+    missing cause is the loader's own manifest-membership refusal, which is content by
+    construction.
 
     revision_modules names the top-level modules the revision's own tree ships, which is what
     separates an author's absolute import of their own helper from a distribution this host
-    does not have. Without it both arrive as an unprefixed ModuleNotFoundError.
+    does have under the same name.
     """
     cause = error.__cause__
     if cause is None:
@@ -207,11 +210,24 @@ def classify_script_file_error(error, *, revision_prefix, revision_modules=froze
         name = cause.name or ''
         if name == revision_prefix or name.startswith(f'{revision_prefix}.'):
             return 'content'
+        top = name.split('.')[0]
         # "import helpers" where the revision ships helpers.py, rather than "from . import".
-        return 'content' if name.split('.')[0] in revision_modules else 'environment'
+        if top in revision_modules:
+            return 'content'
+        return 'environment' if _host_resolves(top) else 'content'
     if isinstance(cause, (StorageError, OSError)):
         return 'environment'
     return 'content'
+
+
+def _host_resolves(name):
+    """Whether this interpreter can find a top-level module, without importing it."""
+    # find_spec locates without executing, and a top-level name has no parent package for it
+    # to import as a side effect.
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
 
 
 def build_error_sanitizer(storage_key, digest):
@@ -357,7 +373,7 @@ def _revert_to_materialized(revision, job, reason=''):
         status=RevisionStatusChoices.MATERIALIZED,
         validation_job=None,
         validation_started=None,
-        validation_error=reason[:MAX_VALIDATION_ERROR_LENGTH],
+        last_validation_failure=reason[:MAX_VALIDATION_FAILURE_LENGTH],
     )
 
 

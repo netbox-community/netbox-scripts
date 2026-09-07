@@ -392,6 +392,40 @@ class ScriptProjectRevisionProblemPanelTestCase(TestCase):
         self.assertEqual(self.invalid.problems[0]['path'], 'broken.py')
 
 
+class RevisionValidationErrorPanelTestCase(TestCase):
+    """A revision that reached no verdict says why on its own page."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = ScriptProject.objects.create(name='Unjudged Project', key='unjudged-project')
+        # The state a failed validation leaves: the claim is given back, so the row reads
+        # materialized rather than carrying a verdict.
+        cls.reverted = ScriptProjectRevision.objects.create(
+            project=cls.project,
+            digest='e' * 64,
+            status=RevisionStatusChoices.MATERIALIZED,
+            last_validation_failure='ScriptFileImportError: The script file "deploy.py" failed to import.',
+        )
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+        obj_perm = ObjectPermission(name='revision view', actions=['view'])
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProjectRevision))
+
+    def test_the_page_names_why_no_verdict_was_reached(self):
+        url = reverse('plugins:netbox_scripts:scriptprojectrevision', args=[self.reverted.pk])
+        response = self.client.get(url)
+
+        self.assertHttpStatus(response, 200)
+        body = response.content.decode()
+        # The reason itself, not just its label: the operator needs the module name.
+        self.assertIn('failed to import', body)
+        self.assertIn('deploy.py', body)
+
+
 class RevisionScriptFilePanelTestCase(TestCase):
     """A revision's page lists the script files it froze, which is where the tab's count resolves."""
 

@@ -246,9 +246,24 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
 
-    def test_a_missing_external_distribution_reverts_and_reraises(self):
+    def test_a_name_this_host_cannot_resolve_is_an_invalid_verdict(self):
+        # No run on this host resolves it, so leaving the file unjudged would leave it pending
+        # for good with nothing on any surface saying why.
         script_file = self.declare('deploy.py')
         revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.FAILED)
+        self.assertIn('package_that_is_not_installed_anywhere', script_file.discovery_error)
+
+    def test_a_broken_import_of_an_installed_distribution_reverts_and_reraises(self):
+        # The host has netaddr, so repairing or upgrading it could change the answer. That is
+        # the one import failure a later run can still fix, and it records no verdict.
+        script_file = self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'import netaddr.absent_submodule\n'})
         with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
         revision.refresh_from_db()
@@ -262,27 +277,27 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         # The lease fields are given back, so this is the only thing that survives to say why a
         # revision returning to materialized will never reach a verdict on its own.
         self.declare('deploy.py')
-        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+        revision = self.stage({'deploy.py': b'import netaddr.absent_submodule\n'})
 
         with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
 
         revision.refresh_from_db()
-        self.assertIn('package_that_is_not_installed_anywhere', revision.validation_error)
+        self.assertIn('netaddr.absent_submodule', revision.last_validation_failure)
 
     def test_a_recorded_reason_is_cleared_when_a_verdict_is_reached(self):
         self.declare('deploy.py')
-        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+        revision = self.stage({'deploy.py': b'import netaddr.absent_submodule\n'})
         with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
         revision.refresh_from_db()
-        self.assertTrue(revision.validation_error)
+        self.assertTrue(revision.last_validation_failure)
 
         working = self.stage({'deploy.py': b'from netbox_scripts.scripts import Script\n'})
         validate_revision(working, job=self.make_job())
 
         working.refresh_from_db()
-        self.assertEqual(working.validation_error, '')
+        self.assertEqual(working.last_validation_failure, '')
 
     def test_a_passthrough_exception_reverts_and_escapes_unwrapped(self):
         self.declare('deploy.py')
@@ -468,7 +483,7 @@ class PublicationTestCase(ValidationTestMixin, TestCase):
 
     def test_an_environment_failure_leaves_the_publication_set_alone(self):
         self.declare('deploy.py')
-        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+        revision = self.stage({'deploy.py': b'import netaddr.absent_submodule\n'})
         with self.assertRaises(ScriptFileImportError):
             validate_revision(revision, job=self.job)
         revision.refresh_from_db()
@@ -605,7 +620,8 @@ class ClassificationTestCase(TestCase):
             (None, 'content'),
             (SyntaxError('bad'), 'content'),
             (ModuleNotFoundError('missing', name=f'{self.PREFIX}.helpers'), 'content'),
-            (ModuleNotFoundError('missing', name='numpy_absent'), 'environment'),
+            (ModuleNotFoundError('missing', name='numpy_absent'), 'content'),
+            (ModuleNotFoundError('missing', name='netaddr.absent'), 'environment'),
             (ImportError('cannot import name', name=self.PREFIX), 'content'),
             (ImportError('plain'), 'content'),
             (StorageError('backend down'), 'environment'),
@@ -624,8 +640,15 @@ class ClassificationTestCase(TestCase):
         error = self.wrap(ImportError("cannot import name 'Devices' from 'dcim.models'", name='dcim.models'))
         self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), 'content')
 
-    def test_an_absent_distribution_is_still_environment(self):
-        error = self.wrap(ModuleNotFoundError("No module named 'netaddr'", name='netaddr'))
+    def test_a_distribution_this_host_does_not_have_is_content(self):
+        # No run on this host can resolve the name, so a verdict naming it is what an operator
+        # can act on.
+        error = self.wrap(ModuleNotFoundError("No module named 'netaddr_absent'", name='netaddr_absent'))
+        self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), 'content')
+
+    def test_a_missing_submodule_of_an_installed_distribution_is_environment(self):
+        # The host has netaddr, so a later run on a repaired host could answer differently.
+        error = self.wrap(ModuleNotFoundError("No module named 'netaddr.absent'", name='netaddr.absent'))
         self.assertEqual(classify_script_file_error(error, revision_prefix=self.PREFIX), 'environment')
 
     def test_a_refused_legacy_import_is_content(self):
@@ -636,11 +659,19 @@ class ClassificationTestCase(TestCase):
 
     def test_an_absolute_import_of_the_revisions_own_module_is_content(self):
         # "import helpers" instead of "from . import helpers" raises without the revision
-        # prefix, so without the manifest it reads exactly like a missing distribution and the
-        # revision reverts to materialized forever instead of ever reaching invalid.
+        # prefix, so the manifest is what says the author meant their own file.
         error = self.wrap(ModuleNotFoundError('missing', name='helpers'))
         self.assertEqual(
             classify_script_file_error(error, revision_prefix=self.PREFIX, revision_modules={'helpers'}),
+            'content',
+        )
+
+    def test_the_manifest_wins_over_a_name_the_host_also_has(self):
+        # A revision shipping a module that shadows an installed one is the only case where
+        # revision_modules changes the answer, since an unresolvable name is content regardless.
+        error = self.wrap(ModuleNotFoundError('missing', name='json'))
+        self.assertEqual(
+            classify_script_file_error(error, revision_prefix=self.PREFIX, revision_modules={'json'}),
             'content',
         )
         self.assertEqual(
@@ -784,7 +815,7 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
 
     def test_an_environment_failure_fails_the_job_and_releases_the_claim(self):
         self.declare('deploy.py')
-        revision = self.stage({'deploy.py': b'import package_that_is_not_installed_anywhere\n'})
+        revision = self.stage({'deploy.py': b'import netaddr.absent_submodule\n'})
         job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)

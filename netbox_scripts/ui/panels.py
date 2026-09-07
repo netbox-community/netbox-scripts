@@ -50,6 +50,7 @@ class ScriptProjectRevisionStatePanel(ObjectAttributesPanel):
     title = _('State')
 
     status = attrs.ChoiceAttr('status', label=_('Status'))
+    last_validation_failure = attrs.TextAttr('last_validation_failure', label=_('Last validation failure'))
     created = attrs.DateTimeAttr('created', label=_('Created'))
     activated = attrs.DateTimeAttr('activated', label=_('Activated'))
 

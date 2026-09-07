@@ -107,6 +107,15 @@ class ScriptProjectRevisionAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
         self.assertNotIn('validation_job', response.data)
         self.assertNotIn('validation_started', response.data)
 
+    def test_the_last_validation_failure_is_present_and_distinct(self):
+        """A verdict's findings and a failure to reach one are two fields, not one."""
+        self.add_permissions('netbox_scripts.view_scriptprojectrevision')
+        response = self.client.get(self._detail_url(), **self.header)
+        self.assertIn('last_validation_failure', response.data)
+        self.assertIn('validation_errors', response.data)
+        # Named apart on purpose: this one is why no verdict was reached.
+        self.assertEqual(response.data['last_validation_failure'], '')
+
     def test_the_storage_key_is_absent(self):
         """It is the content-addressing identity of an operator's stored bytes."""
         self.add_permissions('netbox_scripts.view_scriptprojectrevision')

@@ -68,7 +68,7 @@ class Migration(migrations.Migration):
                 ('script_file_snapshot', models.JSONField(blank=True, default=list)),
                 ('script_file_digest', models.CharField(default='4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945', max_length=64, validators=[django.core.validators.RegexValidator(message='The script file digest must be 64 lowercase hexadecimal characters.', regex='^[0-9a-f]{64}$')])),
                 ('validation_started', models.DateTimeField(blank=True, editable=False, null=True)),
-                ('validation_error', models.TextField(blank=True, editable=False)),
+                ('last_validation_failure', models.TextField(blank=True, editable=False)),
                 ('activated', models.DateTimeField(blank=True, null=True)),
                 ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='revisions', to='netbox_scripts.scriptproject')),
                 ('validation_job', models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='core.job')),

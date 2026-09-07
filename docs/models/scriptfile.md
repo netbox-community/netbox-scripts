@@ -35,12 +35,13 @@ repointed row would report a verdict for a file it no longer names.
 
 There is no rename. When a file moves or is renamed in the project's source, the
 new path appears as a candidate on the Script Files tab and the old one is
-reported as missing. Tick the new path and untick the old one:
+reported as missing. Move the new path into the selected list and the old one
+out of it:
 
-1. Ticking the new path declares it, starting at `pending` until the next validation.
-2. Unticking the old path clears its `enabled`, which is what selection means.
+1. Selecting the new path declares it, starting at `pending` until the next validation.
+2. Deselecting the old path clears its `enabled`, which is what selection means.
 
-Unticking disables rather than deletes, which keeps the old declaration's
+Deselecting disables rather than deletes, which keeps the old declaration's
 discovery history and keeps its path reserved, because
 `unique_project_source_path` does not consider `enabled`. Renaming the file back
 therefore re-enables the original row instead of colliding with it. Staging includes only enabled declarations, so

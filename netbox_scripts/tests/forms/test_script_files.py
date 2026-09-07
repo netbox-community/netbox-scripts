@@ -27,7 +27,8 @@ class ScriptFileSelectionTestCase(TestCase):
         )
 
     def form(self, paths):
-        return ScriptProjectScriptFilesForm(data={'script_files': paths}, instance=self.project)
+        # The selected pane posts under the subwidget's own name, the only key the widget reads.
+        return ScriptProjectScriptFilesForm(data={'script_files_1': paths}, instance=self.project)
 
     def test_the_choices_are_the_projects_importable_modules(self):
         form = ScriptProjectScriptFilesForm(instance=self.project)

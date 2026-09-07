@@ -8,7 +8,7 @@ from netbox.forms import PrimaryModelForm
 from utilities.forms import get_field_value
 from utilities.forms.fields import DynamicModelChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
-from utilities.forms.widgets import HTMXSelect
+from utilities.forms.widgets import HTMXSelect, SplitMultiSelectWidget
 
 from ...choices import ProjectSourceTypeChoices
 from ...ingestion import check_upload_conflicts, current_source_tree, ingest_upload, uploaded_source_path
@@ -215,18 +215,11 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         return self.instance
 
 
-class ScriptFileCheckboxSelect(forms.CheckboxSelectMultiple):
-    """A multiple-checkbox widget carrying the Bootstrap markup the rest of the form uses."""
-
-    template_name = 'netbox_scripts/widgets/script_file_checkboxes.html'
-
-
 class ScriptProjectScriptFilesForm(PrimaryModelForm):
     """Select which of a project's source modules are its executable script files."""
 
     script_files = forms.MultipleChoiceField(
         required=False,
-        widget=ScriptFileCheckboxSelect(),
         label=_('Script Files'),
         help_text=_(
             'Source files whose Scripts this Project publishes. Helpers need no selection. '
@@ -257,15 +250,20 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
             if self.instance.source_type == ProjectSourceTypeChoices.UPLOAD
             else set()
         )
-        self.fields['script_files'].choices = [
+        choices = [
             (path, self._label(path, declared.get(path), path in candidates, path in awaiting))
             for path in self.instance.declarable_script_files()
         ]
+        field = self.fields['script_files']
+        # The field's copy is what accepts a submitted path and the widget's is what renders the
+        # two panes. A MultiWidget forwards neither to the other, so both are set.
+        field.choices = choices
+        field.widget = SplitMultiSelectWidget(choices=choices)
         self.initial['script_files'] = [path for path, script_file in declared.items() if script_file.enabled]
 
     @staticmethod
     def _label(path, script_file, available, awaiting=False):
-        """Return the checkbox label, annotated with why an operator might care about the path."""
+        """Return the option label, annotated with why an operator might care about the path."""
         if not available:
             if awaiting:
                 return _('{path} (not in the active revision yet)').format(path=path)

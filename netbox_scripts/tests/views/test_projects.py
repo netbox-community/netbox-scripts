@@ -144,7 +144,7 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
 
     def test_selecting_creates_declarations(self):
         self.grant_both()
-        response = self.client.post(self.url(), {'script_files': ['deploy.py', 'tools/audit.py']})
+        response = self.client.post(self.url(), {'script_files_1': ['deploy.py', 'tools/audit.py']})
         self.assertHttpStatus(response, 302)
         self.assertEqual(
             sorted(self.project.script_files.filter(enabled=True).values_list('source_path', flat=True)),
@@ -154,7 +154,7 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
     def test_deselecting_disables_and_keeps_the_row(self):
         self.grant_both()
         script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
-        self.assertHttpStatus(self.client.post(self.url(), {'script_files': []}), 302)
+        self.assertHttpStatus(self.client.post(self.url(), {'script_files_1': []}), 302)
         script_file.refresh_from_db()
         self.assertFalse(script_file.enabled)
 
@@ -167,13 +167,23 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
         self.grant(ScriptFile, 'view', 'change', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
-    def test_the_selection_renders_with_the_forms_own_markup(self):
-        # NetBox's render_field.html has no branch for a multiple-checkbox widget, so the default
-        # Django template renders it with no Bootstrap classes at all.
+    def panes(self, body):
+        """Return the available and the selected pane markup, split on the two subwidget ids."""
+        available = body.split('id="id_script_files_0"', 1)[1].split('</select>', 1)[0]
+        selected = body.split('id="id_script_files_1"', 1)[1].split('</select>', 1)[0]
+        return available, selected
+
+    def test_the_choices_reach_both_panes(self):
+        # A MultiWidget carries no choices descriptor, so setting them on the field alone leaves
+        # both panes empty and the tab unusable.
         self.grant_both()
-        body = self.client.get(self.url()).content.decode()
-        self.assertIn('form-check-input', body)
-        self.assertIn('form-check-label', body)
+        ScriptFile.objects.create(project=self.project, source_path='deploy.py', enabled=True)
+
+        available, selected = self.panes(self.client.get(self.url()).content.decode())
+
+        self.assertIn('tools/audit.py', available)
+        self.assertNotIn('tools/audit.py', selected)
+        self.assertIn('deploy.py', selected)
 
     def test_the_tab_offers_no_field_it_would_discard(self):
         # save() reconciles declarations and never saves the project, so an attribute field here

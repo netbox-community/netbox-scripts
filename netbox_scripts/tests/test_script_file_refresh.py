@@ -215,7 +215,7 @@ class ScriptFilesFormTestCase(TestCase):
         )
 
     def save(self, paths):
-        form = ScriptProjectScriptFilesForm(data={'script_files': paths}, instance=self.project)
+        form = ScriptProjectScriptFilesForm(data={'script_files_1': paths}, instance=self.project)
         self.assertTrue(form.is_valid(), form.errors)
         form.save()
         return form

@@ -274,6 +274,8 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         'description': 'Bulk-updated description',
         'enabled': False,
     }
+    # Refused by the serializer's BooleanField.
+    bulk_update_invalid_data = {'enabled': 'maybe'}
 
     @classmethod
     def setUpTestData(cls):

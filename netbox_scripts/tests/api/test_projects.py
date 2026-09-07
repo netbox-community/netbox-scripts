@@ -24,6 +24,8 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         'description': 'Bulk-updated description',
         'enabled': False,
     }
+    # Refused by the serializer's ChoiceField.
+    bulk_update_invalid_data = {'activation_policy': 'not-a-policy'}
 
     @classmethod
     def setUpTestData(cls):

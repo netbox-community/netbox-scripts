@@ -250,10 +250,7 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
             if self.instance.source_type == ProjectSourceTypeChoices.UPLOAD
             else set()
         )
-        choices = [
-            (path, self._label(path, declared.get(path), path in candidates, path in awaiting))
-            for path in self.instance.declarable_script_files()
-        ]
+        choices = self._grouped_choices(declared, candidates, awaiting)
         field = self.fields['script_files']
         # The field's copy is what accepts a submitted path and the widget's is what renders the
         # two panes. A MultiWidget forwards neither to the other, so both are set.
@@ -261,16 +258,31 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
         field.widget = SplitMultiSelectWidget(choices=choices)
         self.initial['script_files'] = [path for path, script_file in declared.items() if script_file.enabled]
 
+    def _grouped_choices(self, declared, candidates, awaiting):
+        """Return the selectable paths as optgroups, one per directory they sit in."""
+        groups = {}
+        for path in self.instance.declarable_script_files():
+            # rpartition rather than a path library: these paths are already canonical, and
+            # validators.py avoids normpath because it resolves '..' segments.
+            directory = path.rpartition('/')[0]
+            label = self._label(path, declared.get(path), path in candidates, path in awaiting)
+            groups.setdefault(directory, []).append((path, label))
+        # The empty key sorts first, so the project root leads whatever its files are called.
+        return [(directory or _('(root)'), groups[directory]) for directory in sorted(groups)]
+
     @staticmethod
     def _label(path, script_file, available, awaiting=False):
-        """Return the option label, annotated with why an operator might care about the path."""
+        """Return the option label: the file's own name, annotated with why it might matter."""
+        # The directory is the group header, so repeating it here would push the annotation off
+        # the end of a narrow pane.
+        name = path.rpartition('/')[2]
         if not available:
             if awaiting:
-                return _('{path} (not in the active revision yet)').format(path=path)
-            return _('{path} (missing from the source)').format(path=path)
+                return _('{name} (not in the active revision yet)').format(name=name)
+            return _('{name} (missing from the source)').format(name=name)
         if script_file is None:
-            return path
-        return _('{path} ({status})').format(path=path, status=script_file.get_discovery_status_display())
+            return name
+        return _('{name} ({status})').format(name=name, status=script_file.get_discovery_status_display())
 
     def save(self, *args, **kwargs):
         """Reconcile the declarations onto the selection, apply it to the source, and return the project."""

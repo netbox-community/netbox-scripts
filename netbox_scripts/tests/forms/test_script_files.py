@@ -30,12 +30,44 @@ class ScriptFileSelectionTestCase(TestCase):
         # The selected pane posts under the subwidget's own name, the only key the widget reads.
         return ScriptProjectScriptFilesForm(data={'script_files_1': paths}, instance=self.project)
 
+    @staticmethod
+    def paths(form):
+        """Return every selectable path, flattened out of the optgroups."""
+        return [value for _group, members in form.fields['script_files'].choices for value, _label in members]
+
+    @staticmethod
+    def labels(form):
+        """Return the option label per path, flattened out of the optgroups."""
+        return {value: label for _group, members in form.fields['script_files'].choices for value, label in members}
+
+    @staticmethod
+    def groups(form):
+        """Return the optgroup headers in render order."""
+        return [str(group) for group, _members in form.fields['script_files'].choices]
+
     def test_the_choices_are_the_projects_importable_modules(self):
         form = ScriptProjectScriptFilesForm(instance=self.project)
-        self.assertEqual(
-            [value for value, _label in form.fields['script_files'].choices],
-            ['deploy.py', 'tools/audit.py', 'tools/helpers.py'],
+        self.assertEqual(self.paths(form), ['deploy.py', 'tools/audit.py', 'tools/helpers.py'])
+
+    def test_the_options_are_grouped_by_directory(self):
+        form = ScriptProjectScriptFilesForm(instance=self.project)
+        self.assertEqual(self.groups(form), ['(root)', 'tools'])
+
+    def test_an_option_carries_the_file_name_rather_than_the_whole_path(self):
+        form = ScriptProjectScriptFilesForm(instance=self.project)
+        self.assertEqual(str(self.labels(form)['tools/audit.py']), 'audit.py')
+
+    def test_a_nested_directory_is_its_own_group(self):
+        # Grouped by the full relative directory, so tools/deep does not merge into tools.
+        project = ScriptProject.objects.create(name='Deep Selection', key='deep-selection')
+        ScriptProjectRevision.objects.create(
+            project=project,
+            digest='d' * 64,
+            manifest=manifest('tools/audit.py', 'tools/deep/x.py'),
+            status=RevisionStatusChoices.MATERIALIZED,
         )
+
+        self.assertEqual(self.groups(ScriptProjectScriptFilesForm(instance=project)), ['tools', 'tools/deep'])
 
     def test_selecting_creates_enabled_declarations(self):
         form = self.form(['deploy.py', 'tools/audit.py'])
@@ -79,15 +111,14 @@ class ScriptFileSelectionTestCase(TestCase):
         # Otherwise the form is unsubmittable until the operator drops the declaration.
         ScriptFile.objects.create(project=self.project, source_path='removed.py')
         form = ScriptProjectScriptFilesForm(instance=self.project)
-        self.assertIn('removed.py', [value for value, _label in form.fields['script_files'].choices])
+        self.assertIn('removed.py', self.paths(form))
         submitted = self.form(['removed.py'])
         self.assertTrue(submitted.is_valid(), submitted.errors)
 
     def test_a_missing_path_is_labelled(self):
         ScriptFile.objects.create(project=self.project, source_path='removed.py')
         form = ScriptProjectScriptFilesForm(instance=self.project)
-        labels = dict(form.fields['script_files'].choices)
-        self.assertEqual(str(labels['removed.py']), 'removed.py (missing from the source)')
+        self.assertEqual(str(self.labels(form)['removed.py']), 'removed.py (missing from the source)')
 
     def test_a_path_only_a_newer_revision_holds_is_labelled_not_yet_active(self):
         project = ScriptProject.objects.create(name='Staged Selection', key='staged-selection')
@@ -107,7 +138,7 @@ class ScriptFileSelectionTestCase(TestCase):
         ScriptFile.objects.create(project=project, source_path='added.py')
         ScriptFile.objects.create(project=project, source_path='gone.py')
 
-        labels = dict(ScriptProjectScriptFilesForm(instance=project).fields['script_files'].choices)
+        labels = self.labels(ScriptProjectScriptFilesForm(instance=project))
         self.assertEqual(str(labels['added.py']), 'added.py (not in the active revision yet)')
         self.assertEqual(str(labels['gone.py']), 'gone.py (missing from the source)')
 

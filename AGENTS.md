@@ -75,7 +75,7 @@ when domain content calls for them.
 │   │   └── scripts.py              , NetBoxScriptFilterSet: project by id + key, explicit MultiValueCharFilter for the TextField description, explicit MultipleChoiceFilter for the notification override, the other two overrides generated, metadata unfiltered. + ScriptFileFilterSet: project by id + key, discovery filters, custom search().
 │   ├── forms/
 │   │   ├── __init__.py            , [ScriptProject] Re-exports each by-type subpackage.
-│   │   ├── model_forms/projects.py   , [ScriptProject] ScriptProjectEditForm + ScriptProjectScriptFilesForm (reconciles the selection onto enabled, then enqueues ProjectScriptFileRefreshJob when it moved).
+│   │   ├── model_forms/projects.py   , [ScriptProject] ScriptProjectEditForm + ScriptProjectScriptFilesForm (reconciles the selection onto enabled, then enqueues ProjectScriptFileRefreshJob when it moved). Its selection is core's SplitMultiSelectWidget, built per instance because a MultiWidget forwards no choices to its two panes, and the choices are optgroups keyed on each path's directory with the source root under `(root)`, so an option carries only the file name and the annotations stay readable in a narrow pane.
 │   │   ├── bulk_edit/projects.py     , [ScriptProject] ScriptProjectBulkEditForm.
 │   │   ├── bulk_import/projects.py   , [ScriptProject] ScriptProjectBulkImportForm.
 │   │   ├── model_forms/scripts.py    , NetBoxScriptEditForm: writable set is enabled, the three execution overrides, comments, owner, tags and custom fields. A plain NetBox model form, because every derived column is editable=False and therefore already out of it. + ScriptFileEditForm (project + source_path frozen, so disabled on edit).
@@ -128,7 +128,7 @@ when domain content calls for them.
 │   │   ├── views/test_revisions.py , Activate/Deactivate buttons: round trip, refusals, permissions, and which button each status renders. Plus RevisionScriptFilePanelTestCase, the frozen paths and the empty case.
 │   │   ├── views/test_reconcile.py , The Reconcile Source action: the confirmation, the enqueue, the permission gate, and which source type renders the button.
 │   │   ├── forms/test_confirmations.py , MigrationCutoverForm: the box is required, and it is visible rather than hidden, since the confirmation template renders only hidden fields.
-│   │   ├── forms/test_script_files.py , Selection reconciles onto enabled, nested paths, missing declared paths.
+│   │   ├── forms/test_script_files.py , Selection reconciles onto enabled, nested paths, missing declared paths, and the optgroups: the `(root)` header, an option carrying only its file name, and a nested directory grouping separately from its parent.
 │   │   ├── api/test_script_files.py , The projects/<id>/script-files/ GET + PUT contract.
 │   │   ├── api/test_upload.py , The projects/<id>/upload/ contract: the refusals that answer 400, the 201 that carries an already-invalid revision because the route bounds one file while the manifest reads the tree, what each activation policy leaves behind, and both halves of the permission pair.
 │   │   ├── views/test_upload.py , The Upload page, which creates a Project from one script, and the Add Script page, which stages the existing tree plus the new file. Covers the one-shot activation tick travelling to the validation job separately from the standing policy the Project persists, the confirmation a known path and a shared basename both need, and that a rolled-back upload leaves the store untouched.

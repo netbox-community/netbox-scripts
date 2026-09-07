@@ -67,7 +67,9 @@ was a mistake that never validated.
 
 Script Files are selected on the owning Project's **Script Files** tab, which
 lists the importable modules of its source at any depth and never asks for a
-typed path. The same operation is available over REST:
+typed path. Candidates are grouped by the directory they sit in, with files at
+the top of the source under `(root)`, and each option carries its own file name
+rather than the whole path. The same operation is available over REST:
 
 ```text
 GET  /api/plugins/netbox-scripts/projects/<id>/script-files/

@@ -98,6 +98,17 @@ Project already holds, which is the same confirmation the form asks for. Uploadi
 bytes resolves to the revision that already holds them, verdict included, rather than creating
 a second one.
 
+**A 201 means the file was stored as a revision, not that the source is usable.** What the route
+refuses outright it answers with a 400 naming `file`: a body over the per-file byte limit, a name
+that is not a Python file, a path the Project already holds without `confirm_replace`, a path
+that collides with an existing declaration by letter case or by module name, and a Project whose
+source is a Data Source rather than uploaded files. Everything else is accepted and answered with
+a revision. Content the manifest will not accept, such as an upload
+that trips a limit read over the whole tree rather than over one file, comes back as a revision
+that is already `invalid` and carries no source digest, and a revision that fails to import or
+publishes no Script reaches `invalid` a moment later. The verdict on the revision is the only
+thing that says the source is usable.
+
 Authorization is the same pair the **Add Script** page needs: the change permission on the
 Project, because the Project exists and its source is being changed, and the add permission on
 Script Files, because the upload declares its own script file. The Project's add

@@ -117,6 +117,22 @@ class UploadAPITestCase(APITestCase):
         response = self.upload(name='notes.md', content=b'# notes\n')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_content_the_manifest_refuses_stages_an_invalid_revision(self):
+        # The route bounds one file, so a limit that reads the whole tree is not a 400. It stages
+        # as an invalid revision instead, which is the case a caller polling the verdict has to
+        # expect from a 201.
+        self.allow_uploads()
+        self.upload()
+
+        with override_settings(PLUGINS_CONFIG={'netbox_scripts': {'max_file_count': 1}}):
+            response = self.upload(name='helper.py', content=b'VALUE = 1\n')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        revision = ScriptProjectRevision.objects.get(pk=response.data['id'])
+        self.assertEqual(revision.status, RevisionStatusChoices.INVALID)
+        self.assertIsNone(revision.digest)
+        self.assertEqual([error['code'] for error in revision.validation_errors], ['too_many_files'])
+
     def test_a_data_source_project_is_refused(self):
         self.allow_uploads()
         source = DataSource.objects.create(name='Scripts Repo', type='local', source_url='file:///tmp/repo/')

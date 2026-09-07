@@ -81,9 +81,9 @@ and a run requested over REST is refused with a 503 rather than queued for nobod
 | Check | Expected result |
 |---|---|
 | Visit `/plugins/` in NetBox | NetBox Scripts is listed |
-| Open the navigation menu | A "Custom Scripts" menu appears, with a Projects group and a Scripts group |
+| Open the navigation menu | A "Scripts" menu appears, with a Projects group and a Scripts group |
 | `GET /api/plugins/netbox-scripts/` | Plugin API root responds |
 | `python manage.py check` | No `netbox_scripts.W001`, meaning project storage is configured |
-| Upload a script from *Custom Scripts > Projects > Upload Script* | The Project's revision reaches `valid`, which proves storage and the worker are both working |
+| Upload a script from *Scripts > Projects > Upload Script* | The Project's revision reaches `valid`, which proves storage and the worker are both working |
 
 See [Uploading Scripts](uploading.md) for that last step in full.

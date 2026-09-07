@@ -95,7 +95,7 @@ scripts with it. Pruning an old revision never takes scripts with it, so
 |---|---|
 | REST | `/api/plugins/netbox-scripts/scripts/` |
 | GraphQL | `netbox_script`, `netbox_script_list` |
-| UI | Custom Scripts > Scripts |
+| UI | Scripts > Scripts |
 
 Update only. Rows are derived from a validated revision, so the API offers list,
 detail, and update, and refuses to create or delete. A PATCH may set `enabled`,

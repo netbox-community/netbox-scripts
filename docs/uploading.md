@@ -5,7 +5,7 @@ covers adding that content through the UI and what the plugin does with it.
 
 ## Creating a Project from one script
 
-*Custom Scripts > Script Projects*, then **Upload Script**. The form asks for five
+*Scripts > Projects*, then **Upload Script**. The form asks for five
 things and nothing else:
 
 | Field | Meaning |

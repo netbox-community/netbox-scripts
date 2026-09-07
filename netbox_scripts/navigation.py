@@ -49,7 +49,7 @@ _netboxscript_item = PluginMenuItem(
 )
 
 menu = PluginMenu(
-    label=_('Custom Scripts'),
+    label=_('Scripts'),
     groups=(
         (
             _('Projects'),

@@ -52,7 +52,7 @@ irreversible, so do all of it before you press **Enter cutover**.
 
 ## Starting a pass
 
-*Custom Scripts > Migration* carries every pass and names the most recent run of each, so you can see
+*Scripts > Migration* carries every pass and names the most recent run of each, so you can see
 whether one is still queued and where the migration stands.
 
 It also lists every Script Project the inventory and staging passes name, with the state each is in right

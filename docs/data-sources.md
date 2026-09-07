@@ -7,7 +7,7 @@ why a Python file appearing in a repository publishes nothing on its own.
 
 ## Pointing a Project at a directory
 
-*Custom Scripts > Script Projects*, then **Add**. Choose `Data source` as the source
+*Scripts > Projects*, then **Add**. Choose `Data source` as the source
 type, which reveals the two fields it needs.
 
 | Field | Meaning |

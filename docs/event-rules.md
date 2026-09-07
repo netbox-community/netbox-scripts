@@ -25,7 +25,7 @@ An event-driven run always commits. A dry run would make the rule a no-op with n
 report that it did nothing, so the choice is not offered.
 
 Runs are queued, not immediate, and each one is a Job like any other. Read it under
-*Custom Scripts > Custom Scripts*, on the script's Jobs tab, the same place a run somebody
+*Scripts > Scripts*, on the script's Jobs tab, the same place a run somebody
 requested by hand appears.
 
 ### What `self.event` carries

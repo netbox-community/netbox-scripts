@@ -69,6 +69,48 @@ class ScriptFileSelectionTestCase(TestCase):
 
         self.assertEqual(self.groups(ScriptProjectScriptFilesForm(instance=project)), ['tools', 'tools/deep'])
 
+    def single_candidate_project(self, key):
+        """Return a project whose source holds exactly one importable module."""
+        project = ScriptProject.objects.create(name=key.replace('-', ' '), key=key)
+        ScriptProjectRevision.objects.create(
+            project=project,
+            digest='e' * 64,
+            manifest=manifest('only.py', 'notes.md'),
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+        return project
+
+    def test_a_lone_candidate_starts_selected(self):
+        project = self.single_candidate_project('lone-candidate')
+
+        form = ScriptProjectScriptFilesForm(instance=project)
+
+        self.assertEqual(form.initial['script_files'], ['only.py'])
+
+    def test_two_candidates_start_unselected(self):
+        # Two is a real choice, so a default would be the form deciding it.
+        form = ScriptProjectScriptFilesForm(instance=self.project)
+        self.assertEqual(form.initial['script_files'], [])
+
+    def test_a_deselected_lone_candidate_stays_deselected(self):
+        # The guard is a declaration existing, not one being enabled: keying on enabled would
+        # undo the operator's deselection every time the tab was reopened.
+        project = self.single_candidate_project('deselected-candidate')
+        ScriptFile.objects.create(project=project, source_path='only.py', enabled=False)
+
+        form = ScriptProjectScriptFilesForm(instance=project)
+
+        self.assertEqual(form.initial['script_files'], [])
+
+    def test_rendering_the_default_declares_nothing(self):
+        # A preselection is a default, and validation imports whatever is declared, so nothing
+        # may be declared until the operator submits.
+        project = self.single_candidate_project('nothing-declared')
+
+        ScriptProjectScriptFilesForm(instance=project)
+
+        self.assertFalse(ScriptFile.objects.filter(project=project).exists())
+
     def test_selecting_creates_enabled_declarations(self):
         form = self.form(['deploy.py', 'tools/audit.py'])
         self.assertTrue(form.is_valid(), form.errors)
@@ -97,7 +139,7 @@ class ScriptFileSelectionTestCase(TestCase):
         script_file.refresh_from_db()
         self.assertTrue(script_file.enabled)
 
-    def test_the_initial_selection_is_the_enabled_declarations(self):
+    def test_a_project_with_declarations_starts_at_the_enabled_ones(self):
         ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         ScriptFile.objects.create(project=self.project, source_path='tools/audit.py', enabled=False)
         form = ScriptProjectScriptFilesForm(instance=self.project)

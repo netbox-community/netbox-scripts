@@ -138,6 +138,14 @@ discovery on it. The verdict rules:
   a distribution the host does not have, and `import helpers` where the tree
   holds `helpers.py`, both report as authoring mistakes naming the module rather
   than leaving the revision unjudged forever.
+- **An `invalid` verdict does not clear itself when the host changes.** Content
+  addressing means identical bytes resolve to the revision that already holds
+  the verdict, and a rejected revision comes back untouched rather than
+  revalidated, so installing a missing distribution and uploading the same file
+  again returns the same `invalid` revision. What does get a fresh verdict is a
+  new revision identity: any change to the source, or ending on a different
+  script file selection, which restages the stored tree under a new script file
+  digest.
 - An empty script file set is valid. A project whose revision declares no
   script files validates and can be activated, it simply offers no scripts.
 - A revision whose script files all import cleanly and publish nothing is
@@ -157,7 +165,7 @@ builds the class's run form and resolves its fieldsets, so a variable Django
 cannot turn into a field, a variable whose name the run form reserves, a fieldset
 naming something that is not a variable, and a display name too long to record all
 make the revision `invalid` instead of failing at the first attempt to run it.
-What it learns is recorded on the revision as its [published Custom
+What it learns is recorded on the revision as its [published
 Scripts](models/scriptprojectrevision.md).
 
 Ownership, the validation lease, and why a crashed validation recovers by

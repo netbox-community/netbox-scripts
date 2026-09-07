@@ -56,10 +56,15 @@ served before.
 ## A new file is a candidate, not a script file
 
 A Python file that appears in the directory becomes a **candidate**. Nothing imports or
-publishes it until somebody selects it on the Project's Script Files tab. That is what makes
-synchronization safe to leave running: adding a file to a repository cannot publish a Custom
-Script by itself, and the selection an administrator made is not overwritten by whatever the
+publishes it until the Project's Script Files tab is saved with it selected. That is what makes
+synchronization safe to leave running: adding a file to a repository cannot publish a Script by
+itself, and the selection an administrator made is not overwritten by whatever the
 repository happens to contain.
+
+A Project whose source holds exactly one importable module starts with that module selected, so
+the ordinary first synchronization is a confirmation rather than a choice. It is only a default:
+nothing is declared, imported or published until the tab is saved, and a module you deselect stays
+deselected however many times the tab is reopened.
 
 The selection is stored on the Project, and each revision freezes the enabled declarations at
 the moment it is staged. Saving the Script Files tab therefore applies the change to the source

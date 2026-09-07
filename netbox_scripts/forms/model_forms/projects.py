@@ -256,7 +256,11 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
         # two panes. A MultiWidget forwards neither to the other, so both are set.
         field.choices = choices
         field.widget = SplitMultiSelectWidget(choices=choices)
-        self.initial['script_files'] = [path for path, script_file in declared.items() if script_file.enabled]
+        enabled = [path for path, script_file in declared.items() if script_file.enabled]
+        # No declaration rather than none enabled, or a deselection would be undone.
+        if not declared and len(candidates) == 1:
+            enabled = sorted(candidates)
+        self.initial['script_files'] = enabled
 
     def _grouped_choices(self, declared, candidates, awaiting):
         """Return the selectable paths as optgroups, one per directory they sit in."""

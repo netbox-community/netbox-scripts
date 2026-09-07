@@ -81,14 +81,14 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
         netbox-ref:
-          - 'v4.7.0-beta1'
+          - 'v4.7.0'
           - 'feature'
         include:
           - coverage: false
           # Collect coverage once, on the newest Python / max stable NetBox
           # leg.
           - python-version: '3.14'
-            netbox-ref: 'v4.7.0-beta1'
+            netbox-ref: 'v4.7.0'
             coverage: true
     services:
       redis:
@@ -172,7 +172,7 @@ jobs:
   # combination is merged into it, so it would have taken over the
   # coverage leg rather than adding one.
   test-branching:
-    name: py3.14 / netbox-v4.7.0-beta1 / branching-1.2.0b1
+    name: py3.14 / netbox-v4.7.0 / branching-1.2.0b1
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -219,7 +219,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: netbox-community/netbox
-          ref: v4.7.0-beta1
+          ref: v4.7.0
           path: netbox
 
       - name: Setup Python 3.14

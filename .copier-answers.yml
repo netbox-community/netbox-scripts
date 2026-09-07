@@ -15,8 +15,8 @@ github_org: netboxlabs
 layout_style: subpackage
 netbox_max_version: 4.7.99
 netbox_min_version: 4.7.0
-netbox_test_max_ref: v4.7.0-beta1
-netbox_test_min_ref: v4.7.0-beta1
+netbox_test_max_ref: v4.7.0
+netbox_test_min_ref: v4.7.0
 package_name: netbox_scripts
 plugin_name: NetBox Scripts
 python_version: '3.12'

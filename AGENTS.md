@@ -573,7 +573,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
 - **`test.yml`**, PR / branch validation. Four jobs, three of them gated on
   a fast `lint` job running `pre-commit run --all-files`: a `test` matrix
-  (Python versions x `[v4.7.0-beta1, feature]`), `test-branching` (one leg
+  (Python versions x `[v4.7.0, feature]`), `test-branching` (one leg
   with NetBox Branching installed, the two branching test modules only), and
   `internals`, which resolves every symbol `docs/development/netbox-internals.md`
   lists against the `feature` ref. The `feature` test leg and the branching

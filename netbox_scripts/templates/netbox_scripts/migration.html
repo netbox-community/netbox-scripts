@@ -1,7 +1,7 @@
 {% extends "generic/_base.html" %}
 {% load i18n %}
 {% comment %}
-The page both migration passes are started from.
+The page every migration pass is started from.
 
 Context:
   - inventory_job:  The most recent inventory Job, or None
@@ -9,6 +9,7 @@ Context:
   - staging_queued: Whether a staging pass is already under way
   - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
   - warning_count:  How many modules the last inventory reported a warning for
+- helper_count:   How many modules the last inventory reported would publish nothing
   - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
   - run:            The open MigrationRun, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
@@ -25,8 +26,9 @@ Context:
   - projects_not_serving: The migrated Projects that exist and serve nothing, which a reference pass would refuse over
   - cleanup_job:    The most recent cleanup Job, or None
   - cleanup_queued: Whether a cleanup is already under way
-  - can_clean_up:   Whether the Job history has moved, which is what deletion waits for
+  - can_clean_up:   Whether every reference step is done and every mapped Project serves, which is what deletion waits for
   - verification_job: The most recent verification Job, or None
+  - next_action:  Which pass to run next, or None when the next move is not a button here
 {% endcomment %}
 {% block title %}
   {% trans "Custom Script migration" %}
@@ -129,9 +131,9 @@ Context:
           {% endif %}
           {% if projects_not_serving and perms.netbox_scripts.migrate_scriptproject %}
             <div class="alert alert-warning mt-3" role="alert">
-              <h3 class="alert-heading fs-5">{% trans "The reference pass will refuse" %}</h3>
+              <h3 class="alert-heading fs-5">{% trans "The remaining passes will refuse" %}</h3>
               <p>
-                {% trans "These migrated Script Projects are serving no revision, so an Event Rule or a repointed job would have no Script to name. Put each one into service, then run the activation again." %}
+                {% trans "These migrated Script Projects are serving no revision, so an Event Rule or a repointed job would have no Script to name, and deleting their built-in modules would take the last runnable copy. Put each one into service, then run the activation again." %}
               </p>
               <table class="table table-sm mb-0">
                 <tr>
@@ -224,25 +226,25 @@ Context:
             </div>
           {% endif %}
         </div>
+        {% comment %}
+        The seven passes in the order they run, each numbered, with the one next_action names
+        filled and the rest outlined. Verification is last despite sitting outside the destructive
+        gate with the inventory: the gate says who may run a pass, not when it runs.
+        {% endcomment %}
         <div class="card-footer text-end">
           <form action="{% url 'plugins:netbox_scripts:migration_inventory' %}"
                 method="post"
                 class="d-inline">
             {% csrf_token %}
-            <button type="submit" class="btn btn-outline-primary">{% trans "Run inventory" %}</button>
-          </form>
-          <form action="{% url 'plugins:netbox_scripts:migration_verify' %}"
-                method="post"
-                class="d-inline">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-outline-primary">{% trans "Verify" %}</button>
+            <button type="submit"
+                    class="btn btn-{% if next_action != 'inventory' %}outline-{% endif %}primary">1. {% trans "Run inventory" %}</button>
           </form>
           <a href="{% url 'plugins:netbox_scripts:migration_stage' %}"
-             class="btn btn-primary{% if staging_queued %} disabled{% endif %}">{% trans "Stage Projects" %}</a>
+             class="btn btn-{% if next_action != 'stage' %}outline-{% endif %}primary{% if staging_queued %} disabled{% endif %}">2. {% trans "Stage Projects" %}</a>
           {% if perms.netbox_scripts.migrate_scriptproject %}
             {% if can_cut_over %}
               <a href="{% url 'plugins:netbox_scripts:migration_cutover' %}"
-                 class="btn btn-danger{% if cutover_queued %} disabled{% endif %}">{% trans "Enter cutover" %}</a>
+                 class="btn btn-{% if next_action != 'cutover' %}outline-{% endif %}danger{% if cutover_queued %} disabled{% endif %}">3. {% trans "Enter cutover" %}</a>
             {% endif %}
             {% if can_activate %}
               <form action="{% url 'plugins:netbox_scripts:migration_activate' %}"
@@ -250,8 +252,8 @@ Context:
                     class="d-inline">
                 {% csrf_token %}
                 <button type="submit"
-                        class="btn btn-primary"
-                        {% if activation_queued %}disabled{% endif %}>{% trans "Activate Projects" %}</button>
+                        class="btn btn-{% if next_action != 'activate' %}outline-{% endif %}primary"
+                        {% if activation_queued %}disabled{% endif %}>4. {% trans "Activate Projects" %}</button>
               </form>
             {% endif %}
             {% if can_repoint %}
@@ -260,15 +262,22 @@ Context:
                     class="d-inline">
                 {% csrf_token %}
                 <button type="submit"
-                        class="btn btn-primary"
-                        {% if references_queued %}disabled{% endif %}>{% trans "Repoint references" %}</button>
+                        class="btn btn-{% if next_action != 'repoint' %}outline-{% endif %}primary"
+                        {% if references_queued %}disabled{% endif %}>5. {% trans "Repoint references" %}</button>
               </form>
             {% endif %}
             {% if can_clean_up %}
               <a href="{% url 'plugins:netbox_scripts:migration_cleanup' %}"
-                 class="btn btn-danger{% if cleanup_queued %} disabled{% endif %}">{% trans "Clean up" %}</a>
+                 class="btn btn-{% if next_action != 'cleanup' %}outline-{% endif %}danger{% if cleanup_queued %} disabled{% endif %}">6. {% trans "Clean up" %}</a>
             {% endif %}
           {% endif %}
+          <form action="{% url 'plugins:netbox_scripts:migration_verify' %}"
+                method="post"
+                class="d-inline">
+            {% csrf_token %}
+            <button type="submit"
+                    class="btn btn-{% if next_action != 'verify' %}outline-{% endif %}primary">7. {% trans "Verify" %}</button>
+          </form>
         </div>
       </div>
     </div>

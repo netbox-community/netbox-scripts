@@ -55,6 +55,12 @@ irreversible, so do all of it before you press **Enter cutover**.
 *Scripts > Migration* carries every pass and names the most recent run of each, so you can see
 whether one is still queued and where the migration stands.
 
+The buttons are numbered in the order the passes run, and the one to run next is filled in while
+the rest are outlined. The hint reads the same live conditions the buttons take, so a Project that
+stopped serving reopens **Activate Projects** rather than pointing further down the sequence. It
+stays blank when the next move is not a button on this page: while the inventory reports a blocking
+finding, and before the cutover while a staged Project could serve nothing.
+
 It also lists every Script Project the inventory and staging passes name, with the state each is in right
 now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
 so running one pass without the other is visible rather than implied. Each state is read as the

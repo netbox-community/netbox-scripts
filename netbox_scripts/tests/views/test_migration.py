@@ -35,7 +35,7 @@ from utilities.testing import TestCase, create_test_user
 
 
 class MigrationTriggerTestCase(TestCase):
-    """The Migration page and the two routes that queue a pass."""
+    """The Migration page and the seven routes that queue a pass."""
 
     def setUp(self):
         self.user = create_test_user()
@@ -702,6 +702,18 @@ class MigrationTriggerTestCase(TestCase):
         self.assertHttpStatus(self.client.post(self.url('migration_cleanup')), 403)
         self.cleanup.assert_not_called()
 
+    def test_the_cleanup_button_is_withheld_while_a_project_serves_nothing(self):
+        self.grant('add', 'migrate')
+        run = self.staged_fence()
+
+        for step in ('repoint_event_rules', 'repoint_permissions', 'repoint_job_history', 'recreate_schedules'):
+            run.record_step(step, counts={})
+
+        self.assertNotIn('Clean up', self.client.get(self.url('migration')).content.decode())
+
+        with mock.patch.object(cutover, 'projects_not_serving', return_value=[]):
+            self.assertIn('Clean up', self.client.get(self.url('migration')).content.decode())
+
     def test_a_staging_user_is_not_offered_the_cleanup(self):
         self.grant('add')
         run = self.open_run(MigrationStateChoices.CUTOVER)
@@ -714,6 +726,144 @@ class MigrationTriggerTestCase(TestCase):
         self.grant('add')
         job = self.record(MigrationCleanupJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
+
+    # Each case asserts the context value rather than the markup, since the buttons it styles are
+    # gated on a permission as well as on state. Two rendering tests cover the markup.
+    def next_action(self):
+        """Return the step the page names as next."""
+        return self.client.get(self.url('migration')).context['next_action']
+
+    def record_early_passes(self):
+        """Record a completed inventory and staging pass, which every later step sits behind."""
+        self.record(MigrationInventoryJob)
+        self.record(MigrationStagingJob)
+
+    def test_the_inventory_is_next_before_any_pass_has_run(self):
+        self.grant('add')
+        self.assertEqual(self.next_action(), 'inventory')
+
+    def test_staging_is_next_once_the_inventory_has_run(self):
+        self.grant('add')
+        self.record(MigrationInventoryJob)
+        self.assertEqual(self.next_action(), 'stage')
+
+    def test_a_failed_inventory_leaves_the_inventory_next(self):
+        # The two passes that record no step are read off their own Job, so one that did not
+        # finish is not complete.
+        self.grant('add')
+        self.record(MigrationInventoryJob, status=JobStatusChoices.STATUS_FAILED)
+        self.assertEqual(self.next_action(), 'inventory')
+
+    def test_nothing_is_next_while_a_blocking_finding_stands(self):
+        # Staging creates nothing, so the operator's next move is off this page.
+        self.grant('add')
+        self.with_findings(self.finding('blocking', 'report_style', 'audit/legacy_report.py'))
+        self.assertIsNone(self.next_action())
+
+    def test_the_cutover_is_next_once_a_run_is_staged(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.open_run(MigrationStateChoices.STAGING)
+        self.assertEqual(self.next_action(), 'cutover')
+
+    def test_nothing_is_next_while_a_mapped_project_would_serve_nothing(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.open_run(MigrationStateChoices.STAGING)
+        blocked = [{'project_key': 'automation', 'reason': 'holds no revision'}]
+
+        with mock.patch.object(cutover, 'unservable_projects', return_value=blocked):
+            self.assertIsNone(self.next_action())
+
+    def test_activation_is_next_once_the_fence_is_recorded(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        run = self.open_run(MigrationStateChoices.CUTOVER)
+        run.record_step(cutover.STEP, counts={})
+        self.assertEqual(self.next_action(), 'activate')
+
+    def test_repointing_is_next_once_every_project_serves(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.staged_fence()
+
+        with mock.patch.object(cutover, 'projects_not_serving', return_value=[]):
+            self.assertEqual(self.next_action(), 'repoint')
+
+    def test_activation_is_offered_again_while_a_project_serves_nothing(self):
+        # staged_fence leaves the Projects serving nothing.
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.staged_fence()
+        self.assertEqual(self.next_action(), 'activate')
+
+    def test_the_cleanup_is_next_once_every_reference_step_is_recorded(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        run = self.staged_fence()
+
+        for step in ('repoint_event_rules', 'repoint_permissions', 'repoint_job_history', 'recreate_schedules'):
+            run.record_step(step, counts={})
+
+        # Every Project serving, or activation would be named again rather than the cleanup.
+        with mock.patch.object(cutover, 'projects_not_serving', return_value=[]):
+            self.assertEqual(self.next_action(), 'cleanup')
+
+    def test_verification_is_next_once_the_cleanup_has_finished(self):
+        # No open run, which is what a completed cleanup leaves behind.
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.record(MigrationCleanupJob)
+        self.assertEqual(self.next_action(), 'verify')
+
+    def test_a_verification_run_before_the_cleanup_leaves_it_outstanding(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.record(MigrationVerificationJob)
+        self.record(MigrationCleanupJob)
+
+        self.assertEqual(self.next_action(), 'verify')
+
+    def test_a_failed_verification_leaves_it_outstanding(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.record(MigrationCleanupJob)
+        self.record(MigrationVerificationJob, status=JobStatusChoices.STATUS_FAILED)
+
+        self.assertEqual(self.next_action(), 'verify')
+
+    def test_nothing_is_next_once_the_verification_has_run(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.record(MigrationCleanupJob)
+        self.record(MigrationVerificationJob)
+        self.assertIsNone(self.next_action())
+
+    def test_the_next_step_renders_filled_and_the_rest_as_outlines(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        self.open_run(MigrationStateChoices.STAGING)
+
+        body = self.client.get(self.url('migration')).content.decode()
+
+        # The cutover is next and destructive, so it fills in red rather than turning primary.
+        self.assertIn('btn btn-danger', body)
+        self.assertNotIn('btn btn-primary', body)
+        self.assertIn('btn btn-outline-primary', body)
+
+    def test_the_verification_renders_last_and_the_buttons_carry_their_position(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        run = self.staged_fence()
+
+        for step in ('repoint_event_rules', 'repoint_permissions', 'repoint_job_history', 'recreate_schedules'):
+            run.record_step(step, counts={})
+
+        # Every Project serving, so all seven buttons render and the order is the whole sequence.
+        with mock.patch.object(cutover, 'projects_not_serving', return_value=[]):
+            body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertLess(body.index('6. Clean up'), body.index('7. Verify'))
 
     def test_the_verify_button_is_offered_at_every_state(self):
         # It reads only, so unlike every other pass it waits on nothing.

@@ -117,6 +117,19 @@ def _queued(job_class):
     return job_class.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
 
 
+def _completed(job):
+    """Report whether a pass finished successfully."""
+    return bool(job) and job.status == JobStatusChoices.STATUS_COMPLETED
+
+
+def _next_action(sequence):
+    """Return the name of the first step that is offered and has not completed, or None."""
+    for name, offered, complete in sequence:
+        if offered and not complete:
+            return name
+    return None
+
+
 class BaseMigrationView(ContentTypePermissionRequiredMixin, View):
     """Shared gate for the migration surface, and for the passes that only read or stage."""
 
@@ -134,7 +147,7 @@ class DestructiveMigrationView(BaseMigrationView):
 
 
 class MigrationView(BaseMigrationView):
-    """The page both passes are started from."""
+    """The page every pass is started from."""
 
     template_name = 'netbox_scripts/migration.html'
 
@@ -142,6 +155,8 @@ class MigrationView(BaseMigrationView):
         """Show what each pass does, when each last ran, and where every Project it names stands."""
         inventory_job = _latest(MigrationInventoryJob)
         staging_job = _latest(MigrationStagingJob)
+        cleanup_job = _latest(MigrationCleanupJob)
+        verification_job = _latest(MigrationVerificationJob)
         run = MigrationRun.current()
         # Mirrors what enter_cutover accepts. Keying this off the state alone would withhold the
         # one button that finishes a crossing a crash left half done.
@@ -156,6 +171,40 @@ class MigrationView(BaseMigrationView):
         # Gated on the frozen map rather than on the step, because that is what the predicate
         # reads and a run without one would raise here instead of refusing further along.
         not_serving = cutover.projects_not_serving(run) if mapping.recorded(run) else []
+        # Staging refuses on any of these, which is otherwise invisible until its Job fails.
+        blocking_findings = _findings(inventory_job, plan.BLOCKING)
+        # Offered once the fence is recorded, which is the only precondition activation has.
+        can_activate = bool(run and run.step_done(cutover.STEP))
+        # The references name plugin rows, and only a Project in service has any.
+        can_repoint = activated and not not_serving
+        references_done = bool(run and cleanup.ready(run))
+        # A schedule needs the built-in rows still there, so every reference step first, and the
+        # pass skips a module whose Project serves nothing, so the run could not close either.
+        can_clean_up = references_done and not not_serving
+        # Crossing with nothing to serve is not recoverable, so the page withholds it.
+        can_cut_over = crossable and not unservable
+        # Recording the cleanup step closes the run and current() excludes a closed one, so a
+        # finished migration reads as a completed cleanup Job with no run left to see.
+        migrated = run is None and _completed(cleanup_job)
+        # A verification is offered at every state, so one that ran before the cleanup answered a
+        # different question and leaves this step outstanding.
+        verified = _completed(verification_job) and bool(cleanup_job) and verification_job.created > cleanup_job.created
+        # The passes in the order they run, each paired with the button's own render condition and
+        # with what would make that pass complete. Two of the refusals the page reports need a
+        # clause: a blocking finding withholds staging, and a Project that stopped serving reopens
+        # activation, which is the remedy docs/migration.md names for it.
+        sequence = (
+            ('inventory', True, _completed(inventory_job)),
+            # Staging creates nothing while a blocking finding stands, so it is not next.
+            ('stage', not blocking_findings, _completed(staging_job)),
+            # The fence completes exactly when activation becomes offerable, that being the one
+            # precondition activation takes.
+            ('cutover', can_cut_over, can_activate),
+            ('activate', can_activate, activated and not not_serving),
+            ('repoint', can_repoint, references_done),
+            ('cleanup', can_clean_up, migrated),
+            ('verify', migrated, verified),
+        )
         return render(
             request,
             self.template_name,
@@ -163,8 +212,7 @@ class MigrationView(BaseMigrationView):
                 'inventory_job': inventory_job,
                 'staging_job': staging_job,
                 'staging_queued': _queued(MigrationStagingJob),
-                # Staging refuses on any of these, which is otherwise invisible until its Job fails.
-                'blocking_findings': _findings(inventory_job, plan.BLOCKING),
+                'blocking_findings': blocking_findings,
                 # Counted rather than listed: one entry per module, and an installation holds hundreds.
                 # By code, because the sentence it renders names the legacy authoring API and other
                 # warnings have nothing to do with v5.0.
@@ -178,17 +226,13 @@ class MigrationView(BaseMigrationView):
                 'activation_queued': _queued(MigrationActivationJob),
                 'references_job': _latest(MigrationReferencesJob),
                 'references_queued': _queued(MigrationReferencesJob),
-                'cleanup_job': _latest(MigrationCleanupJob),
+                'cleanup_job': cleanup_job,
                 'cleanup_queued': _queued(MigrationCleanupJob),
-                'verification_job': _latest(MigrationVerificationJob),
-                # Offered once the fence is recorded, which is the only precondition activation has.
-                'can_activate': bool(run and run.step_done(cutover.STEP)),
-                # The references name plugin rows, and only a Project in service has any.
-                'can_repoint': bool(run and run.step_done(cutover.ACTIVATE_STEP)) and not not_serving,
-                # A schedule needs the built-in rows still there, so every reference step first.
-                'can_clean_up': bool(run and cleanup.ready(run)),
-                # Crossing with nothing to serve is not recoverable, so the page withholds it.
-                'can_cut_over': crossable and not unservable,
+                'verification_job': verification_job,
+                'can_activate': can_activate,
+                'can_repoint': can_repoint,
+                'can_clean_up': can_clean_up,
+                'can_cut_over': can_cut_over,
                 # The state moves before the closures, so both conjuncts together say the fence may
                 # already have fired, which nothing else on the page distinguishes from not started.
                 'cutover_interrupted': crossable and run.state == MigrationStateChoices.CUTOVER,
@@ -196,6 +240,8 @@ class MigrationView(BaseMigrationView):
                 # Only once activation has run, or this would name every Project the moment the
                 # fence captured and tell the operator to redo a step they have not taken yet.
                 'projects_not_serving': not_serving if activated else [],
+                # The buttons carry their position, and this says which one the operator is on.
+                'next_action': _next_action(sequence),
             },
         )
 

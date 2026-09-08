@@ -90,7 +90,7 @@ class Command(BaseCommand):
         matches = NetBoxScript.objects.filter(module_path=module_path, class_name=class_name)
         if project_key:
             matches = matches.filter(project__key=project_key)
-        found = list(matches.select_related('project', 'project__active_revision')[: LISTED_CANDIDATES + 1])
+        found = list(matches.select_related('project', 'project__active_revision'))
         if not found:
             raise CommandError(f'No Script matches "{identifier}".')
         if len(found) == 1:

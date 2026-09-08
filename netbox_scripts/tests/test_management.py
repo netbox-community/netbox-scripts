@@ -245,3 +245,12 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertIn('cannot be run', str(caught.exception))
         self.assertIn('It is retired', str(caught.exception))
+
+    def test_ambiguity_checks_runnable_matches_beyond_the_display_limit(self):
+        for index in range(7):
+            self.project = ScriptProject.objects.create(name=f'Candidate {index}', key=f'candidate-{index}')
+            self.publish({'deploy.py': MAKES_A_TAG})
+            if index not in (0, 6):
+                ScriptProject.objects.filter(pk=self.project.pk).update(enabled=False)
+        with self.assertRaises(CommandError):
+            Command().resolve('deploy.MakeTag')

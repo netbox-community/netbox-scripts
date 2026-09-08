@@ -8,7 +8,7 @@ from .. import ingestion
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ..models import ScriptProject
 from ..utils import data_source_relative_path
-from . import dialects
+from . import dialects, plan
 from . import source as legacy_source
 
 __all__ = ('stage',)
@@ -50,7 +50,7 @@ def stage(proposed, modules):
 
 def _project_for(project_plan):
     """Return the Project one plan entry resolves to, and whether this call created it."""
-    existing = _existing(project_plan)
+    existing = plan.existing_project(project_plan)
     if existing is not None:
         if existing.activation_policy != ActivationPolicyChoices.MANUAL:
             # The inventory blocks this, so reaching it means the Project appeared since.
@@ -76,17 +76,6 @@ def _project_for(project_plan):
     project.full_clean()
     project.save()
     return project, True
-
-
-def _existing(project_plan):
-    """Return the Project this plan entry already resolves to, if there is one."""
-    if project_plan.source_type == ProjectSourceTypeChoices.UPLOAD:
-        return ScriptProject.objects.filter(key=project_plan.key).first()
-    return ScriptProject.objects.filter(
-        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
-        data_source_id=project_plan.data_source_id,
-        data_path=project_plan.data_path,
-    ).first()
 
 
 def _publishes(module):

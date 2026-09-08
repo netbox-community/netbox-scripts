@@ -25,6 +25,7 @@ __all__ = (
     'WARNING',
     'ProposedProject',
     'build_report',
+    'existing_project',
     'group',
 )
 
@@ -446,3 +447,14 @@ def _resolves(name):
 def _finding(level, code, module, message):
     """Return one finding, carrying the module it belongs to."""
     return {'level': level, 'code': code, 'pk': module.pk, 'path': _path(module), 'message': message}
+
+
+def existing_project(project_plan):
+    """Return the existing Project identified by a staging proposal, or None."""
+    if project_plan.source_type == ProjectSourceTypeChoices.UPLOAD:
+        return ScriptProject.objects.filter(key=project_plan.key).first()
+    return ScriptProject.objects.filter(
+        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+        data_source_id=project_plan.data_source_id,
+        data_path=project_plan.data_path,
+    ).first()

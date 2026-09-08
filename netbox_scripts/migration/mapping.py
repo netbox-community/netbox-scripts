@@ -17,17 +17,23 @@ __all__ = (
 )
 
 
-def build_map(modules=None):
+def build_map(modules=None, *, resolve_existing=None):
     """
-    Return the plugin identity every built-in Custom Script would migrate to, reading no plugin rows.
+    Return the plugin identity every built-in Custom Script would migrate to.
 
-    Pass modules to map supplied data rather than the live installation, as build_report does.
-    Grouping comes from plan.group(), so a project key here is the key staging creates, and the
-    identity is derived rather than stored. A module whose path could never be imported is
-    reported under 'unmapped' rather than raising.
+    Live mapping resolves existing Projects by the same identity as staging. Supplied modules
+    remain a pure preview unless resolve_existing=True is requested. Unimportable module paths
+    are reported under 'unmapped'.
     """
+    if resolve_existing is None:
+        resolve_existing = modules is None
     modules = legacy_source.legacy_modules() if modules is None else modules
-    proposed = {pk: project_plan for project_plan in plan.group(modules) for pk in project_plan.module_pks}
+    proposals = plan.group(modules)
+    keys = {}
+    for proposal in proposals:
+        existing = plan.existing_project(proposal) if resolve_existing else None
+        keys[proposal.key] = existing.key if existing is not None else proposal.key
+    proposed = {pk: project_plan for project_plan in proposals for pk in project_plan.module_pks}
     mapped, scripts, unmapped = [], [], []
     for module in modules:
         project_plan = proposed[module.pk]
@@ -41,13 +47,13 @@ def build_map(modules=None):
         except ValidationError as error:
             unmapped.append(_unmapped(module, error.messages[0]))
             continue
-        mapped.append({'legacy_pk': module.pk, 'project_key': project_plan.key, 'source_path': source_path})
+        mapped.append({'legacy_pk': module.pk, 'project_key': keys[project_plan.key], 'source_path': source_path})
         scripts.extend(
             {
                 'legacy_pk': script.pk,
                 'legacy_module_pk': module.pk,
                 'legacy_name': script.name,
-                'project_key': project_plan.key,
+                'project_key': keys[project_plan.key],
                 'module_path': module_path,
                 # The built-in feature records a Script by its Python class name, so the plugin's
                 # class_name is the same string under a different column.

@@ -117,7 +117,7 @@ def _verify_scripts(run, live_modules):
         return _check(SCRIPTS, plan.WARNING, _('No Script exists yet, because nothing has been activated.'))
     if live_modules:
         # The frozen map where there is one, so a partial cleanup cannot move the comparison.
-        plugin_map = mapping.recorded(run) or mapping.build_map(modules=live_modules)
+        plugin_map = mapping.recorded(run) or mapping.build_map(modules=live_modules, resolve_existing=True)
         resolved, unresolved = mapping.resolve_scripts(plugin_map)
         if unresolved:
             return _check(

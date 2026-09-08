@@ -1,5 +1,6 @@
 from django.test import SimpleTestCase, TestCase
 
+from core.models import DataSource
 from netbox_scripts.choices import ProjectSourceTypeChoices
 from netbox_scripts.migration import mapping
 from netbox_scripts.migration.source import LegacyModule, LegacyScript
@@ -156,3 +157,21 @@ class ResolveScriptsTestCase(TestCase):
 
         self.assertEqual(resolved, {})
         self.assertEqual(len(unresolved), 2)
+
+
+class ReusedProjectMappingTestCase(TestCase):
+    def test_the_map_names_the_existing_project_not_the_proposal_key(self):
+        source = DataSource.objects.create(name='Mapped source', type='local', source_url='file:///tmp/scripts')
+        project = ScriptProject.objects.create(
+            name='Existing automation',
+            key='custom-project-key',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=source,
+            data_path='automation',
+        )
+        modules = [
+            legacy(1, 'deploy.py', data_source_id=source.pk, data_path='automation/deploy.py', scripts=[(11, 'Deploy')])
+        ]
+        result = mapping.build_map(modules, resolve_existing=True)
+        self.assertEqual(result['modules'][0]['project_key'], project.key)
+        self.assertEqual(result['scripts'][0]['project_key'], project.key)

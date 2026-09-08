@@ -195,5 +195,4 @@ an execution-model decision that lands with the execution work.
 | Limitation | Impact |
 |---|---|
 | A project owns one source, never both kinds | `source_type` is immutable, so moving a project from uploads to a Data Source means creating a new one |
-| No revision REST or GraphQL surface | Revisions are read-only history in the UI, so automation cannot stage or activate one |
-| A script file selection does not restage by itself | An upload project applies a changed selection when its next revision is staged. A Data Source-backed one applies it with **Reconcile Source** |
+| Revisions cannot be edited directly | Read-only REST and GraphQL expose revision history. Source actions stage revisions, and activation remains a Project action |

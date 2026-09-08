@@ -43,8 +43,9 @@ Not yet implemented, planned for follow-up releases:
 - a manifest in the repository declaring its own script files
 - declared pip requirements, which are neither read nor installed
 - recording the input values a run was given
-- overriding the timeout, notification policy, and commit default per
-  installation
+
+Scripts support per-installation overrides for the timeout, notification policy,
+and commit default. Unset overrides follow the script class.
 
 ## Compatibility
 
@@ -56,7 +57,7 @@ The full per-release matrix lives in [COMPATIBILITY.md](https://github.com/netbo
 
 ## Installation
 
-Install into the NetBox virtualenv from the NetBox Labs artifact source:
+Once the release is published on PyPI, install it into the NetBox virtualenv:
 
 ```bash
 pip install netbox-scripts

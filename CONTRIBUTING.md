@@ -172,7 +172,7 @@ handling and the `DEVELOPER = True` flag in `testing/configuration.py`.
 - **Supported NetBox:** 4.7.0 to 4.7.99
   (matches the `PluginConfig` declaration in
   `netbox_scripts/__init__.py`).
-- **Django:** 6.0 (matches the supported NetBox runtime).
+- **Django:** 6.1 (matches the supported NetBox runtime).
 - **Typing:** Prefer adding or improving type hints where it increases
   clarity.
 
@@ -218,8 +218,8 @@ A PR is reviewed only if:
 - Update README or in-repo docs when behavior changes.
 - Include short examples or screenshots for UI-adjacent changes.
 - Keep docstrings current for public methods, models, and utilities.
-- Build the docs locally with `mkdocs build --strict` before submitting
-  documentation changes.
+- Build the docs locally with `zensical build --clean --strict`, the command CI runs, after
+  `pip install -e '.[docs]'` installs the pinned docs dependencies.
 
 ---
 

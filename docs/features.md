@@ -57,6 +57,12 @@ logging, global search, REST, and GraphQL.
 | Publish scripts from a project | Developer | Declare script files and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
 | Validate revisions | Operator | Run the validation job to drive a materialized revision to a `valid` or `invalid` verdict with sanitized, inspectable errors. |
 
+## Execution defaults
+
+Each Script supports administrator overrides for its timeout, notification policy,
+and commit default through the UI and REST. Unset values follow the class defaults.
+Recurring successors resolve the timeout from the current Script configuration.
+
 ## Not yet implemented
 
 The following areas are intentionally absent from this release and arrive in
@@ -68,4 +74,3 @@ follow-up releases:
 | A repository manifest declaring its own script files | Planned, script file selection is a Project setting made in NetBox |
 | Declared pip requirements | Planned, a revision's external dependencies are neither read nor installed |
 | Recorded input values | Planned, a run records which script and revision ran and the result, but not the values submitted |
-| Configurable execution defaults | Planned, the timeout, notification policy and commit default come from the script class and cannot be overridden per installation |

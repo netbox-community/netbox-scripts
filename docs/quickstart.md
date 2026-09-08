@@ -11,7 +11,7 @@
 
 ## Installing the plugin
 
-Install into the NetBox virtualenv from the NetBox Labs artifact source:
+Once the release is published on PyPI, install it into the NetBox virtualenv:
 
 ```sh
 pip install netbox-scripts

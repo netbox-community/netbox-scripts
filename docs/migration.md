@@ -205,12 +205,13 @@ anything. Fix the source, run the inventory again, and stage once it is clear.
 The cutover is the irreversible step, and it does two things in one pass: it records every
 reference the later passes replay, and then it closes what a plugin is able to close.
 
-**The run records the cutover state before it captures anything.** The state is the only thing
-that can tell you the fence may have fired, so it is written before the first irreversible act
-rather than after the last one. A cutover interrupted partway therefore reads `cutover` with the
-crossing unrecorded, and three things follow: staging refuses that state outright, the Migration
-page says so and keeps offering **Enter cutover**, and running it again finishes the crossing.
-Nothing is captured twice and nothing is closed twice.
+**Capture completes before the run enters the cutover state.** The run then records `cutover`
+before withdrawing grants, disabling Event Rules or cancelling queued work. A failure during
+capture leaves the run in staging. A failure after that state transition leaves it in `cutover`
+with the crossing unfinished. Staging refuses that state, the Migration page keeps offering
+**Enter cutover**, and running it again resumes the recorded crossing. Capture and completed
+steps are not repeated. Mutating migration passes serialize across workers before checking
+recorded progress.
 
 **It captures first.** Every permission granting an action on the built-in feature, with who holds
 it. Every Event Rule naming the built-in feature, as an action or as a source. Every waiting

@@ -88,9 +88,9 @@ Project setting rather than an object managed in bulk.
 
 The three discovery fields are readable and filterable everywhere, and writable
 nowhere: no form, serializer, or GraphQL input accepts them, only project
-validation writes them. `last_discovered_revision` appears in REST as a plain
-ID, and is absent from GraphQL, because revisions carry no object surface of
-their own in this release.
+validation writes them. `last_discovered_revision` is a nested revision in REST
+and a revision relation in GraphQL. Revisions have read-only REST and GraphQL
+surfaces of their own.
 
 ## Validation rules
 

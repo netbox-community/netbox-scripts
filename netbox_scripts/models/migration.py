@@ -161,8 +161,7 @@ class MigrationRun(ChangeLoggedModel):
     @classmethod
     def current(cls):
         """Return the one open run, or None when no migration is under way."""
-        # No row lock: the views refuse to queue a step while one of its class is pending,
-        # scheduled or running, so two steps of one kind never overlap.
+        # Mutating workers hold migration_lock before reading this state.
         return cls.objects.exclude(state=MigrationStateChoices.MIGRATED).order_by('-created').first()
 
     @classmethod

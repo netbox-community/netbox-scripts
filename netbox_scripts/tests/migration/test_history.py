@@ -343,7 +343,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
 
         with patch(
-            'netbox_scripts.migration.references.load_script_class',
+            'netbox_scripts.migration.references.script_class_context',
             side_effect=ScriptFileImportError('deploy imports a module that is not there', {}),
         ):
             counts, warnings = references.recreate_schedules(self.migration)
@@ -494,3 +494,14 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual([job.pk for job in self.new_jobs()], [created.pk])
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.journal['recreated_schedules'], {str(legacy.pk): created.pk})
+
+    def test_a_second_pass_refreshes_a_stale_run_before_recreating_schedules(self):
+        self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        stale = type(self.migration).objects.get(pk=self.migration.pk)
+        counts, _ = references.recreate_schedules(self.migration)
+        first = list(self.new_jobs().values_list('pk', flat=True))
+        repeated, _ = references.recreate_schedules(stale)
+        self.assertEqual(list(self.new_jobs().values_list('pk', flat=True)), first)
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(repeated['recreated'], 1)

@@ -4,6 +4,7 @@ from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
 from netbox_scripts.choices import MigrationStateChoices
+from netbox_scripts.migration.locking import serialized_migration_step
 from netbox_scripts.models import MigrationRun
 from netbox_scripts.models.migration import MIGRATION_LOCK_KEY, MIGRATION_LOCK_NAMESPACE, migration_lock
 
@@ -241,4 +242,17 @@ class MigrationLockTestCase(TransactionTestCase):
                 self.assertFalse(self.other_session_can_lock())
             self.assertFalse(self.other_session_can_lock())
 
+        self.assertTrue(self.other_session_can_lock())
+
+    def test_a_service_step_holds_the_lock_and_refreshes_its_run_before_work(self):
+        run = MigrationRun.objects.create()
+        stale = MigrationRun.objects.get(pk=run.pk)
+        run.record_journal(phase='accepted')
+
+        @serialized_migration_step
+        def step(current):
+            self.assertFalse(self.other_session_can_lock())
+            self.assertEqual(current.journal['phase'], 'accepted')
+
+        step(stale)
         self.assertTrue(self.other_session_can_lock())

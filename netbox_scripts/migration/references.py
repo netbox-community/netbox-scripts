@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from . import cutover, mapping
+from .locking import serialized_migration_step
 
 __all__ = (
     'ACTION_SLUG',
@@ -58,6 +59,7 @@ _UNSCHEDULABLE = object()
 _REPLAY_FAILURES = LOAD_FAILURES + (ScriptNotExecutableError,)
 
 
+@serialized_migration_step
 def repoint_event_rules(run):
     """
     Point every captured Event Rule at the plugin, and re-enable the ones fully moved.
@@ -102,6 +104,7 @@ def repoint_event_rules(run):
     return counts, warnings
 
 
+@serialized_migration_step
 def repoint_permissions(run):
     """
     Move every captured grant on the built-in feature onto the plugin's own object types.
@@ -168,6 +171,7 @@ def repoint_permissions(run):
     return counts, warnings
 
 
+@serialized_migration_step
 def repoint_job_history(run):
     """
     Move the built-in Custom Scripts' Job history onto the Scripts that replaced them.
@@ -234,6 +238,7 @@ def repoint_job_history(run):
     return counts, warnings
 
 
+@serialized_migration_step
 def recreate_schedules(run):
     """
     Put every schedule the fence cancelled back into service against the Script.

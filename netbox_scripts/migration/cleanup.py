@@ -6,6 +6,7 @@ from ..choices import MigrationStateChoices
 from . import cutover, mapping
 from . import references as legacy_references
 from . import source as legacy_source
+from .locking import serialized_migration_step
 
 __all__ = (
     'STEP',
@@ -29,6 +30,7 @@ def ready(run):
     return all(run.step_done(name) for name in _REQUIRED_STEPS)
 
 
+@serialized_migration_step
 def retire_legacy(run):
     """
     Delete the built-in modules this migration replaced, skipping any whose deletion would lose data.

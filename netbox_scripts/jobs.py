@@ -770,6 +770,7 @@ class MigrationStagingJob(JobRunner):
     class Meta:
         name = 'Custom Script migration staging'
 
+    @migration_lock()
     def run(self, **kwargs):
         """Refuse past the fence or on any blocking finding, then create and stage the Projects."""
         from .migration import mapping, plan, source, staging
@@ -857,6 +858,7 @@ class MigrationCutoverJob(JobRunner):
     class Meta:
         name = 'Custom Script migration cutover'
 
+    @migration_lock()
     def run(self, **kwargs):
         """Refuse if the state or a running job forbids it, then capture and close."""
         from .migration import cutover
@@ -898,6 +900,7 @@ class MigrationActivationJob(JobRunner):
     class Meta:
         name = 'Custom Script migration activation'
 
+    @migration_lock()
     def run(self, **kwargs):
         """Activate every staged Project, reporting each outcome rather than stopping at the first."""
         from .migration import cutover
@@ -937,6 +940,7 @@ class MigrationReferencesJob(JobRunner):
     class Meta:
         name = 'Custom Script migration references'
 
+    @migration_lock()
     def run(self, **kwargs):
         """Repoint the Event Rules and the permissions, reporting what could not move."""
         from .migration import cutover, references
@@ -994,6 +998,7 @@ class MigrationCleanupJob(JobRunner):
     class Meta:
         name = 'Custom Script migration cleanup'
 
+    @migration_lock()
     def run(self, **kwargs):
         """Refuse until the history has moved, then retire every module that carries none."""
         from .migration import cleanup, cutover

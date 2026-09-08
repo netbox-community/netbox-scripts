@@ -13,6 +13,7 @@ from ..models import ScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from . import mapping
 from . import source as legacy_source
+from .locking import serialized_migration_step
 
 __all__ = (
     'ACTIVATE_STEP',
@@ -42,9 +43,10 @@ class CutoverRefused(Exception):
     """The cutover cannot begin in the state the installation is in."""
 
 
+@serialized_migration_step
 def enter_cutover(run):
     """
-    Record the cutover state, capture every reference the later steps replay, and close what closes.
+    Capture every reference the later steps replay, record the cutover state, then close what closes.
 
     Captures once. Closing is idempotent. Returns the counts recorded on the run, and returns them
     unchanged without touching anything when the step has already completed. Raises CutoverRefused
@@ -159,6 +161,7 @@ def require_staged(run):
     return run
 
 
+@serialized_migration_step
 def activate_staged(run):
     """
     Put every Project this migration staged into service, and return one outcome each.

@@ -2,7 +2,7 @@
 name: 🏡 Housekeeping
 type: Task
 description: An internal change pertaining to the codebase itself
-labels: ["app: custom-scripts", "type: housekeeping"]
+labels: ["app: scripts", "type: housekeeping"]
 body:
   - type: textarea
     attributes:

@@ -2,7 +2,7 @@
 name: 🐛 Bug Report
 type: Bug
 description: Report a reproducible bug in the current stable release
-labels: ["app: custom-scripts", "type: bug", "status: needs triage"]
+labels: ["app: scripts", "type: bug", "status: needs triage"]
 body:
   - type: input
     attributes:

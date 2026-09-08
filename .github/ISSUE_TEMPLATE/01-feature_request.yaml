@@ -2,7 +2,7 @@
 name: ✨ Feature Request
 type: Feature
 description: Propose a new feature or enhancement
-labels: ["app: custom-scripts", "type: feature", "status: needs triage"]
+labels: ["app: scripts", "type: feature", "status: needs triage"]
 body:
   - type: input
     attributes:

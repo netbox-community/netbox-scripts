@@ -115,6 +115,27 @@ class DescribeScriptTestCase(TestCase):
         (record,) = describe(module)
         self.assertEqual(json.loads(json.dumps(record)), record)
 
+    def test_duration_strings_use_the_same_grammar_as_rq(self):
+        for value, seconds in (('30m', 1800), ('2h', 7200), ('90', 90)):
+            with self.subTest(value=value):
+                module = build(f'class Sync(Script):\n    class Meta:\n        job_timeout = {value!r}\n')
+                (record,) = describe(module)
+                self.assertEqual(record['metadata']['job_timeout'], seconds)
+
+    def test_nonpositive_timeouts_are_refused(self):
+        for value in (0, -1, '0', '-1'):
+            with self.subTest(value=value):
+                module = build(f'class Sync(Script):\n    class Meta:\n        job_timeout = {value!r}\n')
+                with self.assertRaises(ScriptMetadataError) as captured:
+                    describe(module)
+                self.assertEqual(captured.exception.code, 'invalid_job_timeout')
+
+    def test_an_unknown_notification_policy_is_refused(self):
+        module = build('class Sync(Script):\n    class Meta:\n        notifications_default = "sometimes"\n')
+        with self.assertRaises(ScriptMetadataError) as captured:
+            describe(module)
+        self.assertEqual(captured.exception.code, 'invalid_notifications_default')
+
 
 class RunFormValidationTestCase(TestCase):
     def test_the_reserved_names_are_derived_from_the_run_form(self):

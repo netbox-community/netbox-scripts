@@ -13,6 +13,11 @@ checked before use. It carries no digest, unlike those two, because activation r
 rows from it rather than executing it.
 """
 
+from rq.exceptions import TimeoutFormatError
+from rq.utils import parse_timeout
+
+from core.choices import JobNotificationChoices
+
 from ..constants import (
     MAX_SCRIPT_CLASS_NAME_LENGTH,
     MAX_SCRIPT_DISPLAY_NAME_LENGTH,
@@ -75,7 +80,7 @@ def describe_script(discovered, *, script_file_id, script_file_path, position):
             'commit_default': bool(cls.commit_default),
             'scheduling_enabled': bool(cls.scheduling_enabled),
             'job_timeout': _job_timeout(cls),
-            'notifications_default': str(cls.notifications_default),
+            'notifications_default': _notifications_default(cls),
         },
     }
 
@@ -138,19 +143,31 @@ def validate_discovered_scripts(value):
 
 
 def _job_timeout(cls):
-    """Return one class's job timeout as a whole number of seconds, or None for the default."""
-    # The only Meta value that is neither text nor a flag, so it is the only one a str() or
-    # bool() coercion would not already have made storable.
+    """Return a positive timeout using RQ's duration grammar, or None for the queue default."""
     if cls.job_timeout is None:
         return None
     try:
-        return int(cls.job_timeout)
-    except (TypeError, ValueError) as error:
+        timeout = parse_timeout(cls.job_timeout)
+        if timeout is None or timeout <= 0:
+            raise ValueError('A timeout must be positive.')
+        return timeout
+    except (TimeoutFormatError, TypeError, ValueError, AssertionError) as error:
         raise ScriptMetadataError(
-            f'The job timeout of "{cls.__name__}" is not a number of seconds.',
+            f'The job timeout of "{cls.__name__}" must be a positive number of seconds or an RQ duration string.',
             code='invalid_job_timeout',
             name=cls.__name__,
         ) from error
+
+
+def _notifications_default(cls):
+    """Return a supported Job notification policy or refuse the class metadata."""
+    if cls.notifications_default not in JobNotificationChoices.values():
+        raise ScriptMetadataError(
+            f'The notification policy of "{cls.__name__}" is not a supported Job notification choice.',
+            code='invalid_notifications_default',
+            name=cls.__name__,
+        )
+    return str(cls.notifications_default)
 
 
 def _require_free_variable_names(cls):

@@ -581,13 +581,10 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
   failure there is a crossing, the plugin skipped outside its version range,
   or a settings or setup change. Postgres and Redis service containers for
   the two test jobs. Triggers on pull requests and pushes to `main`.
-- **`release.yml`**, Build + `twine check` + publish to NetBox Labs'
-  internal CodeArtifact via the shared reusable workflow in
-  `netboxlabs/internal-workflows`. Triggers on published GitHub
-  releases. The IAM role ARN is built at runtime from the
-  `AWS_ACCOUNT_ID` GitHub repository variable (see the
-  [post-copy checklist](https://github.com/netboxlabs/netbox-plugin-scaffold/blob/main/docs/post-copy-checklist.md)
-  for the full per-plugin setup).
+- **`release.yml`**, Build + `twine check` + publish to PyPI through Trusted
+  Publishing (`pypa/gh-action-pypi-publish`, `id-token: write`, environment
+  `pypi`). Triggers on published GitHub releases. The Trusted Publisher
+  registered on the PyPI project is the only credential.
 - **`claude-review.yml`**, Claude AI PR review triggered by `@claude`
   mentions from authorized collaborators on a pull request. Set
   `ANTHROPIC_API_KEY` on the repository to enable. Review-assistance
@@ -690,7 +687,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 1. Bump `version` in both `pyproject.toml` and `netbox_scripts/__init__.py`.
 2. Update `docs/releases.md`.
 3. Tag and publish a GitHub release. `release.yml` builds and publishes to
-   the internal artifact store.
+   PyPI.
 
 ## Cloud and Enterprise compatibility (hard contract)
 

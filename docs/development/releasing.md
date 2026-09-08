@@ -25,21 +25,19 @@ We follow [Semantic Versioning](https://semver.org/) and keep a Change Log in `d
    git push origin main vX.Y.Z
    ```
 
-5. **CI.** Pushing the tag fires `.github/workflows/release.yml`, which
-   builds the wheel and sdist, validates them with `twine check`, and
-   publishes to the internal CodeArtifact repository via the
-   OIDC-authenticated reusable workflow. Watch the run for failures
-   (especially `twine check` and the OIDC role assumption).
-
-6. **Publish release.** GitHub drafts a release from the new tag. Review
+5. **Publish release.** Draft a GitHub release from the new tag, review
    the auto-generated notes against `docs/releases.md`, edit as needed,
    and publish.
 
-7. **Post-release.** Verify the package is available from CodeArtifact
-   and that a fresh `pip install netbox-scripts` resolves the new
-   version. If the release introduced new prompts, run `copier update`
-   against an existing rendered plugin to confirm the upgrade path is
-   clean.
+6. **CI.** Publishing the release fires `.github/workflows/release.yml`,
+   which builds the wheel and sdist, validates them with `twine check`,
+   and publishes to PyPI through the Trusted Publisher registered for
+   this repository. Watch the run for failures, especially `twine check`
+   and the OIDC token exchange.
+
+7. **Post-release.** Verify the release on
+   <https://pypi.org/project/netbox-scripts/> and that a fresh
+   `pip install netbox-scripts` resolves the new version.
 
 ## Hotfix process
 

@@ -1,3 +1,4 @@
+from contextlib import ExitStack, contextmanager
 from datetime import datetime
 
 from django.contrib import messages
@@ -15,7 +16,7 @@ from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.views import ViewTab, register_model_view
 
-from ..execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
+from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from ..filtersets import NetBoxScriptFilterSet, ScriptFileFilterSet
 from ..forms import (
     NetBoxScriptBulkEditForm,
@@ -132,19 +133,22 @@ class NetBoxScriptRunView(generic.ObjectView):
         )
 
     def get(self, request, **kwargs):
-        """Render the run form, or the reason there is not one."""
+        """Render the run form while its revision namespace remains loaded."""
         script = self.get_object(**kwargs)
-        instance, reason = self._load(script)
-        form = self._build_form(script, instance, initial=request.GET.dict()) if instance else None
-        return self._render(request, script, form, instance, reason)
+        with self._load(script) as (instance, reason):
+            form = self._build_form(script, instance, initial=request.GET.dict()) if instance else None
+            return self._render(request, script, form, instance, reason)
 
     def post(self, request, **kwargs):
-        """Enqueue one run of the submitted inputs, or re-render the form with its errors."""
+        """Validate submitted inputs while their revision namespace remains loaded."""
         script = self.get_object(**kwargs)
-        instance, reason = self._load(script)
-        if instance is None:
-            return self._render(request, script, None, None, reason)
+        with self._load(script) as (instance, reason):
+            if instance is None:
+                return self._render(request, script, None, None, reason)
+            return self._submit(request, script, instance)
 
+    def _submit(self, request, script, instance):
+        """Enqueue valid inputs or render the bound form's errors."""
         form = self._build_form(script, instance, request.POST, request.FILES)
         if not form.is_valid():
             return self._render(request, script, form, instance, None)
@@ -174,21 +178,23 @@ class NetBoxScriptRunView(generic.ObjectView):
         messages.success(request, _('{script} was queued to run.').format(script=script))
         return redirect('plugins:netbox_scripts:netboxscript_result', pk=script.pk, job_pk=job.pk)
 
+    @contextmanager
     def _load(self, script):
-        """Return an instance of the script's class, or None and the reason there is not one."""
+        """Yield the script instance or a load refusal while holding its import context."""
         if not script.is_executable:
-            return None, _('This Script cannot be run. {reason}').format(reason=script.run_refusal_reason)
-        try:
-            script_class = load_script_class(script)
-        except LOAD_FAILURES as error:
-            return None, _('The Script could not be loaded from its source: {error}').format(error=error)
-        instance = script_class()
-        # Withheld by omission, so the POST needs no guard: a form without the fields cannot
-        # receive them.
-        instance.scheduling_permitted = self.request.user.has_perm(
-            get_permission_for_model(NetBoxScript, 'schedule'), script
-        )
-        return instance, None
+            yield None, _('This Script cannot be run. {reason}').format(reason=script.run_refusal_reason)
+            return
+        with ExitStack() as stack:
+            try:
+                script_class = stack.enter_context(script_class_context(script))
+                instance = script_class()
+            except LOAD_FAILURES as error:
+                yield None, _('The Script could not be loaded from its source: {error}').format(error=error)
+                return
+            instance.scheduling_permitted = self.request.user.has_perm(
+                get_permission_for_model(NetBoxScript, 'schedule'), script
+            )
+            yield instance, None
 
     def _render(self, request, script, form, instance, reason):
         return render(

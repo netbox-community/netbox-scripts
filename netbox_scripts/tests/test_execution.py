@@ -21,7 +21,7 @@ from extras.choices import LogLevelChoices
 from extras.models import Tag
 from netbox.context import current_request
 from netbox_scripts.activation import activate_revision, deactivate_revision
-from netbox_scripts.execution import ScriptNotExecutableError, load_script_class, run_script
+from netbox_scripts.execution import ScriptNotExecutableError, run_script, script_class_context
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import (
     NetBoxScript,
@@ -434,7 +434,7 @@ REPORTS_ITS_EVENT = (
 
 
 class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
-    """What load_script_class refuses, and what it refuses to disclose while doing it."""
+    """What script_class_context refuses, and what it refuses to disclose while doing it."""
 
     def test_a_project_serving_nothing_is_refused_rather_than_dereferenced(self):
         self.publish({'deploy.py': MAKES_A_TAG})
@@ -442,8 +442,8 @@ class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
         deactivate_revision(self.project.active_revision)
         script.refresh_from_db()
 
-        with self.assertRaises(ScriptResolutionError) as caught:
-            load_script_class(script)
+        with self.assertRaises(ScriptResolutionError) as caught, script_class_context(script):
+            pass
 
         self.assertEqual(caught.exception.code, 'not_serving')
 
@@ -456,13 +456,32 @@ class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
         with (
             patch('netbox_scripts.execution.resolve_script_class', side_effect=LocalCacheError(leaky)),
             self.assertRaises(ScriptResolutionError) as caught,
+            script_class_context(script),
         ):
-            load_script_class(script)
+            pass
 
         message = str(caught.exception)
         self.assertNotIn(storage_key, message)
         self.assertNotIn(revision.digest, message)
         self.assertIn('could not be read', message)
+
+    def test_relative_imports_remain_available_during_construction_and_form_building(self):
+        source = (
+            b'from netbox_scripts.scripts import Script\n'
+            b'class Imports(Script):\n'
+            b'    def __init__(self, *args, **kwargs):\n'
+            b'        from .helper import VALUE\n'
+            b'        super().__init__(*args, **kwargs)\n'
+            b'        self.value = VALUE\n'
+            b'    def as_form(self, *args, **kwargs):\n'
+            b'        from .helper import VALUE\n'
+            b'        return super().as_form(*args, **kwargs)\n'
+        )
+        self.publish({'deploy.py': source, 'helper.py': b'VALUE = 42\n'})
+        with script_class_context(self.script()) as script_class:
+            instance = script_class()
+            self.assertEqual(instance.value, 42)
+            self.assertIsNotNone(instance.as_form())
 
 
 class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):

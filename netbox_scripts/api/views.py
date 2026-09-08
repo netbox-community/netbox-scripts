@@ -1,6 +1,7 @@
 from pathlib import PurePosixPath
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils.translation import gettext as _
 from rest_framework import status
 from rest_framework.decorators import action
@@ -11,12 +12,13 @@ from rest_framework.response import Response
 from core.api.serializers import JobSerializer
 from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet, NetBoxReadOnlyModelViewSet
-from utilities.exceptions import RQWorkerNotRunningException
+from netbox.api.viewsets.mixins import discard_events_on_rollback
+from utilities.exceptions import PermissionsViolation, RQWorkerNotRunningException
 from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.rqworker import any_workers_for_queue
 
-from ..execution import LOAD_FAILURES, load_script_class
+from ..execution import LOAD_FAILURES, script_class_context
 from ..filtersets import (
     NetBoxScriptFilterSet,
     ScriptFileFilterSet,
@@ -24,14 +26,16 @@ from ..filtersets import (
     ScriptProjectRevisionFilterSet,
 )
 from ..ingestion import (
-    check_upload_conflicts,
-    current_source_tree,
+    check_upload_preconditions,
     ingest_upload,
+    prepare_upload,
     uploaded_source_path,
 )
 from ..jobs import NetBoxScriptJob, ProjectScriptFileRefreshJob
 from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from ..storage import config
+from ..storage.locks import project_lock
+from ..storage.service import require_default_database
 from .serializers import (
     NetBoxScriptRunInputSerializer,
     NetBoxScriptSerializer,
@@ -102,10 +106,18 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
                 raise ValidationError(
                     _('The file is larger than the {limit} byte limit for one source file.').format(limit=limit)
                 )
-            check_upload_conflicts(project, path, confirm_replace=input_serializer.validated_data['confirm_replace'])
-            staged = ingest_upload(
-                project, filename=filename, content=upload.read(), base_files=current_source_tree(project)
-            )
+            using = check_upload_preconditions(project)
+            with project_lock(project.storage_key, using=using):
+                with transaction.atomic(using=using), discard_events_on_rollback(self, using=using):
+                    prepare_upload(
+                        project,
+                        filename=path,
+                        confirm_replace=input_serializer.validated_data['confirm_replace'],
+                        user=request.user,
+                    )
+                staged = ingest_upload(project, filename=filename, content=upload.read(), declare=False)
+        except PermissionsViolation as error:
+            raise PermissionDenied(error.message) from error
         except ValidationError as error:
             raise APIValidationError({'file': error.messages}) from error
 
@@ -125,15 +137,15 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
             paths = request.data.get('paths')
             if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
                 raise APIValidationError({'paths': 'Provide a list of source paths.'})
-            selected = set(project.script_files.filter(enabled=True).values_list('source_path', flat=True))
+            using = require_default_database(project)
             try:
-                project.select_script_files(paths)
+                with transaction.atomic(using=using), discard_events_on_rollback(self, using=using):
+                    if project.select_script_files(paths, user=request.user):
+                        ProjectScriptFileRefreshJob.enqueue_refresh(project)
+            except PermissionsViolation as error:
+                raise PermissionDenied(error.message) from error
             except ValidationError as error:
                 raise APIValidationError(error.message_dict) from error
-            if set(paths) != selected:
-                # The same rule the Script Files tab follows, so the two surfaces cannot disagree
-                # about what saving a selection does.
-                ProjectScriptFileRefreshJob.enqueue_refresh(project)
         return Response(self._script_file_state(project))
 
     @staticmethod
@@ -217,10 +229,13 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         if not any_workers_for_queue('default'):
             raise RQWorkerNotRunningException()
         try:
-            instance = load_script_class(script)()
+            with script_class_context(script) as script_class:
+                return self._enqueue_run(request, script, script_class())
         except LOAD_FAILURES as error:
             raise APIValidationError({'detail': f'The Script could not be loaded from its source: {error}'}) from error
 
+    def _enqueue_run(self, request, script, instance):
+        """Validate inputs and enqueue while the script's revision namespace is loaded."""
         input_serializer = NetBoxScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
         input_serializer.is_valid(raise_exception=True)
         parameters = input_serializer.validated_data

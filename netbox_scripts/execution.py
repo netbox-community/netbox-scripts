@@ -17,7 +17,7 @@ last of them belongs to the feature NetBox retires at v5.0.
 
 import logging
 import traceback
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
@@ -49,8 +49,8 @@ __all__ = (
     'LOAD_FAILURES',
     'RESOLUTION_FAILURES',
     'ScriptNotExecutableError',
-    'load_script_class',
     'run_script',
+    'script_class_context',
 )
 
 # Everything that means "this revision cannot give us the class the row names". Each one is a
@@ -64,7 +64,7 @@ RESOLUTION_FAILURES = (
     ScriptResolutionError,
 )
 
-# load_script_class also reaches the store and the local cache.
+# script_class_context also reaches the store and the local cache.
 LOAD_FAILURES = RESOLUTION_FAILURES + (StorageError, OSError)
 
 
@@ -134,13 +134,13 @@ def run_script(instance, *, data, commit, request=None):
         current_request.set(outer_request)
 
 
-def load_script_class(script):
+@contextmanager
+def script_class_context(script):
     """
-    Return the class one Script row names, out of the revision its project serves.
+    Yield the class one Script row names while its revision namespace remains loaded.
 
-    This is the same resolution the worker performs, against the same revision, so a form built
-    from the class matches the source that will execute. The namespace is unloaded before this
-    returns, so the class comes back good for introspection rather than for a run. Raises
+    Construction, form validation and rendering must finish before leaving this context.
+    The namespace is unloaded on both success and failure. Raises
     ScriptResolutionError when the project serves no revision, when the active revision does not
     publish the row's identity, and for any load failure, whose message is sanitized.
     """
@@ -157,7 +157,7 @@ def load_script_class(script):
     sanitize = build_error_sanitizer(storage_key, revision.digest)
     with revision_import_session(storage_key, revision.digest):
         try:
-            return resolve_script_class(
+            yield resolve_script_class(
                 storage_key,
                 revision.digest,
                 discovered_scripts=revision.discovered_scripts,

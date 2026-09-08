@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
 
-from ..execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
+from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from . import cutover, mapping
 
 __all__ = (
@@ -392,18 +392,19 @@ def _recreate(run, entry, script, schedule_at, user, recreated):
     # Locally, because jobs.py imports this tier.
     from ..jobs import NetBoxScriptJob
 
-    instance = load_script_class(script)()
-    # Through the form, because that is what turns the journal's keys back into the model instances
-    # an ObjectVar resolves to.
-    form = instance.as_form({**entry['data'], '_commit': entry['commit']})
-    if not form.is_valid():
-        raise ValidationError(_form_errors(form))
-    data = dict(form.cleaned_data)
-    # Popped exactly as the run view pops them, so no execution parameter reaches the script as a
-    # variable value. The schedule itself comes from the captured Job row, not from these.
-    commit = data.pop('_commit', True)
-    for name in ('_schedule_at', '_interval', '_notifications'):
-        data.pop(name, None)
+    with script_class_context(script) as script_class:
+        instance = script_class()
+        # Through the form, because that is what turns the journal's keys back into the model instances
+        # an ObjectVar resolves to.
+        form = instance.as_form({**entry['data'], '_commit': entry['commit']})
+        if not form.is_valid():
+            raise ValidationError(_form_errors(form))
+        data = dict(form.cleaned_data)
+        # Popped exactly as the run view pops them, so no execution parameter reaches the script as a
+        # variable value. The schedule itself comes from the captured Job row, not from these.
+        commit = data.pop('_commit', True)
+        for name in ('_schedule_at', '_interval', '_notifications'):
+            data.pop(name, None)
     with transaction.atomic():
         job = NetBoxScriptJob.enqueue_run(
             script,

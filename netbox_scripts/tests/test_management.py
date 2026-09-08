@@ -212,7 +212,7 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
 
         with (
             patch(
-                'netbox_scripts.management.commands.runcustomscript.load_script_class',
+                'netbox_scripts.management.commands.runcustomscript.script_class_context',
                 side_effect=ScriptFileImportError('deploy imports a module that is not there', {}),
             ),
             self.assertRaises(CommandError) as caught,

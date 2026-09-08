@@ -349,7 +349,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.grant('view', 'run')
 
         with patch(
-            'netbox_scripts.api.views.load_script_class',
+            'netbox_scripts.api.views.script_class_context',
             side_effect=ScriptFileImportError('deploy imports a module that is not there', {}),
         ):
             response = self.post_run({'data': {'label': 'never-runs'}})

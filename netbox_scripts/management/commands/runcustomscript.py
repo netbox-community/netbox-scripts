@@ -10,7 +10,7 @@ from django.core.management.base import BaseCommand, CommandError
 from core.choices import JobNotificationChoices, JobStatusChoices
 from utilities.request import NetBoxFakeRequest
 
-from ...execution import LOAD_FAILURES, ScriptNotExecutableError, load_script_class
+from ...execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from ...jobs import NetBoxScriptJob
 from ...models import NetBoxScript
 from ...scripts.logging import LogLevelChoices
@@ -56,11 +56,11 @@ class Command(BaseCommand):
         if not script.is_executable:
             raise CommandError(f'"{script}" cannot be run. {script.run_refusal_reason}')
         try:
-            instance = load_script_class(script)()
+            with script_class_context(script) as script_class:
+                values = self.values(script_class(), options['data'])
         except LOAD_FAILURES as error:
             raise CommandError(f'The Script could not be loaded from its source: {error}') from error
 
-        values = self.values(instance, options['data'])
         user = self.user(options['user'])
         # In this process rather than a worker, so the caller waits and reads the exit status.
         try:

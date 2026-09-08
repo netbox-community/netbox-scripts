@@ -106,9 +106,8 @@ NetBox development environment.
     netbox-scripts/                # this plugin
   ```
 
-- [`uv`](https://docs.astral.sh/uv/) for managing tool installs (optional
-  but recommended; the scaffold uses `uv` for `copier`, `pre-commit`, and
-  `ruff`).
+- [`uv`](https://docs.astral.sh/uv/) for managing tool installs, optional
+  but recommended. The scaffold uses `uv` for `pre-commit` and `ruff`.
 
 **Setup:**
 

@@ -444,8 +444,7 @@ inline as the plugin grows.
   The shared `tests/plugin_testing.py`
   mixins are always present.
   Run `manage.py makemigrations` on first render to generate the
-  initial migration. Clear the `default_model_name` Copier answer
-  (set it empty) and re-run `copier update` to remove the worked example.
+  initial migration.
 - **Navigation**, `navigation.py` defines a `PluginMenu` with grouped
   `PluginMenuItem` entries and per-item permission checks.
 - **URLs**, UI views are registered with `@register_model_view` and surfaced
@@ -541,8 +540,8 @@ periodically.
 
   **The baseline is a single file, but the CI matrix spans two NetBox refs, and a
   core change to query behaviour lands on them at different times.** The file
-  therefore tracks the pinned stable ref, `netbox_test_max_ref`, and two rules
-  follow from that:
+  therefore tracks the pinned stable ref in `.github/workflows/test.yml`, and two
+  rules follow from that:
 
   - **Regenerate against a checkout at that ref, never against `main` or
     `feature`.** `UPDATE_QUERY_COUNTS=1` rewrites every key it observes, so a run
@@ -681,7 +680,7 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
 1. Update `min_version` / `max_version` in `netbox_scripts/__init__.py`.
 2. Update `COMPATIBILITY.md`.
-3. Update `netbox_test_min_ref` / `netbox_test_max_ref` (via `copier update`, or directly in the rendered `.github/workflows/test.yml`) to match the new supported floor / ceiling.
+3. Update the pinned NetBox refs in `.github/workflows/test.yml` to match the new supported floor / ceiling.
 4. Run the suite locally against the new version.
 5. Drop any shims that exist only for the now-unsupported NetBox versions.
 6. Note any compatibility shims or breaking changes in `docs/releases.md`.

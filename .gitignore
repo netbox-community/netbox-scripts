@@ -65,7 +65,3 @@ Thumbs.db
 
 # uv
 /uv.lock
-
-# Copier
-# Note: `.copier-answers.yml` is committed by convention so `copier update`
-# works on the generated repo. Do not add it to this ignore list.

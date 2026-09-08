@@ -190,7 +190,7 @@ A PR is reviewed only if:
 - **pre-commit** passes locally.
 - It **does not** bump versions or edit the changelog. Maintainers
   handle release bookkeeping (see
-  [`docs/development/releasing.md`](https://github.com/netboxlabs/netbox-custom-scripts/blob/main/docs/development/releasing.md)).
+  [`docs/development/releasing.md`](https://github.com/netbox-community/netbox-scripts/blob/main/docs/development/releasing.md)).
 - **PR title and commits follow Conventional Commits.**
 
 ### Branching and commits
@@ -227,14 +227,14 @@ A PR is reviewed only if:
 ## Security
 
 Please do **not** open a public issue for security problems. Follow our
-[`SECURITY.md`](https://github.com/netboxlabs/netbox-custom-scripts/blob/main/SECURITY.md). If in doubt, contact a maintainer privately
+[`SECURITY.md`](https://github.com/netbox-community/netbox-scripts/blob/main/SECURITY.md). If in doubt, contact a maintainer privately
 and we will coordinate a fix and disclosure.
 
 ---
 
 ## Releasing (maintainers)
 
-See [`docs/development/releasing.md`](https://github.com/netboxlabs/netbox-custom-scripts/blob/main/docs/development/releasing.md) for
+See [`docs/development/releasing.md`](https://github.com/netbox-community/netbox-scripts/blob/main/docs/development/releasing.md) for
 the full release checklist.
 
 ---

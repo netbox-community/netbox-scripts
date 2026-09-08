@@ -864,4 +864,4 @@ Check this before designing anything that persists bytes.
 - License: [`LICENSE`](./LICENSE).
 - User docs (mkdocs): [`docs/`](./docs/).
 - NetBox plugin docs: <https://netboxlabs.com/docs/netbox/plugins/>.
-- Repository: <https://github.com/netboxlabs/netbox-custom-scripts>.
+- Repository: <https://github.com/netbox-community/netbox-scripts>.

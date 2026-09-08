@@ -47,11 +47,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/netboxlabs/netbox-custom-scripts"
-Documentation = "https://netboxlabs.github.io/netbox-custom-scripts/"
-Source = "https://github.com/netboxlabs/netbox-custom-scripts"
-Issues = "https://github.com/netboxlabs/netbox-custom-scripts/issues"
-Changelog = "https://github.com/netboxlabs/netbox-custom-scripts/releases"
+Homepage = "https://github.com/netbox-community/netbox-scripts"
+Documentation = "https://github.com/netbox-community/netbox-scripts/tree/main/docs"
+Source = "https://github.com/netbox-community/netbox-scripts"
+Issues = "https://github.com/netbox-community/netbox-scripts/issues"
+Changelog = "https://github.com/netbox-community/netbox-scripts/releases"
 
 [project.optional-dependencies]
 # Pinned for reproducible CI; items 4 and 5 may extend each group.

@@ -1,7 +1,7 @@
 site_name: "NetBox Scripts"
 site_description: "Custom Scripts for NetBox"
-repo_url: https://github.com/netboxlabs/netbox-custom-scripts
-repo_name: "netboxlabs/netbox-custom-scripts"
+repo_url: https://github.com/netbox-community/netbox-scripts
+repo_name: "netbox-community/netbox-scripts"
 
 theme:
   name: material

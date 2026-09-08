@@ -52,7 +52,7 @@ Not yet implemented, planned for follow-up releases:
 |----------------|----------------|----------------|----------------|
 | 0.0.1 | 4.7.0 | 4.7.99 | 3.12 |
 
-The full per-release matrix lives in [COMPATIBILITY.md](COMPATIBILITY.md).
+The full per-release matrix lives in [COMPATIBILITY.md](https://github.com/netbox-community/netbox-scripts/blob/main/COMPATIBILITY.md).
 
 ## Installation
 
@@ -83,8 +83,7 @@ python manage.py migrate
 
 ## Documentation
 
-User documentation lives under [`docs/`](docs/) and is published at
-<https://netboxlabs.github.io/netbox-custom-scripts/>.
+User documentation lives under [`docs/`](https://github.com/netbox-community/netbox-scripts/tree/main/docs).
 
 ## Support
 
@@ -92,5 +91,5 @@ File issues in this repository.
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE).
+Apache License 2.0, see [LICENSE](https://github.com/netbox-community/netbox-scripts/blob/main/LICENSE).
 Copyright (c) 2026 NetBox Labs.

@@ -370,3 +370,14 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         body = str(response.data)
         self.assertNotIn(key, body)
         self.assertNotIn(self.revision.digest, body)
+
+    def test_the_worker_check_and_enqueue_use_the_scripts_queue(self):
+        self.grant('view', 'run')
+        with (
+            patch('netbox_scripts.api.views.get_queue_for_model', return_value='low'),
+            patch('netbox_scripts.api.views.any_workers_for_queue', side_effect=lambda queue: queue == 'low'),
+            patch.object(NetBoxScriptJob, 'enqueue_run', wraps=NetBoxScriptJob.enqueue_run) as enqueue,
+        ):
+            response = self.post_run({'data': {'label': 'custom-queue'}})
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertEqual(enqueue.call_args.kwargs['queue_name'], 'low')

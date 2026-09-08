@@ -16,7 +16,7 @@ from netbox.api.viewsets.mixins import discard_events_on_rollback
 from utilities.exceptions import PermissionsViolation, RQWorkerNotRunningException
 from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
-from utilities.rqworker import any_workers_for_queue
+from utilities.rqworker import any_workers_for_queue, get_queue_for_model
 
 from ..execution import LOAD_FAILURES, script_class_context
 from ..filtersets import (
@@ -226,15 +226,16 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
                 {'detail': _('This Script cannot be run. {reason}').format(reason=script.run_refusal_reason)}
             )
         # Checked before the source is loaded, so a run nothing can pick up does no storage I/O.
-        if not any_workers_for_queue('default'):
+        queue_name = get_queue_for_model(NetBoxScript._meta.model_name)
+        if not any_workers_for_queue(queue_name):
             raise RQWorkerNotRunningException()
         try:
             with script_class_context(script) as script_class:
-                return self._enqueue_run(request, script, script_class())
+                return self._enqueue_run(request, script, script_class(), queue_name=queue_name)
         except LOAD_FAILURES as error:
             raise APIValidationError({'detail': f'The Script could not be loaded from its source: {error}'}) from error
 
-    def _enqueue_run(self, request, script, instance):
+    def _enqueue_run(self, request, script, instance, *, queue_name):
         """Validate inputs and enqueue while the script's revision namespace is loaded."""
         input_serializer = NetBoxScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
         input_serializer.is_valid(raise_exception=True)
@@ -271,5 +272,6 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
             # The worker is another process, so the request has to be picklable and sanitized.
             request=copy_safe_request(request),
             user=request.user,
+            queue_name=queue_name,
         )
         return Response(JobSerializer(job, context={'request': request}).data, status=status.HTTP_201_CREATED)

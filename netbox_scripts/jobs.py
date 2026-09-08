@@ -501,18 +501,51 @@ class NetBoxScriptJob(JobRunner):
         kwargs.setdefault('notifications', notifications or script.notifications_default)
         if immediate:
             return cls._run_now(script, payload, data=data, request=request, user=user, **kwargs)
+        return cls.enqueue(
+            instance=script,
+            user=user,
+            data=data,
+            request=request,
+            schedule_at=schedule_at,
+            interval=interval,
+            # The resolution above collapses the two cases, so this is the only record of which.
+            notifications_inherited=notifications is None,
+            **payload,
+            **kwargs,
+        )
+
+    @classmethod
+    def enqueue(cls, *args, **kwargs):
+        """Initialize both first occurrences and core-generated recurring successors."""
+        from django.core.exceptions import ValidationError
+
+        if kwargs.get('immediate'):
+            raise ValueError('Use enqueue_run(immediate=True) for synchronous Script execution.')
+        instance = kwargs.get('instance')
+        script = NetBoxScript.objects.filter(pk=getattr(instance, 'pk', None)).select_related('project').first()
+        if script is None:
+            raise ValidationError('The Script no longer exists, so the run cannot be scheduled.')
+        kwargs['instance'] = script
+        kwargs.setdefault('job_timeout', script.job_timeout)
+        kwargs.setdefault('notifications', script.notifications_default)
+        if kwargs.get('interval'):
+            # Core rebuilds a successor with the row's own notifications, so setdefault cannot
+            # reach it. A run queued before this flag carries none, and inherited is what it was.
+            if kwargs.get('notifications_inherited', True):
+                kwargs['notifications'] = script.notifications_default
+            kwargs['revision_id'] = None
+            kwargs['revision_digest'] = None
+        payload = {
+            'revision_id': kwargs.get('revision_id'),
+            'revision_digest': kwargs.get('revision_digest'),
+            'module_path': kwargs.get('module_path', script.module_path),
+            'class_name': kwargs.get('class_name', script.class_name),
+            'commit': bool(kwargs.get('commit', script.commit_default)),
+            'event': kwargs.get('event'),
+        }
+        kwargs.update(payload)
         with transaction.atomic():
-            job = cls.enqueue(
-                instance=script,
-                user=user,
-                data=data,
-                request=request,
-                schedule_at=schedule_at,
-                interval=interval,
-                **payload,
-                **kwargs,
-            )
-            # A second statement because core's own row construction carries no data.
+            job = super().enqueue(*args, **kwargs)
             job.data = cls._row_data(payload)
             job.save(update_fields=('data',))
         return job
@@ -562,8 +595,8 @@ class NetBoxScriptJob(JobRunner):
     @staticmethod
     def _row_data(payload):
         """Return the payload with an Event Rule's object snapshots dropped, for the Job row."""
-        # payload is both the task kwargs and the row data. Only the row is readable by anyone
-        # holding core.view_job, and snapshots carry the full before and after of the fired object.
+        # The task receives payload too, but only the row is readable by anyone holding
+        # core.view_job, and snapshots carry the full before and after of the fired object.
         event = payload.get('event')
         if not event or 'snapshots' not in event:
             return dict(payload)

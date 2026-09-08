@@ -738,6 +738,21 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertEqual(job.interval, 60)
 
+    def test_a_recurrence_keeps_a_supplied_notification_policy(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        job = NetBoxScriptJob.enqueue_run(
+            self.script(),
+            data={},
+            commit=True,
+            user=self.user,
+            schedule_at=local_now() + timedelta(minutes=5),
+            interval=60,
+            notifications=JobNotificationChoices.NOTIFICATION_ON_FAILURE,
+        )
+
+        self.assertEqual(job.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+
     def test_a_recurring_run_pins_no_revision(self):
         self.publish({'deploy.py': MAKES_A_TAG})
 
@@ -788,6 +803,71 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
 
         with self.assertRaises(JobFailed):
             self.occurrence(job)
+
+    def test_the_core_recurring_successor_keeps_its_envelope_and_refreshes_timeout(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        script.job_timeout_override = 300
+        script.save()
+        with patch('core.models.jobs.django_rq.get_queue') as get_queue:
+            with self.captureOnCommitCallbacks(execute=True):
+                job = NetBoxScriptJob.enqueue_run(script, data={}, commit=False, user=self.user, interval=60)
+            NetBoxScript.objects.filter(
+                pk=script.pk,
+            ).update(job_timeout_override=900, notifications_default_override='never')
+            with self.captureOnCommitCallbacks(execute=True):
+                NetBoxScriptJob.handle(
+                    job=job,
+                    revision_id=None,
+                    revision_digest=None,
+                    module_path='deploy',
+                    class_name='MakeTag',
+                    data={},
+                    commit=False,
+                    event=None,
+                )
+            job.refresh_from_db()
+            self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+            successor = Job.objects.filter(object_id=script.pk, object_type=job.object_type).exclude(pk=job.pk).get()
+            self.assertEqual(successor.data['module_path'], 'deploy')
+            self.assertEqual(successor.data['class_name'], 'MakeTag')
+            self.assertFalse(successor.data['commit'])
+            self.assertIn('event', successor.data)
+            self.assertIsNone(successor.data['revision_id'])
+            self.assertEqual(get_queue.return_value.enqueue_at.call_args.kwargs['job_timeout'], 900)
+            self.assertEqual(job.notifications, 'always')
+            self.assertEqual(successor.notifications, 'never')
+
+    def test_the_core_recurring_successor_keeps_an_explicit_notification_policy(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        with patch('core.models.jobs.django_rq.get_queue'):
+            with self.captureOnCommitCallbacks(execute=True):
+                job = NetBoxScriptJob.enqueue_run(
+                    script,
+                    data={},
+                    commit=False,
+                    user=self.user,
+                    interval=60,
+                    notifications=JobNotificationChoices.NOTIFICATION_ON_FAILURE,
+                )
+            NetBoxScript.objects.filter(pk=script.pk).update(notifications_default_override='never')
+            with self.captureOnCommitCallbacks(execute=True):
+                NetBoxScriptJob.handle(
+                    job=job,
+                    revision_id=None,
+                    revision_digest=None,
+                    module_path='deploy',
+                    class_name='MakeTag',
+                    data={},
+                    commit=False,
+                    event=None,
+                    # The queue delivers what enqueue() recorded, so the test has to supply it too.
+                    notifications_inherited=False,
+                )
+            successor = Job.objects.filter(object_id=script.pk, object_type=job.object_type).exclude(pk=job.pk).get()
+            self.assertEqual(job.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+            self.assertEqual(successor.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
 
 
 class RunJobTestCase(ScriptJobTestMixin, TestCase):

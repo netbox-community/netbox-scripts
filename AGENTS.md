@@ -229,7 +229,7 @@ when domain content calls for them.
 │   └── check_netbox_internals.py  , Resolves every crossing docs/development/netbox-internals.md lists after django.setup() with no database, refuses a core advisory-lock key on either plugin namespace, and fails when NetBox skipped the plugin outside its version range. CI runs it against NetBox's feature branch as the one blocking job on that ref.
 ├── testing/
 │   └── configuration.py           , NetBox config used by the test workflow (maintainer-added; see Development). **Points Redis at databases 15 and 14, not the 0 and 1 a running NetBox uses, and is the one home of that isolation.** The test runner isolates the database but nothing isolates Redis, so a committing TransactionTestCase enqueues a live RQ job whose kwargs carry pickled model instances holding TEST primary keys, which any worker on the host then inserts verbatim into whichever database it serves.
-├── .github/workflows/             , test.yml, release.yml, claude-review.yml.
+├── .github/workflows/             , test.yml, release.yml.
 ├── AGENTS.md                      , This file. Source of truth for AI agents.
 ├── CLAUDE.md                      , Shim that pulls in AGENTS.md.
 ├── COMPATIBILITY.md               , Plugin → NetBox version matrix.
@@ -568,7 +568,7 @@ Do not claim a test passed without running it.
 
 ## CI/CD
 
-Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
+Two GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
 - **`test.yml`**, PR / branch validation. Four jobs, three of them gated on
   a fast `lint` job running `pre-commit run --all-files`: a `test` matrix
@@ -585,10 +585,6 @@ Three GitHub Actions workflows ship pre-wired under `.github/workflows/`:
   Publishing (`pypa/gh-action-pypi-publish`, `id-token: write`, environment
   `pypi`). Triggers on published GitHub releases. The Trusted Publisher
   registered on the PyPI project is the only credential.
-- **`claude-review.yml`**, Claude AI PR review triggered by `@claude`
-  mentions from authorized collaborators on a pull request. Set
-  `ANTHROPIC_API_KEY` on the repository to enable. Review-assistance
-  only, does not replace maintainer approval.
 
 ## Common Tasks
 

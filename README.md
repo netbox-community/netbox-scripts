@@ -92,5 +92,5 @@ File issues in this repository.
 
 ## License
 
-NetBox Limited Use License 1.0, see [LICENSE.md](LICENSE.md).
+Apache License 2.0, see [LICENSE](LICENSE).
 Copyright (c) 2026 NetBox Labs.

@@ -233,7 +233,7 @@ when domain content calls for them.
 ├── AGENTS.md                      , This file. Source of truth for AI agents.
 ├── CLAUDE.md                      , Shim that pulls in AGENTS.md.
 ├── COMPATIBILITY.md               , Plugin → NetBox version matrix.
-├── LICENSE.md                     , NetBox Limited Use License 1.0.
+├── LICENSE                        , Apache License 2.0.
 ├── README.md                      , Project README.
 ├── SECURITY.md                    , Security policy.
 ├── mkdocs.yml                     , Docs site config (zensical and mkdocs).
@@ -861,7 +861,7 @@ Check this before designing anything that persists bytes.
 - Plugin README: [`README.md`](./README.md).
 - Compatibility matrix: [`COMPATIBILITY.md`](./COMPATIBILITY.md).
 - Security policy: [`SECURITY.md`](./SECURITY.md).
-- License: [`LICENSE.md`](./LICENSE.md).
+- License: [`LICENSE`](./LICENSE).
 - User docs (mkdocs): [`docs/`](./docs/).
 - NetBox plugin docs: <https://netboxlabs.com/docs/netbox/plugins/>.
 - Repository: <https://github.com/netboxlabs/netbox-custom-scripts>.

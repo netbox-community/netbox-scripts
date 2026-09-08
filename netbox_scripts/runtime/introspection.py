@@ -40,7 +40,7 @@ RESERVED_VARIABLE_NAMES = frozenset(ScriptForm.declared_fields)
 _REQUIRED_TEXT_KEYS = ('module_path', 'class_name', 'script_file_path', 'display_name', 'description')
 
 
-def describe_script(discovered, *, script_file_id, script_file_path, position):
+def describe_script(discovered, *, script_file_id, script_file_path, position, passthrough=()):
     """
     Describe one published script class as a JSON-safe record.
 
@@ -62,6 +62,8 @@ def describe_script(discovered, *, script_file_id, script_file_path, position):
     except ScriptMetadataError:
         raise
     except Exception as error:
+        if isinstance(error, passthrough):
+            raise
         raise ScriptMetadataError(
             f'The run form of "{discovered.name}" could not be built.',
             code='form_construction_failed',

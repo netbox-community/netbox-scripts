@@ -149,7 +149,9 @@ def validate_revision(revision, *, job, passthrough=()):
                         notes[source_path] = sanitize(zero_publication_reason(module))
                         outcomes[source_path] = FileDiscoveryStatusChoices.NO_SCRIPTS
                         continue
-                    outcomes[source_path] = _collect_publications(failures, identities, records, sanitize, entry, found)
+                    outcomes[source_path] = _collect_publications(
+                        failures, identities, records, sanitize, entry, found, passthrough=passthrough
+                    )
             finally:
                 unload_revision(storage_key, digest)
     except BaseException as error:
@@ -300,7 +302,7 @@ def _content_failure(failures, sanitize, source_path, error):
     return FileDiscoveryStatusChoices.FAILED
 
 
-def _collect_publications(failures, identities, records, sanitize, entry, found):
+def _collect_publications(failures, identities, records, sanitize, entry, found, *, passthrough=()):
     """
     Fold one entry's discoveries into the revision-wide identity map and snapshot.
 
@@ -333,6 +335,7 @@ def _collect_publications(failures, identities, records, sanitize, entry, found)
                 script_file_id=entry['script_file'],
                 script_file_path=source_path,
                 position=len(records),
+                passthrough=passthrough,
             )
         except ScriptMetadataError as error:
             outcome = _content_failure(failures, sanitize, source_path, error)

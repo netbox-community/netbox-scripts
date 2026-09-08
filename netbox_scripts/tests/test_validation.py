@@ -358,6 +358,25 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
             self.assertNotIn(private, serialized)
         self.assertIn('deploy.py', serialized)
 
+    def test_timeouts_during_construction_or_form_building_release_the_claim(self):
+        self.declare('deploy.py')
+        for method, parameters in (('__init__', '*args, **kwargs'), ('as_form', '*args, **kwargs')):
+            with self.subTest(method=method):
+                source = (
+                    'from netbox_scripts.scripts import Script\n'
+                    'from rq.timeouts import JobTimeoutException\n'
+                    'class Slow(Script):\n'
+                    f'    def {method}(self, {parameters}):\n'
+                    '        raise JobTimeoutException("worker deadline")\n'
+                ).encode()
+                revision = self.stage({'deploy.py': source})
+                with self.assertRaises(JobTimeoutException):
+                    validate_revision(revision, job=self.make_job(), passthrough=(JobTimeoutException,))
+                revision.refresh_from_db()
+                self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+                self.assertIsNone(revision.validation_job_id)
+                self.assertEqual(revision.validation_errors, [])
+
 
 class PublicationTestCase(ValidationTestMixin, TestCase):
     def test_a_valid_verdict_records_what_the_revision_publishes(self):

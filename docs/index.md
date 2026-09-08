@@ -10,7 +10,7 @@ script source tree. It is the ownership boundary for source files and the
 Python package boundary used when loading and executing scripts. Projects own
 either uploaded content or a directory of a NetBox Data Source, never both.
 
-The current release is pre-alpha. It ships the project and script file models with
+The current release is alpha. It ships the project and script file models with
 full UI, REST API, GraphQL, and global-search surfaces, the plugin-owned script
 authoring API with variable classes, form generation, and structured logging,
 immutable project revisions held in plugin-owned project storage with manifest

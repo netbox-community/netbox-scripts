@@ -30,7 +30,7 @@ maintainers = [
 ]
 keywords = ["netbox", "netbox-plugin"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Framework :: Django",
     "Framework :: Django :: 6.0",
     "Intended Audience :: Developers",

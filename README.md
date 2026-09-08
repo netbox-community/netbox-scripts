@@ -8,7 +8,7 @@ the Python package boundary used when loading and executing scripts.
 
 ## Status
 
-This is a pre-alpha release. The complete path from source to a running script
+This is an alpha release. The complete path from source to a running script
 works end to end.
 
 Implemented:

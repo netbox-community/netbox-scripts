@@ -101,11 +101,42 @@ def _object_type(model):
     return ObjectType.objects.get_for_model(model, for_concrete_model=False)
 
 
+def _reports_root_scope():
+    """Return the object type and id pairs a reference a built-in report owns can name."""
+    from core.choices import ManagedFileRootPathChoices
+    from extras.models import Script, ScriptModule
+
+    modules = ScriptModule.objects.filter(file_root=ManagedFileRootPathChoices.REPORTS)
+    classes = Script.objects.filter(module__file_root=ManagedFileRootPathChoices.REPORTS)
+    return (
+        (_object_type(ScriptModule), list(modules.values_list('pk', flat=True))),
+        (_object_type(Script), list(classes.values_list('pk', flat=True))),
+    )
+
+
+def _report_predicate(type_field, id_field):
+    """Return a filter matching what a built-in report owns, or None when it owns nothing."""
+    from django.db.models import Q
+
+    # Subtracted, not selected: a reference whose type and id disagree survives an upgrade and the
+    # passes report it, so selecting the scripts root would hide those. Paired per object type,
+    # because the two key sequences are independent.
+    predicate = None
+    for object_type, keys in _reports_root_scope():
+        if not keys:
+            continue
+        clause = Q(**{type_field: object_type, f'{id_field}__in': keys})
+        predicate = clause if predicate is None else predicate | clause
+    return predicate
+
+
 def script_jobs():
-    """Return every Job that names the built-in feature, whatever its status."""
+    """Return every Job that names the built-in feature, less any a report owns, whatever its status."""
     from core.models import Job
 
-    return Job.objects.filter(object_type__in=legacy_object_types())
+    jobs = Job.objects.filter(object_type__in=legacy_object_types())
+    reports = _report_predicate('object_type', 'object_id')
+    return jobs.exclude(reports) if reports is not None else jobs
 
 
 def running_script_jobs():
@@ -129,19 +160,26 @@ def enqueued_script_jobs():
 
 
 def legacy_event_rules():
-    """Return every Event Rule that names the built-in feature as its action or as a source."""
+    """Return every Event Rule naming the built-in feature as its action or source, less a report's."""
     from django.db.models import Q
 
     from extras.models import EventRule
 
     types = legacy_object_types()
     # object_types relates to ContentType while these are ObjectType rows, which share its keys.
+    # It is a model-level subscription, so unlike the action it cannot be narrowed to one root.
     keys = [object_type.pk for object_type in types]
-    return EventRule.objects.filter(Q(action_object_type__in=types) | Q(object_types__in=keys)).distinct()
+    rules = EventRule.objects.filter(Q(action_object_type__in=types) | Q(object_types__in=keys)).distinct()
+    reports = _report_predicate('action_object_type', 'action_object_id')
+    return rules.exclude(reports) if reports is not None else rules
 
 
 def legacy_permissions():
-    """Return every permission granting an action on the built-in feature."""
+    """Return every permission granting an action on the built-in feature, reports included.
+
+    A grant names an object type rather than a row, so unlike the Job and Event Rule readers this
+    one cannot leave a report out.
+    """
     from users.models import ObjectPermission
 
     return ObjectPermission.objects.filter(object_types__in=legacy_object_types()).distinct()
@@ -212,7 +250,12 @@ def legacy_modules_by_pk(keys):
 
 
 def reference_counts():
-    """Return how many Event Rules, permissions and Jobs reference the built-in feature."""
+    """
+    Return how many Event Rules, permissions and Jobs reference the built-in feature.
+
+    The Event Rule and Job figures leave out what a report owns. The permission figure cannot,
+    since a grant names an object type rather than a row.
+    """
     jobs = script_jobs()
     return {
         'event_rules': legacy_event_rules().count(),

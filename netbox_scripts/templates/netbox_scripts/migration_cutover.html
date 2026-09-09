@@ -5,8 +5,9 @@
 Cutover confirmation.
 
 Context:
-  - form:       MigrationCutoverForm, whose one checkbox the pass will not run without
-  - return_url: Where Cancel goes, the migration page
+  - form:         MigrationCutoverForm, whose one checkbox the pass will not run without
+  - report_count: Built-in report modules, which this migration does not cover
+  - return_url:   Where Cancel goes, the migration page
 {% endcomment %}
 {% block title %}
   {% trans "Enter the cutover" %}
@@ -24,5 +25,17 @@ Context:
     {% trans "Nothing that carries history is deleted, and every reference is recorded first so the next steps can move it onto the plugin." %}
     {% trans "The cutover refuses while any built-in Custom Script job is still running, so wait for those to finish first." %}
   </p>
+  {% if report_count %}
+    <p class="text-secondary">
+      {% blocktrans count total=report_count %}
+        This installation also has one built-in report module, which this migration does not cover.
+      {% plural %}
+        This installation also has {{ total }} built-in report modules, which this migration does not cover.
+      {% endblocktrans %}
+      {% trans "A permission, and an Event Rule watching the built-in Custom Scripts or their modules, name object types that serve reports too, so reports lose both." %}
+      {% trans "The repointing pass makes that permanent and puts the grant back into service without the report coverage, so recreate a report-only grant by hand rather than re-enabling the old one." %}
+      {% trans "Report runs, and Event Rules that fire a report, are left alone." %}
+    </p>
+  {% endif %}
   {% render_field form.backup_taken %}
 {% endblock message %}

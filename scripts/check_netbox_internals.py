@@ -49,7 +49,12 @@ ROWS = (
     ('utilities.exceptions.RQWorkerNotRunningException', 'utilities.exceptions:RQWorkerNotRunningException'),
     ('netbox.api.authentication.TokenPermissions', 'netbox.api.authentication:TokenPermissions'),
     ('extras.models.ScriptModule and its manager', 'extras.models:ScriptModule.objects'),
-    ('extras.models.Script through module.scripts', 'extras.models:Script', 'extras.models:ScriptModule.scripts'),
+    (
+        'extras.models.Script through module.scripts and its manager',
+        'extras.models:Script',
+        'extras.models:Script.objects',
+        'extras.models:ScriptModule.scripts',
+    ),
     (
         'core.models.ManagedFile fields file_root, file_path, data_path, data_source',
         'core.models:ManagedFile.file_root',

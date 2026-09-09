@@ -92,7 +92,7 @@ class ReportExclusionTestCase(TestCase):
 
         self.assertNotIn(report.pk, keys)
 
-    def test_the_inventory_counts_the_reports_it_leaves_alone(self):
+    def test_the_inventory_counts_the_reports_and_says_what_reaches_them(self):
         self.module('audit.py', ManagedFileRootPathChoices.REPORTS)
 
         report = plan.build_report()
@@ -100,6 +100,12 @@ class ReportExclusionTestCase(TestCase):
         self.assertEqual(report['reports'], 1)
         codes = {finding['code']: finding['level'] for finding in report['findings']}
         self.assertEqual(codes['reports_excluded'], plan.WARNING)
+        # The warning is where an operator first reads what happens to reports, so what it
+        # claims is pinned rather than only its code.
+        message = next(f['message'] for f in report['findings'] if f['code'] == 'reports_excluded')
+        self.assertIn('not part of this migration', message)
+        self.assertIn('extras.scriptmodule', message)
+        self.assertIn('for good', message)
         self.assertNotEqual(report['status'], plan.BLOCKING)
 
 

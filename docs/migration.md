@@ -102,14 +102,22 @@ first two and the verification, and is not offered the other four. Reading any r
 ## Reports are not covered
 
 NetBox merged Reports into script modules in 4.0, so an installation upgraded from 3.x can still carry
-module rows whose file root is `reports`. **No pass in this migration touches one.** They are excluded
-from the inventory, from staging, and from the cutover's closures, which means a report keeps running
-and keeps synchronizing exactly as it did.
+module rows whose file root is `reports`. The inventory and staging skip them, and the cutover leaves
+their runs and their own Event Rules alone, so a report keeps running and keeps synchronizing.
 
-The inventory reports how many it found and left, as a warning rather than a blocker, so the exclusion
-is visible instead of silent. Reports use an authoring API this plugin does not serve at all, and its
-own discovery refuses a report-style class outright, so there is nothing for a migration to move them
-onto. Moving a Report means rewriting it as a Script by hand.
+**Two closures reach a report anyway.** A permission granting access to the built-in feature, and an
+Event Rule watching it for changes, name the `extras.script` and `extras.scriptmodule` object
+types, both of which serve reports and Custom Scripts alike. Neither can be partitioned, so a
+report loses both.
+
+The fence only disables them, but the repointing pass makes the loss permanent: it narrows each
+grant to the plugin's types and then re-enables the row, so the grant looks healthy while no longer
+covering reports. Recreate a report-only grant by hand rather than re-enabling the old one.
+
+The inventory counts them and says so, as a warning rather than a blocker, so none of this is
+silent. Reports use an authoring API this plugin does not serve at all, and its own discovery refuses
+a report-style class outright, so there is nothing for a migration to move them onto. Moving a Report
+means rewriting it as a Script by hand.
 
 ## Reading the inventory
 
@@ -229,8 +237,8 @@ state back as though it were the original.
 
 | What | How |
 |---|---|
-| Permissions | Every captured grant on the built-in feature is disabled. |
-| Event Rules | Every captured rule is disabled, so nothing fires during the handover. |
+| Permissions | Every captured grant on the built-in feature is disabled. Scoped by object type, so a grant covering reports goes with it, and the repointing pass then drops the report coverage for good. |
+| Event Rules | Every captured rule is disabled, so nothing fires during the handover. The action decides: a rule firing a report is left alone entirely, so one that also watches the built-in feature keeps that subscription and no later pass repoints it. |
 | Queued runs | Every waiting job is failed closed and its task dropped, so nothing queued can still execute. The owner is notified, and the message says the plugin will recreate it. |
 | Synchronization | The built-in script source is deregistered, so no later synchronization rewrites it. |
 

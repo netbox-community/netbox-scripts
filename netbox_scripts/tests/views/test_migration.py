@@ -11,7 +11,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from core.choices import JobStatusChoices
+from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.models import Job, ObjectType
 from extras.models import ScriptModule
 from netbox_scripts.choices import (
@@ -534,6 +534,26 @@ class MigrationTriggerTestCase(TestCase):
 
         self.assertIn('backup_taken', body)
         self.assertIn('no way back', body)
+
+    def test_the_cutover_confirmation_stays_silent_about_reports_when_there_are_none(self):
+        self.grant('add', 'migrate')
+
+        body = self.client.get(self.url('migration_cutover')).content.decode()
+
+        self.assertNotIn('report module', body)
+
+    def test_the_cutover_confirmation_names_the_reports_it_does_not_cover(self):
+        self.grant('add', 'migrate')
+        report = self.legacy_module()
+        ScriptModule.objects.filter(pk=report.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
+
+        body = self.client.get(self.url('migration_cutover')).content.decode()
+
+        self.assertIn('one built-in report module', body)
+        self.assertIn('does not cover', body)
+        # The consequence and the remedy, not the mechanism's wording.
+        self.assertIn('reports lose both', body)
+        self.assertIn('recreate a report-only grant by hand', body)
 
     def test_the_cutover_refuses_while_one_is_already_queued(self):
         self.grant('add', 'migrate')

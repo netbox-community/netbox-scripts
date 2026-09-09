@@ -1,15 +1,19 @@
 import hashlib
 import shutil
 import tempfile
+import uuid
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import storages
+from django.db.models import Q
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.choices import ManagedFileRootPathChoices
-from core.models import DataFile, DataSource
-from extras.models import ScriptModule
+from core.choices import JobStatusChoices, ManagedFileRootPathChoices
+from core.events import OBJECT_UPDATED
+from core.models import DataFile, DataSource, Job, ObjectType
+from dcim.models import Site
+from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.migration import source
 
 LEGACY_SCRIPT = b"""from extras.scripts import Script
@@ -114,6 +118,110 @@ class LegacyModulesTestCase(TestCase):
         self.assertNotIn(module.pk, [item.pk for item in source.legacy_modules()])
         self.assertEqual(source.legacy_report_count(), 1)
         self.assertNotIn(module.pk, source.legacy_script_module_keys())
+
+    def report_module(self):
+        """Create a REPORTS-root module, which this migration does not cover."""
+        storages['scripts'].save('audit.py', ContentFile(REPORT))
+        module = ScriptModule.objects.create(file_path='audit.py')
+        # save() forces the root to scripts, so a legacy report's root is set past it.
+        ScriptModule.objects.filter(pk=module.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
+        return module
+
+    @staticmethod
+    def legacy_job(object_type, object_id):
+        return Job.objects.create(
+            name='run',
+            object_type=object_type,
+            object_id=object_id,
+            job_id=uuid.uuid4(),
+            status=JobStatusChoices.STATUS_PENDING,
+            queue_name='default',
+        )
+
+    @staticmethod
+    def keys(queryset):
+        return set(queryset.values_list('pk', flat=True))
+
+    @staticmethod
+    def module_type():
+        return ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False)
+
+    @staticmethod
+    def class_type():
+        return ObjectType.objects.get_for_model(Script, for_concrete_model=False)
+
+    def test_the_job_readers_exclude_a_report_module(self):
+        job = self.legacy_job(self.module_type(), self.report_module().pk)
+
+        self.assertNotIn(job.pk, self.keys(source.script_jobs()))
+        self.assertNotIn(job.pk, self.keys(source.enqueued_script_jobs()))
+
+    def test_the_job_readers_exclude_a_report_class(self):
+        audit = Script.objects.create(module=self.report_module(), name='Audit')
+        job = self.legacy_job(self.class_type(), audit.pk)
+
+        self.assertNotIn(job.pk, self.keys(source.script_jobs()))
+
+    def test_the_job_readers_still_carry_a_script_module(self):
+        """The narrowing must not drop what the readers exist to find."""
+        # A report module makes the clause live, and one sequence means the keys cannot collide.
+        self.report_module()
+        job = self.legacy_job(self.module_type(), self.synced_module().pk)
+
+        self.assertIn(job.pk, self.keys(source.script_jobs()))
+
+    def test_the_job_readers_still_carry_a_script_class(self):
+        Script.objects.create(module=self.report_module(), name='Audit')
+        deploy = self.synced_module().scripts.get(name='Deploy')
+        job = self.legacy_job(self.class_type(), deploy.pk)
+
+        self.assertIn(job.pk, self.keys(source.script_jobs()))
+
+    def test_the_predicate_pairs_each_object_type_with_its_own_keys(self):
+        """
+        A union would let a report class key exclude a module Job that happens to share it.
+
+        Also why the scope is subtracted rather than selected: a reference whose type and id
+        disagree survives an upgrade, and selecting the scripts root would hide it.
+        """
+        report = self.report_module()
+        audit = Script.objects.create(module=report, name='Audit')
+
+        predicate = source._report_predicate('object_type', 'object_id')
+
+        # Two Q children, not one clause of two conditions: a union flattens to the latter.
+        self.assertEqual(len(predicate.children), 2)
+        self.assertTrue(all(isinstance(child, Q) for child in predicate.children))
+        clauses = [dict(child.children) for child in predicate.children]
+        self.assertEqual(clauses[0]['object_id__in'], [report.pk])
+        self.assertEqual(clauses[1]['object_id__in'], [audit.pk])
+
+    def test_an_event_rule_on_a_report_class_is_excluded(self):
+        audit = Script.objects.create(module=self.report_module(), name='Audit')
+        rule = EventRule.objects.create(
+            name='on report',
+            event_types=[OBJECT_UPDATED],
+            action_type='script',
+            action_object_type=self.class_type(),
+            action_object_id=audit.pk,
+        )
+        rule.object_types.add(ObjectType.objects.get_for_model(Site))
+
+        self.assertNotIn(rule.pk, self.keys(source.legacy_event_rules()))
+
+    def test_an_event_rule_on_a_script_class_is_carried(self):
+        Script.objects.create(module=self.report_module(), name='Audit')
+        deploy = self.synced_module().scripts.get(name='Deploy')
+        rule = EventRule.objects.create(
+            name='on script',
+            event_types=[OBJECT_UPDATED],
+            action_type='script',
+            action_object_type=self.class_type(),
+            action_object_id=deploy.pk,
+        )
+        rule.object_types.add(ObjectType.objects.get_for_model(Site))
+
+        self.assertIn(rule.pk, self.keys(source.legacy_event_rules()))
 
     def test_reference_counts_are_zero_on_a_clean_installation(self):
         counts = source.reference_counts()

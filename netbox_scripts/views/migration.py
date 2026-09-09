@@ -21,7 +21,7 @@ from ..jobs import (
     MigrationStagingJob,
     MigrationVerificationJob,
 )
-from ..migration import cleanup, cutover, mapping, plan
+from ..migration import cleanup, cutover, mapping, plan, source
 from ..models import MigrationRun, ScriptProject, ScriptProjectRevision
 from ..ui import MigrationRunPanel, MigrationRunVersionPanel
 
@@ -335,6 +335,7 @@ class MigrationCutoverView(DestructiveMigrationView):
             self.template_name,
             {
                 'form': MigrationCutoverForm(),
+                'report_count': source.legacy_report_count(),
                 'return_url': reverse('plugins:netbox_scripts:migration'),
             },
         )
@@ -350,7 +351,11 @@ class MigrationCutoverView(DestructiveMigrationView):
             return render(
                 request,
                 self.template_name,
-                {'form': form, 'return_url': reverse('plugins:netbox_scripts:migration')},
+                {
+                    'form': form,
+                    'report_count': source.legacy_report_count(),
+                    'return_url': reverse('plugins:netbox_scripts:migration'),
+                },
             )
         MigrationCutoverJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration cutover.'))

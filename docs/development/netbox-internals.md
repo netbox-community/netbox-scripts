@@ -29,9 +29,9 @@ the plugin contract allows explicitly.
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
 | `netbox.api.authentication.TokenPermissions` | `api/views.py` | The permission class the REST run action subclasses, so a POST resolves to the run permission rather than to add |
 | `extras.models.ScriptModule` and its manager | `migration/source.py` | Every built-in script module. A proxy on `ManagedFile` whose manager admits both the `scripts` and `reports` roots, so legacy Reports are already rows |
-| `extras.models.Script` through `module.scripts` | `migration/source.py` | Which script classes each built-in module publishes today |
+| `extras.models.Script` through `module.scripts` and its manager | `migration/source.py` | Which script classes each built-in module publishes today, and which of them a report owns, queried by module file root |
 | `core.models.ManagedFile` fields `file_root`, `file_path`, `data_path`, `data_source` | `migration/source.py` | Where a module's bytes are and which repository path it came from. NetBox marks this model `_netbox_private` |
-| `core.choices.ManagedFileRootPathChoices.SCRIPTS` and `.REPORTS` | `migration/source.py` | The two roots the proxy manager admits. Every read filters to the first, and the second is counted only so that Reports are visibly outside this migration |
+| `core.choices.ManagedFileRootPathChoices.SCRIPTS` and `.REPORTS` | `migration/source.py` | The two roots the proxy manager admits. Content reads filter to the first, the reference readers subtract what the second owns, and it is counted so that Reports are visibly outside this migration |
 | `extras.models.mixins.PythonModuleMixin.python_name` | `migration/source.py` | The bare stem of a module's file name, or its parent directory for an `__init__.py`. Not a dotted path, so it is a label rather than something importable |
 | `storages['scripts']` | `migration/source.py` | The stored bytes of one built-in module, opened by `file_path` because that is what the built-in loader opens |
 | `extras.models.EventRule.action_object_type` | `migration/source.py` | How many Event Rules a migration would have to repoint |

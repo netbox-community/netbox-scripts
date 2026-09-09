@@ -361,6 +361,76 @@ class CutoverTestCase(TestCase):
 
         self.assertTrue(AutoSyncRecord.objects.filter(object_type=concrete, object_id=report.pk).exists())
 
+    def report_module(self):
+        """A REPORTS-root module with a class of its own, which this migration does not cover."""
+        data_file = DataFile.objects.create(
+            source=self.source,
+            path='audit.py',
+            size=len(LEGACY_SCRIPT),
+            hash=hashlib.sha256(LEGACY_SCRIPT).hexdigest(),
+            data=LEGACY_SCRIPT,
+            last_updated=timezone.now(),
+        )
+        report = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file)
+        report.full_clean()
+        report.save()
+        ScriptModule.objects.filter(pk=report.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
+        return report
+
+    def test_the_fence_leaves_a_report_job_alone(self):
+        audit = Script.objects.create(module=self.report_module(), name='Audit')
+        job = Job.objects.create(
+            name='Audit',
+            object_type=self.script_type,
+            object_id=audit.pk,
+            job_id=uuid.uuid4(),
+            status=JobStatusChoices.STATUS_SCHEDULED,
+            queue_name='default',
+            scheduled=timezone.now(),
+        )
+        # The task matters: cancellation replays what the capture recorded, and a job whose task
+        # the queue lost is only warned about, so without one this would pass unscoped.
+        self.rq_task(job, {'data': {}, 'commit': True})
+
+        cutover.enter_cutover(self.migration)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_SCHEDULED)
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'], [])
+
+    def test_the_fence_leaves_an_event_rule_on_a_report_alone(self):
+        audit = Script.objects.create(module=self.report_module(), name='Audit')
+        rule = EventRule.objects.create(
+            name='on report',
+            event_types=[OBJECT_UPDATED],
+            action_type='script',
+            action_object_type=self.script_type,
+            action_object_id=audit.pk,
+        )
+        rule.object_types.add(ObjectType.objects.get_for_model(Site))
+
+        cutover.enter_cutover(self.migration)
+
+        rule.refresh_from_db()
+        self.assertTrue(rule.enabled)
+
+    def test_a_running_report_does_not_block_the_fence(self):
+        audit = Script.objects.create(module=self.report_module(), name='Audit')
+        Job.objects.create(
+            name='Audit',
+            object_type=self.script_type,
+            object_id=audit.pk,
+            job_id=uuid.uuid4(),
+            status=JobStatusChoices.STATUS_RUNNING,
+            queue_name='default',
+        )
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.CUTOVER)
+
     def test_the_source_directory_is_deregistered_from_synchronization(self):
         concrete = ObjectType.objects.get_for_model(ScriptModule)
         self.assertTrue(AutoSyncRecord.objects.filter(object_type=concrete, object_id=self.module.pk).exists())

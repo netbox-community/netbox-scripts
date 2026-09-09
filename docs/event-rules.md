@@ -19,7 +19,7 @@ Nothing else about the plugin changes.
 |---|---|
 | The form data | The rule's **Data** field, merged with the event payload, passed through unchanged. Whatever an author would have typed into the run form, the rule supplies instead. |
 | `self.event` | The event context, in the JSON-safe form described below. |
-| `self.request` | Nothing. A rule is not a browser request, so this is `None`. |
+| `self.request` | The request behind the change that triggered the rule, as a stripped copy carrying no uploaded files. Nothing when the event carried no request. |
 
 An event-driven run always commits. A dry run would make the rule a no-op with no way to
 report that it did nothing, so the choice is not offered.
@@ -42,8 +42,8 @@ guard before using it. See [Authoring](authoring.md#what-a-run-knows-about-its-o
 | `object_id` | The changed object's numeric ID, or nothing. |
 | `snapshots` | The before and after representations NetBox captured, when the event has them. |
 
-The requesting user and the HTTP request are deliberately absent. Neither survives being
-written to a Job row, and both already reach the script by their own route.
+The requesting user and the HTTP request are deliberately absent from this payload. Neither
+survives being written to a Job row, and both already reach the script by their own route.
 
 ### What is refused, and when
 
@@ -75,7 +75,7 @@ exactly as it would to a Device or an IP address.
 | Object | A rule can react to |
 |---|---|
 | Script Project | A project created, changed, or deleted |
-| Script Project Revision | A revision appearing, or its validation status changing |
+| Script Project Revision | A revision appearing |
 | Script File | A script file declaration added, changed, or removed |
 | Script | A script appearing, retiring, or being enabled or disabled |
 
@@ -83,6 +83,7 @@ A webhook fired by one of these carries the same body the REST API returns for t
 so the receiver reads the fields it already knows. A revision's stored documents are not part
 of it: the manifest and the script file snapshot stay in NetBox.
 
-Reacting to a revision reaching `invalid` is the useful case worth calling out. It is how an
-operator finds out that synchronized source stopped being importable, without watching the
-Project page.
+A rule fires for a change made while handling a request, because a request processor is what
+flushes the event queue. A change a background job makes reaches no rule, which covers a
+revision staged by a Data Source synchronization, a validation verdict, and the rows the
+migration passes create.

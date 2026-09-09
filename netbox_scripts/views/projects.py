@@ -36,6 +36,7 @@ from ..forms import (
 from ..jobs import ProjectReconciliationJob
 from ..models import ScriptProject, ScriptProjectRevision
 from ..object_actions import ActivateRevision, AddScript, ReconcileSource, RepairScripts
+from ..permissions import GATED_SOURCE_FIELDS, refuse_unpermitted_source_change
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import ScriptProjectFileTable, ScriptProjectRevisionTable, ScriptProjectTable
 from ..ui import ScriptProjectPanel, ScriptProjectSourcePanel, ScriptProjectStatePanel
@@ -363,6 +364,12 @@ class ScriptProjectEditView(generic.ObjectEditView):
     queryset = ScriptProject.objects.select_related('data_source')
     form = ScriptProjectEditForm
 
+    def alter_object(self, obj, request, args, kwargs):
+        """Carry the request onto the instance, which is where the form reads the user from."""
+        obj = super().alter_object(obj, request, args, kwargs)
+        obj._request = request
+        return obj
+
 
 @register_model_view(ScriptProject, 'upload', path='upload', detail=False)
 class ScriptProjectUploadView(ScriptFileWriteViewMixin, generic.ObjectEditView):
@@ -408,6 +415,14 @@ class ScriptProjectBulkEditView(generic.BulkEditView):
     table = ScriptProjectTable
     form = ScriptProjectBulkEditForm
 
+    def pre_save_operations(self, form, obj):
+        """Refuse a source-field move by a user holding change but not activate."""
+        # Not the form's clean(): a "Set null" tick is _nullify on the request, unseen by a form.
+        nullified = set(self.request.POST.getlist('_nullify'))
+        touched = (set(form.changed_data) | nullified) & set(GATED_SOURCE_FIELDS)
+        submitted = {field: None if field in nullified else form.cleaned_data[field] for field in touched}
+        refuse_unpermitted_source_change(self.request.user, obj.pk, submitted)
+
 
 @register_model_view(ScriptProject, 'bulk_delete', path='delete', detail=False)
 class ScriptProjectBulkDeleteView(generic.BulkDeleteView):
@@ -424,3 +439,9 @@ class ScriptProjectBulkImportView(generic.BulkImportView):
 
     queryset = ScriptProject.objects.select_related('data_source')
     model_form = ScriptProjectBulkImportForm
+
+    def _process_import_records(self, form, request, records, prefetched_objects):
+        """Carry the request onto each updated instance, which is where its form reads the user."""
+        for obj in prefetched_objects.values():
+            obj._request = request
+        return super()._process_import_records(form, request, records, prefetched_objects)

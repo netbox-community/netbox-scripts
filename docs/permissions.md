@@ -16,16 +16,24 @@ throughout, so a permission can be narrowed to particular Projects or Scripts.
 |---|---|
 | `view` | See Projects, their Script Files and their state, including the revision in force |
 | `add` | Create a Project, including the Upload form that creates one from a file. The Upload form also needs Script File `add` |
-| `change` | Edit a Project's own fields, and upload a further script into one. Adding a script also needs Script File `add` |
+| `change` | Edit a Project's own fields, except the three that decide what it serves, and upload a further script into one. Adding a script also needs Script File `add` |
 | `delete` | Delete a Project, which cascades its Revisions and Scripts |
-| `activate` | Put a Revision into service, stand a Project down from one, and repair its Scripts |
+| `activate` | Put a Revision into service, stand a Project down from one, repair its Scripts, and move `activation_policy`, `data_source` or `data_path` |
 | `migrate` | Move this installation off the built-in Custom Scripts feature |
 | `reconcile` | Rebuild a Project's source from its Data Source directory on demand |
 
 `activate` covers four surfaces: the **Activate** and **Repair Scripts**
 buttons on a Project, and the per-row **Activate** and **Deactivate** buttons on
 its Revisions tab. All four decide what the Project serves or what it publishes,
-so all four ask for the same action. **Repair Scripts** republishes the rows of
+so all four ask for the same action.
+
+It also covers three fields, on every surface that can write them. `change` alone
+renames a Project and edits its description. Moving `activation_policy`,
+`data_source` or `data_path` decides what the Project serves next, so each needs
+`activate` as well, on the edit form, in bulk edit, in a bulk import record that
+updates an existing Project, and over REST. A record that creates a Project is
+not affected, since there is nothing to move away from. Submitting a field's
+stored value is not a move either. **Repair Scripts** republishes the rows of
 the revision already in force, which is the same write activation makes, so it
 is the same privilege.
 

@@ -1,9 +1,12 @@
+from rest_framework import serializers
+
 from core.api.serializers import DataSourceSerializer
 from netbox.api.fields import ChoiceField
 from netbox.api.serializers import PrimaryModelSerializer
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ...models import ScriptProject
+from ...permissions import ACTIVATE_PERMISSION, SOURCE_REFUSAL, moved_source_fields
 from ...validators import normalize_data_path
 
 
@@ -27,6 +30,17 @@ class ScriptProjectSerializer(PrimaryModelSerializer):
         # Canonicalize here as well: model clean() normalizes only its instance copy,
         # while DRF persists validated_data, which would otherwise keep the raw spelling.
         return normalize_data_path(value)
+
+    def validate(self, attrs):
+        """Refuse a source-field move by a caller holding change but not activate."""
+        attrs = super().validate(attrs)
+        request = self.context.get('request')
+        # No request means no browser or token write. Event serialization builds this without one.
+        if self.instance is None or request is None or request.user.has_perm(ACTIVATE_PERMISSION):
+            return attrs
+        if moved := moved_source_fields(self.instance.pk, attrs):
+            raise serializers.ValidationError(dict.fromkeys(moved, SOURCE_REFUSAL))
+        return attrs
 
     class Meta:
         model = ScriptProject

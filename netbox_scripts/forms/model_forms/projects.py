@@ -15,6 +15,7 @@ from ...choices import ProjectSourceTypeChoices
 from ...ingestion import check_upload_conflicts, ingest_upload, prepare_upload, uploaded_source_path
 from ...jobs import ProjectScriptFileRefreshJob
 from ...models import ScriptProject
+from ...permissions import ACTIVATE_PERMISSION, SOURCE_REFUSAL, moved_source_fields
 from ...storage import config
 
 __all__ = (
@@ -53,6 +54,17 @@ class ScriptProjectEditForm(PrimaryModelForm):
         if get_field_value(self, 'source_type') != ProjectSourceTypeChoices.DATA_SOURCE:
             del self.fields['data_source']
             del self.fields['data_path']
+
+    def clean(self):
+        """Refuse a source-field move by a user holding change but not activate."""
+        super().clean()
+        cleaned_data = self.cleaned_data
+        request = getattr(self.instance, '_request', None)
+        if self.instance.pk and request and not request.user.has_perm(ACTIVATE_PERMISSION):
+            for field in moved_source_fields(self.instance.pk, cleaned_data):
+                # Not a disabled widget: restrict_form_fields would fail an unviewable source first.
+                self.add_error(field, SOURCE_REFUSAL)
+        return cleaned_data
 
     fieldsets = (
         FieldSet('name', 'key', 'description', 'enabled', 'tags', name=_('Project')),

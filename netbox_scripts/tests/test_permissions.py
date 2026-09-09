@@ -44,6 +44,177 @@ RECORD = {
 
 
 @override_settings(STORAGES=PERMISSION_STORAGES)
+class SourceFieldGateTestCase(TestCase):
+    """
+    The three fields that decide what a Project serves, gated on activate rather than change.
+
+    The browser surfaces are here. REST is in api/test_projects.py, with that endpoint's contract.
+    """
+
+    def setUp(self):
+        self.user = create_test_user()
+        self.client.force_login(self.user)
+        self.source = DataSource.objects.create(name='Repo', type='local', source_url='file:///tmp/repo/')
+        self.other = DataSource.objects.create(name='Other', type='local', source_url='file:///tmp/other/')
+        self.project = ScriptProject.objects.create(
+            name='Synced',
+            key='synced',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.source,
+            data_path='scripts',
+        )
+
+    def grant(self, *actions):
+        permission = ObjectPermission(name='/'.join(actions), actions=list(actions))
+        permission.save()
+        permission.users.add(self.user)
+        permission.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        # restrict_form_fields narrows data_source to what the user may VIEW. Without this every
+        # case below fails on the field instead of reaching the gate.
+        viewer = ObjectPermission(name=f'datasource view {"/".join(actions)}', actions=['view'])
+        viewer.save()
+        viewer.users.add(self.user)
+        viewer.object_types.add(ObjectType.objects.get_for_model(DataSource))
+
+    def edit_post(self, **overrides):
+        data = {
+            'name': self.project.name,
+            'key': self.project.key,
+            'source_type': self.project.source_type,
+            'data_source': self.source.pk,
+            'data_path': self.project.data_path,
+            'activation_policy': self.project.activation_policy,
+            'enabled': 'on',
+        }
+        data.update(overrides)
+        return self.client.post(reverse('plugins:netbox_scripts:scriptproject_edit', args=[self.project.pk]), data)
+
+    def test_change_alone_cannot_move_a_field_on_the_edit_form(self):
+        self.grant('view', 'change')
+
+        response = self.edit_post(data_path='automation')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data_path', response.context['form'].errors)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
+    def test_activate_permits_the_edit(self):
+        self.grant('view', 'change', 'activate')
+
+        response = self.edit_post(data_path='automation')
+
+        self.assertEqual(response.status_code, 302)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'automation')
+
+    def test_an_edit_that_moves_nothing_is_permitted(self):
+        self.grant('view', 'change')
+
+        response = self.edit_post(description='renamed only')
+
+        self.assertEqual(response.status_code, 302)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.description, 'renamed only')
+
+    def test_an_edit_with_a_trailing_separator_is_not_a_move(self):
+        """The form's cleaned_data is raw here: model clean() normalizes only after Form.clean()."""
+        self.grant('view', 'change')
+
+        response = self.edit_post(data_path='scripts/')
+
+        self.assertEqual(response.status_code, 302)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
+    def test_an_unsaved_instance_carrying_a_request_is_not_gated(self):
+        """A bulk-import record with no id creates, so nothing it sets is a move."""
+        from netbox_scripts.forms import ScriptProjectBulkImportForm
+
+        unsaved = ScriptProject(
+            name='Fresh',
+            key='fresh',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.source,
+            data_path='automation',
+        )
+        unsaved._request = type('R', (), {'user': self.user})()
+        form = ScriptProjectBulkImportForm(
+            data={
+                'name': 'Fresh',
+                'key': 'fresh',
+                'source_type': ProjectSourceTypeChoices.DATA_SOURCE,
+                'data_source': self.source.name,
+                'data_path': 'automation',
+                'activation_policy': 'automatic_if_valid',
+            },
+            instance=unsaved,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def bulk_edit_post(self, **fields):
+        data = {'pk': [self.project.pk], '_apply': ''}
+        data.update(fields)
+        return self.client.post(reverse('plugins:netbox_scripts:scriptproject_bulk_edit'), data)
+
+    def test_bulk_edit_refuses_a_changed_source_field(self):
+        self.grant('view', 'change')
+
+        self.bulk_edit_post(data_path='automation')
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
+    def test_bulk_edit_refuses_a_nullify_tick(self):
+        """_nullify is the branch core takes instead of changed_data, so the form never sees it."""
+        self.grant('view', 'change')
+
+        response = self.bulk_edit_post(_nullify=['data_path'])
+
+        self.assertIn('requires the Script Project activate permission', response.content.decode())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
+    def test_a_nullify_tick_with_activate_reaches_the_model_instead(self):
+        """The model refuses an empty data path here, so the point is whose refusal it is."""
+        self.grant('view', 'change', 'activate')
+
+        response = self.bulk_edit_post(_nullify=['data_path'])
+
+        self.assertNotIn('requires the Script Project activate permission', response.content.decode())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
+    def import_post(self, data):
+        return self.client.post(
+            reverse('plugins:netbox_scripts:scriptproject_bulk_import'),
+            {'data': data, 'format': 'csv', 'csv_delimiter': 'auto'},
+        )
+
+    def test_bulk_import_refuses_a_move_on_an_update(self):
+        """A record naming an existing id updates it, and data_source arrives as a name."""
+        self.grant('view', 'add', 'change')
+
+        self.import_post(f'id,name,data_source\n{self.project.pk},Synced,{self.other.name}\n')
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_source_id, self.source.pk)
+
+    def test_bulk_import_permits_a_create(self):
+        """The create path is carved out, since there is no stored row to move away from."""
+        self.grant('view', 'add')
+
+        self.import_post(
+            'name,key,source_type,data_source,data_path,activation_policy\n'
+            f'Imported,imported,data_source,{self.source.name},automation,automatic_if_valid\n'
+        )
+
+        created = ScriptProject.objects.filter(key='imported').first()
+        self.assertIsNotNone(created)
+        self.assertEqual(created.activation_policy, 'automatic_if_valid')
+
+
 class SourceManagementPermissionTestCase(TestCase):
     """
     Each source-management surface gated on the permission that names it, not a borrowed one.

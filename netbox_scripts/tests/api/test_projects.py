@@ -3,7 +3,7 @@ import uuid
 from rest_framework import status
 
 from core.models import DataSource
-from netbox_scripts.choices import ProjectSourceTypeChoices
+from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from netbox_scripts.models import ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCases
 
@@ -38,6 +38,110 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
             {'name': 'ScriptProject 5', 'key': 'project-5', 'description': 'Fifth project'},
             {'name': 'ScriptProject 6', 'key': 'project-6', 'description': '', 'enabled': False},
         ]
+
+    def synchronized(self, **kwargs):
+        """A Data Source-backed project, which is what makes all three gated fields movable."""
+        source = DataSource.objects.create(
+            name=f'Gate Source {uuid.uuid4().hex[:8]}', type='local', source_url='file:///tmp/gate/'
+        )
+        return ScriptProject.objects.create(
+            name=f'Gate Project {uuid.uuid4().hex[:8]}',
+            key=f'gate-{uuid.uuid4().hex[:8]}',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=source,
+            data_path='scripts',
+            **kwargs,
+        )
+
+    def test_change_alone_cannot_repoint_a_data_source(self):
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+        other = DataSource.objects.create(name='Other Repo', type='local', source_url='file:///tmp/other/')
+
+        response = self.client.patch(
+            self._get_detail_url(project), {'data_source': other.pk}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('data_source', response.data)
+        project.refresh_from_db()
+        self.assertNotEqual(project.data_source_id, other.pk)
+
+    def test_change_alone_cannot_move_the_activation_policy(self):
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+
+        response = self.client.patch(
+            self._get_detail_url(project),
+            {'activation_policy': ActivationPolicyChoices.AUTOMATIC_IF_VALID},
+            format='json',
+            **self.header,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('activation_policy', response.data)
+
+    def test_activate_permits_the_same_write(self):
+        self.add_permissions(
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
+            'netbox_scripts.activate_scriptproject',
+        )
+        project = self.synchronized()
+
+        response = self.client.patch(
+            self._get_detail_url(project), {'data_path': 'automation'}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        project.refresh_from_db()
+        self.assertEqual(project.data_path, 'automation')
+
+    def test_a_write_that_moves_nothing_is_permitted(self):
+        """Submitting the stored value is not a move, so change alone still succeeds."""
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+
+        response = self.client.patch(
+            self._get_detail_url(project),
+            {'data_path': project.data_path, 'description': 'renamed only'},
+            format='json',
+            **self.header,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_a_trailing_separator_is_not_a_move(self):
+        """validate_data_path canonicalizes first, so the gate never sees a raw spelling here."""
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+
+        response = self.client.patch(
+            self._get_detail_url(project), {'data_path': 'scripts/'}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_a_create_is_not_gated(self):
+        """validate() runs on create too, where there is no stored row to move away from."""
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.add_scriptproject')
+        source = DataSource.objects.create(name='Create Repo', type='local', source_url='file:///tmp/c/')
+
+        response = self.client.post(
+            self._get_list_url(),
+            {
+                'name': 'Created Gated',
+                'key': 'created-gated',
+                'source_type': ProjectSourceTypeChoices.DATA_SOURCE,
+                'data_source': source.pk,
+                'data_path': 'scripts',
+                'activation_policy': ActivationPolicyChoices.AUTOMATIC_IF_VALID,
+            },
+            format='json',
+            **self.header,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_key_is_immutable(self):
         self.add_permissions('netbox_scripts.change_scriptproject')

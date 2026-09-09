@@ -227,25 +227,31 @@ class ScriptProject(PrimaryModel):
 
         using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
         storage_key = self.storage_key
-        original = None
         if not self._state.adding:
-            # Read from the alias this save writes to, and re-read rather than captured in
-            # __init__: from_db() sets _state.db only after __init__ returns, so a capture
-            # there resolves through the router's default instead.
-            original = (
-                type(self)
-                .objects.using(using)
-                .filter(pk=self.pk)
-                .values('key', 'source_type', 'storage_key', 'source_revision_id', 'source_activation_pending')
-                .first()
+            # Read outside, because the lock is derived from it and it is immutable.
+            stored_key = (
+                type(self).objects.using(using).filter(pk=self.pk).values_list('storage_key', flat=True).first()
             )
-            if original:
-                storage_key = original['storage_key'] or storage_key
+            storage_key = stored_key or storage_key
         with project_write_lock(storage_key, using=using):
+            original = None
+            if not self._state.adding:
+                # Under the lock: a source operation accepts a revision while this save waits.
+                original = (
+                    type(self)
+                    .objects.using(using)
+                    .filter(pk=self.pk)
+                    .values('key', 'source_type', 'storage_key', 'source_revision_id', 'source_activation_pending')
+                    .first()
+                )
             return self._save_project(*args, original=original, **kwargs)
 
     def _save_project(self, *args, original=None, **kwargs):
-        """Refuse immutable identity changes and unusable active revision pointers."""
+        """
+        Refuse immutable identity changes and unusable active revision pointers.
+
+        Restores the source markers from ``original``, so an assignment to either is discarded.
+        """
         # clean() gives key and source_type friendly per-field errors on the form and REST
         # paths, and storage_key's editable=False keeps it off both. This guard is the backstop
         # for ORM writes, which skip all of it.

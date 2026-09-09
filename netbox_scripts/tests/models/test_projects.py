@@ -1,5 +1,7 @@
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
+from unittest import mock
 
 from django.core.exceptions import ValidationError
 from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
@@ -14,6 +16,7 @@ from core.models import DataSource
 from netbox_scripts import constants
 from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.models import ScriptProject, ScriptProjectRevision
+from netbox_scripts.storage import locks
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.script_files import EMPTY_SNAPSHOT_DIGEST
 
@@ -765,6 +768,44 @@ class ScriptProjectRevisionTestCase(TestCase):
         # Project validation owns VALIDATING, so the storage layer must never re-drive it.
         # Without this the validator's own transition would be reversible by a re-stage.
         self.assertNotIn(RevisionStatusChoices.VALIDATING, stored | retryable)
+
+
+class ScriptProjectSourceLockTestCase(TestCase):
+    """The source markers an ordinary save must not write back."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = ScriptProject.objects.create(name='Locked Project', key='locked-project')
+        cls.accepted = ScriptProjectRevision.objects.create(
+            project=cls.project, digest=DIGEST_A, status=RevisionStatusChoices.MATERIALIZED
+        )
+
+    def advance_source_under(self, real_lock):
+        """Return a lock that accepts a revision while holding it, as a source operation does."""
+
+        @contextmanager
+        def lock_then_advance(storage_key, *, using=DEFAULT_DB_ALIAS):
+            with real_lock(storage_key, using=using):
+                # update(), as _accept_source uses: no lock of its own.
+                ScriptProject.objects.filter(pk=self.project.pk).update(
+                    source_revision=self.accepted, source_activation_pending=True
+                )
+                yield
+
+        return lock_then_advance
+
+    def test_a_save_keeps_source_state_a_source_operation_accepted_while_it_waited(self):
+        stale = ScriptProject.objects.get(pk=self.project.pk)
+        self.assertIsNone(stale.source_revision_id)
+        stale.description = 'edited while a synchronization ran'
+
+        with mock.patch.object(locks, 'project_write_lock', self.advance_source_under(locks.project_write_lock)):
+            stale.save()
+
+        stale.refresh_from_db()
+        self.assertEqual(stale.source_revision_id, self.accepted.pk)
+        self.assertTrue(stale.source_activation_pending)
+        self.assertEqual(stale.description, 'edited while a synchronization ran')
 
 
 class ScriptProjectSourceStateTestCase(TestCase):

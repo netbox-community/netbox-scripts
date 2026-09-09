@@ -412,7 +412,8 @@ the form transaction. Declaration deletion holds it through `pre_delete` too.
 `ScriptProject.source_revision` records the most recently accepted source request,
 including reuse of an older immutable revision. Services update that pointer and
 `source_activation_pending` together. Ordinary model saves preserve their stored
-values. Automatic publication requires the accepted revision and declaration
+values, re-read inside `project_write_lock()` because a source operation accepts a revision
+while a save waits for it. Automatic publication requires the accepted revision and declaration
 snapshot to still match. Manual historical activation does not change the source
 base used by subsequent incremental uploads.
 

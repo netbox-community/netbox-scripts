@@ -36,10 +36,9 @@ class AppConfig(PluginConfig):
         from netbox_scripts import branching, compat, signals  # noqa: F401
         from netbox_scripts.storage import config as storage_config
 
-        # Both models are branch-aware by default, but one project owns one source tree with
-        # no branch context in its path, so branching is asked to route them to the main
-        # schema. Registration is best effort: the check reports unsafe routing and the storage
-        # operations refuse it, so nothing here needs to prevent NetBox from starting.
+        # The plugin's models are installation-global, so branching is asked to route them
+        # to the main schema. Registration is best effort: the check reports unsafe routing and the
+        # storage operations refuse it, so nothing here needs to prevent NetBox from starting.
         branching.register()
         register_check(branching.check_routing)
         compat.install()

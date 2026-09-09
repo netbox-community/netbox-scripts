@@ -13,7 +13,7 @@ package boundary used when loading and executing scripts.
 | `storage_key` | UUID | auto | Immutable storage and runtime identity, assigned on creation |
 | `source_type` | choice | yes | `upload` (default) or `data_source` |
 | `data_source` | FK | conditional | Required for `data_source` projects, not allowed for uploads |
-| `data_path` | string | no | Directory path to the project root within the data source |
+| `data_path` | string | conditional | Required for `data_source` projects, not allowed for uploads. Names a directory within the source, never its root |
 | `activation_policy` | choice | yes | `manual` (default) or `automatic_if_valid` |
 | `active_revision` | FK | auto | Currently active revision, set only by the storage activation service |
 | `enabled` | boolean | yes | Whether the project is active, defaults to `true` |
@@ -61,7 +61,7 @@ The tab is empty until a revision holds content.
 | `source_type` cannot change after creation, pending a dedicated source-transition workflow | `clean()`, the edit form disables the field, REST returns 400 |
 | `storage_key` never changes | `save()` guard, the field is excluded from forms and read-only in REST |
 | `data_path` is stored canonically: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize. Absolute paths, `..` traversal, and backslashes are rejected |
-| `data_source` projects require a `data_source`. An empty `data_path` roots the Project at the Data Source root and claims every file in the source | `clean()` plus the `enforce_source_ownership` database constraint |
+| `data_source` projects require a `data_source` and a non-empty `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
 | `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
 | `active_revision` must belong to this project | `clean()` |
 | A project whose active revision is deleted keeps serving nothing rather than blocking the delete | `SET_NULL` on `active_revision`, which is also what lets a project be deleted at all, since its revisions cascade |
@@ -116,10 +116,11 @@ never by `storage_key`.
 
 ## NetBox Branching
 
-Script Projects and their revisions are **installation-global**. A
-revision's on-disk location is a pure function of the project's `storage_key`
-and the revision's `digest`, with no branch or schema context, so one project
-names exactly one source tree no matter which branch is active.
+All five of the plugin's models are **installation-global**, because each
+describes content the whole installation shares. A revision's on-disk location
+is a pure function of the project's `storage_key` and the revision's `digest`,
+with no branch or schema context, so one project names exactly one source tree
+no matter which branch is active.
 
 NetBox Branching's own `exempt_models` setting is the supported way to say so:
 
@@ -127,6 +128,9 @@ NetBox Branching's own `exempt_models` setting is the supported way to say so:
 PLUGINS_CONFIG = {
     'netbox_branching': {
         'exempt_models': [
+            'netbox_scripts.migrationrun',
+            'netbox_scripts.netboxscript',
+            'netbox_scripts.scriptfile',
             'netbox_scripts.scriptproject',
             'netbox_scripts.scriptprojectrevision',
         ],
@@ -140,7 +144,7 @@ installation-global, but it would also sweep in a model added later that is mean
 to keep NetBox Branching's ordinary behaviour.
 
 You do not have to configure this to be safe. The plugin also registers a
-branching resolver so that a fresh installation already routes both models to the
+branching resolver so that a fresh installation already routes all five to the
 main schema, which is the same treatment NetBox gives `core` objects. The
 resolver is best effort, and the setting above is what an operator uses when it is
 unavailable, so the two work together rather than competing.
@@ -180,12 +184,13 @@ Three consequences worth knowing before you rely on this:
   main, and deleting a revision inside the branch would remove source that main
   still serves.
 
-Only the two models above are installation-global. A model added to this plugin
-later keeps NetBox Branching's ordinary behaviour, which is the right default for
-one that owns no source tree. Two questions are worth asking when adding one:
-whether it owns bytes on disk, in which case it belongs alongside the two above,
-and whether it holds a concrete relation to a branch-aware model, which would
-leave a row in the main schema pointing at a row that exists only inside a branch.
+Only the five models above are installation-global. A model added to this plugin
+later keeps NetBox Branching's ordinary behaviour, which is the right default
+unless it describes content the whole installation shares. Two questions are
+worth asking when adding one: whether it describes such content, in which case
+it belongs alongside the five above, and whether it holds a concrete relation to
+a branch-aware model, which would leave a row in the main schema pointing at a
+row that exists only inside a branch.
 
 Whether script *execution* is branch-aware is a separate question and remains
 an execution-model decision that lands with the execution work.

@@ -18,13 +18,12 @@ type, which reveals the two fields it needs.
 
 The data path is a directory relative to the Data Source root, with no leading slash.
 Traversal segments are refused. It is compared segment by segment, so a Project at
-`automation/netbox` does not claim `automation/netbox-old`. Leave it empty to root the
-Project at the Data Source root, which takes every file in the source.
+`automation/netbox` does not claim `automation/netbox-old`. The path cannot be empty: name
+the directory that holds the scripts rather than the Data Source root.
 
 Two Projects on one Data Source cannot overlap. Neither may be the same directory as the
 other, and neither may sit inside the other, because a file would then belong to two Python
-package boundaries at once. A Project at the Data Source root contains every other path, so
-a source with a root Project holds that Project alone.
+package boundaries at once.
 
 Before the first synchronization the Project has no source and its page says so. The
 Script Files tab is usable straight away, because the candidate list is read from the Data
@@ -63,8 +62,8 @@ repository happens to contain.
 
 A Project whose source holds exactly one importable module starts with that module selected, so
 the ordinary first synchronization is a confirmation rather than a choice. It is only a default:
-nothing is declared, imported or published until the tab is saved, and a module you deselect stays
-deselected however many times the tab is reopened.
+nothing is declared, imported or published until the tab is saved. Deselecting it and saving
+writes no declaration, so the same default is offered the next time the tab is opened.
 
 The selection is stored on the Project, and each revision freezes the enabled declarations at
 the moment it is staged. Saving the Script Files tab therefore applies the change to the source

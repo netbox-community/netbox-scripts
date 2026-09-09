@@ -149,10 +149,9 @@
   against, while a recurrence resolves the active revision at each occurrence,
   because a pinned recurrence would execute one frozen revision indefinitely
   however often the Project was updated since
-* A Data Source-backed Project may sit at the root of its Data Source, meaning an
-  empty data path, which takes every file in the source. An empty path overlaps
-  every other path on the same Data Source, so two Projects still cannot claim
-  the same files
+* A Data Source-backed Project names a directory within its Data Source and cannot
+  sit at the source root, because a root Project would contain every other path and
+  two Projects on one source may not overlap
 * Revisions are readable over REST and GraphQL, filtered by Project, status, or
   either digest, and each one has a detail page of its own. The manifest, the
   script file snapshot, and the validation lease stay off both surfaces, being

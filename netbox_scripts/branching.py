@@ -29,7 +29,7 @@ from django.core.exceptions import ImproperlyConfigured
 APP_LABEL = 'netbox_scripts'
 BRANCHING_APP_LABEL = 'netbox_branching'
 
-# The models this plugin owns one source tree for, addressed with no branch context.
+# The models this plugin routes to the main schema instead of letting a branch copy them.
 #
 # A model added to this plugin later is not covered and keeps NetBox's ordinary branching
 # behaviour, which is the right default for one that holds no storage. Two things are worth

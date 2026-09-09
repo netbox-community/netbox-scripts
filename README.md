@@ -35,6 +35,8 @@ Implemented:
 - migration off the built-in Custom Scripts feature: an inventory pass, a
   staging pass, and a cutover that moves Job history, Event Rules, permissions,
   and schedules onto the plugin
+- per-installation overrides for a script's timeout, notification policy, and
+  commit default, with an unset override following the script class
 
 Not yet implemented, planned for follow-up releases:
 
@@ -43,9 +45,6 @@ Not yet implemented, planned for follow-up releases:
 - a manifest in the repository declaring its own script files
 - declared pip requirements, which are neither read nor installed
 - recording the input values a run was given
-
-Scripts support per-installation overrides for the timeout, notification policy,
-and commit default. Unset overrides follow the script class.
 
 ## Compatibility
 
@@ -73,8 +72,26 @@ PLUGINS = [
 ]
 ```
 
-The plugin reads optional storage settings from `PLUGINS_CONFIG`, none of which are
-required to enable it. See the configuration documentation for the full list.
+Everything in `PLUGINS_CONFIG` is optional and has a working default. Project storage
+is configured separately and is not optional: source is written to the backend
+registered under the `netbox_scripts` key of NetBox's `STORAGES` setting. On a single
+node, Django's own `FileSystemStorage` is enough:
+
+```python
+STORAGES = {
+    'netbox_scripts': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        'OPTIONS': {
+            'location': '/var/lib/netbox-scripts',
+        },
+    },
+}
+```
+
+NetBox merges this with its built-in entries, so defining only this key leaves
+`default` and the others intact. See the [configuration guide](https://github.com/netbox-community/netbox-scripts/blob/main/docs/configuration.md)
+for object storage, for the `netbox_scripts.W001` check that reports a missing entry,
+and for why it does not fall back to NetBox's `default` storage.
 
 Apply database migrations:
 

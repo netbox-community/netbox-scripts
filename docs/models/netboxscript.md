@@ -39,6 +39,9 @@ its old location is retired.
 | `display_name` | string | system | `Meta.name`, defaulting to the class name |
 | `description` | text | system | `Meta.description`, empty when the class declares none |
 | `enabled` | boolean | yes | Whether this Script may be executed. Default is true |
+| `commit_default_override` | boolean | no | Overrides the class commit default. Empty follows the class |
+| `job_timeout_override` | integer | no | Overrides the class run timeout in seconds, minimum 1. Empty follows the class |
+| `notifications_default_override` | choice | no | Overrides the class notification policy. Empty follows the class |
 | `is_retired` | boolean | system | Set when the active revision no longer publishes this Script |
 | `last_seen_revision` | FK | system | The revision whose activation last published this Script |
 | `metadata` | JSON | system | Execution defaults the most recent validation read from the class |
@@ -98,9 +101,11 @@ scripts with it. Pruning an old revision never takes scripts with it, so
 | UI | Scripts > Scripts |
 
 Update only. Rows are derived from a validated revision, so the API offers list,
-detail, and update, and refuses to create or delete. A PATCH may set `enabled`,
-`comments`, `owner`, tags, and custom fields. Every derived field is read only,
-and a value supplied for one is ignored rather than rejected.
+detail, and update, and refuses to create or delete. A PATCH may set `enabled`, the
+three execution overrides, `comments`, `owner`, tags, and custom fields. Every derived
+field is read only, and a value supplied for one is ignored rather than rejected. See
+[Overriding a script's execution defaults](../execution.md#overriding-a-scripts-execution-defaults)
+for how each override resolves.
 
 The intent is to reject a write a client could reasonably believe took effect
 and to ignore one to a field the client never authored, but the split the API

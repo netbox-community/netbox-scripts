@@ -122,10 +122,11 @@ failed. When a run fails before the script itself is reached, the reason comes
 from the Job's own log and is printed to standard error.
 
 One thing behaves differently from a queued run. A script's declared
-`job_timeout` is not enforced, because there is no worker to enforce it, so a
-runaway script runs until you stop it. The Job row itself is committed before the
-script starts, exactly as a queued run's is, so it is visible for the whole run
-and an interrupted run leaves the row in the state it reached.
+`job_timeout` is not enforced here, because execution happens in the calling
+process rather than an RQ worker, so a runaway script runs until you stop it. The
+Job row itself is committed before the script starts, exactly as a queued run's
+is, so it is visible for the whole run and an interrupted run leaves the row in
+the state it reached.
 
 This command is a convenience for a self-hosted installation. NetBox Cloud and
 NetBox Enterprise cannot invoke a management command, which is why it is an

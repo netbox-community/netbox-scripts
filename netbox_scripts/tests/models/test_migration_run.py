@@ -195,6 +195,33 @@ class MigrationRunTestCase(TestCase):
         run.refresh_from_db()
         self.assertEqual(sorted(run.journal['steps']), ['activate', 'cutover'])
 
+    def test_a_stale_journal_writer_cannot_remove_a_newer_step(self):
+        run = MigrationRun.objects.create()
+        run.record_step('staging', count=1)
+        stale = MigrationRun.objects.get(pk=run.pk)
+        run.record_step('references', count=2)
+        stale.record_journal(operator_note='checked')
+        run.refresh_from_db()
+        self.assertEqual(set(run.journal['steps']), {'staging', 'references'})
+        self.assertEqual(run.journal['operator_note'], 'checked')
+
+    def test_a_stale_step_writer_preserves_another_writers_map(self):
+        run = MigrationRun.objects.create()
+        run.record_journal(recreated_jobs={'1': 10})
+        stale = MigrationRun.objects.get(pk=run.pk)
+        run.record_mapping('recreated_jobs', {'2': 20})
+        stale.record_step('references')
+        run.refresh_from_db()
+        self.assertEqual(run.journal['recreated_jobs'], {'1': 10, '2': 20})
+
+    def test_mapping_updates_merge_only_explicit_entries(self):
+        run = MigrationRun.objects.create()
+        stale = MigrationRun.objects.get(pk=run.pk)
+        run.record_mapping('recreated_jobs', {'1': 10})
+        stale.record_mapping('recreated_jobs', {'2': 20})
+        run.refresh_from_db()
+        self.assertEqual(run.journal['recreated_jobs'], {'1': 10, '2': 20})
+
 
 class MigrationLockTestCase(TransactionTestCase):
     """

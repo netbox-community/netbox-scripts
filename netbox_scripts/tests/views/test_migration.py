@@ -381,7 +381,7 @@ class MigrationTriggerTestCase(TestCase):
         """Return a run holding a real frozen map with activation recorded, as a fence leaves it."""
         run = self.open_run(MigrationStateChoices.CUTOVER)
         self.legacy_module()
-        run.journal['mapping'] = mapping.build_map()
+        run.record_journal(mapping=mapping.build_map())
         # The fence refuses unless every mapped Project was staged, so one that crossed leaves
         # the rows behind, serving nothing until an activation succeeds.
         for key in mapping.project_keys(run.journal['mapping']):
@@ -439,7 +439,7 @@ class MigrationTriggerTestCase(TestCase):
         self.grant('add', 'migrate')
         run = self.open_run(MigrationStateChoices.CUTOVER)
         self.legacy_module()
-        run.journal['mapping'] = mapping.build_map()
+        run.record_journal(mapping=mapping.build_map())
         run.record_step(cutover.STEP, counts={})
 
         body = self.client.get(self.url('migration')).content.decode()

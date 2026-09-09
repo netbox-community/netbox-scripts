@@ -16,7 +16,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         super().setUp()
         self.migration = MigrationRun.objects.create(state=MigrationStateChoices.CUTOVER)
         # The map as well as the step, because that is what a real fence records and replays.
-        self.migration.journal['mapping'] = mapping.build_map()
+        self.migration.record_journal(mapping=mapping.build_map())
         self.migration.record_step(cutover.STEP, counts={})
 
     def stage_and_validate(self):

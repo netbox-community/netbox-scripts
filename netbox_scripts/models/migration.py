@@ -209,19 +209,23 @@ class MigrationRun(ChangeLoggedModel):
         """Record journal entries, keeping whatever else the row holds."""
         with migration_lock():
             stored = self._stored('journal') or {}
-            self.journal = {**stored, **self.journal, **entries}
+            self.journal = {**stored, **entries}
+            self.save(update_fields=('journal', 'last_updated'))
+
+    def record_mapping(self, name, entries):
+        """Merge explicit identities into one freshly loaded journal map."""
+        with migration_lock():
+            stored = self._stored('journal') or {}
+            values = {**stored.get(name, {}), **entries}
+            self.journal = {**stored, name: values}
             self.save(update_fields=('journal', 'last_updated'))
 
     def record_step(self, name, **detail):
         """Mark one step complete in the journal, carrying whatever detail a resume needs."""
         with migration_lock():
-            # Merged rather than replaced: the journal is one column, so writing this object's
-            # copy would drop what another pass recorded, and reloading it would drop what this
-            # one has not saved yet. A caller's own keys win, and steps take both sides.
             stored = self._stored('journal') or {}
-            steps = {**stored.get('steps', {}), **self.journal.get('steps', {})}
-            steps[name] = {'completed': timezone.now().isoformat(), **detail}
-            self.journal = {**stored, **self.journal, 'steps': steps}
+            steps = {**stored.get('steps', {}), name: {'completed': timezone.now().isoformat(), **detail}}
+            self.journal = {**stored, 'steps': steps}
             self.save(update_fields=('journal', 'last_updated'))
 
     def record_warnings(self, warnings):

@@ -43,13 +43,10 @@ class PluginTestCases:
         PluginViewTestCase,
         ViewTestCases.GetObjectViewTestCase,
         ViewTestCases.GetObjectChangelogViewTestCase,
-        ViewTestCases.CreateObjectViewTestCase,
         ViewTestCases.EditObjectViewTestCase,
-        ViewTestCases.DeleteObjectViewTestCase,
         ViewTestCases.ListObjectsViewTestCase,
-        ViewTestCases.BulkDeleteObjectsViewTestCase,
     ):
-        """Composite for a model managed through its parent, so no bulk import or bulk edit."""
+        """Composite for a model created and removed through its parent, so read and edit only."""
 
         maxDiff = None
 
@@ -70,8 +67,9 @@ class PluginAPIViewTestCases:
     """Plugin-aware variants of the standard API view test cases.
 
     ``APIViewTestCases.APIViewTestCase`` (from NetBox) covers Get / List /
-    Create / Update / Delete / Bulk operations plus GraphQL. The composite
-    below mirrors it but routes via the ``plugins-api:`` namespace.
+    Create / Update / Delete / Bulk operations plus GraphQL. Both composites
+    below route via the ``plugins-api:`` namespace, the second dropping Create
+    and Delete for a viewset that refuses them by method.
     """
 
     class APIViewTestCase(
@@ -84,3 +82,12 @@ class PluginAPIViewTestCases:
         APIViewTestCases.GraphQLTestCase,
     ):
         """Composite for first-class plugin models."""
+
+    class NestedObjectAPIViewTestCase(
+        PluginAPIViewTestCase,
+        APIViewTestCases.GetObjectViewTestCase,
+        APIViewTestCases.ListObjectsViewTestCase,
+        APIViewTestCases.UpdateObjectViewTestCase,
+        APIViewTestCases.GraphQLTestCase,
+    ):
+        """Composite for a model whose viewset refuses POST and DELETE by method."""

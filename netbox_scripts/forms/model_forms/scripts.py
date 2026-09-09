@@ -39,7 +39,7 @@ class NetBoxScriptEditForm(PrimaryModelForm):
 
 
 class ScriptFileEditForm(PrimaryModelForm):
-    """Create and edit form for the Script File model."""
+    """Edit form for the Script File model. A declaration is created on its Project."""
 
     project = DynamicModelChoiceField(
         queryset=ScriptProject.objects.all(),
@@ -48,8 +48,8 @@ class ScriptFileEditForm(PrimaryModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # project and source_path are frozen after creation (model clean() enforces it), so
-        # the widgets are disabled to match.
+        # Frozen once the row exists (model clean() enforces it), so the widgets match. Only
+        # edit reaches this form, so the guard is for an unbound instance a test builds.
         if self.instance and self.instance.pk:
             self.fields['project'].disabled = True
             self.fields['source_path'].disabled = True

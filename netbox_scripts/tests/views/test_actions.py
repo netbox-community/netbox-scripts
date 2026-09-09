@@ -1,41 +1,34 @@
+import inspect
+
 from django.test import SimpleTestCase
 from django.urls import NoReverseMatch, reverse
 
+import netbox_scripts.tables
+import netbox_scripts.views
 from netbox.object_actions import BulkExport
+from netbox.tables import BaseTable
 from netbox.tables.columns import ActionsColumn
-from netbox_scripts.tables import (
-    NetBoxScriptTable,
-    ScriptFileTable,
-    ScriptProjectRevisionTable,
-    ScriptProjectTable,
-)
-from netbox_scripts.views import (
-    NetBoxScriptListView,
-    NetBoxScriptView,
-    ScriptFileListView,
-    ScriptProjectListView,
-    ScriptProjectView,
-)
+from netbox.views import generic
 
-LIST_VIEWS = (
-    ScriptProjectListView,
-    ScriptFileListView,
-    NetBoxScriptListView,
-)
+
+def _exported_subclasses(module, *bases):
+    """Return every class the module re-exports that derives from one of the given bases."""
+    return tuple(
+        member
+        for member in vars(module).values()
+        if inspect.isclass(member) and member not in bases and issubclass(member, bases)
+    )
+
+
+# Derived, never listed: the hand-written lists had gone stale by several view classes, so the
+# guard was blind to the drift it exists to catch.
+LIST_VIEWS = _exported_subclasses(netbox_scripts.views, generic.ObjectListView)
 
 # Detail views declare their own action sets too, and an ObjectAction naming an unregistered
-# route fails exactly the same way a list button does.
-DETAIL_VIEWS = (
-    ScriptProjectView,
-    NetBoxScriptView,
-)
+# route fails the same way a list button does. ObjectChildrenView's default is larger still.
+DETAIL_VIEWS = _exported_subclasses(netbox_scripts.views, generic.ObjectView, generic.ObjectChildrenView)
 
-TABLES = (
-    ScriptProjectTable,
-    ScriptProjectRevisionTable,
-    ScriptFileTable,
-    NetBoxScriptTable,
-)
+TABLES = _exported_subclasses(netbox_scripts.tables, BaseTable)
 
 # BulkExport posts query parameters back to the list route, so it is the one action that
 # needs no route of its own.
@@ -44,11 +37,11 @@ ROUTELESS_ACTIONS = (BulkExport,)
 
 class ListViewActionsTestCase(SimpleTestCase):
     """
-    Every button a list view offers must lead somewhere.
+    Every button a list view, a detail page or a table row offers must lead somewhere.
 
-    ActionsMixin filters the default action set by permission alone, never by whether the
-    route exists, so inheriting the default silently renders buttons for views the plugin
-    never registered.
+    ActionsMixin and ActionsColumn filter the default action set by permission alone, never by
+    whether the route exists, so inheriting the default silently renders buttons for views the
+    plugin never registered.
     """
 
     def test_every_list_action_resolves_to_a_route(self):

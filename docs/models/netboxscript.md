@@ -87,9 +87,10 @@ undo an administrator's decision.
 | `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `scripts` |
 | `last_seen_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
-Deleting a Script File leaves its scripts alone, since the publishing
-script file is provenance rather than a parent. Deleting the project takes its
-scripts with it. Pruning an old revision never takes scripts with it, so
+Scripts hang off the project, never off a Script File: the publishing file is
+recorded as provenance in the revision snapshot. Deleting the project takes its
+scripts, script files and revisions together. Pruning an old revision never takes
+scripts with it, so
 `last_seen_revision` simply becomes empty.
 
 ## API

@@ -174,7 +174,7 @@ class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):
 
         tags = create_tags('Alpha', 'Bravo', 'Charlie')
 
-        # Posted canonical: save() canonicalizes, and posted values are compared to the saved row.
+        # Identity fields are here for the 403 path only. The edit assertions strip them.
         cls.form_data = {
             'project': projects[0].pk,
             'source_path': 'tools/created.py',
@@ -196,3 +196,29 @@ class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):
     def test_edit_object_with_constrained_permission(self):
         self.form_data = self._form_data_without_identity_fields()
         super().test_edit_object_with_constrained_permission()
+
+    def test_no_create_or_delete_route_is_registered(self):
+        # Per route, because bulk_delete takes no pk while delete does.
+        routes = (
+            ('plugins:netbox_scripts:scriptfile_add', {}),
+            ('plugins:netbox_scripts:scriptfile_bulk_delete', {}),
+            ('plugins:netbox_scripts:scriptfile_delete', {'pk': 1}),
+        )
+        for name, kwargs in routes:
+            with self.subTest(route=name), self.assertRaises(NoReverseMatch):
+                reverse(name, kwargs=kwargs)
+
+    def test_the_detail_page_offers_no_delete_or_clone_action(self):
+        """ObjectView.actions defaults to Clone, Edit and Delete, filtered by permission not route."""
+        self.add_permissions(
+            'netbox_scripts.view_scriptfile',
+            'netbox_scripts.add_scriptfile',
+            'netbox_scripts.change_scriptfile',
+            'netbox_scripts.delete_scriptfile',
+        )
+        script_file = ScriptFile.objects.first()
+
+        response = self.client.get(script_file.get_absolute_url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({str(action.label) for action in response.context['actions']}, {'Edit'})

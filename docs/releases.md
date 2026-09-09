@@ -21,7 +21,8 @@
   snapshot digest joining the revision identity
 * `ScriptFile` UI, REST API, GraphQL, and global-search surfaces, with
   the discovery fields readable and filterable but writable only by project
-  validation, and each project's script files listed on its detail page
+  validation, each project's script files listed on its detail page, and no
+  standalone create or delete route: a declaration is made on its Project
 * Script File selection as a Project setting: a Script Files tab and a
   `projects/<id>/script-files/` REST operation list the importable modules of a
   project's source, at any depth, so a path is chosen rather than typed.

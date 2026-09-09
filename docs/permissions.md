@@ -129,6 +129,10 @@ operation before source ingestion is scheduled.
 Changing the selection queues a refresh of the Project's accepted source, so
 Script File permissions are source-management permissions in their own right.
 
+Script File `delete` grants nothing. The picker offers it because it is a standard
+model action, but no route removes a declaration: deselecting it on the Project
+disables the row instead.
+
 **Viewing execution results** requires the NetBox `core.view_job` permission.
 Run logs and output live on the Job, so NetBox's own Job permission governs
 them. A plugin-local duplicate would be enforced here and ignored by NetBox's

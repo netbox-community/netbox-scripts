@@ -8,7 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
-from netbox.object_actions import AddObject, BulkDelete, BulkEdit, BulkExport, EditObject
+from netbox.object_actions import BulkEdit, BulkExport, EditObject
 from netbox.ui import layout
 from netbox.ui.panels import CommentsPanel
 from netbox.views import generic
@@ -108,6 +108,8 @@ class NetBoxScriptRunView(generic.ObjectView):
     running a script and editing its administrative fields are different privileges.
     """
 
+    # The detail view's row, so the controls do not change between tabs.
+    actions = (RunScript, EditObject)
     queryset = NetBoxScript.objects.all()
     template_name = 'netbox_scripts/netboxscript_run.html'
     # Visible for a script that cannot run, matching the button, which renders inert rather
@@ -225,6 +227,7 @@ class NetBoxScriptResultView(generic.ObjectView):
     result body alone rather than re-rendering the page around it.
     """
 
+    actions = (RunScript, EditObject)
     queryset = NetBoxScript.objects.all()
     template_name = 'netbox_scripts/netboxscript_result.html'
     partial_template_name = 'netbox_scripts/inc/netboxscript_result_body.html'
@@ -293,9 +296,8 @@ def log_rows(job, threshold):
 class ScriptFileListView(generic.ObjectListView):
     """List view for Script Files."""
 
-    # The default set includes import, bulk edit, and rename, none of which this model
-    # registers, and ActionsMixin filters by permission alone rather than by route.
-    actions = (AddObject, BulkExport, BulkDelete)
+    # Declarations are made on the Project, so no create, delete or bulk delete route exists.
+    actions = (BulkExport,)
     queryset = ScriptFile.objects.select_related('project', 'last_discovered_revision')
     table = ScriptFileTable
     filterset = ScriptFileFilterSet
@@ -306,6 +308,9 @@ class ScriptFileListView(generic.ObjectListView):
 class ScriptFileView(generic.ObjectView):
     """Detail view for a single Script File."""
 
+    # The default's Clone and Delete have no route here, and buttons/delete.html renders its
+    # href unguarded, so Delete would open an empty modal.
+    actions = (EditObject,)
     queryset = ScriptFile.objects.select_related('project')
     layout = layout.SimpleLayout(
         left_panels=[
@@ -320,26 +325,9 @@ class ScriptFileView(generic.ObjectView):
     )
 
 
-@register_model_view(ScriptFile, 'add', detail=False)
 @register_model_view(ScriptFile, 'edit')
 class ScriptFileEditView(generic.ObjectEditView):
-    """Create and edit view for a Script File."""
+    """Edit view for a single Script File. Its project and source path are frozen."""
 
     queryset = ScriptFile.objects.select_related('project')
     form = ScriptFileEditForm
-
-
-@register_model_view(ScriptFile, 'delete')
-class ScriptFileDeleteView(generic.ObjectDeleteView):
-    """Delete view for a single Script File."""
-
-    queryset = ScriptFile.objects.select_related('project')
-
-
-@register_model_view(ScriptFile, 'bulk_delete', path='delete', detail=False)
-class ScriptFileBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete view for Script Files."""
-
-    queryset = ScriptFile.objects.select_related('project')
-    filterset = ScriptFileFilterSet
-    table = ScriptFileTable

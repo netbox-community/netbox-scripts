@@ -258,14 +258,12 @@ class NetBoxScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
 FILE_DIGEST = 'c' * 64
 
 
-class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
+class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.NestedObjectAPIViewTestCase):
     model = ScriptFile
     # The root fields carry the plugin prefix, which the verbose name the mixin derives from does not.
     graphql_base_name = 'netbox_script_file'
     brief_fields = ['description', 'display', 'id', 'source_path', 'url']
     graphql_filter = {'source_path': {'lookup': 'i_contains', 'value': 'tools'}}
-    # The default update_data falls back to create_data[0], which carries the frozen
-    # project and source_path fields.
     update_data = {
         'description': 'Updated description',
         'enabled': False,
@@ -285,11 +283,28 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         ScriptFile.objects.create(project=cls.project, source_path='tools/second.py', description='Second script file')
         ScriptFile.objects.create(project=cls.project, source_path='tools/third.py', enabled=False)
 
-        cls.create_data = [
-            {'project': cls.project.pk, 'source_path': 'tools/fourth.py', 'description': 'Fourth script file'},
-            {'project': cls.project.pk, 'source_path': 'tools/fifth.py', 'description': 'Fifth script file'},
-            {'project': cls.project.pk, 'source_path': 'tools/sixth.py', 'description': '', 'enabled': False},
-        ]
+    def test_the_list_route_refuses_a_post(self):
+        """A declaration is a Project setting, and a nested numeric id is always permitted."""
+        self.add_permissions('netbox_scripts.add_scriptfile')
+
+        response = self.client.post(
+            self._get_list_url(),
+            {'project': self.project.pk, 'source_path': 'tools/smuggled.py'},
+            format='json',
+            **self.header,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertFalse(ScriptFile.objects.filter(source_path='tools/smuggled.py').exists())
+
+    def test_the_detail_route_refuses_a_delete(self):
+        self.add_permissions('netbox_scripts.delete_scriptfile')
+        script_file = ScriptFile.objects.create(project=self.project, source_path='tools/doomed.py')
+
+        response = self.client.delete(self._get_detail_url(script_file), **self.header)
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(ScriptFile.objects.filter(pk=script_file.pk).exists())
 
     def test_discovery_fields_are_read_only(self):
         self.add_permissions('netbox_scripts.change_scriptfile')
@@ -335,47 +350,3 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('project', response.data)
-
-    def test_source_path_is_canonicalized_on_creation(self):
-        self.add_permissions('netbox_scripts.add_scriptfile')
-        response = self.client.post(
-            self._get_list_url(),
-            {'project': self.project.pk, 'source_path': './tools//created.py'},
-            format='json',
-            **self.header,
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['source_path'], 'tools/created.py')
-
-    def test_creation_rejects_an_unimportable_path(self):
-        self.add_permissions('netbox_scripts.add_scriptfile')
-        response = self.client.post(
-            self._get_list_url(),
-            {'project': self.project.pk, 'source_path': 'tools/deploy.txt'},
-            format='json',
-            **self.header,
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('source_path', response.data)
-
-    def test_creation_rejects_traversal(self):
-        self.add_permissions('netbox_scripts.add_scriptfile')
-        response = self.client.post(
-            self._get_list_url(),
-            {'project': self.project.pk, 'source_path': '../outside.py'},
-            format='json',
-            **self.header,
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('source_path', response.data)
-
-    def test_case_folded_sibling_is_rejected(self):
-        self.add_permissions('netbox_scripts.add_scriptfile')
-        response = self.client.post(
-            self._get_list_url(),
-            {'project': self.project.pk, 'source_path': 'Tools/First.py'},
-            format='json',
-            **self.header,
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('source_path', response.data)

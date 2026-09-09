@@ -106,7 +106,7 @@ class NetBoxScriptLogTable(BaseTable):
 
 
 class ScriptFileTable(PrimaryModelTable):
-    """Table for the Script File list view."""
+    """Table for the Script File list view. Rows offer edit and changelog."""
 
     source_path = tables.Column(
         linkify=True,
@@ -119,6 +119,10 @@ class ScriptFileTable(PrimaryModelTable):
     last_discovered_revision = tables.Column(linkify=True)
     tags = columns.TagColumn(
         url_name='plugins:netbox_scripts:scriptfile_list',
+    )
+    # No delete route here, and the default raises for whoever holds the permission.
+    actions = columns.ActionsColumn(
+        actions=('edit', 'changelog'),
     )
 
     class Meta(PrimaryModelTable.Meta):

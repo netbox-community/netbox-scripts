@@ -46,6 +46,8 @@ def activation_message(revision, scripts):
 class ScriptProjectRevisionView(generic.ObjectView):
     """Detail view for a single revision, reached from the project's Revisions tab."""
 
+    # No add, edit or delete route on this model. The Revisions tab carries the two buttons.
+    actions = ()
     queryset = ScriptProjectRevision.objects.select_related('project')
     layout = layout.SimpleLayout(
         left_panels=[ScriptProjectRevisionPanel()],
@@ -89,6 +91,8 @@ class RevisionServiceView(generic.ObjectView):
     filtered against.
     """
 
+    # ObjectView's default names three routes this model does not register.
+    actions = ()
     # return_url() reaches the project after an operation that may have found it deleted, so a
     # lazy fetch here would raise past the handler that just caught it.
     queryset = ScriptProjectRevision.objects.select_related('project')

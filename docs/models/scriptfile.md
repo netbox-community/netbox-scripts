@@ -48,8 +48,9 @@ therefore re-enables the original row instead of colliding with it. Staging incl
 a disabled one stops reaching new revisions immediately while the revisions it
 was already snapshotted into keep meaning what they meant.
 
-Delete a script file only to discard its history, for example when the declaration
-was a mistake that never validated.
+Deselecting is the only way to retire a declaration. There is no delete route on any
+surface, because a declaration is a Project setting rather than an object managed on
+its own.
 
 ## Relationships
 
@@ -81,10 +82,11 @@ PUT  /api/plugins/netbox-scripts/projects/<id>/script-files/   {"paths": [...]}
 has no source file at. Both need the Project's change permission and the
 Script File's, because the request is scoped to a Project but writes declarations.
 
-Script Files keep read surfaces of their own for triage across projects: list,
-detail, filtering, global search, REST, and GraphQL. They carry no top-level
-navigation item, no bulk import, and no bulk edit, because a declaration is a
-Project setting rather than an object managed in bulk.
+Script Files keep surfaces of their own for triage across projects: list, detail,
+edit, filtering, global search, REST, and GraphQL. They carry no top-level navigation
+item and no create, delete, bulk delete, bulk import or bulk edit route, because a
+declaration is a Project setting. Over REST that is a method restriction, so POST and
+DELETE answer 405.
 
 The three discovery fields are readable and filterable everywhere, and writable
 nowhere: no form, serializer, or GraphQL input accepts them, only project

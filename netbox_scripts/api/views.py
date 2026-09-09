@@ -59,11 +59,14 @@ class UploadSourcePermissions(TokenPermissions):
 
 
 class ScriptFileViewSet(NetBoxModelViewSet):
-    """REST API viewset for Script Files."""
+    """REST API viewset for Script Files. Read and update only: POST and DELETE answer 405."""
 
     queryset = ScriptFile.objects.select_related('project', 'last_discovered_revision')
     serializer_class = ScriptFileSerializer
     filterset_class = ScriptFileFilterSet
+    # A nested numeric id reaches any Project, so declarations are written on the Project only.
+    # By method, not by mixin composition, for the reason on NetBoxScriptViewSet below.
+    http_method_names = ('get', 'put', 'patch', 'head', 'options')
 
 
 class ScriptProjectViewSet(NetBoxModelViewSet):

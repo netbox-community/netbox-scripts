@@ -127,8 +127,8 @@ means the row was changed outside that path.
 ## Script file snapshot
 
 The snapshot freezes the project's enabled script file declarations at staging time,
-so a verdict is always about a fixed set of script files. Editing, disabling, or
-deleting a Script File never changes an existing revision. To validate
+so a verdict is always about a fixed set of script files. Editing or disabling a
+Script File never changes an existing revision. To validate
 stored content under the declarations as they are now, the storage service
 offers a refresh operation that creates or returns the revision row for the
 same source digest and the current script file digest, without the content being
@@ -143,9 +143,10 @@ authoritative: the refresh operation, project validation, and activation. A
 snapshot that fails is revision corruption and never a content verdict, so
 tampering fails closed.
 
-A valid revision whose snapshot references a since-deleted Script File row remains
-activatable. The snapshot is the immutable contract, script file deletion is not
-restricted by it.
+The snapshot is the immutable contract rather than a live reference, so a valid
+revision stays activatable however the project's declarations move afterwards,
+including one disabled after staging. A Script File row is only ever removed by the
+project cascade, which takes the revisions with it.
 
 ## Status lifecycle
 

@@ -2,9 +2,8 @@
 
 Scripts are Python classes that extend NetBox with on-demand automation.
 This page covers the authoring API that ships with the plugin and how a project
-publishes its scripts. Uploads, execution, and scheduling are planned
-follow-ups, so scripts written today validate and are discovered but cannot be
-run through the plugin yet.
+publishes its scripts. See [Uploading](uploading.md) for getting a script into a
+project and [Execution](execution.md) for running one.
 
 ## A minimal Script
 
@@ -73,12 +72,13 @@ defaults:
 | `fieldsets` | None | Groups variables into named form sections, replacing the default single group. |
 | `commit_default` | True | Initial state of the "Commit changes" checkbox. |
 | `scheduling_enabled` | True | Whether the run form offers the scheduling fields. Set False for a script that is not safe to run unattended. |
-| `notifications_default` | Always | Initial value of the "Notifications" field on the run form. |
-| `job_timeout` | None | Seconds a run may take before the worker stops it. Default is the system setting. |
+| `notifications_default` | `'always'` | Initial value of the "Notifications" field on the run form. One of `'always'`, `'on_failure'` or `'never'`. Anything else is refused at validation. |
+| `job_timeout` | None | How long a run may take before the worker stops it, as a positive number of seconds or an RQ duration string such as `'5m'`. Default is the system setting. |
 
-An operator can override the last three per installation, so treat them as your
-recommended values rather than as guarantees. `scheduling_enabled` takes no
-override, because it is your statement that the script is safe to run unattended.
+An operator can override `commit_default`, `notifications_default` and
+`job_timeout` per installation, so treat them as your recommended values rather
+than as guarantees. `scheduling_enabled` takes no override, because it is your
+statement that the script is safe to run unattended.
 See [Overriding a script's execution defaults](execution.md#overriding-a-scripts-execution-defaults).
 
 ## Logging
@@ -115,7 +115,7 @@ when the run did not come with the thing it carries, so guard before reading it.
 
 | Attribute | Set when | Holds |
 |---|---|---|
-| `self.request` | The run was requested through the UI, the REST API, or `runcustomscript` | The requesting user's HTTP request. This is what attributes any changes to that user. |
+| `self.request` | The run was requested through the UI, the REST API, or `runcustomscript`, or an Event Rule forwarded the request behind the change that triggered it | The requesting user's HTTP request. This is what attributes any changes to that user. An Event Rule forwards a stripped copy, without uploaded files. |
 | `self.event` | An Event Rule started the run | The JSON-safe part of the event context, including `event_type`, `object_type`, `object_id` and the rule's own name. See [Event Rules](event-rules.md). |
 
 A run somebody started by hand carries no event:

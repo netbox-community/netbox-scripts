@@ -112,7 +112,7 @@ when domain content calls for them.
 │   │   ├── graphql/test_projects.py , [ScriptProject] ScriptProjectGraphQLTestCase: enum members match the ChoiceSets.
 │   │   ├── models/test_scripts.py  , NetBoxScript identity, retirement, cascade + is_executable. + ScriptFile model invariants.
 │   │   ├── api/test_scripts.py     , NetBoxScriptSerializer route reversal, event serialization, patchable enabled, ignored derived fields, refused create/delete. + ScriptFileAPIViewTestCase: read-only discovery fields, path canonicalization + refusals.
-│   │   ├── api/test_revisions.py   , Revision serializer resolution by model name, rendering without a route, REST delete of an activated project.
+│   │   ├── api/test_revisions.py   , Revision serializer resolution by model name, rendering without a request, REST delete of an activated project.
 │   │   ├── api/test_run.py        , The scripts/<id>/run/ contract: the envelope, the Job response, the refusals, and that neither the add permission nor an object constraint can be bypassed.
 │   │   ├── views/test_scripts.py   , NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase) + detail view, changelog rendering, and the absent create/delete routes. + ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase).
 │   │   ├── views/test_run.py      , The run page, the run permission gate, the queued payload, the result page and its level threshold, plus one end-to-end submit-and-execute.

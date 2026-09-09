@@ -85,20 +85,19 @@ tab, which also renders two actions per row:
 - **Deactivate** on the revision in force, which retires it, leaves the project
   serving nothing, and retires its Scripts.
 
-Both need the owning project's change permission, because what they change is
-what the project serves. Each opens a confirmation page that posts back, rather
-than acting straight from the table, because the table sits inside the bulk-action
-form and a nested form would not survive the browser. Deactivation is the only way to
-stand a project down to serving nothing once it has served something. Retiring
-the scripts rather than deleting them is what lets a later activation return the
-same rows, with their Job history and with whatever `enabled` an administrator
-left them at.
+Both need the owning project's activate permission, because what they change is
+what the project serves. Reaching them also needs the revision view permission,
+since the Revisions tab is the only route. Each opens a confirmation page that
+posts back, rather than acting straight from the table, because the table sits
+inside the bulk-action form and a nested form would not survive the browser.
+Deactivation is the only way to stand a project down to serving nothing once it
+has served something. Retiring the scripts rather than deleting them is what lets
+a later activation return the same rows, with their Job history and with whatever
+`enabled` an administrator left them at.
 
-A serializer exists all the same, without a route to serve. Event serialization
-resolves a serializer by model name, and it runs on any request that deletes a
-revision, which a project delete does by cascade. It omits the `url` and
-`display_url` fields the other models expose, because both reverse a detail route
-and a revision has none.
+One more path reaches the serializer. Event serialization resolves a serializer
+by model name, and it runs on any request that deletes a revision, which a
+project delete does by cascade.
 
 The model is change-logged. Activating through the Project's **Activate** button
 is a request-bound path, so it records entries. Automatic activation happens
@@ -212,7 +211,7 @@ fields nor script file discovery results. The verdict keeps `validation_job` and
 |---|---|
 | `project`, `digest`, `manifest`, `file_count`, `total_size`, `script_file_snapshot`, and `script_file_digest` cannot change after creation | `save()` guard, no form or serializer exposes them |
 | A project cannot hold two revisions with the same digest and script file digest | Partial `unique_project_digest_script_files` database constraint, applied only when a digest is set |
-| A revision whose tree is stored must have a digest | `stored_revision_requires_digest` database check constraint |
+| Every revision except an invalid one carries a digest | `revision_requires_digest_unless_invalid` database check constraint |
 | An invalid revision from rejected content carries no digest and is never content-deduplicated | The staging service stores a null digest, which the partial constraint ignores |
 | Only `valid` or `retired` revisions may be activated | The activation service raises `ActivationError` otherwise |
 | A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
@@ -329,7 +328,5 @@ for them.
 |---|---|
 | No list page and no global search | A revision is reached through its project, on the Revisions tab or by filtering the REST and GraphQL surfaces by project |
 | The manifest and the script file snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Revision Files tab lists the current revision's files in the UI |
-| Validation is not enqueued automatically | Staging leaves a revision `materialized`. Code has to enqueue the validation job, no production trigger wires it up yet |
 | A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
 | Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |
-| Staging is not serialized against itself or against deletion | Concurrent staging of one digest, or a project deleted mid-write, can leave the database and the store briefly disagreeing. The same boundary owns the queued-cleanup race: content re-staged while a deleted twin's cleanup Job is still pending can be removed by that Job once it runs. No caller in this release runs concurrently, and one shared locking model arrives with the first ones |

@@ -551,8 +551,8 @@ class MigrationTriggerTestCase(TestCase):
 
         self.assertIn('one built-in report module', body)
         self.assertIn('does not cover', body)
-        # The consequence and the remedy, not the mechanism's wording.
-        self.assertIn('reports lose both', body)
+        # The remedy, which has to be present however the mechanism is worded.
+        self.assertIn('serve reports too', body)
         self.assertIn('recreate a report-only grant by hand', body)
 
     def test_the_cutover_refuses_while_one_is_already_queued(self):

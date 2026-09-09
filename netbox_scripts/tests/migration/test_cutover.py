@@ -153,6 +153,27 @@ class CutoverTestCase(TestCase):
     def discard_task(queue, task_id):
         queue.connection.delete(f'rq:job:{task_id}')
 
+    def report_module(self, *, auto_sync_enabled=False):
+        """Create a REPORTS-root module, which this migration does not cover."""
+        data_file = DataFile.objects.create(
+            source=self.source,
+            path='audit.py',
+            size=len(LEGACY_SCRIPT),
+            hash=hashlib.sha256(LEGACY_SCRIPT).hexdigest(),
+            data=LEGACY_SCRIPT,
+            last_updated=timezone.now(),
+        )
+        report = ScriptModule(
+            file_root=ManagedFileRootPathChoices.SCRIPTS,
+            data_file=data_file,
+            auto_sync_enabled=auto_sync_enabled,
+        )
+        # save() forces the root to scripts, so a report's root is set past it.
+        report.full_clean()
+        report.save()
+        ScriptModule.objects.filter(pk=report.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
+        return report
+
     def test_it_refuses_when_nothing_has_been_staged(self):
         with self.assertRaises(cutover.CutoverRefused):
             cutover.enter_cutover(None)
@@ -343,39 +364,12 @@ class CutoverTestCase(TestCase):
 
     def test_a_report_keeps_its_synchronization(self):
         # A report is not this migration's, so dropping its record would silently stop it updating.
-        data_file = DataFile.objects.create(
-            source=self.source,
-            path='audit.py',
-            size=len(LEGACY_SCRIPT),
-            hash=hashlib.sha256(LEGACY_SCRIPT).hexdigest(),
-            data=LEGACY_SCRIPT,
-            last_updated=timezone.now(),
-        )
-        report = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file, auto_sync_enabled=True)
-        report.full_clean()
-        report.save()
-        ScriptModule.objects.filter(pk=report.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
+        report = self.report_module(auto_sync_enabled=True)
         concrete = ObjectType.objects.get_for_model(ScriptModule)
 
         cutover.enter_cutover(self.migration)
 
         self.assertTrue(AutoSyncRecord.objects.filter(object_type=concrete, object_id=report.pk).exists())
-
-    def report_module(self):
-        """A REPORTS-root module with a class of its own, which this migration does not cover."""
-        data_file = DataFile.objects.create(
-            source=self.source,
-            path='audit.py',
-            size=len(LEGACY_SCRIPT),
-            hash=hashlib.sha256(LEGACY_SCRIPT).hexdigest(),
-            data=LEGACY_SCRIPT,
-            last_updated=timezone.now(),
-        )
-        report = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file)
-        report.full_clean()
-        report.save()
-        ScriptModule.objects.filter(pk=report.pk).update(file_root=ManagedFileRootPathChoices.REPORTS)
-        return report
 
     def test_the_fence_leaves_a_report_job_alone(self):
         audit = Script.objects.create(module=self.report_module(), name='Audit')

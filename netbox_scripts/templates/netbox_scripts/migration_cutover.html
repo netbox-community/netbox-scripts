@@ -32,7 +32,7 @@ Context:
       {% plural %}
         This installation also has {{ total }} built-in report modules, which this migration does not cover.
       {% endblocktrans %}
-      {% trans "A permission, and an Event Rule watching the built-in Custom Scripts or their modules, name object types that serve reports too, so reports lose both." %}
+      {% trans "A permission granting access to the built-in Custom Scripts, and an Event Rule watching them for changes, name object types that serve reports too. So a report loses that grant, and stops being watched by that rule." %}
       {% trans "The repointing pass makes that permanent and puts the grant back into service without the report coverage, so recreate a report-only grant by hand rather than re-enabling the old one." %}
       {% trans "Report runs, and Event Rules that fire a report, are left alone." %}
     </p>

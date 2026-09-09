@@ -102,7 +102,7 @@ class ReportExclusionTestCase(TestCase):
         self.assertEqual(codes['reports_excluded'], plan.WARNING)
         # The warning is where an operator first reads what happens to reports, so what it
         # claims is pinned rather than only its code.
-        message = next(f['message'] for f in report['findings'] if f['code'] == 'reports_excluded')
+        message = next(finding['message'] for finding in report['findings'] if finding['code'] == 'reports_excluded')
         self.assertIn('not part of this migration', message)
         self.assertIn('extras.scriptmodule', message)
         self.assertIn('for good', message)

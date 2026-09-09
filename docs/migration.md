@@ -108,7 +108,7 @@ their runs and their own Event Rules alone, so a report keeps running and keeps 
 **Two closures reach a report anyway.** A permission granting access to the built-in feature, and an
 Event Rule watching it for changes, name the `extras.script` and `extras.scriptmodule` object
 types, both of which serve reports and Custom Scripts alike. Neither can be partitioned, so a
-report loses both.
+report loses that grant and stops being watched by that rule.
 
 The fence only disables them, but the repointing pass makes the loss permanent: it narrows each
 grant to the plugin's types and then re-enables the row, so the grant looks healthy while no longer

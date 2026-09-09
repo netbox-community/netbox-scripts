@@ -102,7 +102,7 @@ def _object_type(model):
 
 
 def _reports_root_scope():
-    """Return the object type and id pairs a reference a built-in report owns can name."""
+    """Return one (object type, keys) pair per built-in model, holding the rows a report owns."""
     from core.choices import ManagedFileRootPathChoices
     from extras.models import Script, ScriptModule
 
@@ -175,11 +175,7 @@ def legacy_event_rules():
 
 
 def legacy_permissions():
-    """Return every permission granting an action on the built-in feature, reports included.
-
-    A grant names an object type rather than a row, so unlike the Job and Event Rule readers this
-    one cannot leave a report out.
-    """
+    """Return every permission granting an action on the built-in feature, reports included."""
     from users.models import ObjectPermission
 
     return ObjectPermission.objects.filter(object_types__in=legacy_object_types()).distinct()
@@ -253,8 +249,7 @@ def reference_counts():
     """
     Return how many Event Rules, permissions and Jobs reference the built-in feature.
 
-    The Event Rule and Job figures leave out what a report owns. The permission figure cannot,
-    since a grant names an object type rather than a row.
+    The Event Rule and Job figures leave out what a report owns. The permission figure cannot.
     """
     jobs = script_jobs()
     return {

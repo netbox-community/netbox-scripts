@@ -352,14 +352,15 @@ def _verify_jobs(run):
             ).format(count=len(lost), names=', '.join(lost)),
             source=_('the journal and the queue'),
         )
-    if legacy_source.script_jobs().exists():
+    held = legacy_source.script_jobs()
+    if held.exists():
         return _check(
             JOBS,
             plan.WARNING,
             _(
                 '{count} Job(s) still name the built-in feature. Each one is history no Script Project '
                 'can hold, so it stays where it is.'
-            ).format(count=legacy_source.script_jobs().count()),
+            ).format(count=held.count()),
             source=_('the built-in rows'),
         )
     if not queue_read:

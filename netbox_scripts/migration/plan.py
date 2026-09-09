@@ -103,10 +103,11 @@ def build_report(modules=None, read=None):
                 'pk': None,
                 'path': '',
                 'message': (
-                    f'{reports} built-in report module(s) are not part of this migration, and nothing '
-                    f'moves them onto the plugin. The cutover still withdraws permissions and disables '
-                    f'Event Rules naming extras.script or extras.scriptmodule, object types that serve '
-                    f'reports too, and the repointing pass then drops that coverage for good.'
+                    f'{reports} built-in report module(s) are not part of this migration. Reports use an '
+                    f'authoring API this plugin does not serve, so nothing moves them onto it. The cutover '
+                    f'still withdraws any permission, and disables any Event Rule, naming extras.script or '
+                    f'extras.scriptmodule, object types that serve reports too, and the repointing pass '
+                    f'then drops that coverage for good.'
                 ),
             }
         )

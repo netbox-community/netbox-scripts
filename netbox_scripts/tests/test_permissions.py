@@ -103,14 +103,14 @@ class SourceManagementPermissionTestCase(TestCase):
         # The regression this task exists to prevent: renaming is not activating.
         self.grant('view', 'change')
 
-        self.assertHttpStatus(self.client.post(self.project_url('activate')), 403)
+        self.assertHttpStatus(self.client.post(self.project_url('activate'), {'revision_id': self.revision.pk}), 403)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
     def test_activate_alone_can_activate_a_project(self):
         self.grant('view', 'activate')
 
-        self.assertHttpStatus(self.client.post(self.project_url('activate')), 302)
+        self.assertHttpStatus(self.client.post(self.project_url('activate'), {'revision_id': self.revision.pk}), 302)
         self.project.refresh_from_db()
         self.assertEqual(self.project.active_revision_id, self.revision.pk)
 
@@ -150,7 +150,7 @@ class SourceManagementPermissionTestCase(TestCase):
         # The constraint takes the object out of the restricted queryset, so 404 rather than 403.
         self.grant('view', 'activate', constraints={'key': 'somewhere-else'})
 
-        self.assertHttpStatus(self.client.post(self.project_url('activate')), 404)
+        self.assertHttpStatus(self.client.post(self.project_url('activate'), {'revision_id': self.revision.pk}), 404)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 

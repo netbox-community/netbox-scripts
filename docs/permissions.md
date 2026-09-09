@@ -70,7 +70,7 @@ not offered the four steps past the fence.
 | Action | What it allows |
 |---|---|
 | `view` | See Scripts, their execution defaults and their run history |
-| `change` | Edit the administrator's fields: enabled, comments, owner, tags, custom fields |
+| `change` | Edit the administrator's fields: enabled, execution overrides, comments, owner, tags, custom fields |
 | `run` | Run a Script, from the UI or over REST |
 | `schedule` | Ask for a run at a set time or on a recurrence |
 
@@ -114,11 +114,20 @@ administrator sizing up `run_netboxscript` should know the second route exists.
 Both of these are deliberate. A second name for the same privilege would mean
 granting it twice and choosing between the spellings.
 
-**Changing which files are script files** requires the Script File
-`change` action. A Script File *is* a declaration, so that action already
-describes the privilege exactly. Changing the selection restages the Project's
-source, which makes the Script File permission a source-management one in its own
-right.
+**Changing which files are script files** requires the Script File `change`
+action to enter the selection route. Newly created declarations additionally
+require `add` permission on those rows. Changes to existing declarations require
+`change` permission on each affected row before and after the change. Unchanged
+rows require no additional child write permission.
+
+The upload routes retain their Script File `add` entry requirement. Each created
+declaration is checked against its `add` constraints. Re-enabling an existing
+declaration requires its `change` permission as well. Project permission does not
+substitute for these child permissions. A refusal rolls back the declaration
+operation before source ingestion is scheduled.
+
+Changing the selection queues a refresh of the Project's accepted source, so
+Script File permissions are source-management permissions in their own right.
 
 **Viewing execution results** requires the NetBox `core.view_job` permission.
 Run logs and output live on the Job, so NetBox's own Job permission governs

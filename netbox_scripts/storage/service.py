@@ -19,7 +19,7 @@ from django.db import DEFAULT_DB_ALIAS, router, transaction
 from django.utils import timezone
 
 from .. import branching, constants
-from ..choices import RevisionStatusChoices
+from ..choices import ActivationPolicyChoices, RevisionStatusChoices
 from ..models import ScriptFile, ScriptProject, ScriptProjectRevision
 from . import config, store
 from .exceptions import (
@@ -51,7 +51,34 @@ class StagedRevision(NamedTuple):
     created: bool
 
 
-def stage_revision(project, files):
+def stage_revision(project, files, *, activate_once=False):
+    """Store and accept one source tree under the project's current declarations."""
+    branching.require_safe_routing()
+    using = require_default_database(project)
+    storage_key = project_or_vanished(
+        ScriptProject.objects.using(using).values_list('storage_key', flat=True), project.pk
+    )
+    with project_lock(storage_key, using=using):
+        staged = _stage_revision(project, files)
+        _accept_source(staged.revision, using=using, activate_once=activate_once)
+        return staged
+
+
+def _accept_source(revision, *, using, activate_once=False):
+    """Record the latest fully stored request without changing its immutable revision."""
+    if revision.digest and revision.status not in constants.UNSTORED_REVISION_STATUSES:
+        projects = ScriptProject.objects.using(using).filter(pk=revision.project_id)
+        previous = projects.values('source_revision_id', 'source_activation_pending').get()
+        pending = activate_once or (
+            previous['source_revision_id'] == revision.pk and previous['source_activation_pending']
+        )
+        projects.update(
+            source_revision=revision,
+            source_activation_pending=bool(pending and revision.status != RevisionStatusChoices.ACTIVE),
+        )
+
+
+def _stage_revision(project, files):
     """
     Materialize a mapping of source path to content bytes as a revision of a project.
 
@@ -162,6 +189,19 @@ def stage_revision(project, files):
 
 
 def refresh_revision_script_files(revision):
+    """Accept stored source under the project's current declaration snapshot."""
+    branching.require_safe_routing()
+    using = require_default_database(revision)
+    storage_key = project_or_vanished(
+        ScriptProject.objects.using(using).values_list('storage_key', flat=True), revision.project_id
+    )
+    with project_lock(storage_key, using=using):
+        staged = _refresh_revision_script_files(revision)
+        _accept_source(staged.revision, using=using)
+        return staged
+
+
+def _refresh_revision_script_files(revision):
     """
     Stage a revision's stored content under the project's current script file configuration.
 
@@ -215,7 +255,7 @@ def refresh_revision_script_files(revision):
         return StagedRevision(candidate, created)
 
 
-def promote_revision(revision, *, on_promote):
+def promote_revision(revision, *, on_promote, automatic=False):
     """
     Make one revision the active revision of its project and return it, refreshed.
 
@@ -264,10 +304,10 @@ def promote_revision(revision, *, on_promote):
         store.verify_revision_tree(
             storage, project_state['storage_key'], snapshot.digest, _validated_manifest(snapshot)
         )
-        return _promote(snapshot, revision_pk, using, on_promote)
+        return _promote(snapshot, revision_pk, using, on_promote, automatic=automatic)
 
 
-def _promote(snapshot, revision_pk, using, on_promote):
+def _promote(snapshot, revision_pk, using, on_promote, *, automatic=False):
     """Move a project's active pointer to one verified revision, under the row locks."""
     with transaction.atomic(using=using):
         # Project row before revision row, the same order a project delete takes, so concurrent
@@ -278,6 +318,18 @@ def _promote(snapshot, revision_pk, using, on_promote):
             revision_pk,
             project_id=project.pk,
         )
+        if automatic:
+            if project.source_revision_id != locked.pk:
+                return None
+            if not project.source_activation_pending and (
+                project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID
+            ):
+                return None
+            _, selection_digest = build_script_file_snapshot(
+                ScriptFile.objects.using(using).filter(project_id=project.pk, enabled=True)
+            )
+            if selection_digest != locked.script_file_digest:
+                return None
         # The snapshot and its digest are compared, not just the digest: a swap leaving the digest
         # field untouched would activate content the return-trip check never covered. The recorded
         # scripts are compared for the same reason, the callback is about to derive rows from them.
@@ -294,6 +346,9 @@ def _promote(snapshot, revision_pk, using, on_promote):
         # Before the early return, so re-promoting the revision already in force repairs
         # whatever the callback derives from it.
         on_promote(project=project, revision=locked, using=using)
+        if project.source_revision_id == locked.pk and project.source_activation_pending:
+            ScriptProject.objects.using(using).filter(pk=project.pk).update(source_activation_pending=False)
+            project.source_activation_pending = False
         if already_active:
             return locked
 

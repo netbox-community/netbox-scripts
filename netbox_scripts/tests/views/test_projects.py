@@ -208,6 +208,16 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
         # The whole sentence, because the tab bar renders the words "Revision Files" regardless.
         self.assertIn('Saving a change restages the source, and the Revision Files tab lists', body)
 
+    def test_selection_respects_the_child_add_scope(self):
+        self.grant(ScriptProject, 'view', 'change')
+        self.grant(ScriptFile, 'change')
+        self.grant(ScriptFile, 'add', constraints={'project_id': self.project.pk + 1000})
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.client.post(self.url(), {'script_files_1': ['deploy.py']})
+        self.assertHttpStatus(response, 200)
+        self.assertFalse(self.project.script_files.exists())
+        flush.assert_not_called()
+
 
 class ScriptProjectSourceStateViewTestCase(TestCase):
     """The detail view surfaces source state, revision history, and the add-script action."""
@@ -671,13 +681,16 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.assertIsNone(self.project.active_revision_id)
 
     def test_an_ineligible_status_is_refused_before_the_activation_service(self):
-        # activate_revision() must not be reached: a refusal it raises looks identical from
-        # outside, so only this proves the form did the refusing.
+        # The second revision is what makes this bite: without the form the view resolves its own
+        # newest candidate and activates that one, so the refusal has to name the confirmed one.
         self.grant('view', 'activate')
         ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.INVALID)
+        other = service.stage_revision(self.project, {'deploy.py': b'VALUE = 2\n'}).revision
+        ScriptProjectRevision.objects.filter(pk=other.pk).update(status=RevisionStatusChoices.VALID)
         with mock.patch('netbox_scripts.activation.activate_revision') as activate:
-            self.client.post(self.url(), {'revision_id': self.revision.pk})
+            response = self.client.post(self.url(), {'revision_id': self.revision.pk}, follow=True)
         activate.assert_not_called()
+        self.assertContains(response, 'The confirmed revision can no longer be activated.')
 
     def test_a_project_with_no_candidate_reports_that_rather_than_a_bad_revision(self):
         # The commonest refusal on this route. Reporting it as missing or foreign would describe

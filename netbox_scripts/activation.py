@@ -22,6 +22,7 @@ from .runtime.exceptions import ScriptMetadataError
 from .runtime.introspection import validate_discovered_scripts
 from .storage import service
 from .storage.exceptions import ActivationError
+from .storage.locks import project_lock
 from .storage.service import project_or_vanished, require_default_database, revision_or_vanished
 
 __all__ = (
@@ -54,7 +55,7 @@ class ActivationResult(NamedTuple):
     scripts: ScriptSyncResult
 
 
-def activate_revision(revision):
+def activate_revision(revision, *, automatic=False):
     """
     Make one revision active and publish its Scripts in a single transaction.
 
@@ -64,7 +65,7 @@ def activate_revision(revision):
     built from. Raises ActivationError, including for a snapshot no build could have produced,
     and RevisionCorruptError when the stored tree no longer matches its manifest.
 
-    Returns an ActivationResult carrying the revision and a ScriptSyncResult.
+    Return an ActivationResult, or None when an automatic request is no longer current or permitted.
     """
     _validated_records(revision)
     # The promotion primitive returns the revision and discards what its callback returns, so
@@ -74,7 +75,9 @@ def activate_revision(revision):
     def on_promote(*, project, revision, using):
         written.append(_publish_scripts(project=project, revision=revision, using=using))
 
-    promoted = service.promote_revision(revision, on_promote=on_promote)
+    promoted = service.promote_revision(revision, on_promote=on_promote, automatic=automatic)
+    if promoted is None:
+        return None
     # promote_revision calls the callback exactly once, before its already-active early return.
     (result,) = written
     return ActivationResult(promoted, result)
@@ -98,7 +101,10 @@ def deactivate_revision(revision):
     """
     branching.require_safe_routing()
     using = require_default_database(revision)
-    with transaction.atomic(using=using):
+    storage_key = project_or_vanished(
+        ScriptProject.objects.using(using).values_list('storage_key', flat=True), revision.project_id
+    )
+    with project_lock(storage_key, using=using), transaction.atomic(using=using):
         project = project_or_vanished(ScriptProject.objects.using(using).select_for_update(), revision.project_id)
         locked = revision_or_vanished(
             ScriptProjectRevision.objects.using(using).select_for_update(),

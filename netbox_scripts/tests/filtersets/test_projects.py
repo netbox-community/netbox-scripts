@@ -10,9 +10,9 @@ from netbox_scripts.tests.plugin_testing import ChangeLoggedFilterSetTestMixin
 class ScriptProjectFilterSetTestCase(TestCase, ChangeLoggedFilterSetTestMixin):
     queryset = ScriptProject.objects.all()
     filterset = ScriptProjectFilterSet
-    # storage_key is deliberately unfiltered (internal storage/runtime identity), and
-    # active_revision is written only by the storage activation service.
-    ignore_fields = ('storage_key', 'active_revision')
+    # storage_key is deliberately unfiltered (internal storage/runtime identity). The three
+    # revision and intent fields are written only by the storage and source services.
+    ignore_fields = ('storage_key', 'active_revision', 'source_revision', 'source_activation_pending')
 
     @classmethod
     def setUpTestData(cls):

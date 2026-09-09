@@ -237,6 +237,9 @@ class ProjectReconciliationJob(JobRunner):
             raise JobFailed() from error
 
         revision = staged.revision
+        # _accept_source() moves the pointer and the intent flag with a queryset update, which
+        # leaves this instance behind, and the branches below read both.
+        project.refresh_from_db()
         if revision.status == RevisionStatusChoices.INVALID:
             self.logger.warning(
                 f'The synchronized source cannot be stored, {len(revision.validation_errors)} problem(s) recorded.'
@@ -246,29 +249,16 @@ class ProjectReconciliationJob(JobRunner):
         elif revision.pk == project.active_revision_id:
             self.logger.info('The source has not changed, this project already serves it.')
         elif revision.status in ACTIVATABLE_REVISION_STATUSES:
-            self._activate_what_the_source_matches(project, revision)
+            if project.activation_policy == ActivationPolicyChoices.MANUAL and not project.source_activation_pending:
+                self.logger.info(
+                    f'Revision {revision.digest[:12]} already holds a verdict and is waiting for an operator.'
+                )
+            else:
+                self.logger.info(
+                    f'Revision {revision.digest[:12]} already holds a verdict and is queued for activation.'
+                )
         else:
             self.logger.info(f'Revision {revision.digest[:12]} matches the source and another run owns it.')
-
-    def _activate_what_the_source_matches(self, project, revision):
-        """Promote the validated revision a reverted directory resolved to, when the policy allows."""
-        # A directory reverted to a tree this project held before is content it has already
-        # validated, so content addressing hands back that revision and no validation can claim it
-        # again. Activation is the only step left, and without it a revert in the source would
-        # silently change nothing.
-        if project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
-            self.logger.info(
-                f'The source matches revision {revision.digest[:12]}, which is validated and waiting for an '
-                'operator to activate it.'
-            )
-            return
-        try:
-            activation.activate_revision(revision)
-        except (ActivationError, StorageError, OSError) as error:
-            detail = f'The source matches revision {revision.digest[:12]}, which could not be activated: {error}'
-            self.logger.error(detail)
-            raise JobFailed() from error
-        self.logger.info(f'Revision {revision.digest[:12]} is the active revision of its project again.')
 
 
 class ProjectScriptFileRefreshJob(JobRunner):
@@ -315,14 +305,18 @@ class ProjectScriptFileRefreshJob(JobRunner):
         if project is None:
             self.logger.info(f'Script Project {project_id} no longer exists, nothing to refresh.')
             return
-        source = project.latest_stored_revision()
-        if source is None:
-            # A project that has never ingested stored no content, so there is nothing to
-            # restage and the selection applies to the first revision that arrives.
-            self.logger.info(f'"{project}" holds no stored source yet, so its selection applies to its next revision.')
-            return
+        from .ingestion import queue_revision_processing
+
         try:
-            staged = service.refresh_revision_script_files(source)
+            with project_lock(project.storage_key, using=require_default_database(project)):
+                source = project.latest_stored_revision()
+                if source is None:
+                    self.logger.info(
+                        f'"{project}" holds no stored source yet, so its selection applies to its next revision.'
+                    )
+                    return
+                staged = service.refresh_revision_script_files(source)
+                queue_revision_processing(staged.revision)
         except (StorageError, StorageConfigurationError, OSError) as error:
             detail = f'Refreshing the script files of "{project}" failed and needs another run: {error}'
             self.logger.error(detail)
@@ -330,7 +324,6 @@ class ProjectScriptFileRefreshJob(JobRunner):
 
         revision = staged.revision
         if revision.status == RevisionStatusChoices.MATERIALIZED:
-            RevisionValidationJob.enqueue_validation(revision)
             self.logger.info(f'Revision {revision.digest[:12]} is staged and queued for validation.')
         elif revision.pk == project.active_revision_id:
             self.logger.info('The selection has not changed, this project already serves it.')
@@ -365,7 +358,9 @@ class RevisionValidationJob(JobRunner):
         """
         branching.require_safe_routing()
         require_default_database(revision)
-        payload = {'revision_pk': revision.pk, 'activate_once': bool(kwargs.pop('activate_once', False))}
+        # storage.service._accept_source() is the one writer of the intent flag.
+        activate_once = bool(kwargs.pop('activate_once', False))
+        payload = {'revision_pk': revision.pk, 'activate_once': activate_once}
         with transaction.atomic():
             job = cls.enqueue(job_timeout=VALIDATION_JOB_TIMEOUT, **payload, **kwargs)
             job.data = payload
@@ -384,7 +379,8 @@ class RevisionValidationJob(JobRunner):
             self.logger.info(f'Revision {revision_pk} no longer exists, nothing to validate.')
             return
         try:
-            revision = validate_revision(revision, job=self.job, passthrough=(JobTimeoutException,))
+            if revision.status not in (*ACTIVATABLE_REVISION_STATUSES, RevisionStatusChoices.ACTIVE):
+                revision = validate_revision(revision, job=self.job, passthrough=(JobTimeoutException,))
         except ValidationStateError as error:
             self.logger.error(str(error))
             raise JobFailed() from error
@@ -400,29 +396,23 @@ class RevisionValidationJob(JobRunner):
             self.logger.warning(f'The revision is invalid, {len(revision.validation_errors)} problem(s) recorded.')
             return
         self.logger.info(f'The revision validated as {revision.status}.')
-        self._activate_if_requested(revision, activate_once)
+        self._activate_if_requested(revision)
 
-    def _activate_if_requested(self, revision, activate_once=False):
-        """
-        Promote a valid revision when the project's policy or this one enqueue asked for it.
-
-        The verdict is already recorded and correct, so a refused or failed activation fails the
-        job without touching it. The project keeps serving whatever it served before, which is
-        the required outcome for a validation that cannot complete its last step.
-        """
-        # The one-shot rides with the enqueue rather than on the project, so a policy an
-        # operator changes between the upload and the verdict cannot lose it.
-        if not activate_once and revision.project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID:
-            self.logger.info('Leaving activation to an operator, this project activates manually.')
-            return
+    def _activate_if_requested(self, revision):
+        """Activate only the currently accepted source under its current policy and declaration snapshot."""
         try:
-            activation.activate_revision(revision)
+            result = activation.activate_revision(revision, automatic=True)
         except (ActivationError, StorageError, OSError) as error:
             sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
             detail = sanitize(f'The revision validated but could not be activated: {error}')
             self.logger.error(detail)
             raise JobFailed() from error
-        self.logger.info('The revision is now the active revision of its project.')
+        if result is None:
+            self.logger.info(
+                'Leaving the active revision unchanged. This source is superseded or needs manual approval.'
+            )
+        else:
+            self.logger.info('The revision is now the active revision of its project.')
 
 
 class NetBoxScriptJob(JobRunner):

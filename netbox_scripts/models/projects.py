@@ -2,7 +2,7 @@ import uuid
 
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.db import models, router, transaction
+from django.db import models, router
 from django.db.models import Q
 from django.urls import reverse
 from django.utils.functional import cached_property
@@ -96,6 +96,20 @@ class ScriptProject(PrimaryModel):
         null=True,
         related_name='active_revision_for',
         help_text=_('Currently active revision. Set only through the storage activation service.'),
+    )
+    source_revision = models.ForeignKey(
+        to='netbox_scripts.ScriptProjectRevision',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='+',
+        editable=False,
+        help_text=_('Most recently accepted stored source, including reuse of an older revision.'),
+    )
+    source_activation_pending = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text=_('A one-shot activation request for the accepted source.'),
     )
     enabled = models.BooleanField(
         verbose_name=_('enabled'),
@@ -208,19 +222,38 @@ class ScriptProject(PrimaryModel):
         return None
 
     def save(self, *args, **kwargs):
-        """Persist the project, refusing an immutable identity change or an unusable active revision."""
-        # clean() gives key and source_type friendly per-field errors on the form and REST
-        # paths, and storage_key's editable=False keeps it off both. This guard is the backstop
-        # for ORM writes, which skip all of it.
+        """Persist the project under its transaction-scoped source lock."""
+        from ..storage.locks import project_write_lock
+
+        using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+        storage_key = self.storage_key
+        original = None
         if not self._state.adding:
             # Read from the alias this save writes to, and re-read rather than captured in
             # __init__: from_db() sets _state.db only after __init__ returns, so a capture
             # there resolves through the router's default instead.
-            using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
             original = (
-                type(self).objects.using(using).filter(pk=self.pk).values('key', 'source_type', 'storage_key').first()
+                type(self)
+                .objects.using(using)
+                .filter(pk=self.pk)
+                .values('key', 'source_type', 'storage_key', 'source_revision_id', 'source_activation_pending')
+                .first()
             )
             if original:
+                storage_key = original['storage_key'] or storage_key
+        with project_write_lock(storage_key, using=using):
+            return self._save_project(*args, original=original, **kwargs)
+
+    def _save_project(self, *args, original=None, **kwargs):
+        """Refuse immutable identity changes and unusable active revision pointers."""
+        # clean() gives key and source_type friendly per-field errors on the form and REST
+        # paths, and storage_key's editable=False keeps it off both. This guard is the backstop
+        # for ORM writes, which skip all of it.
+        if not self._state.adding:
+            if original:
+                # These fields are written by the source service, never by a stale edit form.
+                self.source_revision_id = original['source_revision_id']
+                self.source_activation_pending = original['source_activation_pending']
                 errors = {}
                 if original['key'] != self.key:
                     errors['key'] = _('The project key cannot be changed once the project has been created.')
@@ -259,39 +292,38 @@ class ScriptProject(PrimaryModel):
         declared = set(self.script_files.using(self._read_alias()).values_list('source_path', flat=True))
         return sorted(declared.union(self.script_file_candidates()))
 
-    def select_script_files(self, paths):
-        """
-        Reconcile the declarations onto the given paths, as `enabled` rather than row deletion.
-
-        Raises ValidationError for a path this project cannot declare.
-        """
+    def select_script_files(self, paths, *, user=None):
+        """Reconcile declarations atomically and return whether their enabled set changed."""
+        from ..permissions import validate_script_file_permissions
+        from ..storage.locks import project_write_lock
         from .scripts import ScriptFile
 
         selected = set(paths)
-        if unknown := selected.difference(self.declarable_script_files()):
-            raise ValidationError(
-                {
-                    'script_files': _('This project has no source file at {paths}.').format(
-                        paths=', '.join(f'"{path}"' for path in sorted(unknown))
-                    )
-                }
-            )
-
-        using = router.db_for_write(type(self), instance=self)
-        with transaction.atomic(using=using):
-            existing = {
-                script_file.source_path: script_file
-                for script_file in self.script_files.using(using).select_for_update().all()
-            }
+        using = self._state.db or router.db_for_write(type(self), instance=self)
+        with project_write_lock(self.storage_key, using=using):
+            if unknown := selected.difference(self.declarable_script_files()):
+                raise ValidationError(
+                    {
+                        'script_files': _('This project has no source file at {paths}.').format(
+                            paths=', '.join(f'"{path}"' for path in sorted(unknown))
+                        )
+                    }
+                )
+            existing = {item.source_path: item for item in self.script_files.using(using).select_for_update().all()}
+            changed = [item.pk for path, item in existing.items() if item.enabled != (path in selected)]
+            validate_script_file_permissions(user, changed=changed, using=using)
+            created = []
             for path in sorted(selected.difference(existing)):
-                script_file = ScriptFile(project=self, source_path=path, enabled=True)
-                script_file.full_clean()
-                script_file.save(using=using)
-            for path, script_file in existing.items():
-                enabled = path in selected
-                if script_file.enabled != enabled:
-                    script_file.enabled = enabled
-                    script_file.save(using=using, update_fields=('enabled', 'last_updated'))
+                item = ScriptFile(project=self, source_path=path, enabled=True)
+                item.full_clean()
+                item.save(using=using)
+                created.append(item.pk)
+            for path, item in existing.items():
+                if item.pk in changed:
+                    item.enabled = path in selected
+                    item.save(using=using, update_fields=('enabled', 'last_updated'))
+            validate_script_file_permissions(user, created=created, changed=changed, using=using)
+            return bool(created or changed)
 
     def activatable_revision(self):
         """
@@ -317,8 +349,23 @@ class ScriptProject(PrimaryModel):
         return self.revisions.using(self._read_alias()).order_by('-created').first()
 
     def latest_stored_revision(self):
-        """Return this project's newest revision holding stored content, or None."""
-        # Without the exclusion one failed write would poison every later upload of this project.
+        """Return the accepted stored source, falling back to creation order for legacy rows."""
+        source_id = (
+            type(self)
+            .objects.using(self._read_alias())
+            .filter(pk=self.pk)
+            .values_list('source_revision_id', flat=True)
+            .first()
+        )
+        if source_id:
+            source = (
+                self.revisions.using(self._read_alias())
+                .filter(pk=source_id, digest__isnull=False)
+                .exclude(status__in=UNSTORED_REVISION_STATUSES)
+                .first()
+            )
+            if source is not None:
+                return source
         return (
             self.revisions.using(self._read_alias())
             .filter(digest__isnull=False)

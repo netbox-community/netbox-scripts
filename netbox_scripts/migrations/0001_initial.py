@@ -35,6 +35,7 @@ class Migration(migrations.Migration):
                 ('source_type', models.CharField(default='upload', max_length=50)),
                 ('data_path', models.CharField(blank=True, max_length=1000)),
                 ('activation_policy', models.CharField(default='manual', max_length=50)),
+                ('source_activation_pending', models.BooleanField(default=False, editable=False)),
                 ('enabled', models.BooleanField(default=True)),
                 ('data_source', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='core.datasource')),
                 ('owner', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='users.owner')),
@@ -84,6 +85,11 @@ class Migration(migrations.Migration):
             model_name='scriptproject',
             name='active_revision',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='active_revision_for', to='netbox_scripts.scriptprojectrevision'),
+        ),
+        migrations.AddField(
+            model_name='scriptproject',
+            name='source_revision',
+            field=models.ForeignKey(blank=True, editable=False, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to='netbox_scripts.scriptprojectrevision'),
         ),
         migrations.CreateModel(
             name='ScriptFile',

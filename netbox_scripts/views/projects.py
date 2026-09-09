@@ -280,8 +280,18 @@ class ScriptProjectRevisionsView(generic.ObjectChildrenView):
         return parent.revisions.restrict(request.user, 'view')
 
 
+class ScriptFileWriteViewMixin:
+    """Provide the actor for declarations written through a project form."""
+
+    def alter_object(self, obj, request, args, kwargs):
+        """Attach the request to the object the form will save."""
+        obj = super().alter_object(obj, request, args, kwargs)
+        obj._request = request
+        return obj
+
+
 @register_model_view(ScriptProject, 'script_files', path='script-files')
-class ScriptProjectScriptFilesView(generic.ObjectEditView):
+class ScriptProjectScriptFilesView(ScriptFileWriteViewMixin, generic.ObjectEditView):
     """Select a Script Project's executable script files from its own source."""
 
     queryset = ScriptProject.objects.select_related('data_source')
@@ -355,7 +365,7 @@ class ScriptProjectEditView(generic.ObjectEditView):
 
 
 @register_model_view(ScriptProject, 'upload', path='upload', detail=False)
-class ScriptProjectUploadView(generic.ObjectEditView):
+class ScriptProjectUploadView(ScriptFileWriteViewMixin, generic.ObjectEditView):
     """Create a Script Project from one uploaded script."""
 
     queryset = ScriptProject.objects.select_related('data_source')
@@ -366,7 +376,7 @@ class ScriptProjectUploadView(generic.ObjectEditView):
 
 
 @register_model_view(ScriptProject, 'add_script', path='upload')
-class ScriptProjectAddScriptView(generic.ObjectEditView):
+class ScriptProjectAddScriptView(ScriptFileWriteViewMixin, generic.ObjectEditView):
     """
     Add one more script to an existing Script Project.
 

@@ -39,8 +39,10 @@ class ScriptProjectUploadViewTestCase(TestCase):
     def url():
         return reverse('plugins:netbox_scripts:scriptproject_upload')
 
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+    def grant(self, model, *actions, constraints=None):
+        obj_perm = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions), constraints=constraints
+        )
         obj_perm.save()
         obj_perm.users.add(self.user)
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
@@ -114,15 +116,15 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.assertEqual(form.fields['activation_policy'].initial, ActivationPolicyChoices.MANUAL)
         self.assertTrue(form.fields['activate_this_revision'].initial)
 
-    def test_the_one_shot_travels_to_the_validation_job(self):
+    def test_the_one_shot_is_recorded_on_the_accepted_source(self):
         self.grant_both()
         self.assertHttpStatus(self.post(activate_this_revision='on'), 302)
-        self.assertEqual(self.enqueued.call_args.kwargs['activate_once'], True)
+        self.assertTrue(ScriptProject.objects.get(key='deploy-devices').source_activation_pending)
 
     def test_no_one_shot_is_asked_for_when_the_box_is_clear(self):
         self.grant_both()
         self.assertHttpStatus(self.post(), 302)
-        self.assertEqual(self.enqueued.call_args.kwargs['activate_once'], False)
+        self.assertFalse(ScriptProject.objects.get(key='deploy-devices').source_activation_pending)
 
     def test_a_non_python_upload_is_refused_on_the_field(self):
         self.grant_both()
@@ -194,6 +196,33 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.grant(ScriptFile, 'view', 'add')
         self.assertHttpStatus(self.client.get(self.url()), 403)
 
+    def test_a_scoped_declaration_refusal_rolls_back_the_new_project(self):
+        self.grant(ScriptProject, 'view', 'add')
+        self.grant(ScriptFile, 'add', constraints={'project__key': 'another-project'})
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.post()
+        self.assertHttpStatus(response, 200)
+        self.assertFalse(ScriptProject.objects.exists())
+        self.assertFalse(ScriptFile.objects.exists())
+        self.enqueued.assert_not_called()
+        flush.assert_not_called()
+
+    def test_an_unimportable_upload_name_is_refused_before_creating_the_project(self):
+        self.grant_both()
+        response = self.post(upload_file=self.upload(name='bad-name.py'))
+        self.assertHttpStatus(response, 200)
+        self.assertFalse(ScriptProject.objects.exists())
+        self.enqueued.assert_not_called()
+
+    def test_a_successful_create_has_one_project_and_one_declaration_event(self):
+        self.grant_both()
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.post()
+        self.assertHttpStatus(response, 302)
+        events = [event for call in flush.call_args_list for event in call.args[0]]
+        self.assertEqual(sum(isinstance(event['object'], ScriptProject) for event in events), 1)
+        self.assertEqual(sum(isinstance(event['object'], ScriptFile) for event in events), 1)
+
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
 class ScriptProjectAddScriptViewTestCase(TestCase):
@@ -213,8 +242,10 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
     def url(self):
         return reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
 
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
+    def grant(self, model, *actions, constraints=None):
+        obj_perm = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions), constraints=constraints
+        )
         obj_perm.save()
         obj_perm.users.add(self.user)
         obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
@@ -310,3 +341,14 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
         # and the view's could drift apart with nothing catching it.
         self.grant(ScriptProject, 'view', 'change')
         self.assertHttpStatus(self.client.get(self.url()), 403)
+
+    def test_a_scoped_add_refusal_leaves_the_original_tree_and_declarations(self):
+        self.grant(ScriptProject, 'view', 'change')
+        self.grant(ScriptFile, 'add', constraints={'project_id': self.project.pk + 1000})
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.post(upload_file=self.upload())
+        self.assertHttpStatus(response, 200)
+        self.assertEqual(list(self.project.script_files.values_list('source_path', flat=True)), ['deploy.py'])
+        self.assertEqual(list(self.project.revisions.values_list('pk', flat=True)), [self.first.pk])
+        self.enqueued.assert_not_called()
+        flush.assert_not_called()

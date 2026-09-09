@@ -23,24 +23,28 @@ where it stays inspectable and retryable.
 """
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
 from django.utils.translation import gettext as _
 
 from . import branching
 from .choices import ProjectSourceTypeChoices, RevisionStatusChoices
 from .jobs import RevisionValidationJob
 from .models import ScriptFile
+from .permissions import validate_script_file_permissions
 from .storage import config, service, store
 from .storage.exceptions import UnsafePathError
+from .storage.locks import project_lock, project_write_lock
 from .storage.paths import normalize_source_path
-from .utils import data_source_relative_path
+from .utils import data_source_relative_path, source_path_to_dotted_name
 
 __all__ = (
     'check_upload_conflicts',
+    'check_upload_preconditions',
     'current_source_tree',
     'declare_script_file',
     'ingest_data_source',
     'ingest_upload',
+    'prepare_upload',
+    'queue_revision_processing',
     'uploaded_source_path',
 )
 
@@ -70,6 +74,7 @@ def uploaded_source_path(filename):
                 filename=filename, suffix=SOURCE_SUFFIX
             )
         )
+    source_path_to_dotted_name(path)
     return path
 
 
@@ -102,8 +107,8 @@ def current_source_tree(project):
 
     A revision is an immutable whole tree, so adding one file means staging everything that was
     already there plus the new one, and the existing content has to be read back to do that.
-    The newest stored revision is the tree, whether or not the project serves it, so a file
-    added while an earlier revision is still active is carried forward rather than dropped.
+    The most recently accepted source is the tree, even when it reuses an older revision or is
+    not active. A file added while an earlier revision is active is therefore carried forward.
     Every file is verified against the manifest on the way out, so a damaged tree raises
     RevisionCorruptError here rather than being carried silently into a new revision.
     """
@@ -113,80 +118,75 @@ def current_source_tree(project):
     return store.read_revision_tree(config.get_storage(), project.storage_key, revision.digest, revision.manifest)
 
 
-def ingest_upload(project, *, filename, content, base_files=None, declare=True, activate_once=False):
-    """
-    Stage an uploaded file as a revision, declare it unless told not to, and enqueue validation.
-
-    The uploaded name becomes the project-relative source path, canonicalized and confirmed to
-    be Python source. base_files carries the project's existing tree, so a later upload stages
-    a revision holding what was there plus the new file. Returns the StagedRevision.
-
-    Validation is enqueued only for a revision that is still claimable, so re-uploading content
-    that already reached a verdict resolves to that revision and leaves it alone.
-
-    Pass declare=False to stage the file without declaring it, so the project gains the content
-    and no script file. Pass activate_once=True to activate this one revision on a valid verdict
-    whatever the project's standing policy says.
-
-    Raises ValidationError for a name the path policy or the source rule refuses,
-    ImproperlyConfigured for an unsafe routing or a non-default alias, and whatever staging
-    raises for a storage failure or a project deleted underneath the write.
-    """
+def check_upload_preconditions(project):
+    """Return the safe write alias, refusing non-upload projects before any declaration write."""
+    branching.require_safe_routing()
+    using = service.require_default_database(project)
     if project.source_type != ProjectSourceTypeChoices.UPLOAD:
         raise ValidationError(
             _(
                 'Only projects whose source is uploaded accept file uploads. "{project}" is backed by a Data Source.'
             ).format(project=project)
         )
+    return using
+
+
+def prepare_upload(project, *, filename, confirm_replace, user=None):
+    """Validate an upload and authorize its real declaration inside the caller's transaction."""
+    using = check_upload_preconditions(project)
     path = uploaded_source_path(filename)
-    files = dict(base_files or {})
-    files[path] = bytes(content)
+    with project_write_lock(project.storage_key, using=using):
+        check_upload_conflicts(project, path, confirm_replace=confirm_replace)
+        declare_script_file(project, path, using, user=user)
+    return path
 
-    # The same pair stage_revision opens with, taken here because the declaration commits first
-    # and a refusal after it would leave a stray script file behind.
-    branching.require_safe_routing()
-    using = service.require_default_database(project)
-    if declare:
-        with transaction.atomic(using=using):
-            declare_script_file(project, path, using)
 
-    staged = service.stage_revision(project, files)
-    # Content addressing means identical bytes resolve to the existing revision, carrying whatever
-    # verdict it already holds. Only MATERIALIZED is claimable, so enqueueing any other status
-    # would fail a job over an upload that changed nothing.
-    if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
-        RevisionValidationJob.enqueue_validation(staged.revision, activate_once=activate_once)
-    return staged
+def ingest_upload(project, *, filename, content, declare=True, activate_once=False, user=None):
+    """Merge an upload into the accepted source under one lock and enqueue its processing."""
+    using = check_upload_preconditions(project)
+    path = uploaded_source_path(filename)
+    with project_lock(project.storage_key, using=using):
+        if declare:
+            # Request callers authorize their declaration before committing and pass declare=False.
+            # declare=True with no user declares unchecked, which only a trusted caller may do.
+            prepare_upload(project, filename=path, confirm_replace=True, user=user)
+        files = current_source_tree(project)
+        files[path] = bytes(content)
+        staged = service.stage_revision(project, files, activate_once=activate_once)
+        queue_revision_processing(staged.revision)
+        return staged
 
 
 def ingest_data_source(project):
-    """
-    Stage the project's Data Source directory as a revision and enqueue its validation.
-
-    The complete current directory is staged every time, so a file deleted from the source is
-    simply absent from the new revision. Nothing is declared, and staging freezes the
-    declarations that are already enabled, which is what carries a script file selection across a
-    synchronization. Returns the StagedRevision.
-
-    Compiled artifacts are skipped. Every other path the policy refuses is left to staging, which
-    records it as an invalid revision naming the path.
-
-    Validation is enqueued only for a revision that is still claimable, so a synchronization that
-    changed nothing enqueues nothing. Raises ValidationError for a project whose source is
-    uploaded.
-    """
-    if project.source_type != ProjectSourceTypeChoices.DATA_SOURCE:
-        raise ValidationError(
-            _('Only projects backed by a Data Source can be reconciled. "{project}" holds uploaded files.').format(
-                project=project
+    """Accept the current Data Source directory under the project lock and enqueue processing."""
+    branching.require_safe_routing()
+    using = service.require_default_database(project)
+    with project_lock(project.storage_key, using=using):
+        project.refresh_from_db(using=using)
+        if project.source_type != ProjectSourceTypeChoices.DATA_SOURCE:
+            raise ValidationError(
+                _('Only projects backed by a Data Source can be reconciled. "{project}" holds uploaded files.').format(
+                    project=project
+                )
             )
-        )
-    staged = service.stage_revision(project, _data_source_tree(project))
-    # An unchanged directory resolves by content addressing to the revision that already holds a
-    # verdict, and only a materialized revision is claimable.
-    if staged.revision.status == RevisionStatusChoices.MATERIALIZED:
-        RevisionValidationJob.enqueue_validation(staged.revision)
-    return staged
+        staged = service.stage_revision(project, _data_source_tree(project))
+        queue_revision_processing(staged.revision)
+        return staged
+
+
+def queue_revision_processing(revision):
+    """Queue validation or activation of a reused verdict, without duplicating an in-flight validation."""
+    from .choices import ActivationPolicyChoices
+    from .constants import ACTIVATABLE_REVISION_STATUSES
+    from .models import ScriptProject
+
+    if revision.status == RevisionStatusChoices.MATERIALIZED:
+        return RevisionValidationJob.enqueue_validation(revision)
+    if revision.status in ACTIVATABLE_REVISION_STATUSES:
+        project = ScriptProject.objects.get(pk=revision.project_id)
+        if project.source_activation_pending or project.activation_policy == ActivationPolicyChoices.AUTOMATIC_IF_VALID:
+            return RevisionValidationJob.enqueue_validation(revision)
+    return None
 
 
 def _data_source_tree(project):
@@ -220,20 +220,18 @@ def _data_source_tree(project):
     return {wanted[pk]: content for pk, content in rows}
 
 
-def declare_script_file(project, path, using):
-    """
-    Make one path an enabled script file of a project, creating its declaration if needed.
-
-    A path that was turned off is turned back on. The row is reused rather than replaced,
-    because Script rows and Job history reference the declaration.
-    """
-    script_file = ScriptFile.objects.using(using).filter(project=project, source_path=path).first()
-    if script_file is None:
-        script_file = ScriptFile(project=project, source_path=path, enabled=True)
-        script_file.full_clean()
-        script_file.save(using=using)
+def declare_script_file(project, path, using, *, user=None):
+    """Create or enable a declaration, checking both its original and resulting permission scope."""
+    with project_write_lock(project.storage_key, using=using):
+        script_file = ScriptFile.objects.using(using).filter(project=project, source_path=path).first()
+        if script_file is None:
+            script_file = ScriptFile(project=project, source_path=path, enabled=True)
+            script_file.full_clean()
+            script_file.save(using=using)
+            validate_script_file_permissions(user, created=(script_file.pk,), using=using)
+        elif not script_file.enabled:
+            validate_script_file_permissions(user, changed=(script_file.pk,), using=using)
+            script_file.enabled = True
+            script_file.save(using=using, update_fields=('enabled', 'last_updated'))
+            validate_script_file_permissions(user, changed=(script_file.pk,), using=using)
         return script_file
-    if not script_file.enabled:
-        script_file.enabled = True
-        script_file.save(using=using, update_fields=('enabled', 'last_updated'))
-    return script_file

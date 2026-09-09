@@ -9,7 +9,7 @@ from core.choices import JobStatusChoices
 from netbox_scripts import branching
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
 from netbox_scripts.forms import ScriptProjectScriptFilesForm
-from netbox_scripts.ingestion import current_source_tree, ingest_upload
+from netbox_scripts.ingestion import ingest_upload
 from netbox_scripts.jobs import ProjectScriptFileRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
     NetBoxScript,
@@ -56,7 +56,7 @@ def two_script_file_project(key='deploy-devices', **kwargs):
     # Re-read rather than refresh, because current_revision is cached per instance and the
     # second upload has to stage the tree the first one left behind.
     project = ScriptProject.objects.get(pk=project.pk)
-    ingest_upload(project, filename='beta.py', content=BETA, base_files=current_source_tree(project))
+    ingest_upload(project, filename='beta.py', content=BETA)
     return ScriptProject.objects.get(pk=project.pk)
 
 
@@ -242,6 +242,14 @@ class ScriptFilesFormTestCase(TestCase):
         # history reference the declaration.
         self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 2)
 
+    def test_accepting_a_preselected_undeclared_file_enqueues_a_refresh(self):
+        self.project = ScriptProject.objects.create(name='Single candidate', key='single-candidate')
+        service.stage_revision(self.project, {'only.py': b'VALUE = 1\n'})
+        form = self.save(['only.py'])
+        self.assertEqual(form.initial['script_files'], ['only.py'])
+        self.assertTrue(self.project.script_files.filter(source_path='only.py', enabled=True).exists())
+        self.enqueued.assert_called_once_with(self.project)
+
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
 class ScriptFileRefreshPolicyTestCase(TestCase):
@@ -307,3 +315,16 @@ class ScriptFileRefreshPolicyTestCase(TestCase):
 
         self.assertEqual(project.latest_revision().script_file_snapshot, [])
         self.assertFalse(NetBoxScript.objects.filter(project=project, is_retired=False).exists())
+
+    def test_reselecting_the_original_set_reuses_and_activates_its_revision(self):
+        project = two_script_file_project(
+            key='round-trip', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        )
+        original = project.active_revision_id
+        project.select_script_files(['alpha.py'])
+        project = self.refresh(project)
+        self.assertNotEqual(project.active_revision_id, original)
+        project.select_script_files(['alpha.py', 'beta.py'])
+        project = self.refresh(project)
+        self.assertEqual(project.active_revision_id, original)
+        self.assertEqual(project.source_revision_id, original)

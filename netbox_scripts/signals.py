@@ -36,8 +36,9 @@ from core.signals import post_sync
 from . import branching
 from .choices import ProjectSourceTypeChoices
 from .jobs import ProjectReconciliationJob, ProjectStorageCleanupJob
-from .models import ScriptProject, ScriptProjectRevision
+from .models import ScriptFile, ScriptProject, ScriptProjectRevision
 from .storage.exceptions import RevisionCorruptError
+from .storage.locks import project_write_lock
 from .storage.manifest import validate_manifest
 
 logger = logging.getLogger('netbox.plugins.netbox_scripts.storage')
@@ -168,3 +169,14 @@ def reconcile_project_sources(sender, instance, **kwargs):
             'Could not enqueue Script Project source reconciliation after "%s" synchronized.',
             instance,
         )
+
+
+@receiver(pre_delete, sender=ScriptFile, dispatch_uid='netbox_scripts.lock_declaration_delete')
+def lock_declaration_delete(sender, instance, using, **kwargs):
+    """Serialize a declaration deletion through the deleting transaction's commit."""
+    storage_key = (
+        ScriptProject.objects.using(using).filter(pk=instance.project_id).values_list('storage_key', flat=True).first()
+    )
+    if storage_key is not None:
+        with project_write_lock(storage_key, using=using):
+            pass

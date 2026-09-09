@@ -319,7 +319,25 @@ class ScriptFile(PrimaryModel):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        """Persist the script file in canonical importable form, refusing any change to an identity field."""
+        """Persist the declaration under its project's transaction-scoped source lock."""
+        from ..storage.locks import project_write_lock
+        from .projects import ScriptProject
+
+        using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+        # Declarations are written in a loop by ingestion and by migration staging, each with the
+        # project already in hand, so the cached relation saves one query per file.
+        cached = self._state.fields_cache.get('project')
+        if cached is not None:
+            storage_key = cached.storage_key
+        else:
+            storage_key = (
+                ScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=self.project_id)
+            )
+        with project_write_lock(storage_key, using=using):
+            return self._save_declaration(*args, **kwargs)
+
+    def _save_declaration(self, *args, **kwargs):
+        """Persist a canonical importable path and refuse identity changes."""
         # Snapshot building reads rows straight from the ORM, so canonical form is an
         # at-rest invariant rather than a clean() nicety. QuerySet.update() bypasses this
         # and must supply canonical values itself.

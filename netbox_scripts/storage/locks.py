@@ -18,19 +18,25 @@ release it and only leaving the block does. It is also counted by PostgreSQL, so
 acquisition of the same key succeeds and needs its own release, which makes the context
 manager safe to nest.
 
+Database-only Project and Script File writes use the same key with a transaction-scoped lock.
+It survives nested savepoints until the outermost transaction ends, so storage operations never
+observe an uncommitted declaration or policy change.
+
 A session lock belongs to the physical backend connection, so transaction-mode pooling breaks
 it. That requirement is stated with the other deployment ones in docs/configuration.md.
 """
 
 import hashlib
+from contextlib import contextmanager
 
-from django.db import DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django_pg_utils import advisory_lock
 
 __all__ = (
     'ADVISORY_LOCK_NAMESPACE',
     'advisory_key',
     'project_lock',
+    'project_write_lock',
 )
 
 # The first of the two integers every project lock is taken on, arbitrary and recognisable in
@@ -64,3 +70,12 @@ def project_lock(storage_key, *, using=DEFAULT_DB_ALIAS):
     connection.
     """
     return advisory_lock(advisory_key(storage_key), using=using)
+
+
+@contextmanager
+def project_write_lock(storage_key, *, using=DEFAULT_DB_ALIAS):
+    """Serialize database changes until the outermost transaction commits or rolls back."""
+    with transaction.atomic(using=using):
+        with connections[using].cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(%s, %s)', advisory_key(storage_key))
+        yield

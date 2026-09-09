@@ -2,10 +2,10 @@ import uuid
 import warnings
 from unittest import mock
 
-from django.db import DEFAULT_DB_ALIAS, OperationalError, connection, connections
-from django.test import TestCase
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connection, connections, transaction
+from django.test import TestCase, TransactionTestCase
 
-from netbox_scripts.storage.locks import ADVISORY_LOCK_NAMESPACE, advisory_key, project_lock
+from netbox_scripts.storage.locks import ADVISORY_LOCK_NAMESPACE, advisory_key, project_lock, project_write_lock
 
 INT4_MIN = -(2**31)
 INT4_MAX = 2**31 - 1
@@ -143,3 +143,48 @@ class ProjectLockTestCase(TestCase):
         # connection closes. Documented on project_lock rather than routed to a job log.
         self.assertTrue(any('failed to release' in str(entry.message) for entry in raised))
         self.assertIn(advisory_key(storage_key), held_locks())
+
+
+class ProjectWriteLockTestCase(TransactionTestCase):
+    """A database writer excludes storage readers until the outer transaction ends."""
+
+    @staticmethod
+    def other_session_can_lock(storage_key):
+        connection = connections.create_connection(DEFAULT_DB_ALIAS)
+        connection.ensure_connection()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT pg_try_advisory_lock(%s, %s)', advisory_key(storage_key))
+                acquired = cursor.fetchone()[0]
+                if acquired:
+                    cursor.execute('SELECT pg_advisory_unlock(%s, %s)', advisory_key(storage_key))
+            return acquired
+        finally:
+            connection.close()
+
+    def test_an_inner_success_keeps_the_lock_until_outer_commit(self):
+        key = uuid.uuid4()
+        with transaction.atomic():
+            with project_write_lock(key):
+                self.assertFalse(self.other_session_can_lock(key))
+            self.assertFalse(self.other_session_can_lock(key))
+        self.assertTrue(self.other_session_can_lock(key))
+
+    def test_an_outer_rollback_releases_the_lock(self):
+        key = uuid.uuid4()
+        with self.assertRaises(RuntimeError), transaction.atomic():
+            with project_write_lock(key):
+                self.assertFalse(self.other_session_can_lock(key))
+            raise RuntimeError('refused write')
+        self.assertTrue(self.other_session_can_lock(key))
+
+    def test_a_session_lock_and_a_write_lock_nest_on_one_key(self):
+        # The shape ingestion uses: project_lock spans the read and the stage, and the declaration
+        # takes project_write_lock on the same key inside it. Each releases on its own terms.
+        key = uuid.uuid4()
+        with project_lock(key):
+            self.assertFalse(self.other_session_can_lock(key))
+            with transaction.atomic(), project_write_lock(key):
+                self.assertFalse(self.other_session_can_lock(key))
+            self.assertFalse(self.other_session_can_lock(key))
+        self.assertTrue(self.other_session_can_lock(key))

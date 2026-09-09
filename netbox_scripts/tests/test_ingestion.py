@@ -147,7 +147,7 @@ class IngestUploadTestCase(TestCase):
 
     def test_validation_is_enqueued_once_for_the_staged_revision(self):
         staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        self.enqueued.assert_called_once_with(staged.revision, activate_once=False)
+        self.enqueued.assert_called_once_with(staged.revision)
 
     def test_a_name_needing_canonicalization_is_stored_canonical(self):
         staged = ingest_upload(self.project, filename='./deploy.py', content=SCRIPT)
@@ -241,7 +241,7 @@ class IngestUploadTestCase(TestCase):
 
         second = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         self.assertEqual(second.revision.status, RevisionStatusChoices.MATERIALIZED)
-        self.enqueued.assert_called_once_with(first.revision, activate_once=False)
+        self.enqueued.assert_called_once_with(first.revision)
 
     def test_a_nested_path_is_preserved_at_this_layer(self):
         # Flattening to a basename happens in Django's uploaded-file handling, so it binds the
@@ -257,7 +257,7 @@ class IngestUploadTestCase(TestCase):
         # to ask first, keyed on the canonical path rather than the name the user picked.
         first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         other = SCRIPT + b'# a different file entirely\n'
-        second = ingest_upload(self.project, filename='deploy.py', content=other, base_files={'deploy.py': SCRIPT})
+        second = ingest_upload(self.project, filename='deploy.py', content=other)
 
         self.assertEqual([entry['path'] for entry in second.revision.manifest], ['deploy.py'])
         self.assertNotEqual(second.revision.digest, first.revision.digest)
@@ -266,7 +266,7 @@ class IngestUploadTestCase(TestCase):
     def test_a_case_variant_basename_is_refused_as_a_sibling_collision(self):
         ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         with self.assertRaises(ValidationError) as ctx:
-            ingest_upload(self.project, filename='Deploy.py', content=SCRIPT, base_files={'deploy.py': SCRIPT})
+            ingest_upload(self.project, filename='Deploy.py', content=SCRIPT)
         self.assertIn('collides', str(ctx.exception))
         self.assertEqual(ScriptFile.objects.filter(project=self.project).count(), 1)
 
@@ -278,10 +278,8 @@ class IngestUploadTestCase(TestCase):
         self.project.active_revision_id = first.revision.pk
         self.project.save(update_fields=('active_revision',))
 
-        ingest_upload(self.project, filename='beta.py', content=SCRIPT, base_files=current_source_tree(self.project))
-        staged = ingest_upload(
-            self.project, filename='gamma.py', content=SCRIPT, base_files=current_source_tree(self.project)
-        )
+        ingest_upload(self.project, filename='beta.py', content=SCRIPT)
+        staged = ingest_upload(self.project, filename='gamma.py', content=SCRIPT)
 
         self.assertEqual(
             sorted(entry['path'] for entry in staged.revision.manifest),
@@ -295,7 +293,7 @@ class IngestUploadTestCase(TestCase):
         ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(status=RevisionStatusChoices.ACTIVE)
         self.project.active_revision_id = first.revision.pk
         self.project.save(update_fields=('active_revision',))
-        ingest_upload(self.project, filename='beta.py', content=SCRIPT, base_files=current_source_tree(self.project))
+        ingest_upload(self.project, filename='beta.py', content=SCRIPT)
 
         with self.assertRaises(ValidationError):
             check_upload_conflicts(self.project, 'beta.py', confirm_replace=False)
@@ -305,10 +303,9 @@ class IngestUploadTestCase(TestCase):
             ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         self.assertFalse(ScriptFile.objects.filter(project=self.project).exists())
 
-    def test_base_files_are_carried_into_the_new_revision(self):
+    def test_accepted_source_is_carried_into_the_new_revision(self):
         base = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
-        existing = {'deploy.py': SCRIPT}
-        staged = ingest_upload(self.project, filename='audit.py', content=SCRIPT, base_files=existing)
+        staged = ingest_upload(self.project, filename='audit.py', content=SCRIPT)
         self.assertNotEqual(staged.revision.pk, base.revision.pk)
         self.assertEqual(
             sorted(entry['path'] for entry in staged.revision.manifest),
@@ -318,6 +315,37 @@ class IngestUploadTestCase(TestCase):
             sorted(entry['source_path'] for entry in staged.revision.script_file_snapshot),
             ['audit.py', 'deploy.py'],
         )
+
+    def test_reusing_an_older_tree_makes_it_the_next_uploads_base(self):
+        first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT).revision
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT + b'# newer\n')
+        reused = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        self.assertFalse(reused.created)
+        self.assertEqual(reused.revision.pk, first.pk)
+        self.assertEqual(self.project.latest_stored_revision().pk, first.pk)
+        ingest_upload(self.project, filename='audit.py', content=b'VALUE = 1\n')
+        self.assertEqual(current_source_tree(self.project)['deploy.py'], SCRIPT)
+
+    def test_an_unrelated_stale_project_save_preserves_accepted_source(self):
+        stale = ScriptProject.objects.get(pk=self.project.pk)
+        revision = ingest_upload(self.project, filename='deploy.py', content=SCRIPT, activate_once=True).revision
+        stale.description = 'Updated description'
+        stale.save()
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.source_revision_id, revision.pk)
+        self.assertTrue(self.project.source_activation_pending)
+
+    def test_a_new_request_clears_an_older_one_shot(self):
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT, activate_once=True)
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT + b'# replacement\n')
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.source_activation_pending)
+
+    def test_a_no_op_preserves_the_same_requests_pending_one_shot(self):
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT, activate_once=True)
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.source_activation_pending)
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
@@ -501,6 +529,8 @@ class ValidationJobActivationTestCase(TestCase):
     def run_job(self, revision, **kwargs):
         """Drive the job body past validation, with the verdict already recorded."""
         # Bound to a real Job row, because the runner's logger writes to it.
+        if kwargs.get('activate_once'):
+            ScriptProject.objects.filter(pk=revision.project_id).update(source_activation_pending=True)
         runner = RevisionValidationJob(Job.objects.create(name='validation-test', job_id=uuid.uuid4()))
         with mock.patch('netbox_scripts.jobs.validate_revision', return_value=revision):
             runner.run(revision_pk=revision.pk, job_id='x', **kwargs)
@@ -551,6 +581,30 @@ class ValidationJobActivationTestCase(TestCase):
         self.run_job(revision)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
+
+    def test_a_late_verdict_cannot_replace_newer_accepted_source(self):
+        older = self.valid_revision(ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+        newer = service.stage_revision(self.project, {'deploy.py': SCRIPT + b'# newer\n'}).revision
+        ScriptProjectRevision.objects.filter(pk=newer.pk).update(status=RevisionStatusChoices.VALID)
+        newer.refresh_from_db()
+        self.run_job(newer)
+        self.run_job(older)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, newer.pk)
+
+    def test_changed_declarations_block_automatic_promotion_of_an_old_snapshot(self):
+        revision = self.valid_revision(ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+        ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        self.run_job(revision)
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_success_consumes_the_one_shot(self):
+        revision = self.valid_revision(ActivationPolicyChoices.MANUAL)
+        self.run_job(revision, activate_once=True)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, revision.pk)
+        self.assertFalse(self.project.source_activation_pending)
 
 
 @override_settings(

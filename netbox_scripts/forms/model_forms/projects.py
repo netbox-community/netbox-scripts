@@ -1,19 +1,21 @@
 from django import forms
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from core.models import DataSource
 from netbox.forms import PrimaryModelForm
+from utilities.exceptions import AbortRequest
 from utilities.forms import get_field_value
 from utilities.forms.fields import DynamicModelChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import HTMXSelect, SplitMultiSelectWidget
 
 from ...choices import ProjectSourceTypeChoices
-from ...ingestion import check_upload_conflicts, current_source_tree, ingest_upload, uploaded_source_path
+from ...ingestion import check_upload_conflicts, ingest_upload, prepare_upload, uploaded_source_path
 from ...jobs import ProjectScriptFileRefreshJob
 from ...models import ScriptProject
+from ...storage import config
 
 __all__ = (
     'ScriptProjectAddScriptForm',
@@ -126,18 +128,21 @@ class ScriptProjectUploadForm(PrimaryModelForm):
         upload = self.cleaned_data['upload_file']
         # Validated here so the message lands on the field the user can fix.
         uploaded_source_path(upload.name)
+        _check_upload_size(upload)
         return upload
 
     def save(self, *args, **kwargs):
-        """Create the project, and declare, stage and enqueue the uploaded script once it commits."""
+        """Create and authorize the Project and declaration, then ingest the source after commit."""
         project = super().save(*args, **kwargs)
         upload = self.cleaned_data['upload_file']
         filename, content = upload.name, upload.read()
         activate_once = self.cleaned_data.get('activate_this_revision', False)
-        # The editing view wraps this call in a transaction, so staging waits for the commit. A
-        # rollback would otherwise keep the bytes while discarding every row that names them.
+        _prepare_form_upload(self, project, filename, confirm_replace=False)
         transaction.on_commit(
-            lambda: ingest_upload(project, filename=filename, content=content, activate_once=activate_once)
+            lambda: ingest_upload(
+                project, filename=filename, content=content, declare=False, activate_once=activate_once
+            ),
+            using=project._state.db,
         )
         return project
 
@@ -188,6 +193,7 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         if upload is None:
             return self.cleaned_data
         path = uploaded_source_path(upload.name)
+        _check_upload_size(upload)
         # The rule lives in ingestion so this form and the REST upload action cannot disagree
         # about what replacing a file costs. Surfaced on the field rather than raised, because
         # the editing view does not catch a ValidationError out of clean().
@@ -202,15 +208,10 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         project = self.instance
         upload = self.cleaned_data['upload_file']
         filename, content = upload.name, upload.read()
-        # Deferred like the upload form's, so a rollback leaves no bytes behind. The tree read
-        # waits with it, so a rejected upload never pulls a whole tree out of the store.
+        _prepare_form_upload(self, project, filename, confirm_replace=self.cleaned_data['confirm_replace'])
         transaction.on_commit(
-            lambda: ingest_upload(
-                project,
-                filename=filename,
-                content=content,
-                base_files=current_source_tree(project),
-            )
+            lambda: ingest_upload(project, filename=filename, content=content, declare=False),
+            using=project._state.db,
         )
         return self.instance
 
@@ -291,8 +292,8 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
     def save(self, *args, **kwargs):
         """Reconcile the declarations onto the selection, apply it to the source, and return the project."""
         selection = self.cleaned_data['script_files']
-        changed = set(selection) != set(self.initial.get('script_files') or ())
-        self.instance.select_script_files(selection)
+        request = getattr(self.instance, '_request', None)
+        changed = self.instance.select_script_files(selection, user=request.user if request else None)
         if changed:
             # A revision freezes the enabled declarations at staging time, so the selection has
             # no effect until something restages. That is storage work, which never happens in a
@@ -301,3 +302,27 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
             # Job list rather than relying on the job to find nothing to do.
             ProjectScriptFileRefreshJob.enqueue_refresh(self.instance)
         return self.instance
+
+
+def _prepare_form_upload(form, project, filename, *, confirm_replace):
+    """Authorize the declaration before registering any post-commit storage work."""
+    request = getattr(form.instance, '_request', None)
+    try:
+        prepare_upload(
+            project, filename=filename, confirm_replace=confirm_replace, user=request.user if request else None
+        )
+    except ValidationError as error:
+        raise AbortRequest(' '.join(error.messages)) from error
+    except ImproperlyConfigured as error:
+        # Unsafe branch routing. ObjectEditView.post() catches only AbortRequest and
+        # PermissionsViolation, so anything else leaves the operator a 500.
+        raise AbortRequest(str(error)) from error
+
+
+def _check_upload_size(upload):
+    """Refuse an oversized upload before its content is read or its project is saved."""
+    limit = config.get_storage_limits().max_file_size
+    if upload.size > limit:
+        raise ValidationError(
+            _('The file is larger than the {limit} byte limit for one source file.').format(limit=limit)
+        )

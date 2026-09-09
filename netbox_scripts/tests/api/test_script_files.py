@@ -3,9 +3,11 @@ from unittest import mock
 from django.urls import reverse
 from rest_framework import status
 
+from core.models import ObjectType
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectScriptFileRefreshJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
+from users.models import ObjectPermission
 from utilities.testing import APITestCase
 
 
@@ -31,6 +33,7 @@ class ScriptFilesAPITestCase(APITestCase):
             'netbox_scripts.view_scriptproject',
             'netbox_scripts.change_scriptproject',
             'netbox_scripts.change_scriptfile',
+            'netbox_scripts.add_scriptfile',
         )
 
     def url(self):
@@ -109,3 +112,43 @@ class ScriptFilesAPITestCase(APITestCase):
         entry = next(item for item in response.data['candidates'] if item['path'] == 'removed.py')
         self.assertFalse(entry['available'])
         self.assertTrue(entry['selected'])
+
+    def test_a_selection_cannot_create_on_change_permission_alone(self):
+        self.add_permissions(
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
+            'netbox_scripts.change_scriptfile',
+        )
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.client.put(self.url(), {'paths': ['deploy.py']}, format='json', **self.header)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.project.script_files.exists())
+        flush.assert_not_called()
+
+    def test_changing_existing_declarations_does_not_require_add(self):
+        item = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        self.add_permissions(
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
+            'netbox_scripts.change_scriptfile',
+        )
+        response = self.client.put(self.url(), {'paths': []}, format='json', **self.header)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item.refresh_from_db()
+        self.assertFalse(item.enabled)
+
+    def test_a_scoped_selection_refuses_the_whole_change(self):
+        allowed = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        denied = ScriptFile.objects.create(project=self.project, source_path='tools/audit.py')
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        permission = ObjectPermission.objects.create(
+            name='One declaration', actions=['change'], constraints={'pk': allowed.pk}
+        )
+        permission.object_types.add(ObjectType.objects.get_for_model(ScriptFile))
+        permission.users.add(self.user)
+        response = self.client.put(self.url(), {'paths': []}, format='json', **self.header)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        allowed.refresh_from_db()
+        denied.refresh_from_db()
+        self.assertTrue(allowed.enabled)
+        self.assertTrue(denied.enabled)

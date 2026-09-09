@@ -2,17 +2,19 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 
-from core.models import DataSource, Job
+from core.models import DataSource, Job, ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from users.models import ObjectPermission
 from utilities.testing import APITestCase
 
 SOURCE = b'from netbox_scripts.scripts import Script\n\n\nclass Deploy(Script):\n    pass\n'
@@ -190,3 +192,40 @@ class UploadAPITestCase(APITestCase):
         )
         response = self.upload()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_a_child_add_grant_on_another_project_cannot_authorize_this_upload(self):
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        permission = ObjectPermission.objects.create(
+            name='Different project', actions=['add'], constraints={'project_id': self.project.pk + 1000}
+        )
+        permission.object_types.add(ObjectType.objects.get_for_model(ScriptFile))
+        permission.users.add(self.user)
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.upload()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.project.script_files.exists())
+        self.assertFalse(self.project.revisions.exists())
+        flush.assert_not_called()
+
+    def test_a_successful_upload_emits_one_real_declaration_event(self):
+        self.allow_uploads()
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.upload()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        events = [event for call in flush.call_args_list for event in call.args[0]]
+        declarations = [event for event in events if isinstance(event['object'], ScriptFile)]
+        self.assertEqual(len(declarations), 1)
+        self.assertEqual(declarations[0]['object'].pk, self.project.script_files.get().pk)
+
+    def test_a_refused_data_source_upload_leaves_no_declaration_or_event(self):
+        source = DataSource.objects.create(name='No upload', type='local', source_url='file:///tmp/scripts')
+        ScriptProject.objects.filter(pk=self.project.pk).update(
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE, data_source=source, data_path='scripts'
+        )
+        self.allow_uploads()
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.upload()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.project.script_files.exists())
+        self.assertFalse(self.project.revisions.exists())
+        flush.assert_not_called()

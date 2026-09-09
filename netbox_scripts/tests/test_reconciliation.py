@@ -294,6 +294,24 @@ class ReconciliationPolicyTestCase(TestCase):
         # The tree was staged once, so the revert reuses the row rather than adding a third.
         self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 2)
 
+    def test_a_revert_schedules_the_reused_revision_rather_than_activating_in_line(self):
+        # This job no longer activates a reused revision itself, it schedules the validation job
+        # to do it. Asserted with the enqueue left unrun, because setUp's inline stand-in would
+        # otherwise make a scheduled activation indistinguishable from an in-line one.
+        first = self.reconcile()
+        data_file(self.source, 'scripts/helper.py', b'VALUE = 1\n')
+        with_helper = self.reconcile()
+
+        DataFile.objects.filter(path='scripts/helper.py').delete()
+        with mock.patch.object(RevisionValidationJob, 'enqueue_validation') as enqueue:
+            job = self.run_reconciliation()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.args[0].pk, first.pk)
+        # Nothing ran the hop, so the project still serves what it served before.
+        self.assertEqual(self.project.active_revision_id, with_helper.pk)
+
     def test_a_revert_on_a_manual_project_waits_for_an_operator(self):
         first = self.reconcile()
         data_file(self.source, 'scripts/helper.py', b'VALUE = 1\n')

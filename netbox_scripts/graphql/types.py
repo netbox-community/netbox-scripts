@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     ScriptProject,
     name='NetBoxScriptProjectType',
     # Not fields='__all__': strawberry resolves the two in an if/elif, ignoring exclude.
-    exclude=('active_revision',),
+    exclude=('active_revision', 'source_revision', 'source_activation_pending'),
     filters=ScriptProjectFilter,
     pagination=True,
 )

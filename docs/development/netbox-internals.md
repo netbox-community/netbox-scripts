@@ -19,6 +19,12 @@ the plugin contract allows explicitly.
 | `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Which database change-logged writes go to, which is a branch schema while a branch is active. The model is asked of NetBox Branching first, so one that stopped being branch-aware is named rather than read as the default alias |
 | `utilities.exceptions.AbortScript` | `execution.py` | The abort raised by a script carried over unchanged from the built-in feature, caught beside this plugin's own so either one ends a run cleanly. NetBox documents it for script authors rather than for plugins, and it is expected to go with the built-in feature at v5.0 |
 | `utilities.request.copy_safe_request` | `views/scripts.py`, `api/views.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
+| `netbox.api.viewsets.mixins.discard_events_on_rollback` | `api/views.py` | Clears request events when an entire declaration-writing API action rolls back. Never used for a disposable-write probe |
+| `utilities.exceptions.PermissionsViolation` | `permissions.py`, `api/views.py` | Rejects child writes outside the actor's object-permission scope, using core's enclosing rollback path |
+| `utilities.rqworker.get_queue_for_model` | `api/views.py`, `jobs.py` | Resolves the same configured queue for worker checks and enqueue operations |
+| `rq.utils.parse_timeout` | `runtime/introspection.py` | Reads an author's `job_timeout` with the grammar RQ itself applies, so `"30m"` means the same to the plugin as to the worker that enforces it |
+| `rq.exceptions.TimeoutFormatError` | `runtime/introspection.py` | The refusal RQ raises for a timeout string it cannot parse, which becomes a script metadata error rather than an unhandled failure |
+| `rq.timeouts.JobTimeoutException` | `jobs.py`, `validation.py`, `runtime/introspection.py` | The worker's own deadline. It is propagated rather than classified, so a run that ran out of time releases its lease instead of recording a permanent verdict |
 | `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Whether a worker is live for the queue, so a REST run that nothing could pick up is refused rather than queued |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
 | `netbox.api.authentication.TokenPermissions` | `api/views.py` | The permission class the REST run action subclasses, so a POST resolves to the run permission rather than to add |
@@ -44,10 +50,9 @@ the plugin contract allows explicitly.
 | `core.models.Job.object_type` / `.object_id` update | `migration/references.py` | Repointing run history, batched, and done before anything is deleted because a Script's jobs go with it |
 | `extras.models.ScriptModule.delete` | `migration/cleanup.py` | Retiring a module and its stored source. Called per instance, because `QuerySet.delete()` does not call the model's `delete()`, which is what removes the file |
 
-Seven modules, on purpose. If NetBox adds a documented execution context, replacing
-the execution rows is a change to `execution.py` alone. The rows naming
-`api/views.py` are the REST run endpoint's, one of them shared with the run view,
-and none of them touch how a run executes.
+These dependencies are grouped by responsibility. If NetBox adds a documented execution context, replacing
+the execution rows is a change to `execution.py` alone. The API rows cover run dispatch and transactional declaration authorization.
+The permission helper uses the same refusal exception as core's object-edit views.
 
 Every row is also a probe in `scripts/check_netbox_internals.py`, which resolves each
 symbol after `django.setup()` with no database and reports a failure under the row it
@@ -99,10 +104,12 @@ Two things the plugin holds are not symbols and so are not in the table above.
 It serializes on two-integer PostgreSQL advisory locks in **two** namespaces:
 `(770100, .)` per project, keyed by `storage_key` in `storage/locks.py`, and
 `(770101, 1)` for the migration run row in `models/migration.py`. The second is
-**derived** from the first, so moving one moves both. Both are taken through
+**derived** from the first, so moving one moves both. Session-level locks use
 `django_pg_utils.advisory_lock` from `django-pgware`, which NetBox pins in its
 own `requirements.txt` and takes its own locks through in `netbox/jobs.py`,
-`extras/jobs.py` and `ipam/api/views.py`.
+`extras/jobs.py` and `ipam/api/views.py`. Database-only project and declaration
+writes use `project_write_lock()` on the same project key through
+`pg_advisory_xact_lock`. That lock lasts until the enclosing transaction ends.
 
 **The separation from core's locks is numeric, not a matter of arity.** It would
 be easy to conclude otherwise, because PostgreSQL does keep the one-bigint and

@@ -196,3 +196,14 @@ an execution-model decision that lands with the execution work.
 |---|---|
 | A project owns one source, never both kinds | `source_type` is immutable, so moving a project from uploads to a Data Source means creating a new one |
 | Revisions cannot be edited directly | Read-only REST and GraphQL expose revision history. Source actions stage revisions, and activation remains a Project action |
+
+Saving a changed Script File selection queues a refresh of the accepted stored
+source. Selecting the single preselected candidate for the first time also counts
+as a change. A Data Source with no stored revision still needs its first reconciliation.
+
+Accepted source and active source are separate. A repeated upload or selection can
+reuse an older immutable revision and make it the accepted source again. Subsequent
+uploads build on that accepted source, not on whichever row was created last.
+Automatic activation checks that the validated revision is still the accepted source
+and that its declaration snapshot still matches. Explicit historical activation does
+not change the source base for later uploads.

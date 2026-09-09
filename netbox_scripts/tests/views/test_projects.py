@@ -1,4 +1,5 @@
 import uuid
+from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, override_settings
@@ -464,7 +465,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
 
     def test_posting_activates_the_revision(self):
         self.grant('view', 'activate')
-        response = self.client.post(self.url())
+        response = self.client.post(self.url(), {'revision_id': self.revision.pk})
         self.assertHttpStatus(response, 302)
         self.revision.refresh_from_db()
         self.project.refresh_from_db()
@@ -473,7 +474,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
 
     def test_an_already_current_project_offers_nothing(self):
         self.grant('view', 'activate')
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         self.project.refresh_from_db()
         # The active revision is excluded, so the button disappears rather than re-activating.
         self.assertIsNone(self.project.activatable_revision())
@@ -482,7 +483,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
     def test_a_project_with_nothing_valid_is_refused_rather_than_erroring(self):
         self.grant('view', 'activate')
         ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.MATERIALIZED)
-        response = self.client.post(self.url())
+        response = self.client.post(self.url(), {'revision_id': self.revision.pk})
         self.assertHttpStatus(response, 302)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
@@ -492,7 +493,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         detail = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(self.url(), detail)
 
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         detail = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertNotIn(self.url(), detail)
 
@@ -509,7 +510,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         # own dependent object, so an activated project could not be deleted through the UI.
         self.grant('view', 'activate', 'delete')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         self.assertHttpStatus(self.client.get(self.delete_project_url()), 200)
 
     def test_deleting_an_active_project_through_the_ui_succeeds(self):
@@ -517,7 +518,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         # serialize eagerly, so the revision needs a serializer resolvable by model name.
         self.grant('view', 'activate', 'delete')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         response = self.client.post(self.delete_project_url(), {'confirm': True})
         self.assertHttpStatus(response, 302)
         self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
@@ -527,7 +528,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
     def test_bulk_deleting_an_active_project_succeeds(self):
         self.grant('view', 'activate', 'delete')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         bulk = reverse('plugins:netbox_scripts:scriptproject_bulk_delete')
         response = self.client.post(bulk, {'pk': [self.project.pk], 'confirm': True, '_confirm': True})
         self.assertHttpStatus(response, 302)
@@ -560,14 +561,14 @@ class ScriptProjectActivateViewTestCase(TestCase):
         # wiring to it is its own thing to break.
         self.grant('view', 'activate')
         self.publish()
-        response = self.client.post(self.url(), follow=True)
+        response = self.client.post(self.url(), {'revision_id': self.revision.pk}, follow=True)
 
         self.assertIn('publishing 1 Script.', str(list(response.context['messages'])[0]))
 
     def test_a_revision_publishing_nothing_says_so_on_this_route_too(self):
         # The fixture records no discovered scripts, which is a real and easily misread state.
         self.grant('view', 'activate')
-        response = self.client.post(self.url(), follow=True)
+        response = self.client.post(self.url(), {'revision_id': self.revision.pk}, follow=True)
 
         self.assertIn('publishes no Scripts', str(list(response.context['messages'])[0]))
 
@@ -576,7 +577,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         # this is also the proof that the identity surface holds up under a real request.
         self.grant('view', 'activate')
         self.publish()
-        response = self.client.post(self.url())
+        response = self.client.post(self.url(), {'revision_id': self.revision.pk})
         self.assertHttpStatus(response, 302)
         self.assertTrue(NetBoxScript.objects.filter(project=self.project, class_name='Deploy').exists())
         self.assertGreater(self.script_changes(), 0)
@@ -591,7 +592,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.grant('view', 'activate')
         self.grant_scripts('view')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         body = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertIn(f'/plugins/netbox-scripts/scripts/?embedded=True&project_id={self.project.pk}', body)
 
@@ -601,7 +602,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         self.grant('view', 'activate')
         self.grant_scripts('view')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         script = NetBoxScript.objects.get(project=self.project)
 
         response = self.client.get(self.scripts_panel_url())
@@ -623,7 +624,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         # panel rendering empty.
         self.grant('view', 'activate')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         body = self.client.get(self.project.get_absolute_url()).content.decode()
         self.assertNotIn(f'/plugins/netbox-scripts/scripts/?embedded=True&project_id={self.project.pk}', body)
 
@@ -633,7 +634,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         # context because the change-log receiver bails without one.
         self.grant('view', 'activate')
         self.publish()
-        self.client.post(self.url())
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
         before = self.script_changes()
         self.assertGreater(before, 0)
 
@@ -643,6 +644,48 @@ class ScriptProjectActivateViewTestCase(TestCase):
         with event_tracking(request):
             activation.activate_revision(self.revision)
         self.assertEqual(self.script_changes(), before)
+
+    def test_a_confirmation_remains_bound_to_the_revision_shown(self):
+        self.grant('view', 'activate')
+        response = self.client.get(self.url())
+        self.assertContains(response, f'value="{self.revision.pk}"')
+        newer = service.stage_revision(self.project, {'deploy.py': b'VALUE = 2\n'}).revision
+        ScriptProjectRevision.objects.filter(pk=newer.pk).update(status=RevisionStatusChoices.VALID)
+        self.client.post(self.url(), {'revision_id': self.revision.pk})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, self.revision.pk)
+
+    def test_posting_without_a_revision_does_not_choose_one(self):
+        self.grant('view', 'activate')
+        self.client.post(self.url(), {})
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_a_revision_from_another_project_is_refused(self):
+        self.grant('view', 'activate')
+        other = ScriptProject.objects.create(name='Other confirmation', key='other-confirmation')
+        revision = service.stage_revision(other, {'deploy.py': b'VALUE = 3\n'}).revision
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
+        self.client.post(self.url(), {'revision_id': revision.pk})
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_an_ineligible_status_is_refused_before_the_activation_service(self):
+        # activate_revision() must not be reached: a refusal it raises looks identical from
+        # outside, so only this proves the form did the refusing.
+        self.grant('view', 'activate')
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.INVALID)
+        with mock.patch('netbox_scripts.activation.activate_revision') as activate:
+            self.client.post(self.url(), {'revision_id': self.revision.pk})
+        activate.assert_not_called()
+
+    def test_a_project_with_no_candidate_reports_that_rather_than_a_bad_revision(self):
+        # The commonest refusal on this route. Reporting it as missing or foreign would describe
+        # something that did not happen.
+        self.grant('view', 'activate')
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(status=RevisionStatusChoices.MATERIALIZED)
+        response = self.client.post(self.url(), {}, follow=True)
+        self.assertContains(response, 'no validated revision')
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)

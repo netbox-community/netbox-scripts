@@ -24,6 +24,7 @@ from .. import activation
 from ..choices import ProjectSourceTypeChoices
 from ..filtersets import ScriptProjectFilterSet
 from ..forms import (
+    ScriptProjectActivationForm,
     ScriptProjectAddScriptForm,
     ScriptProjectBulkEditForm,
     ScriptProjectBulkImportForm,
@@ -91,11 +92,10 @@ class ScriptProjectView(generic.ObjectView):
 @register_model_view(ScriptProject, 'activate', path='activate')
 class ScriptProjectActivateView(generic.ObjectView):
     """
-    Point a Script Project at its newest validated revision.
+    Confirm and activate a particular validated revision of a Script Project.
 
-    A project whose activation policy is manual reaches VALID and stops, so without this there
-    is no way to put it in service. GET names the revision that would go live and POST performs
-    it, which is the shape every other state change in NetBox takes.
+    GET offers the newest eligible revision. POST uses only the revision identity submitted
+    with that confirmation and refuses a missing, foreign or no-longer-eligible revision.
 
     The service re-reads and re-verifies everything under the project lock, so this view chooses
     a candidate and reports the outcome rather than deciding anything itself.
@@ -111,23 +111,30 @@ class ScriptProjectActivateView(generic.ObjectView):
     def get(self, request, **kwargs):
         """Show which revision would go live, or say that none can."""
         project = self.get_object(**kwargs)
+        candidate = project.activatable_revision()
+        form = ScriptProjectActivationForm(project=project, initial={'revision_id': candidate})
         return render(
             request,
             self.template_name,
             {
                 'object': project,
-                'candidate': project.activatable_revision(),
+                'candidate': candidate,
+                'form': form,
                 'return_url': project.get_absolute_url(),
             },
         )
 
     def post(self, request, **kwargs):
-        """Activate the candidate, reporting a refusal rather than raising at the user."""
+        """Activate the confirmed revision, reporting a refusal rather than raising at the user."""
         project = self.get_object(**kwargs)
-        candidate = project.activatable_revision()
-        if candidate is None:
-            messages.error(request, _('This Project has no validated revision to activate.'))
+        form = ScriptProjectActivationForm(request.POST, project=project)
+        if not form.is_valid():
+            if project.activatable_revision() is None:
+                messages.error(request, _('This Project has no validated revision to activate.'))
+            else:
+                messages.error(request, _('The confirmed revision can no longer be activated.'))
             return redirect(project.get_absolute_url())
+        candidate = form.cleaned_data['revision_id']
         try:
             result = activation.activate_revision(candidate)
         except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:

@@ -65,6 +65,7 @@ The tab is empty until a revision holds content.
 | `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
 | Moving `activation_policy`, `data_source` or `data_path` needs the `activate` permission as well as `change` | The serializer's `validate()`, the edit form's `clean()`, and the two bulk views' save hooks, each checking `activate` against the stored row so a constraint scopes it. Submitting a stored value is not a move, and a create is not gated |
 | `active_revision` must belong to this project | `clean()` |
+| `active_revision` is written only by activation and deactivation | `save()` restores the stored pointer on a full save, so a stale copy cannot move it. The services name it in `update_fields` |
 | A project whose active revision is deleted keeps serving nothing rather than blocking the delete | `SET_NULL` on `active_revision`, which is also what lets a project be deleted at all, since its revisions cascade |
 
 Code paths that bypass validation (`QuerySet.update()`, raw SQL) must supply

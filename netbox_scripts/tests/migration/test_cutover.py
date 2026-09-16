@@ -672,7 +672,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         cutover.activate_staged(self.migration)
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         project.active_revision = None
-        project.save()
+        project.save(update_fields=('active_revision',))
 
         self.assertEqual(cutover.projects_not_serving(self.migration), [project.key])
 

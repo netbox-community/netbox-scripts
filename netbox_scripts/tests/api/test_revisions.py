@@ -163,7 +163,7 @@ class ProjectDeleteEventSerializationTestCase(APITestCase):
             status=RevisionStatusChoices.ACTIVE,
         )
         cls.project.active_revision = cls.revision
-        cls.project.save()
+        cls.project.save(update_fields=('active_revision',))
         NetBoxScript.objects.create(
             project=cls.project,
             module_path='deploy',

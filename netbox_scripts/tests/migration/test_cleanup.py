@@ -178,7 +178,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         project = ScriptProject.objects.get(key__startswith='automation')
         project.active_revision = None
-        project.save()
+        project.save(update_fields=('active_revision',))
 
         counts, warnings = cleanup.retire_legacy(run)
 

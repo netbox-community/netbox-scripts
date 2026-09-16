@@ -9,6 +9,7 @@ from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 
 from netbox.models import ChangeLoggedModel, PrimaryModel
+from utilities.data import normalize_update_fields
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from ..constants import ACTIVATABLE_REVISION_STATUSES, UNSTORED_REVISION_STATUSES
@@ -241,7 +242,14 @@ class ScriptProject(PrimaryModel):
                     type(self)
                     .objects.using(using)
                     .filter(pk=self.pk)
-                    .values('key', 'source_type', 'storage_key', 'source_revision_id', 'source_activation_pending')
+                    .values(
+                        'key',
+                        'source_type',
+                        'storage_key',
+                        'source_revision_id',
+                        'source_activation_pending',
+                        'active_revision_id',
+                    )
                     .first()
                 )
             return self._save_project(*args, original=original, **kwargs)
@@ -250,16 +258,20 @@ class ScriptProject(PrimaryModel):
         """
         Refuse immutable identity changes and unusable active revision pointers.
 
-        Restores the source markers from ``original``, so an assignment to either is discarded.
+        Restores the source markers from ``original``, and on a full save the active
+        pointer too, so a stale assignment is discarded.
         """
         # clean() gives key and source_type friendly per-field errors on the form and REST
         # paths, and storage_key's editable=False keeps it off both. This guard is the backstop
         # for ORM writes, which skip all of it.
+        update_fields = normalize_update_fields(kwargs)
         if not self._state.adding:
             if original:
-                # These fields are written by the source service, never by a stale edit form.
+                # Written by the source and activation services, never by a stale edit form.
                 self.source_revision_id = original['source_revision_id']
                 self.source_activation_pending = original['source_activation_pending']
+                if update_fields is None:
+                    self.active_revision_id = original['active_revision_id']
                 errors = {}
                 if original['key'] != self.key:
                     errors['key'] = _('The project key cannot be changed once the project has been created.')
@@ -271,7 +283,6 @@ class ScriptProject(PrimaryModel):
                 if errors:
                     raise ValidationError(errors)
 
-        update_fields = kwargs.get('update_fields')
         if update_fields is None or {'active_revision', 'active_revision_id'}.intersection(update_fields):
             if (pointer_error := self._active_revision_error()) is not None:
                 raise ValidationError({'active_revision': pointer_error})

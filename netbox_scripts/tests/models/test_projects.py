@@ -427,7 +427,7 @@ class ScriptProjectTestCase(TestCase):
             project=project, digest='f' * 64, status=RevisionStatusChoices.ACTIVE
         )
         project.full_clean()
-        project.save()
+        project.save(update_fields=('active_revision',))
         project.refresh_from_db()
         self.assertIsNotNone(project.active_revision_id)
 
@@ -457,8 +457,19 @@ class ScriptProjectTestCase(TestCase):
             project=project, digest='9' * 64, status=RevisionStatusChoices.STAGING
         )
         with self.assertRaises(ValidationError) as cm:
-            project.save()
+            project.save(update_fields=('active_revision',))
         self.assertIn('active revision', str(cm.exception.message_dict['active_revision']))
+
+    def test_a_full_save_leaves_the_active_revision_to_activation(self):
+        project = ScriptProject.objects.create(name='AR Full', key='ar-full')
+        project.active_revision = ScriptProjectRevision.objects.create(
+            project=project, digest='3' * 64, status=RevisionStatusChoices.ACTIVE
+        )
+
+        project.save()
+
+        project.refresh_from_db()
+        self.assertIsNone(project.active_revision_id)
 
     def test_save_refuses_a_revision_belonging_to_another_project(self):
         owner = ScriptProject.objects.create(name='AR Own2', key='ar-own2')
@@ -467,7 +478,7 @@ class ScriptProjectTestCase(TestCase):
             project=owner, digest='8' * 64, status=RevisionStatusChoices.ACTIVE
         )
         with self.assertRaises(ValidationError) as cm:
-            other.save()
+            other.save(update_fields=('active_revision',))
         self.assertIn('belong to this project', str(cm.exception.message_dict['active_revision']))
 
     def test_save_refuses_a_bad_pointer_named_by_its_column_in_update_fields(self):
@@ -481,6 +492,19 @@ class ScriptProjectTestCase(TestCase):
             project.save(update_fields=('active_revision_id',))
         self.assertIn('active revision', str(cm.exception.message_dict['active_revision']))
 
+    def test_a_one_shot_update_fields_iterable_still_writes(self):
+        project = ScriptProject.objects.create(name='AR Iter', key='ar-iter')
+        revision = ScriptProjectRevision.objects.create(
+            project=project, digest='4' * 64, status=RevisionStatusChoices.ACTIVE
+        )
+        project.active_revision = revision
+
+        # A generator is consumed by the first membership test, leaving Django an empty field set.
+        project.save(update_fields=(name for name in ('active_revision',)))
+
+        project.refresh_from_db()
+        self.assertEqual(project.active_revision_id, revision.pk)
+
     def test_active_revision_for_reverse_accessor(self):
         project = ScriptProject.objects.create(name='AR Reverse', key='ar-reverse')
         revision = ScriptProjectRevision.objects.create(
@@ -488,7 +512,7 @@ class ScriptProjectTestCase(TestCase):
         )
         self.assertFalse(revision.active_revision_for.exists())
         project.active_revision = revision
-        project.save()
+        project.save(update_fields=('active_revision',))
         self.assertEqual(list(revision.active_revision_for.all()), [project])
 
     def test_delete_project_with_active_revision_succeeds(self):
@@ -500,7 +524,7 @@ class ScriptProjectTestCase(TestCase):
             project=project, digest=digest, status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
-        project.save()
+        project.save(update_fields=('active_revision',))
         project.delete()
         self.assertFalse(ScriptProject.objects.filter(key='ar-delete').exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(digest=digest).exists())
@@ -513,7 +537,7 @@ class ScriptProjectTestCase(TestCase):
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
-        project.save()
+        project.save(update_fields=('active_revision',))
         revision.delete()
         project.refresh_from_db()
         self.assertIsNone(project.active_revision_id)
@@ -526,7 +550,7 @@ class ScriptProjectTestCase(TestCase):
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
-        project.save()
+        project.save(update_fields=('active_revision',))
         ScriptProject.objects.filter(pk=project.pk).delete()
         self.assertFalse(ScriptProject.objects.filter(key='ar-bulk').exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(pk=revision.pk).exists())
@@ -540,7 +564,7 @@ class ScriptProjectTestCase(TestCase):
             project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
         )
         project.active_revision = revision
-        project.save()
+        project.save(update_fields=('active_revision',))
         collector = Collector(using=DEFAULT_DB_ALIAS)
         collector.collect([project])
         collected = {model for model, _instances in collector.instances_with_model()}
@@ -771,7 +795,7 @@ class ScriptProjectRevisionTestCase(TestCase):
 
 
 class ScriptProjectSourceLockTestCase(TestCase):
-    """The source markers an ordinary save must not write back."""
+    """The stored state an ordinary save must not write back."""
 
     @classmethod
     def setUpTestData(cls):
@@ -806,6 +830,40 @@ class ScriptProjectSourceLockTestCase(TestCase):
         self.assertEqual(stale.source_revision_id, self.accepted.pk)
         self.assertTrue(stale.source_activation_pending)
         self.assertEqual(stale.description, 'edited while a synchronization ran')
+
+    def activate_under(self, real_lock, served):
+        """Return a lock that activates a successor while holding it, as promotion does."""
+
+        @contextmanager
+        def lock_then_activate(storage_key, *, using=DEFAULT_DB_ALIAS):
+            with real_lock(storage_key, using=using):
+                # update(), not save(): a save() here would re-enter this patched lock.
+                # Retire first: unique_active_revision_per_project allows one per project.
+                ScriptProjectRevision.objects.filter(pk=served.pk).update(status=RevisionStatusChoices.RETIRED)
+                self.successor = ScriptProjectRevision.objects.create(
+                    project=self.project, digest=DIGEST_B, status=RevisionStatusChoices.ACTIVE
+                )
+                ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=self.successor)
+                yield
+
+        return lock_then_activate
+
+    def test_a_save_keeps_an_activation_that_landed_while_it_waited(self):
+        served = ScriptProjectRevision.objects.create(
+            project=self.project, digest='2' * 64, status=RevisionStatusChoices.ACTIVE
+        )
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=served)
+        stale = ScriptProject.objects.get(pk=self.project.pk)
+        # The form and serializer paths validate before saving, which is what caches the pointer.
+        stale.full_clean()
+        stale.description = 'edited while a revision was activated'
+
+        with mock.patch.object(locks, 'project_write_lock', self.activate_under(locks.project_write_lock, served)):
+            stale.save()
+
+        stale.refresh_from_db()
+        self.assertEqual(stale.active_revision_id, self.successor.pk)
+        self.assertEqual(stale.description, 'edited while a revision was activated')
 
 
 class ScriptProjectSourceStateTestCase(TestCase):
@@ -850,7 +908,7 @@ class ScriptProjectSourceStateTestCase(TestCase):
     def test_the_active_revision_being_newest_is_reported_as_current(self):
         active = self.revision(RevisionStatusChoices.ACTIVE)
         self.project.active_revision = active
-        self.project.save()
+        self.project.save(update_fields=('active_revision',))
         self.assertIn('newest source', str(self.project.source_state))
 
     def test_a_valid_revision_awaiting_activation_is_reported(self):

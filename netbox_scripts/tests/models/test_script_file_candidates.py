@@ -132,7 +132,7 @@ class RevisionManifestCandidatesTestCase(TestCase):
             status=RevisionStatusChoices.ACTIVE,
         )
         self.project.active_revision = active
-        self.project.save()
+        self.project.save(update_fields=('active_revision',))
         ScriptProjectRevision.objects.create(
             project=self.project,
             digest='e' * 64,

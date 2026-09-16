@@ -22,10 +22,11 @@ the plugin contract allows explicitly.
 | `netbox.api.viewsets.mixins.discard_events_on_rollback` | `api/views.py` | Clears request events when an entire declaration-writing API action rolls back. Never used for a disposable-write probe |
 | `utilities.exceptions.PermissionsViolation` | `permissions.py`, `api/views.py` | Rejects child writes outside the actor's object-permission scope, using core's enclosing rollback path |
 | `netbox.views.generic.BulkEditView.pre_save_operations` | `views/projects.py` | The per-object hook core calls inside its bulk edit transaction before each save, where the source-field gate reads the undocumented `_nullify` request list that core itself consumes for a Set null tick |
+| `utilities.data.normalize_update_fields` | `models/projects.py` | Materializes `update_fields` into a frozenset on the kwargs a `save()` override forwards, so a membership test does not consume a one-shot iterable and leave core saving nothing. Core uses it the same way in its own `save()` overrides |
 | `utilities.rqworker.get_queue_for_model` | `api/views.py`, `jobs.py` | Resolves the same configured queue for worker checks and enqueue operations |
 | `rq.utils.parse_timeout` | `runtime/introspection.py` | Reads an author's `job_timeout` with the grammar RQ itself applies, so `"30m"` means the same to the plugin as to the worker that enforces it |
 | `rq.exceptions.TimeoutFormatError` | `runtime/introspection.py` | The refusal RQ raises for a timeout string it cannot parse, which becomes a script metadata error rather than an unhandled failure |
-| `rq.timeouts.JobTimeoutException` | `jobs.py`, `validation.py`, `runtime/introspection.py` | The worker's own deadline. It is propagated rather than classified, so a run that ran out of time releases its lease instead of recording a permanent verdict |
+| `rq.timeouts.JobTimeoutException` | `jobs.py` | The worker's own deadline. It is propagated rather than classified, so a run that ran out of time releases its lease instead of recording a permanent verdict |
 | `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Whether a worker is live for the queue, so a REST run that nothing could pick up is refused rather than queued |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
 | `netbox.api.authentication.TokenPermissions` | `api/views.py` | The permission class the REST run action subclasses, so a POST resolves to the run permission rather than to add |

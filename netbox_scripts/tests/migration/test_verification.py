@@ -149,7 +149,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         run = self.repoint_all()
         project = ScriptProject.objects.filter(active_revision__isnull=False).first()
         project.active_revision = None
-        project.save()
+        project.save(update_fields=('active_revision',))
 
         check = self.named(verification.verify(run), verification.MODULES)
 

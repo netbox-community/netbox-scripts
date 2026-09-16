@@ -108,7 +108,7 @@ class RunNetBoxScriptActionTestCase(ScriptJobTestMixin, TestCase):
 
     def test_a_project_serving_nothing_is_reported_rather_than_queued(self):
         self.project.active_revision = None
-        self.project.save()
+        self.project.save(update_fields=('active_revision',))
 
         with self.assertLogs('netbox.plugins.netbox_scripts.event_rules', level='ERROR'):
             self.fire()

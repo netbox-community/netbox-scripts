@@ -45,6 +45,7 @@ ROWS = (
         'netbox.views.generic.BulkEditView.pre_save_operations',
         'netbox.views.generic:BulkEditView.pre_save_operations',
     ),
+    ('utilities.data.normalize_update_fields', 'utilities.data:normalize_update_fields'),
     ('utilities.rqworker.get_queue_for_model', 'utilities.rqworker:get_queue_for_model'),
     ('rq.utils.parse_timeout', 'rq.utils:parse_timeout'),
     ('rq.exceptions.TimeoutFormatError', 'rq.exceptions:TimeoutFormatError'),

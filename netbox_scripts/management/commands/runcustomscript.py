@@ -4,7 +4,7 @@ import json
 import uuid
 
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
 from core.choices import JobNotificationChoices, JobStatusChoices
@@ -75,6 +75,8 @@ class Command(BaseCommand):
             )
         except (ImproperlyConfigured, ScriptNotExecutableError) as error:
             raise CommandError(str(error)) from error
+        except ValidationError as error:
+            raise CommandError(' '.join(error.messages)) from error
 
         self.report(job, options['loglevel'])
         if job.status != JobStatusChoices.STATUS_COMPLETED:

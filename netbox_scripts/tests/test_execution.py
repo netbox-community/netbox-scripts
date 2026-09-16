@@ -869,6 +869,33 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
             self.assertEqual(job.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
             self.assertEqual(successor.notifications, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
 
+    def test_the_core_recurring_successor_is_declined_when_the_recorded_settings_went_bad(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        with patch('core.models.jobs.django_rq.get_queue'):
+            with self.captureOnCommitCallbacks(execute=True):
+                job = NetBoxScriptJob.enqueue_run(script, data={}, commit=False, user=self.user, interval=60)
+            NetBoxScript.objects.filter(pk=script.pk).update(
+                metadata={**script.metadata, 'job_timeout': 'not-a-duration'}
+            )
+            with self.captureOnCommitCallbacks(execute=True), self.assertLogs('netbox.jobs', level='ERROR') as logs:
+                NetBoxScriptJob.handle(
+                    job=job,
+                    revision_id=None,
+                    revision_digest=None,
+                    module_path='deploy',
+                    class_name='MakeTag',
+                    data={},
+                    commit=False,
+                    event=None,
+                )
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertTrue(any('not rescheduled' in line for line in logs.output))
+        self.assertFalse(
+            Job.objects.filter(object_id=script.pk, object_type=job.object_type).exclude(pk=job.pk).exists()
+        )
+
 
 class RunJobTestCase(ScriptJobTestMixin, TestCase):
     def test_a_run_executes_the_script_and_records_its_log(self):

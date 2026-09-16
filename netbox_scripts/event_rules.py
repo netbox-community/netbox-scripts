@@ -56,6 +56,8 @@ class RunNetBoxScriptAction(EventRuleAction):
         except ScriptNotExecutableError as error:
             # One rule's misconfiguration must not end the batch, so this is reported and dropped.
             logger.error(f'Event rule "{event_rule}" could not run {action_object}: {error}')
+        except ValidationError as error:
+            logger.error(f'Event rule "{event_rule}" could not run {action_object}: {" ".join(error.messages)}')
 
     def resolve_import_object(self, value):
         """Resolve "<project key>:<module path>.<class name>" to one Script."""

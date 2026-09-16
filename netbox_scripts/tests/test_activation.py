@@ -296,6 +296,16 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
+    def test_a_snapshot_with_a_malformed_timeout_is_refused_before_the_project_lock(self):
+        revision = self.valid_with([record(metadata={'job_timeout': 'not-a-duration'})])
+        with (
+            mock.patch.object(store, 'verify_revision_tree') as verify,
+            self.assertRaises(ActivationError) as captured,
+        ):
+            activate_revision(revision)
+        self.assertIn('job timeout', str(captured.exception))
+        verify.assert_not_called()
+
     def test_a_snapshot_damaged_only_on_the_locked_row_is_refused(self):
         # The pre-lock check passed, so only the check inside the callback can catch this.
         revision = self.valid_with([record()])

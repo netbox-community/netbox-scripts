@@ -115,6 +115,18 @@ class RunNetBoxScriptActionTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertFalse(self.runs().exists())
 
+    def test_a_malformed_recorded_setting_is_reported_rather_than_queued(self):
+        NetBoxScript.objects.filter(pk=self.netbox_script.pk).update(
+            metadata={**self.netbox_script.metadata, 'job_timeout': 'not-a-duration'}
+        )
+        self.netbox_script.refresh_from_db()
+
+        with self.assertLogs('netbox.plugins.netbox_scripts.event_rules', level='ERROR') as logs:
+            self.fire()
+
+        self.assertIn('execution settings', logs.output[0])
+        self.assertFalse(self.runs().exists())
+
     def test_a_retired_script_cannot_be_selected(self):
         # _validate() is the entry point EventRule.clean() uses, so it is what the test drives.
         self.netbox_script.is_retired = True

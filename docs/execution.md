@@ -149,11 +149,17 @@ Four execution parameters sit below the script's own fields.
 | **Commit changes** | Whether the run's database changes are kept. Default is the script's effective `commit_default`. |
 | **Schedule at** | Run once, at a time in the future. Leave empty to run now. |
 | **Recurs every** | Run repeatedly, in minutes. The picker offers the usual intervals and any whole number is accepted. |
-| **Notifications** | When to notify you about the Job. Default is the script's effective `notifications_default`. |
+| **Notifications** | When to notify you about the Job. Leave it on "Follow the Script", which names the script's effective `notifications_default`, or pick a policy for this run. |
 
 A time in the past is refused. Setting a recurrence with no start time begins it
 now. Notifications stay available either way, since they describe the run rather
 than the schedule.
+
+Following the Script is not the same as picking the policy it currently names. A
+recurrence that follows the Script reads the Script's policy each time it queues
+the next occurrence, so a changed default reaches that one without the schedule
+being recreated. The occurrence already queued keeps the policy its own Job
+carries. One that names a policy keeps it until the schedule is recreated.
 
 "Effective" above means an override may be in play. See [Overriding a script's
 execution defaults](#overriding-a-scripts-execution-defaults).
@@ -177,6 +183,11 @@ over REST.
 | Run timeout | Yes | The override, else the class `job_timeout`, else the system setting |
 | Notifications | Yes | The override, else the class `notifications_default`, else Always |
 | Scheduling allowed | No | The class `scheduling_enabled` alone |
+
+A recorded or overridden value outside these ranges refuses the run on every
+surface, with a message naming the setting, before any Job is created. A
+recurrence whose Script carries such a value stops rescheduling, and NetBox
+records why on its last Job.
 
 Scheduling is not overridable on purpose. `scheduling_enabled` is the author's
 statement that the script is safe to run unattended, and an operator override

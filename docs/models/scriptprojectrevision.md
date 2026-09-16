@@ -218,7 +218,7 @@ fields nor script file discovery results. The verdict keeps `validation_job` and
 | A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
 | A stored tree still matches its manifest before it is reused or activated | `store.verify_revision_tree()`, which raises `RevisionCorruptError` |
 | A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_script_file_snapshot()`, which raises `RevisionCorruptError` |
-| A persisted list of published Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row |
+| A persisted list of published Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row. Covers the shape of every entry and its recorded run defaults, a positive timeout in seconds and a Job notification choice |
 | Neither the tree nor what it publishes changed while the tree was being verified | The locked row is compared against the verified one, digests, manifest, snapshot, and published scripts alike |
 | Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |
 
@@ -248,10 +248,12 @@ dies without warning frees its own claim and no reclaim timer is needed.
 
 Two operations deliberately stay outside it:
 
-- **Deleting a revision or a project takes no lock.** The cleanup job is what decides whether
-  stored content is still claimed, and it rechecks for a referencing row *under* the lock
-  before removing anything. A bare check before the lock would lose to a revision staged
-  between the check and the delete.
+- **Deleting a revision takes no lock.** The cleanup job is what decides whether stored
+  content is still claimed, and it rechecks for a referencing row *under* the lock before
+  removing anything. A bare check before the lock would lose to a revision staged between
+  the check and the delete. Deleting a project takes no project lock either, but each
+  cascaded script file serializes its own removal through the write lock, which shares this
+  keyspace, so the delete waits on whatever holds it.
 - **Validation holds it only for its row transitions.** Importing a revision's script files runs
   arbitrary project code and can take minutes, and the [validation lease](#the-validation-lease)
   plus job fencing already own that span. Holding the project lock across a whole run would

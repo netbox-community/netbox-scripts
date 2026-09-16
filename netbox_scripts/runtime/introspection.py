@@ -30,6 +30,8 @@ __all__ = (
     'RESERVED_VARIABLE_NAMES',
     'describe_script',
     'validate_discovered_scripts',
+    'validate_job_timeout',
+    'validate_notification_policy',
 )
 
 # Variable names the run form already owns. as_form() folds the variables into a ScriptForm
@@ -130,6 +132,12 @@ def validate_discovered_scripts(value):
                 code='invalid_entry',
                 name='metadata',
             )
+        metadata = record['metadata']
+        # Discovery writes both, an older snapshot carries neither, and None means the system default.
+        if metadata.get('job_timeout') is not None:
+            validate_job_timeout(metadata['job_timeout'], name=record['class_name'])
+        if metadata.get('notifications_default') is not None:
+            validate_notification_policy(metadata['notifications_default'], name=record['class_name'])
         _require_storable_identity(record['module_path'], record['class_name'])
         _require_storable_display_name(record['display_name'], record['class_name'])
         identity = (record['module_path'], record['class_name'])
@@ -144,16 +152,33 @@ def validate_discovered_scripts(value):
     return value
 
 
+def validate_job_timeout(value, *, name=None):
+    """Return a job timeout that is a positive number of seconds. Raises ScriptMetadataError for anything else."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        subject = f'The job timeout of "{name}"' if name else 'The recorded job timeout'
+        raise ScriptMetadataError(
+            f'{subject} must be a positive number of seconds.', code='invalid_job_timeout', name=name
+        )
+    return value
+
+
+def validate_notification_policy(value, *, name=None):
+    """Return a notification policy that is one of the Job choices. Raises ScriptMetadataError for anything else."""
+    if value not in JobNotificationChoices.values():
+        subject = f'The notification policy of "{name}"' if name else 'The recorded notification policy'
+        raise ScriptMetadataError(
+            f'{subject} is not a supported Job notification choice.', code='invalid_notifications_default', name=name
+        )
+    return str(value)
+
+
 def _job_timeout(cls):
     """Return a positive timeout using RQ's duration grammar, or None for the queue default."""
     if cls.job_timeout is None:
         return None
     try:
-        timeout = parse_timeout(cls.job_timeout)
-        if timeout is None or timeout <= 0:
-            raise ValueError('A timeout must be positive.')
-        return timeout
-    except (TimeoutFormatError, TypeError, ValueError, AssertionError) as error:
+        return validate_job_timeout(parse_timeout(cls.job_timeout))
+    except (TimeoutFormatError, TypeError, ValueError, AssertionError, ScriptMetadataError) as error:
         raise ScriptMetadataError(
             f'The job timeout of "{cls.__name__}" must be a positive number of seconds or an RQ duration string.',
             code='invalid_job_timeout',
@@ -163,13 +188,7 @@ def _job_timeout(cls):
 
 def _notifications_default(cls):
     """Return a supported Job notification policy or refuse the class metadata."""
-    if cls.notifications_default not in JobNotificationChoices.values():
-        raise ScriptMetadataError(
-            f'The notification policy of "{cls.__name__}" is not a supported Job notification choice.',
-            code='invalid_notifications_default',
-            name=cls.__name__,
-        )
-    return str(cls.notifications_default)
+    return validate_notification_policy(cls.notifications_default, name=cls.__name__)
 
 
 def _require_free_variable_names(cls):

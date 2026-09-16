@@ -244,6 +244,39 @@ class NetBoxScriptTestCase(TestCase):
         self.assertIsNone(instance.job_timeout_override)
         self.assertEqual(instance.job_timeout, 600)
 
+    def test_run_settings_resolve_like_the_accessors(self):
+        instance = self._script(
+            metadata={'job_timeout': 600, 'notifications_default': 'on_failure'}, job_timeout_override=30
+        )
+        self.assertEqual(instance.run_settings(), (30, 'on_failure'))
+        self.assertEqual(instance.run_settings(notifications='never'), (30, 'never'))
+        self.assertEqual(self._script(class_name='Bare').run_settings(), (None, 'always'))
+
+    def test_run_settings_refuse_a_malformed_recorded_timeout(self):
+        instance = self._script(metadata={'job_timeout': 'not-a-duration'})
+        with self.assertRaises(ValidationError) as caught:
+            instance.run_settings()
+        self.assertIn('job timeout', str(caught.exception))
+        self.assertIn('execution settings', str(caught.exception))
+
+    def test_run_settings_refuse_a_malformed_recorded_notification_policy(self):
+        instance = self._script(metadata={'notifications_default': 'not-a-policy'})
+        with self.assertRaises(ValidationError):
+            instance.run_settings()
+
+    def test_run_settings_refuse_a_malformed_override(self):
+        # The form and the serializer validate the override columns, so only an ORM write gets here.
+        instance = self._script()
+        NetBoxScript.objects.filter(pk=instance.pk).update(job_timeout_override=0)
+        instance.refresh_from_db()
+        with self.assertRaises(ValidationError):
+            instance.run_settings()
+
+    def test_the_timeout_phrase_reports_a_malformed_value_rather_than_raising(self):
+        # Reached by clicking through from a run that was just refused.
+        instance = self._script(metadata={'job_timeout': 'not-a-duration'})
+        self.assertIn('not-a-duration', instance.job_timeout_display)
+
     def test_the_overrides_are_editable_like_enabled(self):
         fields = {field.name: field for field in NetBoxScript._meta.get_fields()}
         for name in ('commit_default_override', 'job_timeout_override', 'notifications_default_override'):

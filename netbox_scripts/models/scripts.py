@@ -169,9 +169,18 @@ class NetBoxScript(JobsMixin, PrimaryModel):
     @property
     def job_timeout_display(self):
         """The run timeout as a phrase, since no timeout is a real setting rather than a gap."""
+        # Lazy, because runtime.introspection imports the authoring form module.
+        from ..runtime.exceptions import ScriptMetadataError
+        from ..runtime.introspection import validate_job_timeout
+
         if self.job_timeout is None:
             return _('System default')
-        return ngettext('%(count)d second', '%(count)d seconds', self.job_timeout) % {'count': self.job_timeout}
+        try:
+            seconds = validate_job_timeout(self.job_timeout)
+        except ScriptMetadataError:
+            # A run refuses this value, so the page the operator is sent to has to render it.
+            return _('Invalid: {value}').format(value=self.job_timeout)
+        return ngettext('%(count)d second', '%(count)d seconds', seconds) % {'count': seconds}
 
     @property
     def notifications_default(self):
@@ -185,6 +194,27 @@ class NetBoxScript(JobsMixin, PrimaryModel):
     def get_notifications_default_display(self):
         """Label for the notification policy, following the accessor ChoiceAttr looks for."""
         return dict(JobNotificationChoices).get(self.notifications_default, self.notifications_default)
+
+    def run_settings(self, *, notifications=None):
+        """
+        Return the (job_timeout, notifications) one run is queued with, the override first, then the class.
+
+        Raises ValidationError for a recorded or overridden value a run cannot be queued with.
+        """
+        # Lazy, for the reason job_timeout_display gives.
+        from ..runtime.exceptions import ScriptMetadataError
+        from ..runtime.introspection import validate_job_timeout, validate_notification_policy
+
+        try:
+            timeout = None if self.job_timeout is None else validate_job_timeout(self.job_timeout, name=self.class_name)
+            policy = validate_notification_policy(notifications or self.notifications_default, name=self.class_name)
+        except ScriptMetadataError as error:
+            raise ValidationError(
+                _('"{script}" cannot be run until its execution settings are corrected. {reason}').format(
+                    script=self, reason=error
+                )
+            ) from error
+        return timeout, policy
 
     @property
     def is_executable(self):

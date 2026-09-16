@@ -344,9 +344,11 @@ class ScriptSchedulingFormTestCase(TestCase):
         # It is a property of the run, not of the schedule.
         self.assertIn('_notifications', self.Unschedulable().as_form().fields)
 
-    def test_notifications_initialises_from_the_class_default(self):
+    def test_the_blank_notification_option_names_the_class_default(self):
         form = self.NotifiesOnFailure().as_form()
-        self.assertEqual(form.fields['_notifications'].initial, JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+        blank, *_rest = form.fields['_notifications'].choices
+        self.assertEqual(blank[0], '')
+        self.assertIn('On failure', str(blank[1]))
 
     def test_a_past_schedule_is_refused(self):
         form = self.Schedulable().as_form(data={'_schedule_at': local_now() - timedelta(minutes=1)})
@@ -364,10 +366,11 @@ class ScriptSchedulingFormTestCase(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertIsNotNone(form.cleaned_data['_schedule_at'])
 
-    def test_an_omitted_notification_choice_falls_back_to_the_class_default(self):
+    def test_an_omitted_notification_choice_is_left_for_the_run_to_resolve(self):
+        # Empty means inherit. Filling it here would record the class default as an explicit choice.
         form = self.NotifiesOnFailure().as_form(data={})
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data['_notifications'], JobNotificationChoices.NOTIFICATION_ON_FAILURE)
+        self.assertFalse(form.cleaned_data['_notifications'])
 
     def test_an_interval_below_one_minute_is_refused(self):
         form = self.Schedulable().as_form(data={'_interval': 0})

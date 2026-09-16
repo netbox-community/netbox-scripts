@@ -264,17 +264,20 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         for name in ('_commit', '_schedule_at', '_interval', '_notifications'):
             values.pop(name, None)
 
-        job = NetBoxScriptJob.enqueue_run(
-            script,
-            data=values,
-            # An absent optional field is left out of validated_data, so the class default stands.
-            commit=parameters.get('commit', script.commit_default),
-            schedule_at=parameters.get('schedule_at'),
-            interval=parameters.get('interval'),
-            notifications=parameters.get('notifications'),
-            # The worker is another process, so the request has to be picklable and sanitized.
-            request=copy_safe_request(request),
-            user=request.user,
-            queue_name=queue_name,
-        )
+        try:
+            job = NetBoxScriptJob.enqueue_run(
+                script,
+                data=values,
+                # An absent optional field is left out of validated_data, so the class default stands.
+                commit=parameters.get('commit', script.commit_default),
+                schedule_at=parameters.get('schedule_at'),
+                interval=parameters.get('interval'),
+                notifications=parameters.get('notifications'),
+                # The worker is another process, so the request has to be picklable and sanitized.
+                request=copy_safe_request(request),
+                user=request.user,
+                queue_name=queue_name,
+            )
+        except ValidationError as error:
+            raise APIValidationError({'detail': ' '.join(error.messages)}) from error
         return Response(JobSerializer(job, context={'request': request}).data, status=status.HTTP_201_CREATED)

@@ -230,6 +230,32 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertIn('name="label"', response.content.decode())
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
 
+    def test_a_malformed_recorded_timeout_re_renders_with_the_reason_and_queues_nothing(self):
+        self.grant('view', 'run')
+        NetBoxScript.objects.filter(pk=self.script.pk).update(
+            metadata={**self.script.metadata, 'job_timeout': 'not-a-duration'}
+        )
+
+        response = self.client.post(self.url(), {'label': 'Queued Tag', '_commit': 'on'})
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn('execution settings', response.content.decode())
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_an_unsubmitted_notification_choice_is_queued_as_inherited(self):
+        self.grant('view', 'run', 'schedule')
+
+        with (
+            patch('core.models.jobs.django_rq.get_queue') as get_queue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            # The blank value is what the rendered select submits when left alone.
+            self.client.post(
+                self.url(), {'label': 'Queued Tag', '_commit': 'on', '_interval': '60', '_notifications': ''}
+            )
+
+        self.assertIs(get_queue.return_value.enqueue_at.call_args.kwargs['notifications_inherited'], True)
+
     def test_the_queued_run_records_the_requesting_user(self):
         self.grant('view', 'run')
 
@@ -645,7 +671,9 @@ class OverriddenDefaultsTestCase(RunViewTestMixin, TestCase):
     def test_the_notification_field_follows_the_override_rather_than_the_class(self):
         NetBoxScript.objects.filter(pk=self.script.pk).update(notifications_default_override='never')
 
-        self.assertEqual(self.rendered_form().fields['_notifications'].initial, 'never')
+        blank, *_rest = self.rendered_form().fields['_notifications'].choices
+        self.assertEqual(blank[0], '')
+        self.assertIn('Never', str(blank[1]))
 
     def test_a_run_submitted_from_the_rendered_page_carries_the_override(self):
         # The rendered initial is the whole contract for the toggle: an unchecked box submits
@@ -680,6 +708,17 @@ class ExecutionDefaultsPanelTestCase(RunViewTestMixin, TestCase):
         # The raw dict shape is what the complaint was about.
         self.assertNotIn('&#x27;notifications_default&#x27;', content)
         self.assertNotIn('commit_default', content)
+
+    def test_a_malformed_timeout_renders_on_the_detail_page_rather_than_raising(self):
+        self.grant('view', 'run')
+        NetBoxScript.objects.filter(pk=self.script.pk).update(
+            metadata={**self.script.metadata, 'job_timeout': 'not-a-duration'}
+        )
+
+        response = self.client.get(self.script.get_absolute_url())
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn('not-a-duration', response.content.decode())
 
     def test_no_timeout_reads_as_the_system_default(self):
         self.grant('view', 'run')

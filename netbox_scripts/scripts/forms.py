@@ -40,10 +40,10 @@ class ScriptForm(forms.Form):
     )
     _notifications = forms.ChoiceField(
         required=False,
-        choices=JobNotificationChoices,
-        initial=JobNotificationChoices.NOTIFICATION_ALWAYS,
+        # Blank is a real answer: only it lets a later change to the policy reach a live recurrence.
+        choices=(('', _('Follow the Script')), *JobNotificationChoices),
         label=_('Notifications'),
-        help_text=_('When to notify the user of job completion'),
+        help_text=_('When to notify the user of job completion. Leave empty to follow the Script.'),
     )
 
     # Removed as a pair, because a recurrence is meaningless without a start time
@@ -53,7 +53,12 @@ class ScriptForm(forms.Form):
         super().__init__(*args, **kwargs)
 
         if notifications_default:
-            self.fields['_notifications'].initial = notifications_default
+            # Named rather than preselected, because preselecting it submits it as an explicit choice.
+            policy = dict(JobNotificationChoices).get(notifications_default, notifications_default)
+            self.fields['_notifications'].choices = (
+                ('', _('Follow the Script ({policy})').format(policy=policy)),
+                *JobNotificationChoices,
+            )
 
         if not scheduling_enabled:
             for name in self.SCHEDULING_FIELDS:
@@ -73,10 +78,10 @@ class ScriptForm(forms.Form):
 
     def clean(self):
         """
-        Refuse a schedule in the past, and settle the two values a submission can leave open.
+        Refuse a schedule in the past, and settle the start time a submission can leave open.
 
-        A recurrence with no start time is anchored to now, and an unsubmitted notification
-        choice takes the policy the script class declared.
+        A recurrence with no start time is anchored to now. An unsubmitted notification choice
+        stays empty, which the run reads as inherit.
         """
         cleaned = super().clean()
 
@@ -90,10 +95,5 @@ class ScriptForm(forms.Form):
         # not silently discard the recurrence.
         if cleaned.get('_interval') and start is None:
             cleaned['_schedule_at'] = local_now()
-
-        # The field is optional so that a run can be requested without naming a policy, which
-        # then means the one the script class declared rather than an empty string.
-        if not cleaned.get('_notifications'):
-            cleaned['_notifications'] = self.fields['_notifications'].initial
 
         return cleaned

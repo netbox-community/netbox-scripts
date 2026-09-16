@@ -2,6 +2,7 @@ from contextlib import ExitStack, contextmanager
 from datetime import datetime
 
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext_lazy as _
 
@@ -160,7 +161,7 @@ class NetBoxScriptRunView(generic.ObjectView):
         commit = data.pop('_commit', True)
         schedule_at = data.pop('_schedule_at', None)
         interval = data.pop('_interval', None)
-        notifications = data.pop('_notifications', None)
+        notifications = data.pop('_notifications', None) or None
         try:
             job = NetBoxScriptJob.enqueue_run(
                 script,
@@ -177,6 +178,8 @@ class NetBoxScriptRunView(generic.ObjectView):
         except ScriptNotExecutableError as error:
             # A race against an administrator, since the same condition was checked above.
             return self._render(request, script, form, instance, str(error))
+        except ValidationError as error:
+            return self._render(request, script, form, instance, ' '.join(error.messages))
         messages.success(request, _('{script} was queued to run.').format(script=script))
         return redirect('plugins:netbox_scripts:netboxscript_result', pk=script.pk, job_pk=job.pk)
 

@@ -78,6 +78,27 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
         self.assertIn('finished with status', str(caught.exception))
         self.assertNotIn('completed', str(caught.exception))
 
+    def test_a_malformed_recorded_policy_fails_the_command_before_any_job(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        NetBoxScript.objects.filter(project=self.project).update(metadata={'notifications_default': 'not-a-policy'})
+
+        with self.assertRaises(CommandError) as caught:
+            self.run_command('deploy.MakeTag')
+
+        self.assertIn('execution settings', str(caught.exception))
+        self.assertFalse(Job.objects.filter(object_id=self.script().pk).exists())
+
+    def test_a_malformed_recorded_timeout_fails_the_command_even_though_it_would_be_dropped(self):
+        # _run_now discards the timeout, so this run used to succeed on a value nothing could parse.
+        self.publish({'deploy.py': MAKES_A_TAG})
+        NetBoxScript.objects.filter(project=self.project).update(metadata={'job_timeout': 'not-a-duration'})
+
+        with self.assertRaises(CommandError) as caught:
+            self.run_command('deploy.MakeTag')
+
+        self.assertIn('job timeout', str(caught.exception))
+        self.assertFalse(Job.objects.filter(object_id=self.script().pk).exists())
+
     def test_a_name_matching_nothing_is_refused(self):
         self.publish({'deploy.py': MAKES_A_TAG})
 

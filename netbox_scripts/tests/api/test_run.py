@@ -332,6 +332,18 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
 
+    def test_a_malformed_recorded_timeout_refuses_the_run_before_any_job(self):
+        self.grant('view', 'run')
+        NetBoxScript.objects.filter(pk=self.script.pk).update(
+            metadata={**self.script.metadata, 'job_timeout': 'not-a-duration'}
+        )
+
+        response = self.post_run({'data': {'label': 'made-over-rest'}})
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('execution settings', str(response.data['detail']))
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
     def test_a_requested_run_executes_and_records_what_it_did(self):
         self.grant('view', 'run')
 

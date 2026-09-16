@@ -458,13 +458,14 @@ class NetBoxScriptJob(JobRunner):
         is saved on the Job row inside the enqueueing transaction, so the queue can never run a
         task whose record of what it runs is missing. A recurring run is pinned to nothing and
         resolves the active revision at each occurrence. The script's own recorded metadata
-        supplies the job timeout, and the notification policy unless one is given here. An
-        immediate run commits its Job row before executing, so the row is visible for the whole
-        run and an interrupted run leaves it behind. Raises ScriptNotExecutableError when the
-        script cannot run, which covers a disabled or retired script, a disabled project, and a
-        project serving no revision, ValueError for an immediate run that also asks to be
-        deferred or repeated, and RuntimeError for an immediate run started inside an open
-        transaction.
+        supplies the job timeout, and the notification policy unless one is given here. Raises
+        ValidationError for a recorded or overridden setting a run cannot be queued with, before
+        any row is written. An immediate run commits its Job row before executing, so the row is
+        visible for the whole run and an interrupted run leaves it behind. Raises
+        ScriptNotExecutableError when the script cannot run, which covers a disabled or retired
+        script, a disabled project, and a project serving no revision, ValueError for an immediate
+        run that also asks to be deferred or repeated, and RuntimeError for an immediate run
+        started inside an open transaction.
         """
         if immediate and (schedule_at or interval):
             raise ValueError('An immediate run cannot also be deferred or repeated.')
@@ -486,9 +487,10 @@ class NetBoxScriptJob(JobRunner):
         # Input values are deliberately absent from the payload. Variables resolve to model
         # instances and uploaded files, so they are not JSON, and rendering them for the row
         # would need a policy on values an author may not want recorded.
-        if script.job_timeout:
-            kwargs.setdefault('job_timeout', script.job_timeout)
-        kwargs.setdefault('notifications', notifications or script.notifications_default)
+        job_timeout, policy = script.run_settings(notifications=notifications)
+        if job_timeout:
+            kwargs.setdefault('job_timeout', job_timeout)
+        kwargs.setdefault('notifications', policy)
         if immediate:
             return cls._run_now(script, payload, data=data, request=request, user=user, **kwargs)
         return cls.enqueue(
@@ -506,7 +508,12 @@ class NetBoxScriptJob(JobRunner):
 
     @classmethod
     def enqueue(cls, *args, **kwargs):
-        """Initialize both first occurrences and core-generated recurring successors."""
+        """
+        Initialize both first occurrences and core-generated recurring successors.
+
+        Raises ValidationError when the Script has gone or its execution settings cannot be
+        queued with, which core records on the finished Job instead of rescheduling.
+        """
         from django.core.exceptions import ValidationError
 
         if kwargs.get('immediate'):
@@ -516,13 +523,16 @@ class NetBoxScriptJob(JobRunner):
         if script is None:
             raise ValidationError('The Script no longer exists, so the run cannot be scheduled.')
         kwargs['instance'] = script
-        kwargs.setdefault('job_timeout', script.job_timeout)
-        kwargs.setdefault('notifications', script.notifications_default)
+        # Core rebuilds a successor with the row's own notifications, so setdefault cannot reach it.
+        # A run queued before this flag carries none, and inherited is what it was.
+        inherited = bool(kwargs.get('interval')) and kwargs.get('notifications_inherited', True)
+        job_timeout, policy = script.run_settings(notifications=None if inherited else kwargs.get('notifications'))
+        kwargs.setdefault('job_timeout', job_timeout)
+        if inherited:
+            kwargs['notifications'] = policy
+        else:
+            kwargs.setdefault('notifications', policy)
         if kwargs.get('interval'):
-            # Core rebuilds a successor with the row's own notifications, so setdefault cannot
-            # reach it. A run queued before this flag carries none, and inherited is what it was.
-            if kwargs.get('notifications_inherited', True):
-                kwargs['notifications'] = script.notifications_default
             kwargs['revision_id'] = None
             kwargs['revision_digest'] = None
         payload = {

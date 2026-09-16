@@ -289,6 +289,32 @@ class ValidateDiscoveredScriptsTestCase(TestCase):
         self.assertEqual(captured.exception.code, 'invalid_entry')
         self.assertEqual(captured.exception.name, 'metadata')
 
+    def test_a_recorded_timeout_that_is_not_positive_seconds_is_refused(self):
+        # Discovery stores parse_timeout()'s integer, so anything else was written by hand.
+        for value in ('not-a-duration', '300', 0, -1, True, False, 1.5):
+            damaged = [dict(self.snapshot[0])]
+            damaged[0]['metadata'] = {**damaged[0]['metadata'], 'job_timeout': value}
+            with self.subTest(value=value):
+                # Asserted inside, because subTest suppresses a failed assertRaises and the
+                # captured exception would then be missing.
+                with self.assertRaises(ScriptMetadataError) as captured:
+                    validate_discovered_scripts(damaged)
+                self.assertEqual(captured.exception.code, 'invalid_job_timeout')
+                self.assertEqual(captured.exception.name, self.snapshot[0]['class_name'])
+
+    def test_a_recorded_notification_policy_outside_the_choices_is_refused(self):
+        damaged = [dict(self.snapshot[0])]
+        damaged[0]['metadata'] = {**damaged[0]['metadata'], 'notifications_default': 'not-a-policy'}
+        with self.assertRaises(ScriptMetadataError) as captured:
+            validate_discovered_scripts(damaged)
+        self.assertEqual(captured.exception.code, 'invalid_notifications_default')
+
+    def test_absent_execution_defaults_are_accepted(self):
+        # An older build recorded no execution defaults at all.
+        record = dict(self.snapshot[0])
+        record['metadata'] = {}
+        self.assertEqual(validate_discovered_scripts([record]), [record])
+
     def test_an_over_long_identity_is_refused(self):
         damaged = [dict(self.snapshot[0])]
         damaged[0]['class_name'] = 'A' * 80

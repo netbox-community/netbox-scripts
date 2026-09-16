@@ -5,6 +5,9 @@ from django.utils.translation import gettext_lazy as _
 
 from utilities.exceptions import PermissionsViolation
 
+from .models import ScriptFile, ScriptProject
+from .validators import normalize_data_path
+
 # Moving any of these decides what a Project serves next, so each costs activate, not change.
 GATED_SOURCE_FIELDS = ('activation_policy', 'data_source', 'data_path')
 
@@ -15,8 +18,6 @@ SOURCE_REFUSAL = _('Changing this field requires the Script Project activate per
 
 def validate_script_file_permissions(user, *, created=(), changed=(), using):
     """Refuse rows outside the user's add or change scope, inside the caller's transaction."""
-    from .models import ScriptFile
-
     if user is None:
         return
     for action, keys in (('add', created), ('change', changed)):
@@ -27,9 +28,8 @@ def validate_script_file_permissions(user, *, created=(), changed=(), using):
 
 def moved_source_fields(pk, submitted, *, using=DEFAULT_DB_ALIAS):
     """Return the gated source fields whose submitted value differs from the stored row."""
-    from .models import ScriptProject
-    from .validators import normalize_data_path
-
+    if not any(field in submitted for field in GATED_SOURCE_FIELDS):
+        return ()
     # The stored row: every caller arrives after the submitted values are already on the instance.
     stored = (
         ScriptProject.objects.using(using)
@@ -45,7 +45,8 @@ def moved_source_fields(pk, submitted, *, using=DEFAULT_DB_ALIAS):
             continue
         value = submitted[field]
         if field == 'data_source':
-            value = value.pk if value is not None else None
+            # A resolved object or a bare id, whichever the caller holds without a query.
+            value = getattr(value, 'pk', value)
             current = stored['data_source_id']
         elif field == 'data_path':
             # Canonicalized on the way in, so a raw comparison reads a trailing separator as a move.
@@ -58,11 +59,11 @@ def moved_source_fields(pk, submitted, *, using=DEFAULT_DB_ALIAS):
     return tuple(moved)
 
 
-def refuse_unpermitted_source_change(user, pk, submitted, *, using=DEFAULT_DB_ALIAS):
-    """Raise PermissionsViolation when a caller without the activate action moves a source field."""
-    if user is None or user.has_perm(ACTIVATE_PERMISSION):
+def refuse_unpermitted_source_change(user, project, submitted):
+    """Raise PermissionsViolation when a caller who may not activate the Project moves a source field."""
+    if user is None:
         return
-    if moved := moved_source_fields(pk, submitted, using=using):
+    if (moved := moved_source_fields(project.pk, submitted)) and not user.has_perm(ACTIVATE_PERMISSION, obj=project):
         error = PermissionsViolation()
         # message is a class attribute, so a constructor argument would not reach a reader of it.
         error.message = _('Changing {fields} requires the Script Project activate permission.').format(

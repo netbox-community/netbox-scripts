@@ -2,10 +2,11 @@ import uuid
 
 from rest_framework import status
 
-from core.models import DataSource
+from core.models import DataSource, ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from netbox_scripts.models import ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCases
+from users.models import ObjectPermission
 
 
 class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
@@ -88,6 +89,42 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
             'netbox_scripts.activate_scriptproject',
         )
         project = self.synchronized()
+
+        response = self.client.patch(
+            self._get_detail_url(project), {'data_path': 'automation'}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        project.refresh_from_db()
+        self.assertEqual(project.data_path, 'automation')
+
+    def grant_activate_on(self, project):
+        """Grant activate constrained to one Project."""
+        permission = ObjectPermission(
+            name=f'activate {project.key}', actions=['activate'], constraints={'key': project.key}
+        )
+        permission.save()
+        permission.users.add(self.user)
+        permission.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+
+    def test_activate_on_another_project_does_not_permit_the_move(self):
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+        self.grant_activate_on(self.synchronized())
+
+        response = self.client.patch(
+            self._get_detail_url(project), {'data_path': 'automation'}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('data_path', response.data)
+        project.refresh_from_db()
+        self.assertEqual(project.data_path, 'scripts')
+
+    def test_activate_constrained_to_this_project_permits_the_move(self):
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+        self.grant_activate_on(project)
 
         response = self.client.patch(
             self._get_detail_url(project), {'data_path': 'automation'}, format='json', **self.header

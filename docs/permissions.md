@@ -33,9 +33,12 @@ renames a Project and edits its description. Moving `activation_policy`,
 `activate` as well, on the edit form, in bulk edit, in a bulk import record that
 updates an existing Project, and over REST. A record that creates a Project is
 not affected, since there is nothing to move away from. Submitting a field's
-stored value is not a move either. **Repair Scripts** republishes the rows of
-the revision already in force, which is the same write activation makes, so it
-is the same privilege.
+stored value is not a move either. A constraint on `activate` scopes this as
+well. The gate asks whether the user may activate the Project being edited, not
+whether they may activate some Project. The check reads the Project as stored, so
+a constraint on one of the three gated fields lets its holder move that field out
+of scope once. **Repair Scripts** republishes the rows of the revision already in
+force, which is the same write activation makes, so it is the same privilege.
 
 **Browsing revisions is a separate permission, `netbox_scripts.view_scriptprojectrevision`.**
 The line falls between what a Project is serving and its history. A Project's own

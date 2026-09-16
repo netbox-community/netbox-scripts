@@ -63,7 +63,7 @@ The tab is empty until a revision holds content.
 | `data_path` is stored canonically: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize. Absolute paths, `..` traversal, and backslashes are rejected |
 | `data_source` projects require a `data_source` and a non-empty `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
 | `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
-| Moving `activation_policy`, `data_source` or `data_path` needs the `activate` permission as well as `change` | The serializer's `validate()`, the edit form's `clean()`, and the two bulk views' save hooks. Submitting a stored value is not a move, and a create is not gated |
+| Moving `activation_policy`, `data_source` or `data_path` needs the `activate` permission as well as `change` | The serializer's `validate()`, the edit form's `clean()`, and the two bulk views' save hooks, each checking `activate` against the stored row so a constraint scopes it. Submitting a stored value is not a move, and a create is not gated |
 | `active_revision` must belong to this project | `clean()` |
 | A project whose active revision is deleted keeps serving nothing rather than blocking the delete | `SET_NULL` on `active_revision`, which is also what lets a project be deleted at all, since its revisions cascade |
 

@@ -416,13 +416,13 @@ class ScriptProjectBulkEditView(generic.BulkEditView):
     form = ScriptProjectBulkEditForm
 
     def pre_save_operations(self, form, obj):
-        """Refuse a source-field move by a user holding change but not activate."""
+        """Refuse a source-field move by a user who may not activate this Project."""
         # Not the form's clean(): a "Set null" tick is _nullify on the request, unseen by a form.
         # Core honours a tick only for nullable_fields, so the gate reads it the same way.
         nullified = set(self.request.POST.getlist('_nullify')) & set(form.nullable_fields)
         touched = (set(form.changed_data) | nullified) & set(GATED_SOURCE_FIELDS)
         submitted = {field: None if field in nullified else form.cleaned_data[field] for field in touched}
-        refuse_unpermitted_source_change(self.request.user, obj.pk, submitted)
+        refuse_unpermitted_source_change(self.request.user, obj, submitted)
 
 
 @register_model_view(ScriptProject, 'bulk_delete', path='delete', detail=False)
@@ -446,8 +446,9 @@ class ScriptProjectBulkImportView(generic.BulkImportView):
         instance = object_form.instance
         # The pk test only saves a query: moved_source_fields finds no row for an unsaved instance.
         if instance.pk:
+            fields = (instance._meta.get_field(name) for name in GATED_SOURCE_FIELDS)
             # Instance values, not cleaned_data: a blank CSV cell is omitted and keeps the stored value.
-            refuse_unpermitted_source_change(
-                request.user, instance.pk, {field: getattr(instance, field) for field in GATED_SOURCE_FIELDS}
-            )
+            # attname, so the FK id is read without fetching the row.
+            submitted = {field.name: getattr(instance, field.attname) for field in fields}
+            refuse_unpermitted_source_change(request.user, instance, submitted)
         return super().save_object(object_form, request)

@@ -8,6 +8,7 @@ from netbox.registry import registry
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
 from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.permissions import moved_source_fields
 from netbox_scripts.storage import service
 from users.models import ObjectPermission
 from utilities.permissions import get_permission_for_model
@@ -64,8 +65,8 @@ class SourceFieldGateTestCase(TestCase):
             data_path='scripts',
         )
 
-    def grant(self, *actions):
-        permission = ObjectPermission(name='/'.join(actions), actions=list(actions))
+    def grant(self, *actions, constraints=None):
+        permission = ObjectPermission(name='/'.join(actions), actions=list(actions), constraints=constraints)
         permission.save()
         permission.users.add(self.user)
         permission.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
@@ -127,6 +128,39 @@ class SourceFieldGateTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.data_path, 'scripts')
 
+    def test_activate_on_another_project_does_not_permit_the_move(self):
+        # Permission rows are OR'd, so activate is granted only in its constrained form.
+        self.grant('view', 'change')
+        self.grant('activate', constraints={'key': 'somewhere-else'})
+
+        response = self.edit_post(data_path='automation')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data_path', response.context['form'].errors)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
+    def test_activate_constrained_to_this_project_permits_the_move(self):
+        self.grant('view', 'change')
+        self.grant('activate', constraints={'key': self.project.key})
+
+        response = self.edit_post(data_path='automation')
+
+        self.assertEqual(response.status_code, 302)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'automation')
+
+    def test_a_constraint_is_read_from_the_stored_project(self):
+        # Constrained to the current path, so the move out of it is permitted once, as documented.
+        self.grant('view', 'change')
+        self.grant('activate', constraints={'data_path': 'scripts'})
+
+        response = self.edit_post(data_path='automation')
+
+        self.assertEqual(response.status_code, 302)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'automation')
+
     def bulk_edit_post(self, **fields):
         data = {'pk': [self.project.pk], '_apply': ''}
         data.update(fields)
@@ -173,6 +207,16 @@ class SourceFieldGateTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.activation_policy, ActivationPolicyChoices.AUTOMATIC_IF_VALID)
 
+    def test_bulk_edit_ignores_activate_on_another_project(self):
+        self.grant('view', 'change')
+        self.grant('activate', constraints={'key': 'somewhere-else'})
+
+        response = self.bulk_edit_post(data_path='automation')
+
+        self.assertIn('requires the Script Project activate permission', response.content.decode())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_path, 'scripts')
+
     def import_post(self, data):
         return self.client.post(
             reverse('plugins:netbox_scripts:scriptproject_bulk_import'),
@@ -216,6 +260,31 @@ class SourceFieldGateTestCase(TestCase):
         created = ScriptProject.objects.filter(key='imported').first()
         self.assertIsNotNone(created)
         self.assertEqual(created.activation_policy, 'automatic_if_valid')
+
+    def test_an_unsaved_project_has_no_stored_row_to_move_from(self):
+        """The carve-out the create path rests on. The view's pk test only saves a query."""
+        submitted = {'activation_policy': 'automatic_if_valid', 'data_path': 'automation', 'data_source': self.source}
+
+        self.assertEqual(moved_source_fields(None, submitted), ())
+
+    def test_bulk_import_ignores_activate_on_another_project(self):
+        self.grant('view', 'add', 'change')
+        self.grant('activate', constraints={'key': 'somewhere-else'})
+
+        response = self.import_post(f'id,name,data_source\n{self.project.pk},Synced,{self.other.name}\n')
+
+        self.assertIn('requires the Script Project activate permission', response.content.decode())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_source_id, self.source.pk)
+
+    def test_bulk_import_permits_a_move_with_activate(self):
+        self.grant('view', 'add', 'change', 'activate')
+
+        response = self.import_post(f'id,name,data_source\n{self.project.pk},Synced,{self.other.name}\n')
+
+        self.assertEqual(response.status_code, 302)
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.data_source_id, self.other.pk)
 
 
 class SourceManagementPermissionTestCase(TestCase):

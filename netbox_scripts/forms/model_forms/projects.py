@@ -56,12 +56,17 @@ class ScriptProjectEditForm(PrimaryModelForm):
             del self.fields['data_path']
 
     def clean(self):
-        """Refuse a source-field move by a user holding change but not activate."""
+        """Refuse a source-field move by a user who may not activate this Project."""
         super().clean()
         cleaned_data = self.cleaned_data
         request = getattr(self.instance, '_request', None)
-        if self.instance.pk and request and not request.user.has_perm(ACTIVATE_PERMISSION):
-            for field in moved_source_fields(self.instance.pk, cleaned_data):
+        if (
+            self.instance.pk
+            and request
+            and (moved := moved_source_fields(self.instance.pk, cleaned_data))
+            and not request.user.has_perm(ACTIVATE_PERMISSION, obj=self.instance)
+        ):
+            for field in moved:
                 # Not a disabled widget: restrict_form_fields would fail an unviewable source first.
                 self.add_error(field, SOURCE_REFUSAL)
         return cleaned_data

@@ -16,7 +16,7 @@ here, follow this document.
 
 ## Repository Overview
 
-`netbox-scripts` is a NetBox plugin: Custom Scripts for NetBox It is owned by
+`netbox-scripts` is a NetBox plugin: Custom Scripts for NetBox. It is owned by
 NetBox Labs and runs inside NetBox as a Django app (`netbox_scripts`).
 The supported NetBox version range is in `COMPATIBILITY.md`
 (4.7.0 to 4.7.99 at scaffold time).
@@ -60,7 +60,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── navigation.py              , PluginMenu 'Scripts': a Projects group and a Scripts group.
 │   ├── api/
 │   │   ├── urls.py                , NetBoxRouter registrations for the four endpoints.
-│   │   ├── views.py               , Four viewsets, the run / upload / script-files actions, three permission classes.
+│   │   ├── views.py               , Four viewsets, the run / upload / script-files actions, two permission classes.
 │   │   └── serializers/           , One module per topic: projects, revisions (read-only), scripts, upload, run.
 │   ├── filtersets/                , One FilterSet per model, by topic module.
 │   ├── forms/                     , By type then topic: model_forms, bulk_edit, bulk_import, filtersets, confirmations.
@@ -71,7 +71,8 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   │   └── migration.py           , MigrationRun. State machine, one open run, the journal writers.
 │   ├── tables/                    , One table per model, plus the four fed dictionaries rather than querysets.
 │   ├── tests/                     , Mirrors the module layout. plugin_testing.py holds the shared composites.
-│   ├── views/                     , projects, scripts, revisions, migration. All via @register_model_view.
+│   ├── views/                     , projects, scripts, revisions, migration. Object views via
+│   │                                @register_model_view, the Migration pages by explicit path.
 │   ├── ui/panels.py               , Detail-view panels for every model.
 │   ├── search.py                  , Three SearchIndex registrations.
 │   ├── graphql/                   , schema, types, filters, enums.
@@ -80,7 +81,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── scripts/                   , Authoring API: base, variables, forms, logging, exceptions.
 │   ├── compat/                    , The legacy `extras` import seam and its Report marker.
 │   ├── migration/                 , source (the ONLY reader of the built-in feature), dialects, plan, mapping,
-│   │                                staging, cutover, references, cleanup, verification.
+│   │                                staging, cutover, references, cleanup, verification, locking.
 │   ├── branching.py               , GLOBAL_MODELS main-schema routing for all five models, safety checks.
 │   ├── execution.py               , run_script() and script_class_context(): the context one run happens inside.
 │   ├── permissions.py             , The two object-level rechecks: Script File rows, and the gated source fields.
@@ -88,7 +89,8 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── activation.py              , activate_revision / deactivate_revision + synchronize_scripts().
 │   ├── ingestion.py               , The one entry point from supplied files to a revision awaiting a verdict.
 │   ├── jobs.py                    , Five project jobs, NetBoxScriptJob, and the seven migration passes.
-│   ├── signals.py                 , Revision deletion enqueues cleanup, a completed sync enqueues reconciliation.
+│   ├── signals.py                 , Revision deletion enqueues cleanup, a completed sync enqueues
+│   │                                reconciliation, a declaration delete serializes on the write lock.
 │   ├── event_rules.py             , RunNetBoxScriptAction and the `event_rule_actions` list PluginConfig loads.
 │   ├── choices.py                 , Five ChoiceSets.
 │   ├── validators.py              , normalize_data_path().
@@ -97,7 +99,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── management/commands/runcustomscript.py , The shell route to one run. Additive, carries a cloud-compat waiver.
 │   ├── object_actions.py          , Five ObjectAction subclasses with templates under templates/.../buttons/.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes.
-│   └── templates/netbox_scripts/  , Per-model detail templates, the Migration page, four confirmations.
+│   └── templates/netbox_scripts/  , Per-model detail templates, the Migration page, eight confirmations.
 ├── docs/                          , mkdocs site (zensical primary). The home for all rationale.
 ├── scripts/
 │   ├── check_cloud_compat.py      , AST checker for the Cloud / Enterprise contract (pre-commit hook).
@@ -133,6 +135,8 @@ Each of these has cost someone an hour. They are here because no docs page owns 
 - **Never clear the RQ queue with `RQQueueTestMixin`**, which issues a server-wide `flushall()`.
 - **`ManagedFile.storage` is a fresh instance while the loader reads the cached one**, so a migration
   fixture needs a real temporary directory, never in-memory storage.
+- **`has_perm(perm)` without an object answers for SOME object.** Core grants it whenever the user holds the
+  permission on any row, so a constrained grant passes. Pass `obj=` for one object, `restrict()` for a queryset.
 - **Migration dependencies stay pinned at the v4.6.0 heads.** `makemigrations` names whatever the
   local checkout has. See Conventions.
 

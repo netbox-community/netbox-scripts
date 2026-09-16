@@ -300,6 +300,7 @@ class ScriptProject(PrimaryModel):
 
     def select_script_files(self, paths, *, user=None):
         """Reconcile declarations atomically and return whether their enabled set changed."""
+        # permissions imports the models at load, so this edge of the cycle stays inside the method.
         from ..permissions import validate_script_file_permissions
         from ..storage.locks import project_write_lock
         from .scripts import ScriptFile

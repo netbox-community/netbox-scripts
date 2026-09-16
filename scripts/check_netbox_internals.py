@@ -41,6 +41,10 @@ ROWS = (
         'netbox.api.viewsets.mixins:discard_events_on_rollback',
     ),
     ('utilities.exceptions.PermissionsViolation', 'utilities.exceptions:PermissionsViolation'),
+    (
+        'netbox.views.generic.BulkEditView.pre_save_operations',
+        'netbox.views.generic:BulkEditView.pre_save_operations',
+    ),
     ('utilities.rqworker.get_queue_for_model', 'utilities.rqworker:get_queue_for_model'),
     ('rq.utils.parse_timeout', 'rq.utils:parse_timeout'),
     ('rq.exceptions.TimeoutFormatError', 'rq.exceptions:TimeoutFormatError'),

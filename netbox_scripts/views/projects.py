@@ -440,8 +440,13 @@ class ScriptProjectBulkImportView(generic.BulkImportView):
     queryset = ScriptProject.objects.select_related('data_source')
     model_form = ScriptProjectBulkImportForm
 
-    def _process_import_records(self, form, request, records, prefetched_objects):
-        """Carry the request onto each updated instance, which is where its form reads the user."""
-        for obj in prefetched_objects.values():
-            obj._request = request
-        return super()._process_import_records(form, request, records, prefetched_objects)
+    def save_object(self, object_form, request):
+        """Refuse a source-field move on a record that updates an existing Project, then save."""
+        instance = object_form.instance
+        # The pk test only saves a query: moved_source_fields finds no row for an unsaved instance.
+        if instance.pk:
+            # Instance values, not cleaned_data: a blank CSV cell is omitted and keeps the stored value.
+            refuse_unpermitted_source_change(
+                request.user, instance.pk, {field: getattr(instance, field) for field in GATED_SOURCE_FIELDS}
+            )
+        return super().save_object(object_form, request)

@@ -21,6 +21,7 @@ the plugin contract allows explicitly.
 | `utilities.request.copy_safe_request` | `views/scripts.py`, `api/views.py` | A picklable, sensitive-header-stripped copy of the request, so it can travel to a worker |
 | `netbox.api.viewsets.mixins.discard_events_on_rollback` | `api/views.py` | Clears request events when an entire declaration-writing API action rolls back. Never used for a disposable-write probe |
 | `utilities.exceptions.PermissionsViolation` | `permissions.py`, `api/views.py` | Rejects child writes outside the actor's object-permission scope, using core's enclosing rollback path |
+| `netbox.views.generic.BulkEditView.pre_save_operations` | `views/projects.py` | The per-object hook core calls inside its bulk edit transaction before each save, where the source-field gate reads the undocumented `_nullify` request list that core itself consumes for a Set null tick |
 | `utilities.rqworker.get_queue_for_model` | `api/views.py`, `jobs.py` | Resolves the same configured queue for worker checks and enqueue operations |
 | `rq.utils.parse_timeout` | `runtime/introspection.py` | Reads an author's `job_timeout` with the grammar RQ itself applies, so `"30m"` means the same to the plugin as to the worker that enforces it |
 | `rq.exceptions.TimeoutFormatError` | `runtime/introspection.py` | The refusal RQ raises for a timeout string it cannot parse, which becomes a script metadata error rather than an unhandled failure |
@@ -83,6 +84,14 @@ opens the relative path. And both content types have to be resolved with
 `for_concrete_model=False`, because a Job and an Event Rule record the **proxy**,
 so a sweep that resolves the concrete model reports zero on an installation full of
 references.
+
+The bulk import gate in `views/projects.py` reads the instance core is about to save
+rather than the form's `cleaned_data`, because core reports a blank CSV cell as omitted
+and keeps the stored value. That reading holds only while core deletes the form fields
+a record does not name, which is what stops an absent column from constructing
+`data_source` or `data_path` as empty. Core documents neither behaviour. A change to
+either would refuse every update record from a user without `activate`, a closed
+failure rather than a bypass.
 
 ## Why they are not avoidable
 

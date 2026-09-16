@@ -5,7 +5,7 @@ from django.urls import reverse
 
 from core.models import DataSource, ObjectType
 from netbox.registry import registry
-from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
 from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
@@ -127,32 +127,6 @@ class SourceFieldGateTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.data_path, 'scripts')
 
-    def test_an_unsaved_instance_carrying_a_request_is_not_gated(self):
-        """A bulk-import record with no id creates, so nothing it sets is a move."""
-        from netbox_scripts.forms import ScriptProjectBulkImportForm
-
-        unsaved = ScriptProject(
-            name='Fresh',
-            key='fresh',
-            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
-            data_source=self.source,
-            data_path='automation',
-        )
-        unsaved._request = type('R', (), {'user': self.user})()
-        form = ScriptProjectBulkImportForm(
-            data={
-                'name': 'Fresh',
-                'key': 'fresh',
-                'source_type': ProjectSourceTypeChoices.DATA_SOURCE,
-                'data_source': self.source.name,
-                'data_path': 'automation',
-                'activation_policy': 'automatic_if_valid',
-            },
-            instance=unsaved,
-        )
-
-        self.assertTrue(form.is_valid(), form.errors)
-
     def bulk_edit_post(self, **fields):
         data = {'pk': [self.project.pk], '_apply': ''}
         data.update(fields)
@@ -196,10 +170,26 @@ class SourceFieldGateTestCase(TestCase):
         """A record naming an existing id updates it, and data_source arrives as a name."""
         self.grant('view', 'add', 'change')
 
-        self.import_post(f'id,name,data_source\n{self.project.pk},Synced,{self.other.name}\n')
+        response = self.import_post(f'id,name,data_source\n{self.project.pk},Synced,{self.other.name}\n')
 
+        self.assertIn('requires the Script Project activate permission', response.content.decode())
         self.project.refresh_from_db()
         self.assertEqual(self.project.data_source_id, self.source.pk)
+
+    def test_bulk_import_treats_a_blank_cell_as_the_stored_value(self):
+        """On an update, a blank cell for a field with a model default is the stored value, not a move."""
+        self.grant('view', 'add', 'change')
+        # A non-default policy, or a reset to the default would pass as "kept".
+        ScriptProject.objects.filter(pk=self.project.pk).update(
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        )
+
+        response = self.import_post(f'id,name,activation_policy\n{self.project.pk},Renamed,\n')
+
+        self.assertNotIn('requires the Script Project activate permission', response.content.decode())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.name, 'Renamed')
+        self.assertEqual(self.project.activation_policy, ActivationPolicyChoices.AUTOMATIC_IF_VALID)
 
     def test_bulk_import_permits_a_create(self):
         """The create path is carved out, since there is no stored row to move away from."""

@@ -418,7 +418,8 @@ class ScriptProjectBulkEditView(generic.BulkEditView):
     def pre_save_operations(self, form, obj):
         """Refuse a source-field move by a user holding change but not activate."""
         # Not the form's clean(): a "Set null" tick is _nullify on the request, unseen by a form.
-        nullified = set(self.request.POST.getlist('_nullify'))
+        # Core honours a tick only for nullable_fields, so the gate reads it the same way.
+        nullified = set(self.request.POST.getlist('_nullify')) & set(form.nullable_fields)
         touched = (set(form.changed_data) | nullified) & set(GATED_SOURCE_FIELDS)
         submitted = {field: None if field in nullified else form.cleaned_data[field] for field in touched}
         refuse_unpermitted_source_change(self.request.user, obj.pk, submitted)

@@ -160,6 +160,19 @@ class SourceFieldGateTestCase(TestCase):
         self.project.refresh_from_db()
         self.assertEqual(self.project.data_path, 'scripts')
 
+    def test_a_nullify_tick_outside_nullable_fields_is_not_a_move(self):
+        """A Set null tick on a field outside nullable_fields is neither saved by core nor a move."""
+        self.grant('view', 'change')
+        ScriptProject.objects.filter(pk=self.project.pk).update(
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        )
+
+        response = self.bulk_edit_post(_nullify=['activation_policy'])
+
+        self.assertNotIn('requires the Script Project activate permission', response.content.decode())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.activation_policy, ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
     def import_post(self, data):
         return self.client.post(
             reverse('plugins:netbox_scripts:scriptproject_bulk_import'),

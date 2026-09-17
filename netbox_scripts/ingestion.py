@@ -82,19 +82,34 @@ def check_upload_conflicts(project, path, *, confirm_replace):
     """
     Refuse an upload that would replace content unasked or collide with a sibling declaration.
 
-    Raises ValidationError when the project already holds the canonical path and confirmation
-    was not given, and when the path collides with an existing declaration by letter case or by
-    module name. Only the manifest is read, so this costs no content reads.
+    Raises ValidationError when the project already holds the canonical path or has one staging
+    for it and confirmation was not given, and when the path collides with an existing
+    declaration by letter case or by module name. No stored content is read.
     """
     # Compared against the canonical path, never the name the client sent, so two files a caller
     # thinks of as different cannot silently replace one another.
     revision = project.latest_stored_revision()
     existing = {entry['path'] for entry in revision.manifest} if revision else set()
-    if path in existing and not confirm_replace:
-        raise ValidationError(
-            _('This Project already holds "{path}". Confirm replacement to overwrite its content.').format(path=path)
-        )
-    if not ScriptFile.objects.filter(project=project, source_path=path).exists():
+    declared = ScriptFile.objects.filter(project=project, source_path=path).exists()
+    if not confirm_replace:
+        if path in existing:
+            raise ValidationError(
+                _('This Project already holds "{path}". Confirm replacement to overwrite its content.').format(
+                    path=path
+                )
+            )
+        # An uploaded project gains a file only through ingestion, which commits the declaration
+        # before it writes any content. The browser path writes that content after the request
+        # commits, so a declaration the newest stored manifest does not name is an upload still in
+        # flight, or one whose storage write failed. A Data Source project declares paths its own
+        # directory supplies, where the same absence means nothing of the kind.
+        if declared and project.source_type == ProjectSourceTypeChoices.UPLOAD:
+            raise ValidationError(
+                _('An upload of "{path}" has not finished storing. Confirm replacement to overwrite it.').format(
+                    path=path
+                )
+            )
+    if not declared:
         candidate = ScriptFile(project=project, source_path=path, enabled=True)
         # A case variant or a name colliding with a sibling module, for example "Deploy.py"
         # against an existing "deploy.py".

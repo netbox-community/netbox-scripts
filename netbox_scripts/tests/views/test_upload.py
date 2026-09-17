@@ -1,3 +1,4 @@
+import hashlib
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -258,6 +259,13 @@ class ScriptProjectAddScriptViewTestCase(ObjectPermissionTestMixin, TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             return self.client.post(self.url(), data)
 
+    def post_leaving_storage_pending(self, **data):
+        """Run one upload request but hold back its post-commit storage write."""
+        # Exactly the state a second request can arrive in: the declaration is committed and the
+        # bytes are not staged yet, because on_commit runs after the request's transaction.
+        with self.captureOnCommitCallbacks(execute=False):
+            return self.client.post(self.url(), data)
+
     def test_a_second_script_joins_the_existing_tree(self):
         self.grant_both()
         response = self.post(upload_file=self.upload())
@@ -307,6 +315,48 @@ class ScriptProjectAddScriptViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertHttpStatus(response, 200)
         self.assertIn('already holds', response.content.decode())
         self.assertEqual(ScriptProjectRevision.objects.count(), 1)
+
+    def test_an_upload_still_storing_is_not_replaced_unasked(self):
+        self.grant_both()
+        first = self.post_leaving_storage_pending(upload_file=self.upload('new.py'))
+        self.assertHttpStatus(first, 302)
+        # Mid-flight, which is how a second browser tab would find the Project.
+        self.assertTrue(self.project.script_files.filter(source_path='new.py').exists())
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
+
+        second = self.post(upload_file=self.upload('new.py', SCRIPT + b'# a different file\n'))
+
+        self.assertHttpStatus(second, 200)
+        self.assertIn('has not finished storing', second.content.decode())
+        self.assertEqual(ScriptProjectRevision.objects.count(), 1)
+
+    def test_the_confirmation_allows_replacing_an_upload_still_storing(self):
+        self.grant_both()
+        self.post_leaving_storage_pending(upload_file=self.upload('new.py'))
+
+        response = self.post(upload_file=self.upload('new.py', SCRIPT + b'# deliberate\n'), confirm_replace='on')
+
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(self.project.script_files.filter(source_path='new.py').count(), 1)
+
+    def test_the_first_uploads_content_survives_a_refused_replacement(self):
+        # The whole point. Run the refused second request, then let the first one finish storing,
+        # and the bytes that land have to be the ones its uploader was told had been accepted.
+        self.grant_both()
+        mine = SCRIPT + b'# mine\n'
+        theirs = SCRIPT + b'# theirs\n'
+        with self.captureOnCommitCallbacks(execute=False) as pending:
+            self.client.post(self.url(), {'upload_file': self.upload('new.py', mine)})
+
+        self.post(upload_file=self.upload('new.py', theirs))
+        for callback in pending:
+            callback()
+
+        staged = ScriptProjectRevision.objects.exclude(pk=self.first.pk)
+        self.assertEqual(staged.count(), 1)
+        entry = next(item for item in staged.get().manifest if item['path'] == 'new.py')
+        self.assertEqual(entry['sha256'], hashlib.sha256(mine).hexdigest())
+        self.assertEqual(self.project.script_files.filter(source_path='new.py').count(), 1)
 
     def test_a_case_variant_is_refused_on_the_upload_field(self):
         self.grant_both()

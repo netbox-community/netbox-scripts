@@ -46,7 +46,8 @@
   file, which is declared as a script file, staged as a revision, validated in a
   worker, and activated when the Project's activation policy allows. Adding
   another script stages a revision holding the existing tree plus the new file,
-  and replacing a path the Project already holds needs explicit confirmation
+  and replacing a path the Project already holds, or is still storing, needs explicit
+  confirmation
 * Manual activation: a Project whose activation policy is manual can be put into
   service from its own page, naming the revision that would go live and retiring
   the previous one in the same step

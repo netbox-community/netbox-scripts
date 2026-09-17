@@ -71,6 +71,13 @@ That check compares the canonical path, not the name you picked, which is what m
 flattening above visible rather than silent. The replacement produces a new revision, so the
 previous one keeps its content and stays in the Project's history.
 
+The tick is also asked for a path an upload has claimed but not finished storing. A browser
+upload declares its script file while the request runs and writes the content once that request
+commits, so for a moment the Project has the path without the bytes. Two uploads of one new name
+can both start inside that moment, and without the tick the later one would replace the earlier
+one's content with neither operator being asked. If you see it for a file you believe is new,
+either another upload of that name is in flight or an earlier one failed to store.
+
 A name that collides with an existing file only by letter case, `Deploy.py` against
 `deploy.py`, is refused rather than replaced. Two such paths cannot both be materialized on a
 case-insensitive filesystem, so the collision is rejected at the point it is introduced.
@@ -100,9 +107,10 @@ a second one.
 
 **A 201 means the file was stored as a revision, not that the source is usable.** What the route
 refuses outright it answers with a 400 naming `file`: a body over the per-file byte limit, a name
-that is not a Python file, a path the Project already holds without `confirm_replace`, a path
-that collides with an existing declaration by letter case or by module name, and a Project whose
-source is a Data Source rather than uploaded files. Everything else is accepted and answered with
+that is not a Python file, a path the Project already holds without `confirm_replace`, a path a
+browser upload has declared but not finished storing, also without `confirm_replace`, a path that
+collides with an existing declaration by letter case or by module name, and a Project whose source
+is a Data Source rather than uploaded files. Everything else is accepted and answered with
 a revision. Content the manifest will not accept, such as an upload
 that trips a limit read over the whole tree rather than over one file, comes back as a revision
 that is already `invalid` and carries no source digest, and a revision that fails to import or

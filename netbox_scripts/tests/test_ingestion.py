@@ -293,6 +293,38 @@ class IngestUploadTestCase(TestCase):
         with self.assertRaises(ValidationError):
             check_upload_conflicts(self.project, 'beta.py', confirm_replace=False)
 
+    def test_a_declared_path_with_no_stored_content_needs_the_confirmation(self):
+        # Built directly, because this layer's job is the rule and the view test's job is the
+        # request sequence that reaches it.
+        ScriptFile.objects.create(project=self.project, source_path='pending.py', enabled=True)
+
+        with self.assertRaises(ValidationError) as ctx:
+            check_upload_conflicts(self.project, 'pending.py', confirm_replace=False)
+        self.assertIn('has not finished storing', str(ctx.exception))
+
+    def test_the_confirmation_clears_a_declared_path_with_no_stored_content(self):
+        ScriptFile.objects.create(project=self.project, source_path='pending.py', enabled=True)
+
+        check_upload_conflicts(self.project, 'pending.py', confirm_replace=True)
+
+    def test_an_undeclared_path_is_not_treated_as_a_replacement(self):
+        check_upload_conflicts(self.project, 'brand_new.py', confirm_replace=False)
+
+    def test_a_data_source_declaration_is_not_read_as_an_upload_in_flight(self):
+        # Answering here would send an operator looking for a file that was never the problem:
+        # the honest refusal for this Project is that it takes no uploads at all.
+        source = DataSource.objects.create(name='Scripts', type='local', source_url='file:///tmp/scripts')
+        project = ScriptProject.objects.create(
+            name='From a source',
+            key='from-a-source',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=source,
+            data_path='scripts',
+        )
+        ScriptFile.objects.create(project=project, source_path='gone.py', enabled=True)
+
+        check_upload_conflicts(project, 'gone.py', confirm_replace=False)
+
     def test_an_upload_declares_nothing_when_routing_is_unsafe(self):
         with routing(scriptfile=True), self.assertRaises(ImproperlyConfigured):
             ingest_upload(self.project, filename='deploy.py', content=SCRIPT)

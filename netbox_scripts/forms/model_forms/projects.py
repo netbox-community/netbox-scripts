@@ -182,7 +182,7 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
     confirm_replace = forms.BooleanField(
         required=False,
         label=_('Replace the existing file'),
-        help_text=_('Required only when the Project already holds a file at this path.'),
+        help_text=_('Required when the Project already holds a file at this path, or is still storing one.'),
     )
 
     fieldsets = (FieldSet('upload_file', 'confirm_replace', name=_('Script')),)
@@ -198,7 +198,7 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         return upload
 
     def clean(self):
-        """Require confirmation for a path the Project already holds, and refuse a colliding one."""
+        """Require confirmation for a path the Project holds or is storing, and refuse a colliding one."""
         super().clean()
         # Refused here rather than left to ingestion, which raises out of save(), where the
         # editing view does not catch it.

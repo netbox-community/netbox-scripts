@@ -60,7 +60,8 @@ class ScriptProjectListView(generic.ObjectListView):
 class ScriptProjectView(generic.ObjectView):
     """Detail view for a single Script Project."""
 
-    queryset = ScriptProject.objects.select_related('data_source')
+    # The state panel reads six fields off current_revision, which is active_revision first.
+    queryset = ScriptProject.objects.select_related('data_source', 'active_revision')
     # Workflow order: add source, then put it in service. Only one of the first two ever renders,
     # each for the source type it belongs to.
     actions = (AddScript, ReconcileSource, ActivateRevision, RepairScripts, CloneObject, EditObject, DeleteObject)

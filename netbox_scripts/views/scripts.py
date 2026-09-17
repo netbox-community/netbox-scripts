@@ -58,7 +58,7 @@ class NetBoxScriptListView(generic.ObjectListView):
 class NetBoxScriptView(generic.ObjectView):
     """Detail view for a single Script."""
 
-    queryset = NetBoxScript.objects.all()
+    queryset = NetBoxScript.objects.select_related('project', 'last_seen_revision')
     # No clone or delete: rows are derived from an activated revision, so the only authored
     # fields are the administrator's.
     actions = (RunScript, EditObject)
@@ -111,7 +111,8 @@ class NetBoxScriptRunView(generic.ObjectView):
 
     # The detail view's row, so the controls do not change between tabs.
     actions = (RunScript, EditObject)
-    queryset = NetBoxScript.objects.all()
+    # script_class_context walks project.active_revision, so the run needs the object, not the id.
+    queryset = NetBoxScript.objects.select_related('project', 'project__active_revision')
     template_name = 'netbox_scripts/netboxscript_run.html'
     # Visible for a script that cannot run, matching the button, which renders inert rather
     # than hidden so an operator sees the reason.
@@ -231,7 +232,8 @@ class NetBoxScriptResultView(generic.ObjectView):
     """
 
     actions = (RunScript, EditObject)
-    queryset = NetBoxScript.objects.all()
+    # The page polls itself while a run is live, and the button's refusal check reads the project.
+    queryset = NetBoxScript.objects.select_related('project')
     template_name = 'netbox_scripts/netboxscript_result.html'
     partial_template_name = 'netbox_scripts/inc/netboxscript_result_body.html'
 

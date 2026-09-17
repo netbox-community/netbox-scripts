@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 
 from core.models import ObjectChange
@@ -66,6 +68,21 @@ class NetBoxScriptViewTestCase(TestCase):
         content = response.content.decode()
         self.assertIn('tools.deploy', content)
         self.assertIn('DeployDevices', content)
+
+    def test_the_detail_view_fetches_its_relations_in_the_object_query(self):
+        # Both panels render a related object, so without the join each is its own query.
+        self.client.get(self.script.get_absolute_url())  # warm the session and permission caches
+
+        with CaptureQueriesContext(connection) as captured:
+            self.client.get(self.script.get_absolute_url())
+
+        tables = ('netbox_scripts_scriptproject', 'netbox_scripts_scriptprojectrevision')
+        followups = [
+            entry['sql']
+            for entry in captured.captured_queries
+            if any(table in entry['sql'] for table in tables) and 'netbox_scripts_netboxscript' not in entry['sql']
+        ]
+        self.assertEqual(followups, [])
 
     def test_the_identifier_is_the_one_every_detail_page_shows(self):
         # generic/object.html centres that row and exposes no block reaching its alignment,

@@ -801,16 +801,7 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
         with self.captureOnCommitCallbacks():
             job = RevisionValidationJob.enqueue_validation(revision)
         job.refresh_from_db()
-        self.assertEqual(job.data, {'revision_pk': revision.pk, 'activate_once': False})
-
-    def test_enqueue_persists_a_one_shot_on_the_job_row(self):
-        # On the row, not only in the queued task, so an operator inspecting a pending
-        # validation can see that it will activate.
-        revision = self.stage(SCRIPT_FILES)
-        with self.captureOnCommitCallbacks():
-            job = RevisionValidationJob.enqueue_validation(revision, activate_once=True)
-        job.refresh_from_db()
-        self.assertEqual(job.data, {'revision_pk': revision.pk, 'activate_once': True})
+        self.assertEqual(job.data, {'revision_pk': revision.pk})
 
     def test_unsafe_routing_fails_the_run_before_touching_the_revision(self):
         revision = self.stage(SCRIPT_FILES)

@@ -476,8 +476,6 @@ class IngestDataSourceTestCase(TestCase):
         staged = ingest_data_source(self.project)
         self.enqueued.assert_called_once()
         self.assertEqual(self.enqueued.call_args.args, (staged.revision,))
-        # The sync path keeps the project policy, so it asks for no one-shot at all.
-        self.assertNotIn('activate_once', self.enqueued.call_args.kwargs)
 
     def test_a_synchronization_that_changed_nothing_is_a_no_op(self):
         # Identical content under an unchanged script file configuration resolves to the revision
@@ -526,10 +524,14 @@ class ValidationJobActivationTestCase(TestCase):
         revision.refresh_from_db()
         return revision
 
-    def run_job(self, revision, **kwargs):
-        """Drive the job body past validation, with the verdict already recorded."""
-        # Bound to a real Job row, because the runner's logger writes to it.
-        if kwargs.get('activate_once'):
+    def run_job(self, revision, *, activation_pending=False, **kwargs):
+        """
+        Drive the job body past validation, with the verdict already recorded.
+
+        activation_pending sets the project's source_activation_pending flag first, which is
+        what lets the job's automatic activation proceed under a manual policy.
+        """
+        if activation_pending:
             ScriptProject.objects.filter(pk=revision.project_id).update(source_activation_pending=True)
         runner = RevisionValidationJob(Job.objects.create(name='validation-test', job_id=uuid.uuid4()))
         with mock.patch('netbox_scripts.jobs.validate_revision', return_value=revision):
@@ -555,7 +557,7 @@ class ValidationJobActivationTestCase(TestCase):
         # What the upload form's "Activate this upload" box asks for, without touching the policy
         # every later revision is judged by.
         revision = self.valid_revision(ActivationPolicyChoices.MANUAL)
-        self.run_job(revision, activate_once=True)
+        self.run_job(revision, activation_pending=True)
         revision.refresh_from_db()
         self.project.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
@@ -568,7 +570,7 @@ class ValidationJobActivationTestCase(TestCase):
             status=RevisionStatusChoices.INVALID, validation_errors=[{'path': 'deploy.py', 'message': 'bad'}]
         )
         revision.refresh_from_db()
-        self.run_job(revision, activate_once=True)
+        self.run_job(revision, activation_pending=True)
         self.project.refresh_from_db()
         self.assertIsNone(self.project.active_revision_id)
 
@@ -601,7 +603,7 @@ class ValidationJobActivationTestCase(TestCase):
 
     def test_success_consumes_the_one_shot(self):
         revision = self.valid_revision(ActivationPolicyChoices.MANUAL)
-        self.run_job(revision, activate_once=True)
+        self.run_job(revision, activation_pending=True)
         self.project.refresh_from_db()
         self.assertEqual(self.project.active_revision_id, revision.pk)
         self.assertFalse(self.project.source_activation_pending)

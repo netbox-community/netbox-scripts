@@ -358,16 +358,14 @@ class RevisionValidationJob(JobRunner):
         """
         branching.require_safe_routing()
         require_default_database(revision)
-        # storage.service._accept_source() is the one writer of the intent flag.
-        activate_once = bool(kwargs.pop('activate_once', False))
-        payload = {'revision_pk': revision.pk, 'activate_once': activate_once}
+        payload = {'revision_pk': revision.pk}
         with transaction.atomic():
             job = cls.enqueue(job_timeout=VALIDATION_JOB_TIMEOUT, **payload, **kwargs)
             job.data = payload
             job.save(update_fields=('data',))
         return job
 
-    def run(self, revision_pk=None, activate_once=False, **kwargs):
+    def run(self, revision_pk=None, **kwargs):
         """Recheck routing safety, then validate, failing the job on anything but a verdict."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():

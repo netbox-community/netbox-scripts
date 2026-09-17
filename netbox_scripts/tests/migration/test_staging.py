@@ -376,6 +376,16 @@ class HelperOnlyModuleTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(list(ScriptFile.objects.filter(project=project)), [])
         self.assertEqual(project.revisions.get().status, RevisionStatusChoices.VALID)
 
+    def test_no_module_is_read_from_the_backend_twice(self):
+        # Whether a module declares is decided from the bytes already in hand, not a second fetch.
+        self.legacy_uploaded_module('shared_util.py', HELPER)
+
+        with mock.patch.object(source, 'read_source', wraps=source.read_source) as read:
+            self.stage_all()
+
+        paths = [call.args[0].file_path for call in read.call_args_list]
+        self.assertEqual(sorted(paths), sorted(set(paths)))
+
     def test_a_module_whose_class_left_the_file_is_not_declared(self):
         # What NetBox leaves behind when a class holding Job history is removed from its file: a
         # soft-deleted row on a module whose source no longer defines it.

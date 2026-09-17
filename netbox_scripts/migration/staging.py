@@ -112,11 +112,12 @@ def _stage_content(project, members):
     """Stage the project's source and return the StagedRevision."""
     if project.source_type == ProjectSourceTypeChoices.UPLOAD:
         member = members[0]
+        source = legacy_source.read_source(member)
         return ingestion.ingest_upload(
             project,
             filename=member.file_path,
-            content=legacy_source.read_source(member),
-            declare=_publishes(member),
+            content=source,
+            declare=dialects.publishes(member.scripts, source),
         )
     # The whole directory is staged from the Data Source's own files, so a helper beside a
     # script arrives with it even though the built-in feature never synced one.

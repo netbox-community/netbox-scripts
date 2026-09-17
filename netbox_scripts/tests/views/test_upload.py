@@ -10,6 +10,7 @@ from netbox_scripts.ingestion import ingest_upload
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config
+from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.storage.paths import STORAGE_PREFIX
 from netbox_scripts.tests.storage.test_store import stored_paths
 from users.models import ObjectPermission
@@ -187,6 +188,21 @@ class ScriptProjectUploadViewTestCase(TestCase):
         self.assertEqual(stored_paths(config.get_storage(), f'{STORAGE_PREFIX}/'), before)
         self.enqueued.assert_not_called()
 
+    def test_a_failed_store_leaves_the_operator_on_the_project_rather_than_a_500(self):
+        self.grant_both()
+        # The real write, so the revision genuinely reaches STORAGE_FAILED.
+        with mock.patch(
+            'netbox_scripts.storage.service.store.write_revision',
+            side_effect=StorageError('the backend is unreachable'),
+        ):
+            response = self.post()
+
+        project = ScriptProject.objects.get(key='deploy-devices')
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(response.url, project.get_absolute_url())
+        self.assertEqual(project.revisions.get().status, RevisionStatusChoices.STORAGE_FAILED)
+        self.assertEqual(project.source_state, 'New source could not be stored.')
+
     def test_the_project_permission_alone_is_not_enough(self):
         # The upload declares a script file, so it needs the Script File permission too.
         self.grant(ScriptProject, 'view', 'add')
@@ -352,3 +368,14 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
         self.assertEqual(list(self.project.revisions.values_list('pk', flat=True)), [self.first.pk])
         self.enqueued.assert_not_called()
         flush.assert_not_called()
+
+    def test_a_failed_store_leaves_the_operator_on_the_project_rather_than_a_500(self):
+        self.grant_both()
+        with mock.patch(
+            'netbox_scripts.storage.service.store.write_revision',
+            side_effect=StorageError('the backend is unreachable'),
+        ):
+            response = self.post(upload_file=self.upload())
+
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(self.project.revisions.latest('pk').status, RevisionStatusChoices.STORAGE_FAILED)

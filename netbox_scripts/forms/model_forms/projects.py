@@ -160,6 +160,8 @@ class ScriptProjectUploadForm(PrimaryModelForm):
                 project, filename=filename, content=content, declare=False, activate_once=activate_once
             ),
             using=project._state.db,
+            # Runs past ObjectEditView's handlers, so a raised fault would 500 an already-committed save.
+            robust=True,
         )
         return project
 
@@ -229,6 +231,8 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         transaction.on_commit(
             lambda: ingest_upload(project, filename=filename, content=content, declare=False),
             using=project._state.db,
+            # Runs past ObjectEditView's handlers, so a raised fault would 500 an already-committed save.
+            robust=True,
         )
         return self.instance
 

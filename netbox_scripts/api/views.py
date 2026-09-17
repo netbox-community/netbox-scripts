@@ -1,6 +1,6 @@
 from pathlib import PurePosixPath
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
 from django.utils.translation import gettext as _
 from rest_framework import status
@@ -34,6 +34,7 @@ from ..ingestion import (
 from ..jobs import NetBoxScriptJob, ProjectScriptFileRefreshJob
 from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from ..storage import config
+from ..storage.exceptions import StorageError
 from ..storage.locks import project_lock
 from ..storage.service import require_default_database
 from .serializers import (
@@ -123,6 +124,14 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
             raise PermissionDenied(error.message) from error
         except ValidationError as error:
             raise APIValidationError({'file': error.messages}) from error
+        except ImproperlyConfigured as error:
+            # Raised by check_upload_preconditions, before anything is written.
+            raise APIValidationError({'detail': str(error)}) from error
+        except (StorageError, OSError) as error:
+            # The pair the run action already maps through LOAD_FAILURES, for the same reason.
+            raise APIValidationError(
+                {'detail': _('The upload could not be stored: {error}').format(error=error)}
+            ) from error
 
         return Response(
             ScriptProjectRevisionSerializer(staged.revision, context={'request': request}).data,

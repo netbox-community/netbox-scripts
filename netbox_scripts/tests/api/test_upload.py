@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 from unittest import mock
 
+from django.core.exceptions import ImproperlyConfigured
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
@@ -13,6 +14,7 @@ from core.models import DataSource, Job, ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
+from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
 from users.models import ObjectPermission
 from utilities.testing import APITestCase
@@ -149,6 +151,29 @@ class UploadAPITestCase(APITestCase):
             self.url(project), {'file': SimpleUploadedFile('deploy.py', SOURCE)}, format='multipart', **self.header
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_an_unsafe_branch_route_is_refused_readably(self):
+        self.allow_uploads()
+        with mock.patch(
+            'netbox_scripts.ingestion.branching.require_safe_routing',
+            side_effect=ImproperlyConfigured('Script Projects are routed to a branch schema.'),
+        ):
+            response = self.upload()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('branch schema', str(response.data))
+        self.assertFalse(ScriptProjectRevision.objects.filter(project=self.project).exists())
+
+    def test_a_failed_store_is_refused_readably(self):
+        self.allow_uploads()
+        with mock.patch(
+            'netbox_scripts.storage.service.store.write_revision',
+            side_effect=StorageError('the backend is unreachable'),
+        ):
+            response = self.upload()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('could not be stored', str(response.data))
 
     def test_the_manual_policy_leaves_the_revision_inactive(self):
         self.allow_uploads()

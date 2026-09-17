@@ -36,14 +36,9 @@ from netbox_scripts.models import (
 )
 from netbox_scripts.storage import service, store
 from netbox_scripts.storage.exceptions import StorageError
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 
 from .test_branching import routing
-
-IN_MEMORY_STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-}
 
 SCRIPT = b'from netbox_scripts.scripts import Script\n\n\nclass Deploy(Script):\n    pass\n'
 DISCOVERABLE_SCRIPT = b"""from netbox_scripts.scripts import Script, StringVar

@@ -1,4 +1,3 @@
-import sys
 import tempfile
 import uuid
 from datetime import timedelta
@@ -15,11 +14,9 @@ from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
-from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_scripts.scripts.logging import LogLevelChoices
 from netbox_scripts.storage import service
-from netbox_scripts.tests.runtime.test_cache import discard_tree
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.validation import validate_revision
 from users.models import ObjectPermission
 from utilities.datetime import local_now
@@ -48,14 +45,10 @@ class RunViewTestMixin:
             override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(self.cache_root)}})
         )
         self.addCleanup(discard_tree, self.cache_root)
-        self.addCleanup(self._purge_namespace)
+        self.addCleanup(purge_namespace)
         self.project = ScriptProject.objects.create(name='Runnable', key='runnable')
         self.revision = self.publish()
         self.script = NetBoxScript.objects.get(project=self.project)
-
-    def _purge_namespace(self):
-        for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
-            del sys.modules[name]
 
     def publish(self, source=TAKES_A_NAME):
         """Stage, validate and activate one tree, so the project is serving a runnable script."""

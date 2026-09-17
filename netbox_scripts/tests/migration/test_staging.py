@@ -26,8 +26,7 @@ from netbox_scripts.models import (
     ScriptProject,
     ScriptProjectRevision,
 )
-from netbox_scripts.tests.runtime.test_cache import discard_tree
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree
 
 LEGACY_SCRIPT = b"""from extras.scripts import Script
 

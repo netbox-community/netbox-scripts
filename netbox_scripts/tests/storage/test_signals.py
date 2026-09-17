@@ -14,12 +14,7 @@ from netbox_scripts.storage import config, store
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
-
-IN_MEMORY_STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-}
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 
 LOGGER = 'netbox.plugins.netbox_scripts.storage'
 

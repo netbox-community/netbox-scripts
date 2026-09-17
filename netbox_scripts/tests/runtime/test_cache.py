@@ -20,6 +20,7 @@ from netbox_scripts.storage import store
 from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageError, UnsafePathError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_key
+from netbox_scripts.tests.plugin_testing import discard_tree
 from netbox_scripts.tests.storage.test_backend_contract import HAS_S3_STACK
 from netbox_scripts.tests.storage.test_store import (
     STORAGE_KEY,
@@ -52,16 +53,6 @@ def tree_contents(root):
             node = base / name
             found[node.relative_to(root).as_posix()] = node.read_bytes()
     return found
-
-
-def discard_tree(root):
-    """Remove one test tree, restoring the write bits publishing dropped."""
-    if root.exists():
-        root.chmod(0o755)
-        for base, directories, _files in root.walk():
-            for name in directories:
-                (base / name).chmod(0o755)
-    shutil.rmtree(root, ignore_errors=True)
 
 
 @contextmanager

@@ -25,7 +25,7 @@ from netbox_scripts.models import (
 )
 from netbox_scripts.storage import service, store
 from netbox_scripts.storage.exceptions import StorageError
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 from netbox_scripts.tests.test_ingestion import SCRIPT, data_file
 
 SIGNAL_LOGGER = 'netbox.plugins.netbox_scripts.storage'

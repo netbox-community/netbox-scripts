@@ -21,12 +21,7 @@ from netbox_scripts.storage import config, store
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
-
-IN_MEMORY_STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-}
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 
 STORAGE_KEY = '9f1c6d24-0b2a-4d3e-8f57-2c9a4b6e1d80'
 SOURCE = {'hello.py': b'print("hi")\n', 'pkg/util.py': b'VALUE = 1\n'}

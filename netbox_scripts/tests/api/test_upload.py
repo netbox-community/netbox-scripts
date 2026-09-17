@@ -15,7 +15,7 @@ from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeCho
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage.exceptions import StorageError
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 from users.models import ObjectPermission
 from utilities.testing import APITestCase
 

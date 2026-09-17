@@ -10,12 +10,11 @@ from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import ScriptMetadataError, ScriptResolutionError
 from netbox_scripts.runtime.loader import revision_import_session, unload_revision
-from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
+from netbox_scripts.runtime.naming import revision_module_name
 from netbox_scripts.runtime.resolution import resolve_script_class
 from netbox_scripts.scripts import Script
 from netbox_scripts.storage import config, service
-from netbox_scripts.tests.runtime.test_cache import discard_tree
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.validation import validate_revision
 
 
@@ -33,12 +32,8 @@ class ResolutionTestMixin:
             override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(self.cache_root)}})
         )
         self.addCleanup(discard_tree, self.cache_root)
-        self.addCleanup(self._purge_namespace)
+        self.addCleanup(purge_namespace)
         self.project = ScriptProject.objects.create(name='Runnable Project', key='runnable-project')
-
-    def _purge_namespace(self):
-        for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
-            del sys.modules[name]
 
     def validated(self, files, script_files):
         """Stage one tree, drive it to a verdict, and return the refreshed revision."""

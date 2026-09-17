@@ -10,11 +10,11 @@ from django.test import TestCase
 
 from netbox_scripts.runtime import loader
 from netbox_scripts.runtime.exceptions import InvalidModulePathError, ScriptFileImportError
-from netbox_scripts.runtime.naming import PRIVATE_ROOT, project_module_name, revision_module_name
+from netbox_scripts.runtime.naming import project_module_name, revision_module_name
 from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_key
-from netbox_scripts.tests.runtime.test_cache import discard_tree
+from netbox_scripts.tests.plugin_testing import discard_tree, purge_namespace
 from netbox_scripts.tests.storage.test_store import STORAGE_KEY, OpenRecordingStorage, manifest_for
 
 OTHER_KEY = uuid.UUID('5b7e2f10-9c4d-4a6b-b1e8-7d3f5a2c9e41')
@@ -44,12 +44,8 @@ class LoaderTestCase(TestCase):
         self.storage = InMemoryStorage()
         self.cache_root = Path(tempfile.mkdtemp())
         self.addCleanup(discard_tree, self.cache_root)
-        self.addCleanup(self._purge_namespace)
+        self.addCleanup(purge_namespace)
         ROOT_RUNS.clear()
-
-    def _purge_namespace(self):
-        for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
-            del sys.modules[name]
 
     def load(self, storage_key, files, script_file, **kwargs):
         manifest, digest = seed_revision(self.storage, storage_key, files)

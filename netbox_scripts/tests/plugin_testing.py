@@ -1,8 +1,34 @@
+import shutil
+import sys
+
+from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from utilities.testing import (  # noqa: F401
     APIViewTestCases,
     ChangeLoggedFilterSetTestMixin,
     ViewTestCases,
 )
+
+IN_MEMORY_STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+}
+
+
+def discard_tree(root):
+    """Remove one test tree, restoring the write bits publishing dropped."""
+    if root.exists():
+        root.chmod(0o755)
+        for base, directories, _files in root.walk():
+            for name in directories:
+                (base / name).chmod(0o755)
+    shutil.rmtree(root, ignore_errors=True)
+
+
+def purge_namespace():
+    """Drop the runtime namespace from sys.modules, so one test cannot see another's imports."""
+    for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
+        del sys.modules[name]
 
 
 class PluginViewTestCase:

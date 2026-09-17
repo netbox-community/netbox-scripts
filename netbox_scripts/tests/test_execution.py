@@ -33,8 +33,7 @@ from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptResolutionE
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.scripts import AbortScript, Script
 from netbox_scripts.storage import service
-from netbox_scripts.tests.runtime.test_cache import discard_tree
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.tests.test_branching import branching_installed, fake_branching, fake_contextvars
 from netbox_scripts.validation import validate_revision
 from utilities.datetime import local_now
@@ -365,15 +364,9 @@ class ScriptJobTestMixin:
             override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(self.cache_root)}})
         )
         self.addCleanup(discard_tree, self.cache_root)
-        self.addCleanup(self._purge_namespace)
+        self.addCleanup(purge_namespace)
         self.user = get_user_model().objects.create_user(username='runner')
         self.project = ScriptProject.objects.create(name='Runnable', key='runnable')
-
-    def _purge_namespace(self):
-        import sys
-
-        for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
-            del sys.modules[name]
 
     def publish(self, files, script_files=('deploy.py',), activate=True):
         """Stage, validate and optionally activate one tree, returning the revision."""

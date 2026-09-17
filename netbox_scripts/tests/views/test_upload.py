@@ -12,15 +12,10 @@ from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevisi
 from netbox_scripts.storage import config
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.storage.paths import STORAGE_PREFIX
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 from netbox_scripts.tests.storage.test_store import stored_paths
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
-
-IN_MEMORY_STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-}
 
 SCRIPT = b'from netbox_scripts.scripts import Script\n\n\nclass Deploy(Script):\n    pass\n'
 

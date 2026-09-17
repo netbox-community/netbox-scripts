@@ -30,12 +30,7 @@ from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.locks import advisory_key
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
-
-IN_MEMORY_STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-}
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 
 SOURCE = {'hello.py': b'print("hi")\n'}
 

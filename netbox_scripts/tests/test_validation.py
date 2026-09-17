@@ -21,8 +21,7 @@ from netbox_scripts.runtime.exceptions import DiscoveryError, ScriptFileImportEr
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageError
-from netbox_scripts.tests.runtime.test_cache import discard_tree
-from netbox_scripts.tests.storage.test_service import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.validation import (
     ValidationStateError,
     _top_level_module_names,
@@ -49,15 +48,9 @@ class ValidationTestMixin:
             override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(self.cache_root)}})
         )
         self.addCleanup(discard_tree, self.cache_root)
-        self.addCleanup(self._purge_namespace)
+        self.addCleanup(purge_namespace)
         self.project = ScriptProject.objects.create(name='Validated Project', key='validated-project')
         self.job = self.make_job()
-
-    def _purge_namespace(self):
-        import sys
-
-        for name in [n for n in sys.modules if n == PRIVATE_ROOT or n.startswith(f'{PRIVATE_ROOT}.')]:
-            del sys.modules[name]
 
     def make_job(self):
         return Job.objects.create(name='validation-test', job_id=uuid.uuid4())

@@ -18,6 +18,7 @@ from netbox_scripts.storage.exceptions import (
 )
 from netbox_scripts.storage.paths import STORAGE_PREFIX, project_prefix, revision_prefix
 from netbox_scripts.storage.script_files import EMPTY_SNAPSHOT_DIGEST, build_script_file_snapshot
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 from netbox_scripts.tests.storage.test_store import RefusingStorage
 
 GOOD_FILES = {'hello.py': b'print("hi")\n', 'pkg/mod.py': b'VALUE = 1\n'}
@@ -28,13 +29,6 @@ WRITE_TARGET = 'netbox_scripts.storage.service.store.write_revision'
 
 def promote_without_synchronizing(**kwargs):
     """Stand-in for the mandatory on_promote callback, for cases testing the primitive alone."""
-
-
-IN_MEMORY_STORAGES = {
-    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
-}
 
 
 def content(marker):

@@ -262,10 +262,9 @@ periodically.
   UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_scripts.tests
   ```
 
-  **The baseline is a single file, but the CI matrix spans two NetBox refs, and a
-  core change to query behaviour lands on them at different times.** The file
-  therefore tracks the pinned stable ref in `.github/workflows/test.yml`, and two
-  rules follow from that:
+  **The baseline is a single file, but the CI matrix spans four NetBox refs, and a
+  core change to query behaviour lands on them at different times.** The file tracks
+  the newest pinned release in `.github/workflows/test.yml`, and two rules follow:
 
   - **Regenerate against a checkout at that ref, never against `main` or
     `feature`.** `UPDATE_QUERY_COUNTS=1` rewrites every key it observes, so a run
@@ -273,8 +272,10 @@ periodically.
     development checkout floats across branches, so check which line it is on
     first.
   - **A count that changes only on `main` or `feature` is core's, not a
-    regression.** The `feature` test leg is `continue-on-error` for exactly this
-    reason. The baseline moves when the pinned ref moves, not before. Confirm
+    regression.** `feature` is `continue-on-error` for exactly this reason.
+    `main` is not, so a query change landing there turns a blocking leg red for a
+    change that is not ours: read it, then decide whether the baseline moves or the
+    plugin does. The baseline moves when a pinned release moves, not before. Confirm
     the cause by running the same test against a pristine tree (`git archive
     HEAD` into a scratch directory, then point `PYTHONPATH` at it) before
     touching the file.
@@ -296,14 +297,15 @@ Two GitHub Actions workflows ship pre-wired under `.github/workflows/`:
 
 - **`test.yml`**, PR / branch validation. Four jobs, three of them gated on
   a fast `lint` job running `pre-commit run --all-files`: a `test` matrix
-  (Python versions x `[v4.7.0, feature]`), `test-branching` (one leg
+  (Python versions x `[v4.7.0, v4.7.1, main, feature]`, twelve legs, coverage
+  collected once on py3.14 / `main`), `test-branching` (one leg
   with NetBox Branching installed, the two branching test modules only), and
   `internals`, which resolves every symbol `docs/development/netbox-internals.md`
-  lists against the `feature` ref. The `feature` test leg and the branching
-  job report without blocking (`continue-on-error`). `internals` is the one
-  blocking check on the moving ref: with no database, services or fixtures, a
-  failure there is a crossing, the plugin skipped outside its version range,
-  or a settings or setup change. Postgres and Redis service containers for
+  lists against the `feature` ref. Only the `feature` test leg and the branching
+  job report without blocking (`continue-on-error`), so `main` breaking is ours to
+  answer. `internals` is the one blocking check against `feature`: with no database,
+  services or fixtures, a failure there is a crossing, the plugin skipped outside its
+  version range, or a settings or setup change. Postgres and Redis service containers for
   the two test jobs. Triggers on pull requests and pushes to `main`.
 - **`release.yml`**, Build + `twine check` + publish to PyPI through Trusted
   Publishing (`pypa/gh-action-pypi-publish`, `id-token: write`, environment

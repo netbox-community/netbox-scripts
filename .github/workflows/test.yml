@@ -64,9 +64,8 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # 'feature' is the only moving ref, so a core change reaches it before any
-    # release this plugin supports. It reports without blocking, and the pinned
-    # leg stays authoritative.
+    # 'feature' carries the next minor, so a core change reaches it before any
+    # release this plugin supports. 'main' is what the next patch is cut from.
     continue-on-error: >-
       ${{ matrix.netbox-ref == 'feature' }}
     env:
@@ -82,13 +81,14 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
         netbox-ref:
           - 'v4.7.0'
+          - 'v4.7.1'
+          - 'main'
           - 'feature'
         include:
           - coverage: false
-          # Collect coverage once, on the newest Python / max stable NetBox
-          # leg.
+          # One leg: line coverage does not vary by Python or core version.
           - python-version: '3.14'
-            netbox-ref: 'v4.7.0'
+            netbox-ref: 'main'
             coverage: true
     services:
       redis:

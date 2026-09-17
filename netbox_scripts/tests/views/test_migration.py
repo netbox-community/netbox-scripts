@@ -12,7 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
-from core.models import Job, ObjectType
+from core.models import Job
 from extras.models import ScriptModule
 from netbox_scripts.choices import (
     MigrationStateChoices,
@@ -30,11 +30,11 @@ from netbox_scripts.jobs import (
 )
 from netbox_scripts.migration import cutover, mapping
 from netbox_scripts.models import MigrationRun, ScriptProject, ScriptProjectRevision
-from users.models import ObjectPermission
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from utilities.testing import TestCase, create_test_user
 
 
-class MigrationTriggerTestCase(TestCase):
+class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     """The Migration page and the seven routes that queue a pass."""
 
     def setUp(self):
@@ -63,10 +63,7 @@ class MigrationTriggerTestCase(TestCase):
         return Job.objects.create(name='queued', job_id=uuid.uuid4(), user=kwargs.get('user'))
 
     def grant(self, *actions):
-        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        return super().grant(ScriptProject, *actions)
 
     @staticmethod
     def url(name):

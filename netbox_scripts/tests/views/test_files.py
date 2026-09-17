@@ -3,14 +3,13 @@ from datetime import timedelta
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import ObjectType
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
-from users.models import ObjectPermission
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from utilities.testing import TestCase, create_test_user
 
 
-class ScriptProjectFilesViewTestCase(TestCase):
+class ScriptProjectFilesViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The Revision Files tab lists the current revision's manifest with the live declaration state."""
 
     @classmethod
@@ -34,16 +33,6 @@ class ScriptProjectFilesViewTestCase(TestCase):
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
-
-    def grant(self, model, *actions, constraints=None):
-        obj_perm = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}',
-            actions=list(actions),
-            constraints=constraints,
-        )
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def url(self, project):
         return reverse('plugins:netbox_scripts:scriptproject_files', args=[project.pk])

@@ -2,15 +2,15 @@ from unittest import mock
 
 from django.urls import reverse
 
-from core.models import DataSource, ObjectType
+from core.models import DataSource
 from netbox_scripts.choices import ProjectSourceTypeChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
 from netbox_scripts.models import ScriptProject
-from users.models import ObjectPermission
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from utilities.testing import TestCase, create_test_user
 
 
-class ReconcileSourceViewTestCase(TestCase):
+class ReconcileSourceViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The on-demand Reconcile Source action on a Data Source-backed Project."""
 
     def setUp(self):
@@ -30,10 +30,7 @@ class ReconcileSourceViewTestCase(TestCase):
         )
 
     def grant(self, *actions):
-        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        return super().grant(ScriptProject, *actions)
 
     @staticmethod
     def url(project):

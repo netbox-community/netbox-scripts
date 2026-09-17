@@ -16,7 +16,7 @@ from netbox_scripts.models import (
     ScriptProjectRevision,
 )
 from netbox_scripts.storage import service
-from netbox_scripts.tests.plugin_testing import PluginTestCases
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases
 from netbox_scripts.ui import ScriptProjectPanel, ScriptProjectStatePanel
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, create_test_user
@@ -102,7 +102,7 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         super().test_edit_object_with_constrained_permission()
 
 
-class ScriptProjectScriptFilesViewTestCase(TestCase):
+class ScriptProjectScriptFilesViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The Script Files tab writes declarations, so it carries the Script File permission."""
 
     @classmethod
@@ -121,16 +121,6 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
 
     def url(self):
         return reverse('plugins:netbox_scripts:scriptproject_script_files', args=[self.project.pk])
-
-    def grant(self, model, *actions, constraints=None):
-        obj_perm = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}',
-            actions=list(actions),
-            constraints=constraints,
-        )
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def grant_both(self):
         # The tab restricts the project queryset and writes declarations, so it needs both.
@@ -219,7 +209,7 @@ class ScriptProjectScriptFilesViewTestCase(TestCase):
         flush.assert_not_called()
 
 
-class ScriptProjectSourceStateViewTestCase(TestCase):
+class ScriptProjectSourceStateViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The detail view surfaces source state, revision history, and the add-script action."""
 
     @classmethod
@@ -237,16 +227,6 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
-
-    def grant(self, model, *actions, constraints=None):
-        obj_perm = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}',
-            actions=list(actions),
-            constraints=constraints,
-        )
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def body(self):
         response = self.client.get(self.project.get_absolute_url())
@@ -438,7 +418,7 @@ class ScriptProjectSourceStateViewTestCase(TestCase):
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)
-class ScriptProjectActivateViewTestCase(TestCase):
+class ScriptProjectActivateViewTestCase(ObjectPermissionTestMixin, TestCase):
     """Manual activation, which a project whose policy is manual has no other route to."""
 
     def setUp(self):
@@ -453,10 +433,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
         return reverse('plugins:netbox_scripts:scriptproject_activate', args=[self.project.pk])
 
     def grant(self, *actions):
-        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        return super().grant(ScriptProject, *actions)
 
     def grant_scripts(self, *actions):
         obj_perm = ObjectPermission(name=f'script {"/".join(actions)}', actions=list(actions))
@@ -702,7 +679,7 @@ class ScriptProjectActivateViewTestCase(TestCase):
 
 
 @override_settings(STORAGES=ACTIVATE_STORAGES)
-class ScriptProjectRepairViewTestCase(TestCase):
+class ScriptProjectRepairViewTestCase(ObjectPermissionTestMixin, TestCase):
     """Republishing a serving Project's rows, the one route to the already-active path."""
 
     def setUp(self):
@@ -733,10 +710,7 @@ class ScriptProjectRepairViewTestCase(TestCase):
         return reverse('plugins:netbox_scripts:scriptproject_repair', args=[(project or self.project).pk])
 
     def grant(self, *actions, constraints=None):
-        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions), constraints=constraints)
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        return super().grant(ScriptProject, *actions, constraints=constraints)
 
     def message(self, response):
         return str(list(response.context['messages'])[0])

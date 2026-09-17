@@ -1,7 +1,9 @@
 import shutil
 import sys
 
+from core.models import ObjectType
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
+from users.models import ObjectPermission
 from utilities.testing import (  # noqa: F401
     APIViewTestCases,
     ChangeLoggedFilterSetTestMixin,
@@ -23,6 +25,28 @@ def discard_tree(root):
             for name in directories:
                 (base / name).chmod(0o755)
     shutil.rmtree(root, ignore_errors=True)
+
+
+class ObjectPermissionTestMixin:
+    """
+    Grant one model's actions to the test user as a single Object Permission.
+
+    Core's TestCase.add_permissions covers the unconstrained case, but it takes no constraints
+    and keys off an <app>.<action>_<model> name rather than a model class, so a suite testing
+    constrained grants needs this instead. A suite that always grants on one model overrides
+    grant() to bind it.
+    """
+
+    def grant(self, model, *actions, constraints=None):
+        permission = ObjectPermission(
+            name=f'{model._meta.model_name} {"/".join(actions)}',
+            actions=list(actions),
+            constraints=constraints,
+        )
+        permission.save()
+        permission.users.add(self.user)
+        permission.object_types.add(ObjectType.objects.get_for_model(model))
+        return permission
 
 
 def purge_namespace():

@@ -11,6 +11,7 @@ from netbox_scripts.tables import (
     ScriptProjectRevisionProblemTable,
     ScriptProjectRevisionScriptFileTable,
 )
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -37,19 +38,13 @@ def record(class_name='Deploy', position=0):
 
 
 @override_settings(STORAGES=REVISION_STORAGES)
-class RevisionServiceViewTestCase(TestCase):
+class RevisionServiceViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The per-row Activate and Deactivate buttons on a project's Revisions tab."""
 
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
         self.project = ScriptProject.objects.create(name='Serviced', key='serviced')
-
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     counter = 0
 
@@ -305,7 +300,7 @@ class DeactivateRevisionTestCase(TestCase):
         self.assertFalse(revision.is_active)
 
 
-class ScriptProjectRevisionProblemPanelTestCase(TestCase):
+class ScriptProjectRevisionProblemPanelTestCase(ObjectPermissionTestMixin, TestCase):
     """The revision detail view reports the problems its record carries, whichever tier wrote them."""
 
     @classmethod
@@ -344,12 +339,6 @@ class ScriptProjectRevisionProblemPanelTestCase(TestCase):
     def setUp(self):
         self.user = create_test_user()
         self.client.force_login(self.user)
-
-    def grant(self, model, *actions):
-        obj_perm = ObjectPermission(name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions))
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def body(self, revision):
         url = reverse('plugins:netbox_scripts:scriptprojectrevision', args=[revision.pk])

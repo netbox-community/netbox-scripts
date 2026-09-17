@@ -10,7 +10,7 @@ from netbox_scripts.jobs import ProjectReconciliationJob
 from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.permissions import moved_source_fields
 from netbox_scripts.storage import service
-from users.models import ObjectPermission
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from utilities.permissions import get_permission_for_model
 from utilities.testing import TestCase, create_test_user
 
@@ -45,7 +45,7 @@ RECORD = {
 
 
 @override_settings(STORAGES=PERMISSION_STORAGES)
-class SourceFieldGateTestCase(TestCase):
+class SourceFieldGateTestCase(ObjectPermissionTestMixin, TestCase):
     """
     The three fields that decide what a Project serves, gated on activate rather than change.
 
@@ -66,16 +66,10 @@ class SourceFieldGateTestCase(TestCase):
         )
 
     def grant(self, *actions, constraints=None):
-        permission = ObjectPermission(name='/'.join(actions), actions=list(actions), constraints=constraints)
-        permission.save()
-        permission.users.add(self.user)
-        permission.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        super().grant(ScriptProject, *actions, constraints=constraints)
         # restrict_form_fields narrows data_source to what the user may VIEW. Without this every
         # case below fails on the field instead of reaching the gate.
-        viewer = ObjectPermission(name=f'datasource view {"/".join(actions)}', actions=['view'])
-        viewer.save()
-        viewer.users.add(self.user)
-        viewer.object_types.add(ObjectType.objects.get_for_model(DataSource))
+        super().grant(DataSource, 'view')
 
     def edit_post(self, **overrides):
         data = {
@@ -287,13 +281,17 @@ class SourceFieldGateTestCase(TestCase):
         self.assertEqual(self.project.data_source_id, self.other.pk)
 
 
-class SourceManagementPermissionTestCase(TestCase):
+class SourceManagementPermissionTestCase(ObjectPermissionTestMixin, TestCase):
     """
     Each source-management surface gated on the permission that names it, not a borrowed one.
 
     The negative cases are the point: someone who may rename a project must not thereby be able to
     change what it serves. Run and schedule are covered in the run suites, next to their fixture.
     """
+
+    def grant(self, *actions, model=ScriptProject, constraints=None):
+        """Grant the named actions on one model to the test user."""
+        return super().grant(model, *actions, constraints=constraints)
 
     def setUp(self):
         self.user = create_test_user()
@@ -321,17 +319,6 @@ class SourceManagementPermissionTestCase(TestCase):
         )
         revision.refresh_from_db()
         return revision
-
-    def grant(self, *actions, model=ScriptProject, constraints=None):
-        """Grant the named actions on one model to the test user."""
-        permission = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}',
-            actions=list(actions),
-            constraints=constraints,
-        )
-        permission.save()
-        permission.users.add(self.user)
-        permission.object_types.add(ObjectType.objects.get_for_model(model))
 
     def project_url(self, action, project=None):
         return reverse(

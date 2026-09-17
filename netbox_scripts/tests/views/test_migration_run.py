@@ -1,13 +1,12 @@
 from django.urls import reverse
 
-from core.models import ObjectType
 from netbox_scripts.choices import MigrationStateChoices
 from netbox_scripts.models import MigrationRun, ScriptProject
-from users.models import ObjectPermission
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from utilities.testing import TestCase, create_test_user
 
 
-class MigrationRunViewTestCase(TestCase):
+class MigrationRunViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The run detail page: what it shows, and the one permission that reaches it."""
 
     def setUp(self):
@@ -20,10 +19,7 @@ class MigrationRunViewTestCase(TestCase):
         )
 
     def grant(self, *actions):
-        obj_perm = ObjectPermission(name=f'project {"/".join(actions)}', actions=list(actions))
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        return super().grant(ScriptProject, *actions)
 
     def url(self):
         return reverse('plugins:netbox_scripts:migrationrun', args=[self.migration.pk])

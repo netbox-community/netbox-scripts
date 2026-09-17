@@ -12,7 +12,7 @@ from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevisi
 from netbox_scripts.storage import config
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.storage.paths import STORAGE_PREFIX
-from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, ObjectPermissionTestMixin
 from netbox_scripts.tests.storage.test_store import stored_paths
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
@@ -21,7 +21,7 @@ SCRIPT = b'from netbox_scripts.scripts import Script\n\n\nclass Deploy(Script):\
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class ScriptProjectUploadViewTestCase(TestCase):
+class ScriptProjectUploadViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The upload view creates a Project from one script and declares its script file."""
 
     def setUp(self):
@@ -34,14 +34,6 @@ class ScriptProjectUploadViewTestCase(TestCase):
     @staticmethod
     def url():
         return reverse('plugins:netbox_scripts:scriptproject_upload')
-
-    def grant(self, model, *actions, constraints=None):
-        obj_perm = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions), constraints=constraints
-        )
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def grant_both(self):
         # The view creates a Project and declares its script file, so it needs both.
@@ -236,7 +228,7 @@ class ScriptProjectUploadViewTestCase(TestCase):
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
-class ScriptProjectAddScriptViewTestCase(TestCase):
+class ScriptProjectAddScriptViewTestCase(ObjectPermissionTestMixin, TestCase):
     """Adding a second script stages the existing tree plus the new file."""
 
     def setUp(self):
@@ -252,14 +244,6 @@ class ScriptProjectAddScriptViewTestCase(TestCase):
 
     def url(self):
         return reverse('plugins:netbox_scripts:scriptproject_add_script', args=[self.project.pk])
-
-    def grant(self, model, *actions, constraints=None):
-        obj_perm = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}', actions=list(actions), constraints=constraints
-        )
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(model))
 
     def grant_both(self):
         # Registered on the detail route, so the base view asks for change, not add.

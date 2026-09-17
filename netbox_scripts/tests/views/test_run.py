@@ -16,9 +16,13 @@ from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
 from netbox_scripts.scripts.logging import LogLevelChoices
 from netbox_scripts.storage import service
-from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
+from netbox_scripts.tests.plugin_testing import (
+    IN_MEMORY_STORAGES,
+    ObjectPermissionTestMixin,
+    discard_tree,
+    purge_namespace,
+)
 from netbox_scripts.validation import validate_revision
-from users.models import ObjectPermission
 from utilities.datetime import local_now
 from utilities.testing import TestCase
 
@@ -36,7 +40,10 @@ TAKES_A_NAME = (
 )
 
 
-class RunViewTestMixin:
+class RunViewTestMixin(ObjectPermissionTestMixin):
+    def grant(self, *actions, model=NetBoxScript, constraints=None):
+        return super().grant(model, *actions, constraints=constraints)
+
     def setUp(self):
         super().setUp()
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
@@ -58,17 +65,6 @@ class RunViewTestMixin:
         activate_revision(revision)
         self.project.refresh_from_db()
         return revision
-
-    def grant(self, *actions, model=NetBoxScript, constraints=None):
-        """Grant the named actions on one model to the test user, optionally constrained."""
-        permission = ObjectPermission(
-            name=f'{model._meta.model_name} {"/".join(actions)}',
-            actions=list(actions),
-            constraints=constraints,
-        )
-        permission.save()
-        permission.users.add(self.user)
-        permission.object_types.add(ObjectType.objects.get_for_model(model))
 
     def url(self, name='run', **kwargs):
         return reverse(f'plugins:netbox_scripts:netboxscript_{name}', kwargs={'pk': self.script.pk, **kwargs})

@@ -75,6 +75,7 @@ docs = [
 # Files tracked in git but intentionally excluded from sdist/wheel.
 # These are dev-tooling / project-meta files, not Python distribution content.
 ignore = [
+    ".git-blame-ignore-revs",
     ".pre-commit-config.yaml",
     "AGENTS.md",
     "CLAUDE.md",

@@ -9,6 +9,7 @@ Context:
   - staging_queued: Whether a staging pass is already under way
   - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
   - warning_count:  How many modules the last inventory reported a warning for
+  - branch_import_count: How many modules import something absent, but only inside a branch
 - helper_count:   How many modules the last inventory reported would publish nothing
   - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
   - run:            The open MigrationRun, or None before the first staging pass
@@ -155,6 +156,16 @@ Context:
                 One module imports the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by it.
               {% plural %}
                 {{ total }} modules import the legacy authoring API, which stops working at NetBox v5.0. Staging is not blocked by them.
+              {% endblocktrans %}
+              {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
+          {% if branch_import_count %}
+            <p class="text-secondary mt-3">
+              {% blocktrans count total=branch_import_count %}
+                One module imports something this host cannot provide, but only inside a conditional branch. If that branch runs, the revision fails validation and says so. Staging is not blocked by it.
+              {% plural %}
+                {{ total }} modules import something this host cannot provide, but only inside a conditional branch. If those branches run, the revisions fail validation and say so. Staging is not blocked by them.
               {% endblocktrans %}
               {% trans "The inventory names each one." %}
             </p>

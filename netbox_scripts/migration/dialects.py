@@ -12,6 +12,7 @@ __all__ = (
     'classify',
     'defines_a_script',
     'publishes',
+    'reachable_nodes',
 )
 
 NATIVE = 'native'
@@ -28,6 +29,7 @@ _LEGACY_NAMES = frozenset({'extras', *LEGACY_MODULES})
 _BASES_WITHOUT_RUN = frozenset({'Report', 'object'})
 # A subclass of either could publish without declaring run of its own.
 _SCRIPT_BASES = frozenset({'BaseScript', 'Script'})
+_TYPE_CHECKING = 'TYPE_CHECKING'
 
 
 def classify(source):
@@ -109,7 +111,9 @@ def _bases_supply_run(bases, classes, seen=()):
 def _imported_names(tree):
     """Return every module name the source imports, including the dotted form of a member import."""
     names = set()
-    for node in ast.walk(tree):
+    # Function bodies count here, unlike the import-time walk plan.py asks for: a deferred import
+    # of the legacy authoring API still runs when the function is called.
+    for node, _conditional in reachable_nodes(tree, skip_functions=False):
         if isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
@@ -117,6 +121,42 @@ def _imported_names(tree):
             # "from extras import scripts" names only the package, so the member makes the pair.
             names.update(f'{node.module}.{alias.name}' for alias in node.names)
     return names
+
+
+def reachable_nodes(node, *, skip_functions, conditional=False):
+    """
+    Yield each node the module could evaluate, paired with whether a condition decides it.
+
+    A branch guarded by TYPE_CHECKING or by a constant that is always false is skipped, and its
+    else branch is yielded as unconditional. skip_functions drops function and lambda bodies,
+    which is the difference between asking what a module evaluates as it imports and asking what
+    it could ever evaluate.
+    """
+    yield from _walk(ast.iter_child_nodes(node), skip_functions=skip_functions, conditional=conditional)
+
+
+def _walk(statements, *, skip_functions, conditional):
+    # A selected else branch is walked through this same pass, so a function body, a nested guard
+    # and a nested condition are ruled on there too.
+    for child in statements:
+        if skip_functions and isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        yield child, conditional
+        test = child.test if isinstance(child, ast.If) else None
+        # TYPE_CHECKING is false at runtime by definition, whatever name the module bound it to. The
+        # third test takes a literal and never an expression, because reading an operator's source
+        # never means evaluating it, so a condition only their host can settle stays walked.
+        if (
+            (isinstance(test, ast.Name) and test.id == _TYPE_CHECKING)
+            or (isinstance(test, ast.Attribute) and test.attr == _TYPE_CHECKING)
+            or (isinstance(test, ast.Constant) and not test.value)
+        ):
+            # The guard settles which branch runs, so its alternative depends on nothing further.
+            yield from _walk(child.orelse, skip_functions=skip_functions, conditional=conditional)
+            continue
+        yield from _walk(
+            ast.iter_child_nodes(child), skip_functions=skip_functions, conditional=conditional or test is not None
+        )
 
 
 def _has_report_shape(tree):

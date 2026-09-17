@@ -218,6 +218,9 @@ class MigrationView(BaseMigrationView):
                 # warnings have nothing to do with v5.0.
                 'warning_count': len(_findings(inventory_job, plan.WARNING, code='legacy_import')),
                 'helper_count': len(_findings(inventory_job, plan.WARNING, code='publishes_nothing')),
+                'branch_import_count': len(
+                    _findings(inventory_job, plan.WARNING, code='import_unresolvable_in_branch')
+                ),
                 'rows': _migration_rows(request, inventory_job, staging_job),
                 'run': run,
                 'cutover_job': _latest(MigrationCutoverJob),

@@ -134,6 +134,25 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         # Deliberate: listing the paths is the inventory's business, not this page's.
         self.assertNotIn('first.py', body)
 
+    def test_a_branch_import_warning_reaches_the_page(self):
+        # It was downgraded from blocking so one uncertain branch could not stop every other
+        # Project. A warning the page never renders would be the same as dropping it.
+        self.grant('add')
+        self.with_findings(self.finding('warning', 'import_unresolvable_in_branch', 'optional.py'))
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertNotIn('Staging will refuse', body)
+        self.assertIn('only inside a conditional branch', body)
+
+    def test_a_branch_import_warning_is_not_counted_as_a_legacy_import(self):
+        self.grant('add')
+        self.with_findings(
+            self.finding('warning', 'import_unresolvable_in_branch', 'optional.py'),
+            self.finding('warning', 'legacy_import', 'old.py'),
+        )
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertIn('One module imports the legacy authoring API', body)
+        self.assertIn('One module imports something this host cannot provide', body)
+
     def test_a_clean_inventory_shows_no_refusal(self):
         self.grant('add')
         self.record(MigrationInventoryJob)

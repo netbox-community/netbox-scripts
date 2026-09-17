@@ -140,7 +140,7 @@ Event Rule, a permission or a Job.
 | Status | Meaning |
 |---|---|
 | `ready` | Every module is already written against this plugin's authoring API. Staging can run. |
-| `warning` | Staging can run, and there is work to do before NetBox v5.0. |
+| `warning` | Staging can run. Most warnings are work to do before NetBox v5.0, and the rest name something the inventory could not settle by reading the source. |
 | `blocking` | Staging refuses. Something in the source could never be imported or needs a rewrite, or an existing Project stands in the way. |
 
 A `warning` is almost always the `legacy_import` finding: the module imports its authoring API from
@@ -148,6 +148,12 @@ A `warning` is almost always the `legacy_import` finding: the module imports its
 legacy-import list is the work queue to clear before that upgrade**. It is what turns v5.0 into a
 deadline rather than a cliff. See [Authoring](authoring.md) for the forms that resolve and for why
 the compatibility layer is transitional.
+
+The other one worth knowing is `import_unresolvable_in_branch`: a module imports something this
+host cannot provide, but only inside an `if`. Reading the source cannot say whether that branch
+runs on your deployment, so the migration is not refused over it. If the branch does run, the
+revision fails validation and says so, which is a refusal you can act on for that one Project
+rather than one that stops the whole pass.
 
 The blocking findings are these. The first five concern one module's source, the last three the
 Projects a migration would create or reuse.
@@ -158,7 +164,7 @@ Projects a migration would create or reuse.
 | `not_importable` | The file name is not a valid Python identifier, so no loader could ever import it. A hyphenated name is the common case. Rename the file in the source. |
 | `unparsable` | The stored source is not valid Python. |
 | `source_unreadable` | The module's stored bytes could not be read at all. |
-| `import_unresolvable` | The module imports a name that is neither a standard-library module nor a distribution installed here, so it cannot import and no verdict can ever be reached for it. A plain import never reaches a file beside it, so a relative import is usually what was meant. |
+| `import_unresolvable` | The module imports a name that is neither a standard-library module nor a distribution installed here, so it cannot import and no verdict can ever be reached for it. Only an import that runs unconditionally reaches this row. One a `TYPE_CHECKING` or always-false guard makes unreachable, one inside a function body, and one the module already handles with `except ImportError` are all left alone. A plain import never reaches a file beside it, so a relative import is usually what was meant. |
 | `data_source_root` | Every module a proposed Project would hold sits at the Data Source root, so the Project would take the whole source as its tree. A Project must name a directory within its source rather than the root. Move those scripts under a directory on the source. |
 | `project_not_manual` | An existing Script Project already holds what a proposed one would stage, and that Project's activation policy would put the built-in modules into service. Set it to Manual. |
 | `project_conflict` | An existing Script Project's data path either contains the one a proposed Project needs or sits inside it. One Data Source cannot carry two Projects whose paths contain one another. Move or remove one of them. |

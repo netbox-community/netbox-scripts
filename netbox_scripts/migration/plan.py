@@ -363,7 +363,18 @@ def _source_findings(module, body, dialect):
     tree = ast.parse(body)
     path = _path(module)
     findings = []
-    for name in sorted(_unresolvable_imports(tree)):
+    for name, conditional in sorted(_unresolvable_imports(tree).items()):
+        if conditional:
+            # Refusing the whole pass over a branch that may never run costs more than the accurate
+            # refusal validation records against the one revision if it does.
+            message = (
+                f'{path} imports {name} only inside a conditional branch, and it is neither a '
+                f'standard-library module nor a distribution installed here. Reading the source '
+                f'cannot say whether that branch runs, so this does not refuse the migration. If it '
+                f'does run, validation records the failure against the revision rather than here.'
+            )
+            findings.append(_finding(WARNING, 'import_unresolvable_in_branch', module, message))
+            continue
         message = (
             f'{path} imports {name}, which is neither a standard-library module nor a distribution '
             f'installed here, so the module cannot import and no verdict can ever be reached for it. '
@@ -377,38 +388,34 @@ def _source_findings(module, body, dialect):
             continue
         message = (
             f'{path} does not define {script.name}, which the built-in feature publishes from it. A '
-            f'Script Project publishes only a class the module itself defines, so this one '
-            f'migrates with fewer scripts than the built-in feature had. Move the class into this '
-            f'file if it should keep publishing from here.'
+            f'class defined elsewhere in the revision publishes only through a script_order listing, '
+            f'and it publishes under the module that defines it, so {path}.{script.name} is not an '
+            f'identity a migration can preserve. Move the class into this file to keep it.'
         )
         findings.append(_finding(WARNING, 'script_not_defined_here', module, message))
     return findings
 
 
 def _unresolvable_imports(tree):
-    """Return the top-level names a module imports unguarded that nothing on this host provides."""
+    """Return the unguarded top-level names nothing here provides, mapped to whether each is conditional."""
     guarded = _guarded_imports(tree)
-    names = set()
-    for node in _import_time_nodes(tree):
+    names = {}
+    # A name imported inside a function is resolved when that function runs, so its absence is a
+    # runtime failure for one script rather than a module that cannot load at all.
+    for node, conditional in dialects.reachable_nodes(tree, skip_functions=True):
         if id(node) in guarded:
             continue
         if isinstance(node, ast.Import):
-            names.update(alias.name.split('.')[0] for alias in node.names)
+            found = {alias.name.split('.')[0] for alias in node.names}
         # A relative import resolves inside the revision package by construction.
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.add(node.module.split('.')[0])
-    return {name for name in names if not _resolves(name)}
-
-
-def _import_time_nodes(tree):
-    """Yield the nodes a module evaluates when it is imported, skipping every function body."""
-    for child in ast.iter_child_nodes(tree):
-        # A name imported inside a function is resolved when that function runs, so its absence
-        # is a runtime failure for one script rather than a module that cannot load at all.
-        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            found = {node.module.split('.')[0]}
+        else:
             continue
-        yield child
-        yield from _import_time_nodes(child)
+        for name in found:
+            # One unconditional import settles the name, however many guarded spellings follow it.
+            names[name] = names.get(name, True) and conditional
+    return {name: value for name, value in names.items() if not _resolves(name)}
 
 
 def _guarded_imports(tree):

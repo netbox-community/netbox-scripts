@@ -338,6 +338,140 @@ class FindingsTestCase(SimpleTestCase):
 
         self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
 
+    def test_a_type_checking_import_does_not_block(self):
+        # The conventional way to import a type without a runtime dependency. Refusing it
+        # would strand a module that migrates and runs perfectly well.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import absent_type_only_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_dotted_type_checking_import_does_not_block(self):
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'import typing\n\nif typing.TYPE_CHECKING:\n    import absent_type_only_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_constant_false_branch_does_not_block(self):
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = b'if False:\n    import absent_disabled_package\n\n\nclass A:\n    def run(self):\n        pass\n'
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_the_else_branch_of_a_type_checking_guard_still_blocks(self):
+        # Only the guarded body is skipped. Its alternative is ordinary code.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import json\n'
+            b'else:\n    import absent_runtime_package\n\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        blocking = [f for f in report['findings'] if f['code'] == 'import_unresolvable']
+        self.assertEqual(len(blocking), 1)
+        self.assertIn('absent_runtime_package', blocking[0]['message'])
+
+    def test_a_deferred_import_in_a_live_else_does_not_block(self):
+        # The else branch runs, but an import in a function body inside it still waits for the
+        # call, exactly as one at the top level does.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    pass\n'
+            b'else:\n    def later():\n        import absent_deferred_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_type_checking_guard_nested_in_a_live_else_does_not_block(self):
+        # The outer guard settles which branch runs. The inner one is still a guard.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    pass\n'
+            b'else:\n    if TYPE_CHECKING:\n        import absent_type_only_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+
+    def test_a_condition_nested_in_a_live_else_warns_without_refusing(self):
+        # Reaching the branch says nothing about the condition inside it, so the import keeps the
+        # classification it would have had at the top level.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'import os\nfrom typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    pass\n'
+            b'else:\n    if os.environ.get("FEATURE"):\n        import absent_optional_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+        warnings = [f for f in report['findings'] if f['code'] == 'import_unresolvable_in_branch']
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('absent_optional_package', warnings[0]['message'])
+        self.assertNotEqual(report['status'], plan.BLOCKING)
+
+    def test_a_condition_the_inventory_cannot_read_warns_without_refusing(self):
+        # A branch that may never run must not stop every other Project migrating. If it does run,
+        # validation refuses that one revision and names the reason.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'import os\n\nif os.environ.get("FEATURE"):\n    import absent_optional_package\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable'], [])
+        warnings = [f for f in report['findings'] if f['code'] == 'import_unresolvable_in_branch']
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]['level'], plan.WARNING)
+        self.assertIn('absent_optional_package', warnings[0]['message'])
+        self.assertNotEqual(report['status'], plan.BLOCKING)
+
+    def test_an_unconditional_import_still_refuses_the_pass(self):
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = b'import absent_vendor_sdk\n\n\nclass A:\n    def run(self):\n        pass\n'
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        blocking = [f for f in report['findings'] if f['code'] == 'import_unresolvable']
+        self.assertEqual(len(blocking), 1)
+        self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_one_unconditional_import_settles_a_name_imported_twice(self):
+        # Demoting a name that already fails outright, because some later branch also spells it,
+        # would let a certain refusal migrate as advice.
+        modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
+        body = (
+            b'import absent_vendor_sdk\n\nif True:\n    import absent_vendor_sdk\n'
+            b'\n\nclass A:\n    def run(self):\n        pass\n'
+        )
+
+        report = plan.build_report(modules=modules, read=lambda module: body)
+
+        blocking = [f for f in report['findings'] if f['code'] == 'import_unresolvable']
+        self.assertEqual(len(blocking), 1)
+        self.assertEqual([f for f in report['findings'] if f['code'] == 'import_unresolvable_in_branch'], [])
+
     def test_a_re_exported_script_warns_that_it_will_not_publish(self):
         # The plugin publishes only a class the module itself defines or names in script_order.
         modules = [

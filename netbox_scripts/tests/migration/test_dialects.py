@@ -186,6 +186,32 @@ class ClassifyTestCase(SimpleTestCase):
     def test_a_nested_namesake_does_not_hide_a_report_shaped_class(self):
         self.assertEqual(dialects.classify(A_NESTED_NAMESAKE_WITH_RUN), dialects.REPORT_STYLE)
 
+    def test_a_type_checking_report_import_is_not_report_shape(self):
+        # Report style is blocking, so misreading one annotation import would stop the whole
+        # staging pass over a module that needs no rewrite at all.
+        source = b'from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    from extras import reports\n'
+        self.assertEqual(dialects.classify(source), dialects.NATIVE)
+
+    def test_a_type_checking_legacy_import_nested_in_a_live_else_is_native(self):
+        # Skipping one guarded body must not stop the walker recognising the next guard inside
+        # the branch it selected.
+        source = (
+            b'from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    pass\n'
+            b'else:\n    if TYPE_CHECKING:\n        from extras import reports\n'
+        )
+        self.assertEqual(dialects.classify(source), dialects.NATIVE)
+
+    def test_a_constant_false_legacy_import_is_native(self):
+        self.assertEqual(dialects.classify(b'if False:\n    import extras\n'), dialects.NATIVE)
+
+    def test_a_legacy_import_inside_a_function_body_is_still_legacy(self):
+        # Deferred is not unreachable. The author still owes the one-line edit here.
+        self.assertEqual(dialects.classify(b'def f():\n    import extras\n'), dialects.LEGACY_IMPORT)
+
+    def test_a_condition_this_cannot_read_leaves_the_import_counted(self):
+        source = b'import os\n\nif os.environ.get("FEATURE"):\n    import extras\n'
+        self.assertEqual(dialects.classify(source), dialects.LEGACY_IMPORT)
+
 
 class DefinesAScriptTestCase(SimpleTestCase):
     """Whether stored source declares something that could publish, decided without importing it."""

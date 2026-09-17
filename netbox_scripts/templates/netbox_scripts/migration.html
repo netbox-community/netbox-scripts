@@ -10,6 +10,8 @@ Context:
   - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
   - warning_count:  How many modules the last inventory reported a warning for
   - branch_import_count: How many modules import something absent, but only inside a branch
+  - undefined_script_count: How many published Scripts their own module does not define
+  - reports_excluded: Whether the last inventory reported built-in report modules it excludes
 - helper_count:   How many modules the last inventory reported would publish nothing
   - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
   - run:            The open MigrationRun, or None before the first staging pass
@@ -168,6 +170,22 @@ Context:
                 {{ total }} modules import something this host cannot provide, but only inside a conditional branch. If those branches run, the revisions fail validation and say so. Staging is not blocked by them.
               {% endblocktrans %}
               {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
+          {% if undefined_script_count %}
+            <p class="text-secondary mt-3">
+              {% blocktrans count total=undefined_script_count %}
+                One Script the built-in feature publishes is not defined in the module it publishes from, so a migration cannot keep it under that identity.
+              {% plural %}
+                {{ total }} Scripts the built-in feature publishes are not defined in the modules they publish from, so a migration cannot keep them under those identities.
+              {% endblocktrans %}
+              {% trans "The inventory names each one." %}
+            </p>
+          {% endif %}
+          {% if reports_excluded %}
+            <p class="text-secondary mt-3">
+              {% trans "Built-in report modules are not part of this migration, because reports use an authoring API this plugin does not serve." %}
+              {% trans "The inventory says how many, and the cutover withdraws any permission naming them." %}
             </p>
           {% endif %}
           {% if helper_count %}

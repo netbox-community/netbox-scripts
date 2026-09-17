@@ -213,14 +213,17 @@ class MigrationView(BaseMigrationView):
                 'staging_job': staging_job,
                 'staging_queued': _queued(MigrationStagingJob),
                 'blocking_findings': blocking_findings,
-                # Counted rather than listed: one entry per module, and an installation holds hundreds.
-                # By code, because the sentence it renders names the legacy authoring API and other
-                # warnings have nothing to do with v5.0.
+                # Counted rather than listed, because an installation holds hundreds of entries.
+                # One entry per code, because each renders its own sentence and they say very
+                # different things. A code counted nowhere here is a finding no operator ever sees.
                 'warning_count': len(_findings(inventory_job, plan.WARNING, code='legacy_import')),
                 'helper_count': len(_findings(inventory_job, plan.WARNING, code='publishes_nothing')),
                 'branch_import_count': len(
                     _findings(inventory_job, plan.WARNING, code='import_unresolvable_in_branch')
                 ),
+                'undefined_script_count': len(_findings(inventory_job, plan.WARNING, code='script_not_defined_here')),
+                # One finding rather than one per module, so this is presence, not a tally.
+                'reports_excluded': bool(_findings(inventory_job, plan.WARNING, code='reports_excluded')),
                 'rows': _migration_rows(request, inventory_job, staging_job),
                 'run': run,
                 'cutover_job': _latest(MigrationCutoverJob),

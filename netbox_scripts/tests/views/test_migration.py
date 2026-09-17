@@ -1,6 +1,8 @@
+import ast
 import shutil
 import tempfile
 import uuid
+from pathlib import Path
 from unittest import mock
 
 from django.conf import settings
@@ -28,9 +30,10 @@ from netbox_scripts.jobs import (
     MigrationStagingJob,
     MigrationVerificationJob,
 )
-from netbox_scripts.migration import cutover, mapping
+from netbox_scripts.migration import cutover, mapping, plan
 from netbox_scripts.models import MigrationRun, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
+from netbox_scripts.views import migration as migration_views
 from utilities.testing import TestCase, create_test_user
 
 
@@ -152,6 +155,51 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         body = self.client.get(self.url('migration')).content.decode()
         self.assertIn('One module imports the legacy authoring API', body)
         self.assertIn('One module imports something this host cannot provide', body)
+
+    def test_an_undefined_script_warning_reaches_the_page(self):
+        self.grant('add')
+        self.with_findings(self.finding('warning', 'script_not_defined_here', 'deploy.py'))
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertNotIn('Staging will refuse', body)
+        self.assertIn('is not defined in the module it publishes from', body)
+
+    @staticmethod
+    def _dict_warning_code(node):
+        """Return the code of a WARNING finding built as a dict literal, or None for anything else."""
+        if not isinstance(node, ast.Dict):
+            return None
+        pairs = {
+            key.value: value
+            for key, value in zip(node.keys, node.values)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        level, code = pairs.get('level'), pairs.get('code')
+        if isinstance(level, ast.Name) and level.id == 'WARNING' and isinstance(code, ast.Constant):
+            return code.value
+        return None
+
+    def test_every_warning_code_the_inventory_emits_is_counted_by_the_page(self):
+        # Derived from the inventory's own source, never a list written here, because a hand-kept
+        # list drifts in exactly the way that hid two of these codes until someone went looking.
+        # Both shapes count: the _finding() helper, and the dict literals built beside it. Walking
+        # only the helper is how reports_excluded stayed invisible to this guard.
+        tree = ast.parse(Path(plan.__file__).read_text())
+        emitted = {
+            node.args[1].value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == '_finding'
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == 'WARNING'
+            and isinstance(node.args[1], ast.Constant)
+        }
+        emitted |= {code for code in map(self._dict_warning_code, ast.walk(tree)) if code}
+        self.assertTrue(emitted)
+        rendered = Path(migration_views.__file__).read_text()
+        for code in sorted(emitted):
+            with self.subTest(code=code):
+                self.assertIn(f"code='{code}'", rendered)
 
     def test_a_clean_inventory_shows_no_refusal(self):
         self.grant('add')

@@ -95,7 +95,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── choices.py                 , Five ChoiceSets.
 │   ├── validators.py              , normalize_data_path().
 │   ├── utils.py                   , source_path_to_dotted_name(), data_source_relative_path().
-│   ├── constants.py               , Storage limits, status groupings, lease bounds, field bounds.
+│   ├── constants.py               , Storage limits, status groupings, lease bounds, field bounds, the gated source fields.
 │   ├── management/commands/runcustomscript.py , The shell route to one run. Additive, carries a cloud-compat waiver.
 │   ├── object_actions.py          , Five ObjectAction subclasses with templates under templates/.../buttons/.
 │   ├── template_content.py        , [add as needed] PluginTemplateExtension classes.

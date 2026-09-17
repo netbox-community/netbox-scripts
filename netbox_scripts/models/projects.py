@@ -19,6 +19,7 @@ from ..constants import (
     GATED_SOURCE_FIELDS,
     UNSTORED_REVISION_STATUSES,
 )
+from ..storage.locks import project_write_lock
 from ..storage.script_files import EMPTY_SNAPSHOT_DIGEST
 from ..utils import data_source_relative_path
 from ..validators import data_paths_overlap, normalize_data_path
@@ -230,8 +231,6 @@ class ScriptProject(PrimaryModel):
 
     def save(self, *args, **kwargs):
         """Persist the project under its transaction-scoped source lock."""
-        from ..storage.locks import project_write_lock
-
         using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
         storage_key = self.storage_key
         if not self._state.adding:
@@ -343,7 +342,6 @@ class ScriptProject(PrimaryModel):
         """Reconcile declarations atomically and return whether their enabled set changed."""
         # permissions imports the models at load, so this edge of the cycle stays inside the method.
         from ..permissions import validate_script_file_permissions
-        from ..storage.locks import project_write_lock
         from .scripts import ScriptFile
 
         selected = set(paths)

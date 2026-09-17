@@ -16,6 +16,7 @@ from core.models import DataSource
 from netbox_scripts import constants
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.models import ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import projects as project_models
 from netbox_scripts.permissions import AUTHORIZED_SOURCE_MOVES
 from netbox_scripts.storage import locks
 from netbox_scripts.storage.manifest import compute_digest
@@ -872,7 +873,9 @@ class ScriptProjectSourceLockTestCase(TestCase):
         self.assertIsNone(stale.source_revision_id)
         stale.description = 'edited while a synchronization ran'
 
-        with mock.patch.object(locks, 'project_write_lock', self.advance_source_under(locks.project_write_lock)):
+        with mock.patch.object(
+            project_models, 'project_write_lock', self.advance_source_under(locks.project_write_lock)
+        ):
             stale.save()
 
         stale.refresh_from_db()
@@ -907,7 +910,9 @@ class ScriptProjectSourceLockTestCase(TestCase):
         stale.full_clean()
         stale.description = 'edited while a revision was activated'
 
-        with mock.patch.object(locks, 'project_write_lock', self.activate_under(locks.project_write_lock, served)):
+        with mock.patch.object(
+            project_models, 'project_write_lock', self.activate_under(locks.project_write_lock, served)
+        ):
             stale.save()
 
         stale.refresh_from_db()

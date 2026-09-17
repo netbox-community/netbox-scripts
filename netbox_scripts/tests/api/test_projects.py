@@ -102,10 +102,9 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
 
     def racing(self, project, **moved):
         """Patch the serializer so one authorized move lands between validation and the write."""
-        # The exact window the gate cannot cover: it compared against the stored row, and by the
-        # time anything is written that row has moved. The simulated move shares this request's
-        # transaction, so the refusal rolls it back too. What the assertions can show is that the
-        # request is refused and writes nothing, which is the contract either way.
+        # Holds the window open on purpose. One caveat covering every assertion below: the
+        # simulated update runs on this connection, so a rollback takes it along. A 400 and an
+        # absent description are what separate the fix from its absence.
         original = ScriptProjectSerializer.save
 
         def save(inner_self, **kwargs):
@@ -115,8 +114,8 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         return mock.patch.object(ScriptProjectSerializer, 'save', save)
 
     def test_a_description_only_patch_does_not_restore_a_stale_source(self):
-        # The request submits no gated field at all, so the gate has nothing to compare and the
-        # save is a full one. Without the write-time check it writes back the loaded data_path.
+        # A PATCH naming none of the three fields. The narrowest reading of the defect, and the
+        # one an operator reaches by accident rather than by trying.
         self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
         project = self.synchronized()
 

@@ -266,8 +266,8 @@ class SourceFieldGateTestCase(ObjectPermissionTestMixin, TestCase):
         return getattr(project, AUTHORIZED_SOURCE_MOVES, None)
 
     def test_the_gate_records_the_move_it_authorized(self):
-        # The record is what the save compares its own locked read against. Nothing else carries
-        # the answer that far down, so a gate site that skipped it would silently reopen the gap.
+        # A site that forgot this call would reopen the hole in silence, with every existing test
+        # still green, so it is pinned here rather than left implicit.
         self.grant('view', 'change', 'activate')
         submitted = {'data_path': 'automation'}
 

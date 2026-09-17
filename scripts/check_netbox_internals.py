@@ -41,6 +41,7 @@ ROWS = (
         'netbox.api.viewsets.mixins:discard_events_on_rollback',
     ),
     ('utilities.exceptions.PermissionsViolation', 'utilities.exceptions:PermissionsViolation'),
+    ('utilities.exceptions.AbortRequest', 'utilities.exceptions:AbortRequest'),
     (
         'netbox.views.generic.BulkEditView.pre_save_operations',
         'netbox.views.generic:BulkEditView.pre_save_operations',

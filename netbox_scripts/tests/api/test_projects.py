@@ -1,8 +1,10 @@
 import uuid
+from unittest import mock
 
 from rest_framework import status
 
 from core.models import DataSource, ObjectType
+from netbox_scripts.api.serializers import ScriptProjectSerializer
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from netbox_scripts.models import ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCases
@@ -83,6 +85,69 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
         self.assertIn('activation_policy', response.data)
 
     def test_activate_permits_the_same_write(self):
+        self.add_permissions(
+            'netbox_scripts.view_scriptproject',
+            'netbox_scripts.change_scriptproject',
+            'netbox_scripts.activate_scriptproject',
+        )
+        project = self.synchronized()
+
+        response = self.client.patch(
+            self._get_detail_url(project), {'data_path': 'automation'}, format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        project.refresh_from_db()
+        self.assertEqual(project.data_path, 'automation')
+
+    def racing(self, project, **moved):
+        """Patch the serializer so one authorized move lands between validation and the write."""
+        # The exact window the gate cannot cover: it compared against the stored row, and by the
+        # time anything is written that row has moved. The simulated move shares this request's
+        # transaction, so the refusal rolls it back too. What the assertions can show is that the
+        # request is refused and writes nothing, which is the contract either way.
+        original = ScriptProjectSerializer.save
+
+        def save(inner_self, **kwargs):
+            ScriptProject.objects.filter(pk=project.pk).update(**moved)
+            return original(inner_self, **kwargs)
+
+        return mock.patch.object(ScriptProjectSerializer, 'save', save)
+
+    def test_a_description_only_patch_does_not_restore_a_stale_source(self):
+        # The request submits no gated field at all, so the gate has nothing to compare and the
+        # save is a full one. Without the write-time check it writes back the loaded data_path.
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+
+        with self.racing(project, data_path='automation'):
+            response = self.client.patch(
+                self._get_detail_url(project), {'description': 'A note'}, format='json', **self.header
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        project.refresh_from_db()
+        self.assertNotEqual(project.description, 'A note')
+
+    def test_resubmitting_an_unchanged_source_value_does_not_undo_a_move(self):
+        # Submitted and stored agree when the gate reads them, so no activate is asked for. The
+        # authorized move then lands, and this would write the caller's stale value over it.
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.change_scriptproject')
+        project = self.synchronized()
+
+        with self.racing(project, activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID):
+            response = self.client.patch(
+                self._get_detail_url(project),
+                {'data_path': project.data_path, 'description': 'A note'},
+                format='json',
+                **self.header,
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        project.refresh_from_db()
+        self.assertNotEqual(project.description, 'A note')
+
+    def test_a_permitted_move_still_writes_when_nothing_else_moved(self):
         self.add_permissions(
             'netbox_scripts.view_scriptproject',
             'netbox_scripts.change_scriptproject',

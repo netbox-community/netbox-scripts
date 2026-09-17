@@ -8,7 +8,7 @@ from netbox.registry import registry
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import ProjectReconciliationJob
 from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
-from netbox_scripts.permissions import moved_source_fields
+from netbox_scripts.permissions import AUTHORIZED_SOURCE_MOVES, moved_source_fields, unpermitted_source_moves
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from utilities.permissions import get_permission_for_model
@@ -260,6 +260,39 @@ class SourceFieldGateTestCase(ObjectPermissionTestMixin, TestCase):
         submitted = {'activation_policy': 'automatic_if_valid', 'data_path': 'automation', 'data_source': self.source}
 
         self.assertEqual(moved_source_fields(None, submitted), ())
+
+    def authorized(self, project):
+        """What the gate recorded on an instance, or None when it never ran."""
+        return getattr(project, AUTHORIZED_SOURCE_MOVES, None)
+
+    def test_the_gate_records_the_move_it_authorized(self):
+        # The record is what the save compares its own locked read against. Nothing else carries
+        # the answer that far down, so a gate site that skipped it would silently reopen the gap.
+        self.grant('view', 'change', 'activate')
+        submitted = {'data_path': 'automation'}
+
+        self.assertEqual(unpermitted_source_moves(self.user, self.project, submitted), ())
+        self.assertEqual(self.authorized(self.project), frozenset({'data_path'}))
+
+    def test_the_gate_records_an_empty_set_when_nothing_moved(self):
+        # The description-only case. An empty record still means a gate ran, which is what tells
+        # the save to check at all.
+        self.grant('view', 'change')
+
+        self.assertEqual(unpermitted_source_moves(self.user, self.project, {}), ())
+        self.assertEqual(self.authorized(self.project), frozenset())
+
+    def test_a_refused_move_records_nothing(self):
+        self.grant('view', 'change')
+
+        self.assertEqual(unpermitted_source_moves(self.user, self.project, {'data_path': 'automation'}), ('data_path',))
+        self.assertIsNone(self.authorized(self.project))
+
+    def test_no_user_in_scope_records_nothing(self):
+        # A write with no request behind it is not authorized against anything, so the save has
+        # nothing to compare and leaves the field alone. Every fixture and service write is here.
+        self.assertEqual(unpermitted_source_moves(None, self.project, {'data_path': 'automation'}), ())
+        self.assertIsNone(self.authorized(self.project))
 
     def test_bulk_import_ignores_activate_on_another_project(self):
         self.grant('view', 'add', 'change')

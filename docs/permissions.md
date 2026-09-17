@@ -40,6 +40,14 @@ a constraint on one of the three gated fields lets its holder move that field ou
 of scope once. **Repair Scripts** republishes the rows of the revision already in
 force, which is the same write activation makes, so it is the same privilege.
 
+The gate reads the Project as stored, and the write happens a moment later. If
+one of the three fields moves in between, the save is refused rather than
+completed from the values the request loaded, because those were authorized
+against a Project that no longer exists in that form. Nothing is written, the
+browser puts the message on the form, and REST answers `400`. Reload the Project
+and submit again. This is the only reason an ordinary edit that touches none of
+the three fields can be refused, since a full save writes them all.
+
 **Browsing revisions is a separate permission, `netbox_scripts.view_scriptprojectrevision`.**
 The line falls between what a Project is serving and its history. A Project's own
 page reports the revision in force, so `view` on the Project is enough to see

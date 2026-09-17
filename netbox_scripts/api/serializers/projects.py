@@ -6,7 +6,7 @@ from netbox.api.serializers import PrimaryModelSerializer
 
 from ...choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ...models import ScriptProject
-from ...permissions import ACTIVATE_PERMISSION, SOURCE_REFUSAL, moved_source_fields
+from ...permissions import SOURCE_REFUSAL, unpermitted_source_moves
 from ...validators import normalize_data_path
 
 
@@ -38,10 +38,8 @@ class ScriptProjectSerializer(PrimaryModelSerializer):
         # No request means no browser or token write. Event serialization builds this without one.
         if self.instance is None or request is None:
             return attrs
-        if (moved := moved_source_fields(self.instance.pk, attrs)) and not request.user.has_perm(
-            ACTIVATE_PERMISSION, obj=self.instance
-        ):
-            raise serializers.ValidationError(dict.fromkeys(moved, SOURCE_REFUSAL))
+        if refused := unpermitted_source_moves(request.user, self.instance, attrs):
+            raise serializers.ValidationError(dict.fromkeys(refused, SOURCE_REFUSAL))
         return attrs
 
     class Meta:

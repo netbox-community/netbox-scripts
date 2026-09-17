@@ -1,5 +1,12 @@
 """Module-level constants for the NetBox Scripts plugin."""
 
+# Moving any of these decides what a Project serves next, so each costs activate, not change.
+GATED_SOURCE_FIELDS = ('activation_policy', 'data_source', 'data_path')
+
+# Stamped on a Project instance by the source gate and read by its save() under the write lock.
+# An attribute rather than an argument, because the save is several framework layers below.
+AUTHORIZED_SOURCE_MOVES = '_authorized_source_moves'
+
 # Default storage limits applied to a project's source tree when a revision is staged.
 # A deployment can override any of these through the plugin's PLUGINS_CONFIG settings.
 DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024

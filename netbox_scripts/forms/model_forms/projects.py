@@ -15,7 +15,7 @@ from ...choices import ProjectSourceTypeChoices
 from ...ingestion import check_upload_conflicts, ingest_upload, prepare_upload, uploaded_source_path
 from ...jobs import ProjectScriptFileRefreshJob
 from ...models import ScriptProject
-from ...permissions import ACTIVATE_PERMISSION, SOURCE_REFUSAL, moved_source_fields
+from ...permissions import SOURCE_REFUSAL, unpermitted_source_moves
 from ...storage import config
 
 __all__ = (
@@ -60,13 +60,8 @@ class ScriptProjectEditForm(PrimaryModelForm):
         super().clean()
         cleaned_data = self.cleaned_data
         request = getattr(self.instance, '_request', None)
-        if (
-            self.instance.pk
-            and request
-            and (moved := moved_source_fields(self.instance.pk, cleaned_data))
-            and not request.user.has_perm(ACTIVATE_PERMISSION, obj=self.instance)
-        ):
-            for field in moved:
+        if self.instance.pk and request:
+            for field in unpermitted_source_moves(request.user, self.instance, cleaned_data):
                 # Not a disabled widget: restrict_form_fields would fail an unviewable source first.
                 self.add_error(field, SOURCE_REFUSAL)
         return cleaned_data

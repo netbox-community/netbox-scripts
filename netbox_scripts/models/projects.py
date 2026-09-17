@@ -10,9 +10,15 @@ from django.utils.translation import gettext_lazy as _
 
 from netbox.models import ChangeLoggedModel, PrimaryModel
 from utilities.data import normalize_update_fields
+from utilities.exceptions import AbortRequest
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
-from ..constants import ACTIVATABLE_REVISION_STATUSES, UNSTORED_REVISION_STATUSES
+from ..constants import (
+    ACTIVATABLE_REVISION_STATUSES,
+    AUTHORIZED_SOURCE_MOVES,
+    GATED_SOURCE_FIELDS,
+    UNSTORED_REVISION_STATUSES,
+)
 from ..storage.script_files import EMPTY_SNAPSHOT_DIGEST
 from ..utils import data_source_relative_path
 from ..validators import data_paths_overlap, normalize_data_path
@@ -249,6 +255,11 @@ class ScriptProject(PrimaryModel):
                         'source_revision_id',
                         'source_activation_pending',
                         'active_revision_id',
+                        # The gated source fields, so the write can be checked against the row it
+                        # overwrites rather than against the one the request loaded.
+                        'activation_policy',
+                        'data_path',
+                        'data_source_id',
                     )
                     .first()
                 )
@@ -256,7 +267,7 @@ class ScriptProject(PrimaryModel):
 
     def _save_project(self, *args, original=None, **kwargs):
         """
-        Refuse immutable identity changes and unusable active revision pointers.
+        Refuse immutable identity changes, unauthorized source moves and unusable active pointers.
 
         Restores the source markers from ``original``, and on a full save the active
         pointer too, so a stale assignment is discarded.
@@ -282,6 +293,25 @@ class ScriptProject(PrimaryModel):
                     errors['storage_key'] = _('The storage key is immutable.')
                 if errors:
                     raise ValidationError(errors)
+                # None means no gate ran, so there is no user in scope and nothing to compare:
+                # an ORM write, one of the services, a test fixture.
+                if (authorized := getattr(self, AUTHORIZED_SOURCE_MOVES, None)) is not None:
+                    moving = set()
+                    for field in GATED_SOURCE_FIELDS:
+                        attname = self._meta.get_field(field).attname
+                        if update_fields is not None and not {field, attname} & update_fields:
+                            continue
+                        # original, never self: the instance holds what the request loaded, and
+                        # the gap between those two is what this refuses to write back.
+                        if getattr(self, attname) != original[attname]:
+                            moving.add(field)
+                    if unauthorized := moving - authorized:
+                        raise AbortRequest(
+                            _(
+                                'Another change to {fields} landed while this request was being '
+                                'authorized. Nothing was written. Reload the Script Project and try again.'
+                            ).format(fields=', '.join(sorted(unauthorized)))
+                        )
 
         if update_fields is None or {'active_revision', 'active_revision_id'}.intersection(update_fields):
             if (pointer_error := self._active_revision_error()) is not None:

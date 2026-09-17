@@ -14,11 +14,13 @@ from django.utils import timezone
 
 from core.models import DataSource
 from netbox_scripts import constants
-from netbox_scripts.choices import ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.models import ScriptProject, ScriptProjectRevision
+from netbox_scripts.permissions import AUTHORIZED_SOURCE_MOVES
 from netbox_scripts.storage import locks
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.script_files import EMPTY_SNAPSHOT_DIGEST
+from utilities.exceptions import AbortRequest
 
 DIGEST_A = 'a' * 64
 DIGEST_B = 'b' * 64
@@ -569,6 +571,53 @@ class ScriptProjectTestCase(TestCase):
         collector.collect([project])
         collected = {model for model, _instances in collector.instances_with_model()}
         self.assertIn(ScriptProjectRevision, collected)
+
+    def test_a_save_with_no_gate_behind_it_moves_a_source_field_freely(self):
+        # Deliberate, and the reason no fixture in this suite had to change. A write with no
+        # request behind it was authorized against nothing, so there is nothing to conflict with.
+        project = ScriptProject.objects.create(name='Ungated', key='ungated')
+        ScriptProject.objects.filter(pk=project.pk).update(activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
+        project.activation_policy = ActivationPolicyChoices.MANUAL
+        project.save()
+
+        project.refresh_from_db()
+        self.assertEqual(project.activation_policy, ActivationPolicyChoices.MANUAL)
+
+    def test_an_authorized_save_refuses_a_field_that_moved_under_it(self):
+        project = ScriptProject.objects.create(name='Gated', key='gated')
+        # What a gate leaves behind when the request submitted nothing gated at all.
+        setattr(project, AUTHORIZED_SOURCE_MOVES, frozenset())
+        ScriptProject.objects.filter(pk=project.pk).update(activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
+        with self.assertRaises(AbortRequest):
+            project.save()
+
+    def test_an_authorized_save_writes_the_move_it_was_authorized_for(self):
+        project = ScriptProject.objects.create(name='Gated Move', key='gated-move')
+        setattr(project, AUTHORIZED_SOURCE_MOVES, frozenset({'activation_policy'}))
+
+        project.activation_policy = ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        project.save()
+
+        project.refresh_from_db()
+        self.assertEqual(project.activation_policy, ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
+    def test_a_field_outside_update_fields_is_not_read_as_a_move(self):
+        # The activation service saves the pointer alone while an operator edits the same row.
+        # Nothing gated is being written, so nothing gated can be clobbered.
+        project = ScriptProject.objects.create(name='Pointer Only', key='pointer-only')
+        revision = ScriptProjectRevision.objects.create(
+            project=project, digest=compute_digest([]), status=RevisionStatusChoices.ACTIVE
+        )
+        setattr(project, AUTHORIZED_SOURCE_MOVES, frozenset())
+        ScriptProject.objects.filter(pk=project.pk).update(activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID)
+
+        project.active_revision = revision
+        project.save(update_fields=('active_revision',))
+
+        project.refresh_from_db()
+        self.assertEqual(project.active_revision_id, revision.pk)
 
 
 class ScriptProjectRevisionTestCase(TestCase):

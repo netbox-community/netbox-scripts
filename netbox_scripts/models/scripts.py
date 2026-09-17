@@ -420,19 +420,25 @@ class ScriptFile(PrimaryModel):
         # Per node, because "Lib/deploy.py" against "lib/audit.py" collides in the directory.
         mine = case_insensitive_nodes(self.source_path)
         dotted = source_path_to_dotted_name(self.source_path)
-        siblings = type(self).objects.using(self._read_alias()).filter(project=self.project_id).exclude(pk=self.pk)
-        for other in siblings:
-            for form, node in case_insensitive_nodes(other.source_path).items():
+        siblings = (
+            type(self)
+            .objects.using(self._read_alias())
+            .filter(project=self.project_id)
+            .exclude(pk=self.pk)
+            .values_list('source_path', flat=True)
+        )
+        for other_path in siblings:
+            for form, node in case_insensitive_nodes(other_path).items():
                 if form in mine and mine[form] != node:
                     return _(
                         'This path collides with script file "{path}" of the same project, because "{mine}" and '
                         '"{theirs}" differ only in letter case.'
-                    ).format(path=other.source_path, mine=mine[form], theirs=node)
+                    ).format(path=other_path, mine=mine[form], theirs=node)
             try:
-                if source_path_to_dotted_name(other.source_path) == dotted:
+                if source_path_to_dotted_name(other_path) == dotted:
                     return _(
                         'This path imports as "{name}", the same module name as "{path}" of the same project.'
-                    ).format(name=dotted, path=other.source_path)
+                    ).format(name=dotted, path=other_path)
             except ValidationError:
                 continue  # A sibling that cannot import claims no module name.
         return None

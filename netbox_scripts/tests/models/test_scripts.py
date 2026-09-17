@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MODULE_PATH_LENGTH
@@ -426,6 +427,20 @@ class ScriptFileTestCase(TestCase):
         with self.assertRaises(ValidationError) as cm:
             instance.full_clean()
         self.assertIn('the same module name', str(cm.exception.message_dict['source_path']))
+
+    def test_the_sibling_scan_reads_only_the_paths_it_compares(self):
+        # A full-row fetch drags discovery_error, an unbounded field, across every sibling.
+        ScriptFile.objects.create(project=self.project, source_path='utils.py')
+        instance = ScriptFile(project=self.project, source_path='deploy.py')
+
+        with CaptureQueriesContext(connection) as captured:
+            instance.full_clean()
+
+        scans = [entry['sql'] for entry in captured.captured_queries if 'source_path' in entry['sql']]
+        self.assertTrue(scans)
+        for sql in scans:
+            self.assertNotIn('discovery_error', sql)
+            self.assertNotIn('discovery_status', sql)
 
     def test_save_refuses_a_case_folded_sibling_without_full_clean(self):
         ScriptFile.objects.create(project=self.project, source_path='Utils.py')

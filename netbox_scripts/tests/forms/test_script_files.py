@@ -7,6 +7,7 @@ from django.utils import timezone
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.forms import ScriptProjectScriptFilesForm
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
+from utilities.exceptions import AbortRequest
 
 
 def manifest(*paths):
@@ -45,6 +46,28 @@ class ScriptFileSelectionTestCase(TestCase):
         """Return the optgroup headers in render order."""
         return [str(group) for group, _members in form.fields['script_files'].choices]
 
+    def single_candidate_project(self, key):
+        """Return a project whose source holds exactly one importable module."""
+        project = ScriptProject.objects.create(name=key.replace('-', ' '), key=key)
+        ScriptProjectRevision.objects.create(
+            project=project,
+            digest='e' * 64,
+            manifest=manifest('only.py', 'notes.md'),
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+        return project
+
+    def undeclarable_project(self, key, *paths):
+        """Return a project whose source holds paths the declaration layer will refuse."""
+        project = ScriptProject.objects.create(name=key.replace('-', ' '), key=key)
+        ScriptProjectRevision.objects.create(
+            project=project,
+            digest='9' * 64,
+            manifest=manifest(*paths),
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+        return project
+
     def test_the_choices_are_the_projects_importable_modules(self):
         form = ScriptProjectScriptFilesForm(instance=self.project)
         self.assertEqual(self.paths(form), ['deploy.py', 'tools/audit.py', 'tools/helpers.py'])
@@ -68,17 +91,6 @@ class ScriptFileSelectionTestCase(TestCase):
         )
 
         self.assertEqual(self.groups(ScriptProjectScriptFilesForm(instance=project)), ['tools', 'tools/deep'])
-
-    def single_candidate_project(self, key):
-        """Return a project whose source holds exactly one importable module."""
-        project = ScriptProject.objects.create(name=key.replace('-', ' '), key=key)
-        ScriptProjectRevision.objects.create(
-            project=project,
-            digest='e' * 64,
-            manifest=manifest('only.py', 'notes.md'),
-            status=RevisionStatusChoices.MATERIALIZED,
-        )
-        return project
 
     def test_a_lone_candidate_starts_selected(self):
         project = self.single_candidate_project('lone-candidate')
@@ -194,3 +206,50 @@ class ScriptFileSelectionTestCase(TestCase):
         form.save()
         script_file = self.project.script_files.get(source_path='tools/audit.py')
         self.assertTrue(script_file.enabled)
+
+    def test_a_path_that_cannot_name_a_module_is_labelled(self):
+        project = self.undeclarable_project('hyphen-candidate', 'my-file.py', 'deploy.py')
+
+        labels = self.labels(ScriptProjectScriptFilesForm(instance=project))
+
+        self.assertEqual(str(labels['my-file.py']), 'my-file.py (cannot be a Script File)')
+        self.assertEqual(str(labels['deploy.py']), 'deploy.py')
+
+    def test_selecting_a_path_that_cannot_name_a_module_is_a_field_error(self):
+        project = self.undeclarable_project('hyphen-selection', 'my-file.py')
+
+        form = ScriptProjectScriptFilesForm(data={'script_files_1': ['my-file.py']}, instance=project)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('script_files', form.errors)
+        self.assertIn('not a valid Python identifier', form.errors['script_files'][0])
+
+    def test_a_reserved_keyword_path_is_refused_too(self):
+        # isidentifier() passes "class", so the check has to be the model's own refusal.
+        project = self.undeclarable_project('keyword-selection', 'class.py')
+
+        form = ScriptProjectScriptFilesForm(data={'script_files_1': ['class.py']}, instance=project)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('reserved Python keyword', form.errors['script_files'][0])
+
+    def test_a_lone_candidate_that_cannot_be_declared_does_not_start_selected(self):
+        # Otherwise the tab opens with a selection an unmodified Save cannot accept.
+        project = self.undeclarable_project('lone-undeclarable', 'my-file.py')
+
+        form = ScriptProjectScriptFilesForm(instance=project)
+
+        self.assertEqual(form.initial['script_files'], [])
+        self.assertIn('my-file.py', self.paths(form))
+
+    def test_two_selected_paths_with_one_module_name_abort_the_request(self):
+        project = self.undeclarable_project('module-collision', 'deploy.py', 'deploy/__init__.py')
+        form = ScriptProjectScriptFilesForm(
+            data={'script_files_1': ['deploy.py', 'deploy/__init__.py']}, instance=project
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+        with self.assertRaises(AbortRequest) as caught:
+            form.save()
+
+        self.assertIn('imports as "deploy"', caught.exception.message)

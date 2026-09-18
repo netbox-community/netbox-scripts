@@ -208,6 +208,44 @@ class ScriptProjectScriptFilesViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertFalse(self.project.script_files.exists())
         flush.assert_not_called()
 
+    def test_posting_a_path_that_cannot_be_declared_re_renders_the_form(self):
+        self.grant_both()
+        project = ScriptProject.objects.create(name='Hyphen Project', key='hyphen-project')
+        ScriptProjectRevision.objects.create(
+            project=project,
+            digest='9' * 64,
+            manifest=[{'path': 'my-file.py', 'size': 1, 'sha256': 'a' * 64}],
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+        url = reverse('plugins:netbox_scripts:scriptproject_script_files', args=[project.pk])
+
+        response = self.client.post(url, {'script_files_1': ['my-file.py']})
+
+        self.assertHttpStatus(response, 200)
+        # The attribution, not the page text: save()'s AbortRequest renders the same message as a toast.
+        self.assertIn('not a valid Python identifier', response.context['form'].errors['script_files'][0])
+        self.assertFalse(ScriptFile.objects.filter(project=project).exists())
+
+    def test_posting_two_paths_with_one_module_name_re_renders_the_form(self):
+        self.grant_both()
+        project = ScriptProject.objects.create(name='Collision Project', key='collision-project')
+        ScriptProjectRevision.objects.create(
+            project=project,
+            digest='8' * 64,
+            manifest=[{'path': path, 'size': 1, 'sha256': 'a' * 64} for path in ('deploy.py', 'deploy/__init__.py')],
+            status=RevisionStatusChoices.MATERIALIZED,
+        )
+        url = reverse('plugins:netbox_scripts:scriptproject_script_files', args=[project.pk])
+
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.client.post(url, {'script_files_1': ['deploy.py', 'deploy/__init__.py']})
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn('imports as', response.content.decode())
+        # The view's atomic wraps form.save(), so the row written before the refusal rolls back.
+        self.assertFalse(ScriptFile.objects.filter(project=project).exists())
+        flush.assert_not_called()
+
 
 class ScriptProjectSourceStateViewTestCase(ObjectPermissionTestMixin, TestCase):
     """The detail view surfaces source state, revision history, and the add-script action."""

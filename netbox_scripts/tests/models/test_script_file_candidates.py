@@ -76,6 +76,20 @@ class DataSourceCandidatesTestCase(TestCase):
     def test_excludes_files_outside_the_project_directory(self):
         self.assertNotIn('other.py', self.project.script_file_candidates())
 
+    def test_a_path_that_cannot_name_a_module_is_still_offered(self):
+        # Offered and annotated by the form, rather than dropped here: a file that vanishes with no
+        # explanation is what this tab keeps being fixed for.
+        DataFile.objects.create(
+            source=self.source,
+            path='automation/netbox/my-file.py',
+            size=1,
+            hash=DIGEST,
+            data=b'x',
+            last_updated=timezone.now(),
+        )
+
+        self.assertIn('my-file.py', self.project.script_file_candidates())
+
     def test_a_project_at_a_sibling_directory_sees_only_its_own(self):
         sibling = ScriptProject.objects.create(
             name='Legacy Project',

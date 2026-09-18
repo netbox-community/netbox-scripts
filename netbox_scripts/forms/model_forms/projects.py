@@ -17,6 +17,9 @@ from ...jobs import ProjectScriptFileRefreshJob
 from ...models import ScriptProject
 from ...permissions import SOURCE_REFUSAL, unpermitted_source_moves
 from ...storage import config
+from ...storage.exceptions import UnsafePathError
+from ...storage.paths import normalize_source_path
+from ...utils import source_path_to_dotted_name
 
 __all__ = (
     'ScriptProjectAddScriptForm',
@@ -218,7 +221,7 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         return self.cleaned_data
 
     def save(self, *args, **kwargs):
-        """Stage the existing tree plus the new file as one new revision, once the request commits."""
+        """Stage the existing tree plus the new file as one revision, once the request commits."""
         project = self.instance
         upload = self.cleaned_data['upload_file']
         filename, content = upload.name, upload.read()
@@ -276,7 +279,9 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
         enabled = [path for path, script_file in declared.items() if script_file.enabled]
         # No declaration rather than none enabled, or a deselection would be undone.
         if not declared and len(candidates) == 1:
-            enabled = sorted(candidates)
+            sole = next(iter(candidates))
+            if _declaration_error(sole) is None:
+                enabled = [sole]
         self.initial['script_files'] = enabled
 
     def _grouped_choices(self, declared, candidates, awaiting):
@@ -286,13 +291,15 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
             # rpartition rather than a path library: these paths are already canonical, and
             # validators.py avoids normpath because it resolves '..' segments.
             directory = path.rpartition('/')[0]
-            label = self._label(path, declared.get(path), path in candidates, path in awaiting)
+            label = self._label(
+                path, declared.get(path), path in candidates, path in awaiting, _declaration_error(path)
+            )
             groups.setdefault(directory, []).append((path, label))
         # The empty key sorts first, so the project root leads whatever its files are called.
         return [(directory or _('(root)'), groups[directory]) for directory in sorted(groups)]
 
     @staticmethod
-    def _label(path, script_file, available, awaiting=False):
+    def _label(path, script_file, available, awaiting=False, reason=None):
         """Return the option label: the file's own name, annotated with why it might matter."""
         # The directory is the group header, so repeating it here would push the annotation off
         # the end of a narrow pane.
@@ -301,15 +308,33 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
             if awaiting:
                 return _('{name} (not in the active revision yet)').format(name=name)
             return _('{name} (missing from the source)').format(name=name)
+        if reason is not None:
+            return _('{name} (cannot be a Script File)').format(name=name)
         if script_file is None:
             return name
         return _('{name} ({status})').format(name=name, status=script_file.get_discovery_status_display())
+
+    def clean_script_files(self):
+        """Refuse a selected path no declaration of it could be stored under, naming each reason."""
+        selection = self.cleaned_data['script_files']
+        errors = [
+            _('{path}: {reason}').format(path=path, reason=reason)
+            for path in sorted(selection)
+            if (reason := _declaration_error(path)) is not None
+        ]
+        if errors:
+            raise ValidationError(errors)
+        return selection
 
     def save(self, *args, **kwargs):
         """Reconcile the declarations onto the selection, apply it to the source, and return the project."""
         selection = self.cleaned_data['script_files']
         request = getattr(self.instance, '_request', None)
-        changed = self.instance.select_script_files(selection, user=request.user if request else None)
+        try:
+            changed = self.instance.select_script_files(selection, user=request.user if request else None)
+        except ValidationError as error:
+            # A conflict between two submitted paths surfaces only once the first row is written.
+            raise AbortRequest(' '.join(error.messages)) from error
         if changed:
             # A revision freezes the enabled declarations at staging time, so the selection has
             # no effect until something restages, which happens as a job here. A selection that
@@ -342,3 +367,14 @@ def _check_upload_size(upload):
         raise ValidationError(
             _('The file is larger than the {limit} byte limit for one source file.').format(limit=limit)
         )
+
+
+def _declaration_error(path):
+    """Return why this path cannot be stored and imported as a script file, or None."""
+    try:
+        source_path_to_dotted_name(normalize_source_path(path))
+    except UnsafePathError as error:
+        return str(error)
+    except ValidationError as error:
+        return ' '.join(error.messages)
+    return None

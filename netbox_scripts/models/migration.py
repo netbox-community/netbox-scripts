@@ -131,7 +131,7 @@ class MigrationRun(ChangeLoggedModel):
         verbose_name_plural = _('Custom Script migrations')
 
     def __str__(self):
-        return f'Custom Script migration {self.pk}'
+        return _('Custom Script migration {pk}').format(pk=self.pk)
 
     def get_absolute_url(self):
         """Return the run's own detail route."""

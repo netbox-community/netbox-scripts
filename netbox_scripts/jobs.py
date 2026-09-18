@@ -6,6 +6,7 @@ from datetime import timedelta
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from rq.timeouts import JobTimeoutException
 
 from core.choices import JobIntervalChoices, JobStatusChoices
@@ -65,10 +66,10 @@ class ProjectStorageCleanupJob(JobRunner):
         """Recheck routing safety and references, then remove the named keys, failing on what is left."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = (
-                f'Refusing storage cleanup and leaving source in the store, because {reason} '
-                f'Removing it could take away content another schema still serves: {storage_key} {digest}'
-            )
+            detail = _(
+                'Refusing storage cleanup and leaving source in the store, because {reason} '
+                'Removing it could take away content another schema still serves: {storage_key} {digest}'
+            ).format(reason=reason, storage_key=storage_key, digest=digest)
             self.logger.error(detail)
             raise JobFailed()
         # The recheck and the removal it authorizes have to be one indivisible step. A staging
@@ -81,7 +82,10 @@ class ProjectStorageCleanupJob(JobRunner):
             # is left in place and the run succeeds, since there is nothing left to reclaim.
             if ScriptProjectRevision.objects.filter(project__storage_key=storage_key, digest=digest).exists():
                 self.logger.info(
-                    f'Leaving stored content in place, a current revision references it again: {storage_key} {digest}'
+                    _(
+                        'Leaving stored content in place, a current revision references it again: '
+                        '{storage_key} {digest}'
+                    ).format(storage_key=storage_key, digest=digest)
                 )
                 return
             try:
@@ -93,7 +97,9 @@ class ProjectStorageCleanupJob(JobRunner):
                 # persisted in data are what an operator or a future reconciler retries from. The
                 # message is rendered up front, because the job log records it verbatim rather
                 # than interpolating lazy logging arguments.
-                detail = f'Storage cleanup left content in the store: {storage_key} {digest}: {error}'
+                detail = _('Storage cleanup left content in the store: {storage_key} {digest}: {error}').format(
+                    storage_key=storage_key, digest=digest, error=error
+                )
                 self.logger.error(detail)
                 raise JobFailed() from error
 
@@ -123,12 +129,26 @@ class ProjectStorageSweepJob(JobRunner):
             self._classify(storage_key, digest, candidate, report)
         for entry in report['stranded']:
             self.logger.warning(
-                f'Stranded revision content, {len(entry["paths"])} file(s) from cleanup Job(s) '
-                f'{entry["jobs"]}: {entry["storage_key"]} {entry["digest"]}'
+                _(
+                    'Stranded revision content, {paths_count} file(s) from cleanup Job(s) '
+                    '{jobs}: {storage_key} {digest}'
+                ).format(
+                    paths_count=len(entry['paths']),
+                    jobs=entry['jobs'],
+                    storage_key=entry['storage_key'],
+                    digest=entry['digest'],
+                )
             )
         self.logger.info(
-            f'{len(report["stranded"])} stranded, {len(report["reclaimed"])} already reclaimed, '
-            f'{len(report["referenced"])} referenced again, {len(report["unreadable"])} unreadable.'
+            _(
+                '{stranded} stranded, {reclaimed} already reclaimed, '
+                '{referenced} referenced again, {unreadable} unreadable.'
+            ).format(
+                stranded=len(report['stranded']),
+                reclaimed=len(report['reclaimed']),
+                referenced=len(report['referenced']),
+                unreadable=len(report['unreadable']),
+            )
         )
 
     @staticmethod
@@ -149,7 +169,9 @@ class ProjectStorageSweepJob(JobRunner):
             payload = job.data or {}
             storage_key, digest, paths = payload.get('storage_key'), payload.get('digest'), payload.get('paths')
             if not (storage_key and digest and paths):
-                self.logger.warning(f'Cleanup Job {job.pk} carries no payload naming content to reclaim.')
+                self.logger.warning(
+                    _('Cleanup Job {job_pk} carries no payload naming content to reclaim.').format(job_pk=job.pk)
+                )
                 unreadable.append(job.pk)
                 continue
             # A project cascade enqueues one cleanup per row and rows can share a tree, so
@@ -172,7 +194,9 @@ class ProjectStorageSweepJob(JobRunner):
                 present = store.present_keys(config.get_storage(), storage_key, digest, candidate['paths'])
         except (OSError, StorageError) as error:
             # One unreachable project must not end the sweep.
-            self.logger.warning(f'Could not inspect the content Job(s) {entry["jobs"]} name: {error}')
+            self.logger.warning(
+                _('Could not inspect the content Job(s) {jobs} name: {error}').format(jobs=entry['jobs'], error=error)
+            )
             report['unreadable'].extend(entry['jobs'])
             return
         if present:
@@ -222,19 +246,23 @@ class ProjectReconciliationJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing Script Project reconciliation, because {reason}'
+            detail = _('Refusing Script Project reconciliation, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
         project = ScriptProject.objects.filter(pk=project_id).first()
         if project is None:
-            self.logger.info(f'Script Project {project_id} no longer exists, nothing to reconcile.')
+            self.logger.info(
+                _('Script Project {project_id} no longer exists, nothing to reconcile.').format(project_id=project_id)
+            )
             return
         try:
             staged = ingestion.ingest_data_source(project)
         except (StorageError, StorageConfigurationError, OSError) as error:
             # The storage key is named deliberately, as in storage cleanup: the audience is an
             # operator working out why a synchronization produced no revision.
-            detail = f'Reconciling the source of "{project}" failed and needs another run: {error}'
+            detail = _('Reconciling the source of "{project}" failed and needs another run: {error}').format(
+                project=project, error=error
+            )
             self.logger.error(detail)
             raise JobFailed() from error
 
@@ -244,23 +272,33 @@ class ProjectReconciliationJob(JobRunner):
         project.refresh_from_db()
         if revision.status == RevisionStatusChoices.INVALID:
             self.logger.warning(
-                f'The synchronized source cannot be stored, {len(revision.validation_errors)} problem(s) recorded.'
+                _('The synchronized source cannot be stored, {count} problem(s) recorded.').format(
+                    count=len(revision.validation_errors)
+                )
             )
         elif revision.status == RevisionStatusChoices.MATERIALIZED:
-            self.logger.info(f'Revision {revision.digest[:12]} is staged and queued for validation.')
+            self.logger.info(
+                _('Revision {digest} is staged and queued for validation.').format(digest=revision.digest[:12])
+            )
         elif revision.pk == project.active_revision_id:
-            self.logger.info('The source has not changed, this project already serves it.')
+            self.logger.info(_('The source has not changed, this project already serves it.'))
         elif revision.status in ACTIVATABLE_REVISION_STATUSES:
             if project.activation_policy == ActivationPolicyChoices.MANUAL and not project.source_activation_pending:
                 self.logger.info(
-                    f'Revision {revision.digest[:12]} already holds a verdict and is waiting for an operator.'
+                    _('Revision {digest} already holds a verdict and is waiting for an operator.').format(
+                        digest=revision.digest[:12]
+                    )
                 )
             else:
                 self.logger.info(
-                    f'Revision {revision.digest[:12]} already holds a verdict and is queued for activation.'
+                    _('Revision {digest} already holds a verdict and is queued for activation.').format(
+                        digest=revision.digest[:12]
+                    )
                 )
         else:
-            self.logger.info(f'Revision {revision.digest[:12]} matches the source and another run owns it.')
+            self.logger.info(
+                _('Revision {digest} matches the source and another run owns it.').format(digest=revision.digest[:12])
+            )
 
 
 class ProjectScriptFileRefreshJob(JobRunner):
@@ -301,12 +339,14 @@ class ProjectScriptFileRefreshJob(JobRunner):
         """Recheck routing safety, then restage the stored tree under the current selection."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing a Script Project script file refresh, because {reason}'
+            detail = _('Refusing a Script Project script file refresh, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
         project = ScriptProject.objects.filter(pk=project_id).first()
         if project is None:
-            self.logger.info(f'Script Project {project_id} no longer exists, nothing to refresh.')
+            self.logger.info(
+                _('Script Project {project_id} no longer exists, nothing to refresh.').format(project_id=project_id)
+            )
             return
         from .ingestion import queue_revision_processing
 
@@ -315,23 +355,31 @@ class ProjectScriptFileRefreshJob(JobRunner):
                 source = project.latest_stored_revision()
                 if source is None:
                     self.logger.info(
-                        f'"{project}" holds no stored source yet, so its selection applies to its next revision.'
+                        _(
+                            '"{project}" holds no stored source yet, so its selection applies to its next revision.'
+                        ).format(project=project)
                     )
                     return
                 staged = service.refresh_revision_script_files(source)
                 queue_revision_processing(staged.revision)
         except (StorageError, StorageConfigurationError, OSError) as error:
-            detail = f'Refreshing the script files of "{project}" failed and needs another run: {error}'
+            detail = _('Refreshing the script files of "{project}" failed and needs another run: {error}').format(
+                project=project, error=error
+            )
             self.logger.error(detail)
             raise JobFailed() from error
 
         revision = staged.revision
         if revision.status == RevisionStatusChoices.MATERIALIZED:
-            self.logger.info(f'Revision {revision.digest[:12]} is staged and queued for validation.')
+            self.logger.info(
+                _('Revision {digest} is staged and queued for validation.').format(digest=revision.digest[:12])
+            )
         elif revision.pk == project.active_revision_id:
-            self.logger.info('The selection has not changed, this project already serves it.')
+            self.logger.info(_('The selection has not changed, this project already serves it.'))
         else:
-            self.logger.info(f'Revision {revision.digest[:12]} already holds a verdict for this selection.')
+            self.logger.info(
+                _('Revision {digest} already holds a verdict for this selection.').format(digest=revision.digest[:12])
+            )
 
 
 class RevisionValidationJob(JobRunner):
@@ -372,12 +420,14 @@ class RevisionValidationJob(JobRunner):
         """Recheck routing safety, then validate, failing the job on anything but a verdict."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing revision validation, because {reason}'
+            detail = _('Refusing revision validation, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
         revision = ScriptProjectRevision.objects.filter(pk=revision_pk).first()
         if revision is None:
-            self.logger.info(f'Revision {revision_pk} no longer exists, nothing to validate.')
+            self.logger.info(
+                _('Revision {revision_pk} no longer exists, nothing to validate.').format(revision_pk=revision_pk)
+            )
             return
         try:
             if revision.status not in (*ACTIVATABLE_REVISION_STATUSES, RevisionStatusChoices.ACTIVE):
@@ -390,13 +440,17 @@ class RevisionValidationJob(JobRunner):
             # claimable again, and the failed job carries the sanitized reason. The message
             # is rendered up front, because the job log records it verbatim.
             sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
-            detail = sanitize(f'Revision validation could not complete and needs another run: {error}')
+            detail = sanitize(
+                _('Revision validation could not complete and needs another run: {error}').format(error=error)
+            )
             self.logger.error(detail)
             raise JobFailed() from error
         if revision.status == RevisionStatusChoices.INVALID:
-            self.logger.warning(f'The revision is invalid, {len(revision.validation_errors)} problem(s) recorded.')
+            self.logger.warning(
+                _('The revision is invalid, {count} problem(s) recorded.').format(count=len(revision.validation_errors))
+            )
             return
-        self.logger.info(f'The revision validated as {revision.status}.')
+        self.logger.info(_('The revision validated as {status}.').format(status=revision.status))
         self._activate_if_requested(revision)
 
     def _activate_if_requested(self, revision):
@@ -405,15 +459,15 @@ class RevisionValidationJob(JobRunner):
             result = activation.activate_revision(revision, automatic=True)
         except (ActivationError, StorageError, OSError) as error:
             sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
-            detail = sanitize(f'The revision validated but could not be activated: {error}')
+            detail = sanitize(_('The revision validated but could not be activated: {error}').format(error=error))
             self.logger.error(detail)
             raise JobFailed() from error
         if result is None:
             self.logger.info(
-                'Leaving the active revision unchanged. This source is superseded or needs manual approval.'
+                _('Leaving the active revision unchanged. This source is superseded or needs manual approval.')
             )
         else:
-            self.logger.info('The revision is now the active revision of its project.')
+            self.logger.info(_('The revision is now the active revision of its project.'))
 
 
 class NetBoxScriptJob(JobRunner):
@@ -472,7 +526,11 @@ class NetBoxScriptJob(JobRunner):
             raise ValueError('An immediate run cannot also be deferred or repeated.')
         branching.require_safe_routing()
         if not script.is_executable:
-            raise ScriptNotExecutableError(f'"{script}" cannot be run right now. {script.run_refusal_reason}')
+            raise ScriptNotExecutableError(
+                _('"{script}" cannot be run right now. {reason}').format(
+                    script=script, reason=script.run_refusal_reason
+                )
+            )
         # JobRunner.handle() re-enqueues a periodic job with the same kwargs it received, so a
         # pin carried into a recurrence would execute one frozen revision forever, long after
         # the project moved on. A recurrence therefore resolves what is active at each run.
@@ -522,7 +580,7 @@ class NetBoxScriptJob(JobRunner):
         instance = kwargs.get('instance')
         script = NetBoxScript.objects.filter(pk=getattr(instance, 'pk', None)).select_related('project').first()
         if script is None:
-            raise ValidationError('The Script no longer exists, so the run cannot be scheduled.')
+            raise ValidationError(_('The Script no longer exists, so the run cannot be scheduled.'))
         kwargs['instance'] = script
         # Core rebuilds a successor with the row's own notifications, so setdefault cannot reach it.
         # A run queued before this flag carries none, and inherited is what it was.
@@ -589,7 +647,7 @@ class NetBoxScriptJob(JobRunner):
             # handle() terminates the row itself for every Exception, so reaching here means the
             # process is going down and the row would otherwise read running for good.
             if job.status not in JobStatusChoices.TERMINAL_STATE_CHOICES:
-                job.terminate(status=JobStatusChoices.STATUS_ERRORED, error='The run was interrupted.')
+                job.terminate(status=JobStatusChoices.STATUS_ERRORED, error=str(_('The run was interrupted.')))
             raise
         return job
 
@@ -619,20 +677,26 @@ class NetBoxScriptJob(JobRunner):
         """Resolve the class out of its revision and run it, recording the result."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            self.logger.error(f'Refusing to run a Script, because {reason}')
+            self.logger.error(_('Refusing to run a Script, because {reason}').format(reason=reason))
             raise JobFailed()
         # Enabled is the administrator's field, so turning it off has to stop a run that was
         # already queued. A pinned revision is deliberately not rechecked: the point of
         # pinning is that a run executes the source it was requested against.
         script = NetBoxScript.objects.filter(pk=self.job.object_id).first()
         if script is not None and not (script.enabled and script.project.enabled):
-            self.logger.error(f'"{script}" was disabled after this run was requested, so it was not run.')
+            self.logger.error(
+                _('"{script}" was disabled after this run was requested, so it was not run.').format(script=script)
+            )
             raise JobFailed()
         revision = self._revision_for(revision_id, script, module_path, class_name)
 
         storage_key = str(revision.project.storage_key)
         sanitize = build_error_sanitizer(storage_key, revision.digest)
-        self.logger.info(f'Running {module_path}.{class_name} from revision {revision.digest[:12]}.')
+        self.logger.info(
+            _('Running {module_path}.{class_name} from revision {digest}.').format(
+                module_path=module_path, class_name=class_name, digest=revision.digest[:12]
+            )
+        )
         try:
             with revision_import_session(storage_key, revision.digest):
                 try:
@@ -649,12 +713,12 @@ class NetBoxScriptJob(JobRunner):
                 finally:
                     unload_revision(storage_key, revision.digest)
         except (StorageError, StorageConfigurationError, OSError) as error:
-            detail = sanitize(f'The run could not reach the source it was pinned to: {error}')
+            detail = sanitize(_('The run could not reach the source it was pinned to: {error}').format(error=error))
             self.logger.error(detail)
             raise JobFailed() from error
         except Exception as error:
             # The run log already carries the detail, so this line only fails the Job.
-            self.logger.error(sanitize(f'The Script did not finish: {error}'))
+            self.logger.error(sanitize(_('The Script did not finish: {error}').format(error=error)))
             raise JobFailed() from error
 
     def _revision_for(self, revision_id, script, module_path, class_name):
@@ -664,16 +728,20 @@ class NetBoxScriptJob(JobRunner):
             revision = script.project.active_revision if script is not None else None
             if revision is None:
                 self.logger.error(
-                    f'This recurring run has no active revision to resolve, so {module_path}.{class_name} '
-                    'was not run. Its project is serving nothing, or the Script is gone.'
+                    _(
+                        'This recurring run has no active revision to resolve, so {module_path}.{class_name} '
+                        'was not run. Its project is serving nothing, or the Script is gone.'
+                    ).format(module_path=module_path, class_name=class_name)
                 )
                 raise JobFailed()
             return revision
         revision = ScriptProjectRevision.objects.filter(pk=revision_id).first()
         if revision is None:
             self.logger.error(
-                f'The revision this run was pinned to no longer exists, so {module_path}.{class_name} '
-                'cannot be run as it was requested.'
+                _(
+                    'The revision this run was pinned to no longer exists, so {module_path}.{class_name} '
+                    'cannot be run as it was requested.'
+                ).format(module_path=module_path, class_name=class_name)
             )
             raise JobFailed()
         return revision
@@ -693,7 +761,11 @@ class NetBoxScriptJob(JobRunner):
                 passthrough=(JobTimeoutException,),
             )
         except RESOLUTION_FAILURES as error:
-            detail = sanitize(f'Revision {revision.digest[:12]} cannot supply {module_path}.{class_name}: {error}')
+            detail = sanitize(
+                _('Revision {digest} cannot supply {module_path}.{class_name}: {error}').format(
+                    digest=revision.digest[:12], module_path=module_path, class_name=class_name, error=error
+                )
+            )
             self.logger.error(detail)
             raise JobFailed() from error
 
@@ -746,13 +818,19 @@ class MigrationInventoryJob(JobRunner):
         self.job.data = report
         counts = report['dialects']
         self.logger.info(
-            f'{len(report["modules"])} module(s): {counts[dialects.NATIVE]} native, '
-            f'{counts[dialects.LEGACY_IMPORT]} on legacy imports, {counts[dialects.REPORT_STYLE]} report-style.'
+            _(
+                '{modules} module(s): {native} native, {legacy_import} on legacy imports, {report_style} report-style.'
+            ).format(
+                modules=len(report['modules']),
+                native=counts[dialects.NATIVE],
+                legacy_import=counts[dialects.LEGACY_IMPORT],
+                report_style=counts[dialects.REPORT_STYLE],
+            )
         )
         for finding in report['findings']:
             log = self.logger.error if finding['level'] == plan.BLOCKING else self.logger.warning
             log(finding['message'])
-        self.logger.info(f'{len(report["projects"])} Script Project(s) would be created.')
+        self.logger.info(_('{count} Script Project(s) would be created.').format(count=len(report['projects'])))
 
 
 class MigrationStagingJob(JobRunner):
@@ -773,23 +851,27 @@ class MigrationStagingJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            detail = f'Refusing Custom Script migration staging, because {reason}'
+            detail = _('Refusing Custom Script migration staging, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
 
         run = MigrationRun.current()
         if run and run.state not in (MigrationStateChoices.LEGACY, MigrationStateChoices.STAGING):
             self.logger.error(
-                f'Refusing to stage anything. The migration is already in the {run.state} state, and '
-                'nothing may be staged once the cutover has begun.'
+                _(
+                    'Refusing to stage anything. The migration is already in the {state} state, and '
+                    'nothing may be staged once the cutover has begun.'
+                ).format(state=run.state)
             )
             raise JobFailed()
         # State alone would take back a run an older build left reading staging with the fence
         # already closed. A frozen map says the capture happened whatever the state says.
         if run and mapping.recorded(run) is not None:
             self.logger.error(
-                'Refusing to stage anything. This migration has already captured the built-in feature, '
-                'so the cutover has begun even though the state does not say so.'
+                _(
+                    'Refusing to stage anything. This migration has already captured the built-in feature, '
+                    'so the cutover has begun even though the state does not say so.'
+                )
             )
             raise JobFailed()
 
@@ -801,7 +883,9 @@ class MigrationStagingJob(JobRunner):
             for finding in report['findings']:
                 if finding['level'] == plan.BLOCKING:
                     self.logger.error(finding['message'])
-            self.logger.error('Refusing to stage anything. Resolve every blocking finding above, then run this again.')
+            self.logger.error(
+                _('Refusing to stage anything. Resolve every blocking finding above, then run this again.')
+            )
             raise JobFailed()
 
         with migration_lock():
@@ -820,26 +904,37 @@ class MigrationStagingJob(JobRunner):
         for result in results:
             if refusal := result.get('refused'):
                 # The pass is not failed over this: the inventory is the gate on a whole run.
-                self.logger.error(f'Script Project {result["key"]} was not staged. {refusal}')
+                self.logger.error(
+                    _('Script Project {key} was not staged. {refusal}').format(key=result['key'], refusal=refusal)
+                )
                 continue
             status = result['revision_status']
             # Ingestion queues validation for a materialized revision and nothing else, so any
             # other status is one the revision already held when content addressing found it.
-            outcome = (
-                'is queued for validation'
-                if status == RevisionStatusChoices.MATERIALIZED
-                else f'is {labels[status]}, so no validation was queued'
-            )
-            self.logger.info(
-                f'{"Created" if result["created"] else "Reused"} project {result["key"]}, '
-                f'revision {result["revision_pk"]} {outcome}.'
-            )
+            # Whole sentences per branch: a translator cannot reorder a substituted fragment.
+            if status == RevisionStatusChoices.MATERIALIZED:
+                template = (
+                    _('Created project {key}, revision {revision_pk} is queued for validation.')
+                    if result['created']
+                    else _('Reused project {key}, revision {revision_pk} is queued for validation.')
+                )
+                message = template.format(key=result['key'], revision_pk=result['revision_pk'])
+            else:
+                template = (
+                    _('Created project {key}, revision {revision_pk} is {label}, so no validation was queued.')
+                    if result['created']
+                    else _('Reused project {key}, revision {revision_pk} is {label}, so no validation was queued.')
+                )
+                message = template.format(key=result['key'], revision_pk=result['revision_pk'], label=labels[status])
+            self.logger.info(message)
         pending = sum(1 for result in staged if result['revision_status'] == RevisionStatusChoices.MATERIALIZED)
         refused = len(results) - len(staged)
         self.logger.info(
-            f'{len(staged)} Script Project(s) staged, none activated. '
-            f'{pending} awaiting a verdict, which each revision records. '
-            f'{refused} refused, each named above.'
+            _(
+                '{staged_count} Script Project(s) staged, none activated. '
+                '{pending} awaiting a verdict, which each revision records. '
+                '{refused} refused, each named above.'
+            ).format(staged_count=len(staged), pending=pending, refused=refused)
         )
 
 
@@ -861,7 +956,7 @@ class MigrationCutoverJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            self.logger.error(f'Refusing the Custom Script migration cutover, because {reason}')
+            self.logger.error(_('Refusing the Custom Script migration cutover, because {reason}').format(reason=reason))
             raise JobFailed()
 
         run = MigrationRun.current()
@@ -875,13 +970,22 @@ class MigrationCutoverJob(JobRunner):
         for warning in run.warnings:
             self.logger.warning(warning)
         self.logger.info(
-            f'Withdrew {counts["permissions"]} permission(s) on the built-in feature, disabled '
-            f'{counts["event_rules"]} Event Rule(s), cancelled {counts["schedules"]} queued job(s), '
-            f'and deregistered {counts["auto_sync"]} synchronization record(s).'
+            _(
+                'Withdrew {permissions} permission(s) on the built-in feature, disabled '
+                '{event_rules} Event Rule(s), cancelled {schedules} queued job(s), '
+                'and deregistered {auto_sync} synchronization record(s).'
+            ).format(
+                permissions=counts['permissions'],
+                event_rules=counts['event_rules'],
+                schedules=counts['schedules'],
+                auto_sync=counts['auto_sync'],
+            )
         )
         self.logger.info(
-            'The built-in Custom Scripts accept no further work from any user this installation '
-            'grants permissions to. Activate the staged Projects next.'
+            _(
+                'The built-in Custom Scripts accept no further work from any user this installation '
+                'grants permissions to. Activate the staged Projects next.'
+            )
         )
 
 
@@ -903,7 +1007,7 @@ class MigrationActivationJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            self.logger.error(f'Refusing Custom Script migration activation, because {reason}')
+            self.logger.error(_('Refusing Custom Script migration activation, because {reason}').format(reason=reason))
             raise JobFailed()
 
         run = MigrationRun.current()
@@ -915,13 +1019,19 @@ class MigrationActivationJob(JobRunner):
 
         self.job.data = {'projects': results}
         for result in results:
-            self.logger.info(f'Project {result["project_key"]} {result["outcome"]}.')
+            self.logger.info(
+                _('Project {project_key} {outcome}.').format(
+                    project_key=result['project_key'], outcome=result['outcome']
+                )
+            )
         keys = [result['project_key'] for result in results]
         serving = ScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).count()
         published = NetBoxScript.objects.filter(project__key__in=keys).count()
         self.logger.info(
-            f'{serving} of {len(results)} Script Project(s) are serving a revision, '
-            f'publishing {published} Script(s). Repoint the references next.'
+            _(
+                '{serving} of {total} Script Project(s) are serving a revision, '
+                'publishing {published} Script(s). Repoint the references next.'
+            ).format(serving=serving, total=len(results), published=published)
         )
 
 
@@ -943,7 +1053,9 @@ class MigrationReferencesJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            self.logger.error(f'Refusing the Custom Script migration reference pass, because {reason}')
+            self.logger.error(
+                _('Refusing the Custom Script migration reference pass, because {reason}').format(reason=reason)
+            )
             raise JobFailed()
 
         run = MigrationRun.current()
@@ -961,25 +1073,49 @@ class MigrationReferencesJob(JobRunner):
         for warning in (*rule_warnings, *permission_warnings, *history_warnings, *schedule_warnings):
             self.logger.warning(warning)
         self.logger.info(
-            f'Repointed {rules.get("actions", 0)} Event Rule action(s) and {rules.get("sources", 0)} '
-            f'event source(s), putting {rules.get("restored", 0)} rule(s) back into service, leaving '
-            f'{rules.get("unresolved", 0)} withdrawn for a later run and {rules.get("withdrawn", 0)} '
-            f'withdrawn for good.'
+            _(
+                'Repointed {actions} Event Rule action(s) and {sources} '
+                'event source(s), putting {restored} rule(s) back into service, leaving '
+                '{unresolved} withdrawn for a later run and {withdrawn} '
+                'withdrawn for good.'
+            ).format(
+                actions=rules.get('actions', 0),
+                sources=rules.get('sources', 0),
+                restored=rules.get('restored', 0),
+                unresolved=rules.get('unresolved', 0),
+                withdrawn=rules.get('withdrawn', 0),
+            )
         )
         left = permissions.get('constrained', 0) + permissions.get('unmappable', 0)
         self.logger.info(
-            f'Moved {permissions.get("swapped", 0)} permission(s) onto the plugin and split '
-            f'{permissions.get("split", 0)}, leaving {left} withdrawn for manual attention.'
+            _(
+                'Moved {swapped} permission(s) onto the plugin and split '
+                '{split}, leaving {left} withdrawn for manual attention.'
+            ).format(swapped=permissions.get('swapped', 0), split=permissions.get('split', 0), left=left)
         )
         self.logger.info(
-            f'Moved {history.get("moved", 0)} Job(s) of history onto the Scripts, leaving '
-            f'{history.get("unresolved", 0)} unresolved script(s), {history.get("outstanding", 0)} of them '
-            f'for a later run, and {history.get("modules", 0)} module Job(s) where they are.'
+            _(
+                'Moved {moved} Job(s) of history onto the Scripts, leaving '
+                '{unresolved} unresolved script(s), {outstanding} of them '
+                'for a later run, and {modules} module Job(s) where they are.'
+            ).format(
+                moved=history.get('moved', 0),
+                unresolved=history.get('unresolved', 0),
+                outstanding=history.get('outstanding', 0),
+                modules=history.get('modules', 0),
+            )
         )
         self.logger.info(
-            f'Recreated {schedules.get("recreated", 0)} schedule(s), {schedules.get("shifted", 0)} of them '
-            f'starting now rather than when they were due, and skipped {schedules.get("skipped", 0)}, '
-            f'{schedules.get("outstanding", 0)} of which a later run could still recover.'
+            _(
+                'Recreated {recreated} schedule(s), {shifted} of them '
+                'starting now rather than when they were due, and skipped {skipped}, '
+                '{outstanding} of which a later run could still recover.'
+            ).format(
+                recreated=schedules.get('recreated', 0),
+                shifted=schedules.get('shifted', 0),
+                skipped=schedules.get('skipped', 0),
+                outstanding=schedules.get('outstanding', 0),
+            )
         )
 
 
@@ -1001,7 +1137,7 @@ class MigrationCleanupJob(JobRunner):
 
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
-            self.logger.error(f'Refusing the Custom Script migration cleanup, because {reason}')
+            self.logger.error(_('Refusing the Custom Script migration cleanup, because {reason}').format(reason=reason))
             raise JobFailed()
 
         run = MigrationRun.current()
@@ -1015,24 +1151,36 @@ class MigrationCleanupJob(JobRunner):
         for warning in warnings:
             self.logger.warning(warning)
         self.logger.info(
-            f'Deleted {counts.get("modules", 0)} built-in script module(s) and the '
-            f'{counts.get("scripts", 0)} Script(s) under them, along with their stored source.'
+            _(
+                'Deleted {modules} built-in script module(s) and the '
+                '{scripts} Script(s) under them, along with their stored source.'
+            ).format(modules=counts.get('modules', 0), scripts=counts.get('scripts', 0))
         )
         if counts.get('retained'):
             self.logger.info(
-                f'{counts["retained"]} module(s) stay in place for good, because they hold history or a '
-                'reference no Script row can take over. Each one is named above.'
+                _(
+                    '{retained} module(s) stay in place for good, because they hold history or a '
+                    'reference no Script row can take over. Each one is named above.'
+                ).format(retained=counts['retained'])
             )
         if counts.get('blocked') or counts.get('unserved'):
             self.logger.info(
-                f'{counts.get("blocked", 0) + counts.get("unserved", 0)} module(s) were left for now and '
-                'the migration is still open. Clear what each warning above names, then run this again.'
+                _(
+                    '{count} module(s) were left for now and '
+                    'the migration is still open. Clear what each warning above names, then run this again.'
+                ).format(count=counts.get('blocked', 0) + counts.get('unserved', 0))
             )
             return
         self.logger.info(
-            f'The migration is complete. {counts.get("event_rules", 0)} Event Rule(s), '
-            f'{counts.get("permissions", 0)} permission(s) and {counts.get("jobs", 0)} Job(s) still '
-            'name the built-in feature.'
+            _(
+                'The migration is complete. {event_rules} Event Rule(s), '
+                '{permissions} permission(s) and {jobs} Job(s) still '
+                'name the built-in feature.'
+            ).format(
+                event_rules=counts.get('event_rules', 0),
+                permissions=counts.get('permissions', 0),
+                jobs=counts.get('jobs', 0),
+            )
         )
 
 
@@ -1057,8 +1205,13 @@ class MigrationVerificationJob(JobRunner):
             log = {plan.BLOCKING: self.logger.error, plan.WARNING: self.logger.warning}.get(
                 check['level'], self.logger.info
             )
-            log(f'{check["name"]}: {check["message"]} (read from {check["source"]})')
+            log(
+                _('{name}: {message} (read from {source})').format(
+                    name=check['name'], message=check['message'], source=check['source']
+                )
+            )
         self.logger.info(
-            f'{len(report["checks"])} check(s) ran and the migration reports {report["status"]}. '
-            'This pass changed nothing.'
+            _('{count} check(s) ran and the migration reports {status}. This pass changed nothing.').format(
+                count=len(report['checks']), status=report['status']
+            )
         )

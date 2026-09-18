@@ -302,7 +302,7 @@ def recreate_schedules(run):
                 ).format(name=entry['name'], due=entry['scheduled'])
             )
             continue
-        user = _user(entry['user_pk'])
+        user = get_user_model().objects.filter(pk=entry['user_pk']).first() if entry['user_pk'] else None
         if entry['user_pk'] and user is None:
             counts['skipped'] += 1
             warnings.append(
@@ -403,7 +403,7 @@ def _recreate(run, entry, script, schedule_at, user, recreated):
         # an ObjectVar resolves to.
         form = instance.as_form({**entry['data'], '_commit': entry['commit']})
         if not form.is_valid():
-            raise ValidationError(_form_errors(form))
+            raise ValidationError([f'{field}: {", ".join(errors)}' for field, errors in form.errors.items()])
         data = dict(form.cleaned_data)
         # Popped exactly as the run view pops them, so no execution parameter reaches the script as a
         # variable value. The schedule itself comes from the captured Job row, not from these.
@@ -426,16 +426,6 @@ def _recreate(run, entry, script, schedule_at, user, recreated):
         # has not claimed. Job.enqueue() hands the task over in a commit hook.
         recreated[str(entry['job_pk'])] = job.pk
         run.record_mapping('recreated_schedules', {str(entry['job_pk']): job.pk})
-
-
-def _form_errors(form):
-    """Return one run form's errors as the plain strings a warning can carry."""
-    return [f'{field}: {", ".join(errors)}' for field, errors in form.errors.items()]
-
-
-def _user(user_pk):
-    """Return the user a captured schedule belonged to, or None once they are gone."""
-    return get_user_model().objects.filter(pk=user_pk).first() if user_pk else None
 
 
 def _mapped_script_keys(run):

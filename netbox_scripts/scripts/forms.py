@@ -69,12 +69,10 @@ class ScriptForm(forms.Form):
         # wrong one is rejected as being in the past with no clue why. Composed per instance
         # rather than on the field, whose help text is evaluated once at import.
         schedule = self.fields['_schedule_at']
-        schedule.help_text = f'{schedule.help_text}{self.clock_hint()}'
-
-    @staticmethod
-    def clock_hint():
-        """Return the parenthetical naming the server's current time, for the schedule field."""
-        return _(' (current time: <strong>{now}</strong>)').format(now=local_now().strftime('%Y-%m-%d %H:%M:%S %Z'))
+        clock_hint = _(' (current time: <strong>{now}</strong>)').format(
+            now=local_now().strftime('%Y-%m-%d %H:%M:%S %Z')
+        )
+        schedule.help_text = f'{schedule.help_text}{clock_hint}'
 
     def clean(self):
         """

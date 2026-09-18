@@ -85,8 +85,10 @@ def _migration_rows(request, inventory_job, staging_job):
         {
             'key': key,
             'name': proposed.get(key, {}).get('name') or key,
-            'project': projects.get(key),
-            'revision': _row_revision(projects.get(key), newest),
+            'project': (project := projects.get(key)),
+            # What the project's tree is right now: the active revision, or the newest stored
+            # one for a project that has not activated anything yet.
+            'revision': (project.active_revision or newest.get(project.pk)) if project is not None else None,
         }
         for key in keys
     ]
@@ -105,13 +107,6 @@ def _newest_stored_revisions(projects):
     return newest
 
 
-def _row_revision(project, newest):
-    """Return the revision one row shows, which is what the project's tree is right now."""
-    if project is None:
-        return None
-    return project.active_revision or newest.get(project.pk)
-
-
 def _queued(job_class):
     """Report whether a pass of one class is pending, scheduled or running."""
     return job_class.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
@@ -120,14 +115,6 @@ def _queued(job_class):
 def _completed(job):
     """Report whether a pass finished successfully."""
     return bool(job) and job.status == JobStatusChoices.STATUS_COMPLETED
-
-
-def _next_action(sequence):
-    """Return the name of the first step that is offered and has not completed, or None."""
-    for name, offered, complete in sequence:
-        if offered and not complete:
-            return name
-    return None
 
 
 class BaseMigrationView(ContentTypePermissionRequiredMixin, View):
@@ -247,7 +234,7 @@ class MigrationView(BaseMigrationView):
                 # fence captured and tell the operator to redo a step they have not taken yet.
                 'projects_not_serving': not_serving if activated else [],
                 # The buttons carry their position, and this says which one the operator is on.
-                'next_action': _next_action(sequence),
+                'next_action': next((name for name, offered, complete in sequence if offered and not complete), None),
             },
         )
 

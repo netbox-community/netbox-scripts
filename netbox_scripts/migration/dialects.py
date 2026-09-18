@@ -75,11 +75,6 @@ def _classes(tree):
     return [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
 
 
-def _class_map(tree):
-    """Return the module's classes by name for resolving a base, the last declaration of a name winning."""
-    return {node.name: (_method_names(node), _base_names(node)) for node in _classes(tree)}
-
-
 def _method_names(node):
     """Return the names of the methods one class declares."""
     return {child.name for child in node.body if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))}
@@ -161,7 +156,8 @@ def _walk(statements, *, skip_functions, conditional):
 
 def _has_report_shape(tree):
     """Return whether any class declares test methods and could not have inherited a run method."""
-    classes = _class_map(tree)
+    # The module's classes by name, for resolving a base, the last declaration of a name winning.
+    classes = {node.name: (_method_names(node), _base_names(node)) for node in _classes(tree)}
     for node in _classes(tree):
         methods = _method_names(node)
         if 'run' in methods or not any(name.startswith('test_') for name in methods):

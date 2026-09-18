@@ -73,7 +73,9 @@ def activate_revision(revision, *, automatic=False):
     written = []
 
     def on_promote(*, project, revision, using):
-        written.append(_publish_scripts(project=project, revision=revision, using=using))
+        written.append(
+            synchronize_scripts(project=project, revision=revision, records=_validated_records(revision), using=using)
+        )
 
     promoted = service.promote_revision(revision, on_promote=on_promote, automatic=automatic)
     if promoted is None:
@@ -176,16 +178,6 @@ def synchronize_scripts(*, project, revision, records, using):
     return ScriptSyncResult(published=len(records), retired=retired, written=written)
 
 
-def _publish_scripts(*, project, revision, using):
-    """Bring a project's Script rows in line with the revision being promoted, counting writes."""
-    return synchronize_scripts(
-        project=project,
-        revision=revision,
-        records=_validated_records(revision),
-        using=using,
-    )
-
-
 def _validated_records(revision):
     """Return a revision's recorded Scripts, reporting a damaged snapshot as a refusal."""
     # Callers already handle one activation failure type, and ScriptMetadataError is not one of
@@ -200,18 +192,16 @@ def _validated_records(revision):
 
 def _save_changes(row, values, using):
     """Save one row's differing fields, returning whether it wrote and issuing nothing when none differ."""
-    changed = [name for name, value in values.items() if _differs(row, name, value)]
+    changed = []
+    for name, value in values.items():
+        # The FK compares by stored id, so an unchanged row never fetches its revision. Only
+        # the publishing path passes that key, and always with a saved revision.
+        differs = row.last_seen_revision_id != value.pk if name == 'last_seen_revision' else getattr(row, name) != value
+        if differs:
+            changed.append(name)
     if not changed:
         return False
     for name in changed:
         setattr(row, name, values[name])
     row.save(using=using, update_fields=(*changed, 'last_updated'))
     return True
-
-
-def _differs(row, name, value):
-    """Compare one field, without fetching a related object to do it."""
-    if name == 'last_seen_revision':
-        # Only the publishing path passes this key, and it always passes a saved revision.
-        return row.last_seen_revision_id != value.pk
-    return getattr(row, name) != value

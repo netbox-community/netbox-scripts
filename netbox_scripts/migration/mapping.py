@@ -45,7 +45,9 @@ def build_map(modules=None, *, resolve_existing=None):
             # defined in, which discovery reads off cls.__module__.
             module_path = source_path_to_dotted_name(source_path)
         except ValidationError as error:
-            unmapped.append(_unmapped(module, error.messages[0]))
+            unmapped.append(
+                {'legacy_pk': module.pk, 'path': module.data_path or module.file_path, 'reason': error.messages[0]}
+            )
             continue
         mapped.append({'legacy_pk': module.pk, 'project_key': keys[project_plan.key], 'source_path': source_path})
         scripts.extend(
@@ -108,8 +110,3 @@ def _source_path(module, project_plan):
     if project_plan.source_type == ProjectSourceTypeChoices.UPLOAD:
         return uploaded_source_path(module.file_path)
     return data_source_relative_path(module.data_path, project_plan.data_path)
-
-
-def _unmapped(module, reason):
-    """Return one report row for a module no plugin identity can be derived for."""
-    return {'legacy_pk': module.pk, 'path': module.data_path or module.file_path, 'reason': reason}

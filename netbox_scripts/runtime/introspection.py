@@ -84,7 +84,7 @@ def describe_script(discovered, *, script_file_id, script_file_path, position, p
             'commit_default': bool(cls.commit_default),
             'scheduling_enabled': bool(cls.scheduling_enabled),
             'job_timeout': _job_timeout(cls),
-            'notifications_default': _notifications_default(cls),
+            'notifications_default': validate_notification_policy(cls.notifications_default, name=cls.__name__),
         },
     }
 
@@ -184,11 +184,6 @@ def _job_timeout(cls):
             code='invalid_job_timeout',
             name=cls.__name__,
         ) from error
-
-
-def _notifications_default(cls):
-    """Return a supported Job notification policy or refuse the class metadata."""
-    return validate_notification_policy(cls.notifications_default, name=cls.__name__)
 
 
 def _require_free_variable_names(cls):

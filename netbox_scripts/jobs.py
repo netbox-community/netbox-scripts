@@ -710,26 +710,21 @@ class NetBoxScriptJob(JobRunner):
         try:
             run_script(instance, data=values, commit=commit, request=request)
         finally:
+            # A traceback names the file it was raised in, and that file lives in the runtime
+            # cache under the storage key and digest, so the run's own identities are stripped
+            # from its log and output here, before the record leaves this context.
+            record = instance.get_job_data()
+            sanitized = {
+                'log': [{**entry, 'message': sanitize(entry.get('message'))} for entry in record.get('log', [])],
+                'output': sanitize(record['output']) if isinstance(record.get('output'), str) else record.get('output'),
+            }
             # The result joins the pin rather than replacing it, so a finished Job still says
             # which revision and which class it ran, not only what came out.
             self.job.data = {
                 **(self.job.data or {}),
-                **_sanitized_run_record(instance, sanitize),
+                **sanitized,
                 'revision_digest': revision.digest,
             }
-
-
-def _sanitized_run_record(instance, sanitize):
-    """Return one run's log and output with the revision's runtime identities stripped out."""
-    # A traceback names the file it was raised in, and that file lives in the runtime cache
-    # under the storage key and digest, so an unhandled exception puts both in the record an
-    # operator reads. The run context builds the log and knows nothing about storage, which is
-    # why the stripping belongs here.
-    record = instance.get_job_data()
-    return {
-        'log': [{**entry, 'message': sanitize(entry.get('message'))} for entry in record.get('log', [])],
-        'output': sanitize(record['output']) if isinstance(record.get('output'), str) else record.get('output'),
-    }
 
 
 class MigrationInventoryJob(JobRunner):

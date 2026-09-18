@@ -48,7 +48,10 @@ def discover_scripts(module, *, project_key, revision_prefix):
     published = list(_order_entries(module, revision_prefix))
     seen = set(published)
     for _bound_name, candidate in sorted(vars(module).items()):
-        if not _defined_here(module, candidate) or candidate in seen:
+        defined_here = (
+            isinstance(candidate, type) and issubclass(candidate, Script) and candidate.__module__ == module.__name__
+        )
+        if not defined_here or candidate in seen:
             continue
         seen.add(candidate)
         published.append(candidate)
@@ -106,11 +109,6 @@ def _order_entries(module, revision_prefix):
             )
         seen.add(entry)
         yield entry
-
-
-def _defined_here(module, candidate):
-    """Return whether a module member is a Script subclass the module body itself defines."""
-    return isinstance(candidate, type) and issubclass(candidate, Script) and candidate.__module__ == module.__name__
 
 
 def _report_style(cls):

@@ -48,7 +48,14 @@ def resolve_script_class(
     be imported.
     """
     identity = f'{module_path}.{class_name}'
-    record = _find_record(validate_discovered_scripts(discovered_scripts), module_path, class_name)
+    record = next(
+        (
+            entry
+            for entry in validate_discovered_scripts(discovered_scripts)
+            if (entry['module_path'], entry['class_name']) == (module_path, class_name)
+        ),
+        None,
+    )
     if record is None:
         raise ScriptResolutionError(
             f'This revision does not publish "{identity}".',
@@ -75,11 +82,3 @@ def resolve_script_class(
         code='no_longer_published',
         name=identity,
     )
-
-
-def _find_record(discovered_scripts, module_path, class_name):
-    """Return the snapshot record for one identity, or None when the snapshot has no such entry."""
-    for record in discovered_scripts:
-        if (record['module_path'], record['class_name']) == (module_path, class_name):
-            return record
-    return None

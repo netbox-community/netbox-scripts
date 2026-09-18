@@ -47,17 +47,6 @@ logger = logging.getLogger('netbox.plugins.netbox_scripts.storage')
 CLEANUP_ATTRIBUTE = '_storage_cleanup'
 
 
-def _captured(instance, sender):
-    """Return what the pre_delete receiver recorded, or None once it has warned about the gap."""
-    captured = getattr(instance, CLEANUP_ATTRIBUTE, None)
-    if captured is None:
-        logger.warning(
-            'Skipping storage cleanup for a deleted %s because its stored identity was not captured.',
-            sender._meta.verbose_name,
-        )
-    return captured
-
-
 @receiver(pre_delete, sender=ScriptProjectRevision, dispatch_uid='netbox_scripts.capture_revision')
 def capture_revision_storage(sender, instance, using, **kwargs):
     """
@@ -82,8 +71,12 @@ def capture_revision_storage(sender, instance, using, **kwargs):
 @receiver(post_delete, sender=ScriptProjectRevision, dispatch_uid='netbox_scripts.cleanup_revision')
 def cleanup_revision_storage(sender, instance, using, **kwargs):
     """Record a deleted revision's cleanup Job inside the transaction deleting the row."""
-    captured = _captured(instance, sender)
+    captured = getattr(instance, CLEANUP_ATTRIBUTE, None)
     if captured is None:
+        logger.warning(
+            'Skipping storage cleanup for a deleted %s because its stored identity was not captured.',
+            sender._meta.verbose_name,
+        )
         return
     digest, storage_key, manifest = captured
     # Only a rejected staging attempt lacks a digest, and nothing was written for it. An

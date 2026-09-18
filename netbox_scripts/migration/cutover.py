@@ -193,17 +193,14 @@ def _activate_project(project):
     # The pointer field, not the current_revision property, which falls back to the newest attempt
     # and would report an unactivated project as though it were serving.
     if project.active_revision_id == newest.pk:
-        return _activated(project, newest, 'was already serving this revision')
-    candidate = project.revisions.filter(status=RevisionStatusChoices.VALID).order_by('-created').first()
-    if candidate is None:
-        # Retired is deliberately not accepted here: preferring it over an older valid revision
-        # would serve a revision the project had already stood down from.
-        return _outcome(project, newest.pk, f'has no valid revision to activate, its newest is {newest.status}')
-    return _activated(project, candidate, 'activated')
-
-
-def _activated(project, revision, outcome):
-    """Activate one revision and return its outcome, or the refusal in its place."""
+        revision, outcome = newest, 'was already serving this revision'
+    else:
+        candidate = project.revisions.filter(status=RevisionStatusChoices.VALID).order_by('-created').first()
+        if candidate is None:
+            # Retired is deliberately not accepted here: preferring it over an older valid revision
+            # would serve a revision the project had already stood down from.
+            return _outcome(project, newest.pk, f'has no valid revision to activate, its newest is {newest.status}')
+        revision, outcome = candidate, 'activated'
     try:
         activation.activate_revision(revision)
     except _ACTIVATION_FAILURES as error:

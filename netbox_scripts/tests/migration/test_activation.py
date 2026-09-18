@@ -1,11 +1,15 @@
+from unittest import mock
+
 from django.test import TestCase
 
 from core.choices import JobStatusChoices
 from extras.models import ScriptModule
+from netbox_scripts import activation
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
 
@@ -70,6 +74,30 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         project.refresh_from_db()
         self.assertIsNone(project.active_revision_id)
         # Its sibling still activated, so one project's content problem does not stop the pass.
+        self.assertEqual(len([item for item in results if item['outcome'] == 'activated']), 1)
+
+    def test_a_project_whose_activation_raises_is_recorded_and_skipped(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        revision = project.revisions.get()
+        real_activate = activation.activate_revision
+
+        def fail_for_target(target, **kwargs):
+            # Only the targeted revision fails, so the sibling project's real activation still runs.
+            if target.pk == revision.pk:
+                raise ActivationError('the backend refused')
+            return real_activate(target, **kwargs)
+
+        with mock.patch.object(activation, 'activate_revision', side_effect=fail_for_target):
+            results = cutover.activate_staged(self.migration)
+
+        outcome = next(item for item in results if item['project_key'] == project.key)
+        self.assertTrue(outcome['outcome'].startswith('could not be activated: '))
+        self.assertIn('the backend refused', outcome['outcome'])
+        self.assertEqual(outcome['revision_pk'], revision.pk)
+        project.refresh_from_db()
+        self.assertIsNone(project.active_revision_id)
+        # Its sibling still activated, so one project's activation failure does not stop the pass.
         self.assertEqual(len([item for item in results if item['outcome'] == 'activated']), 1)
 
     def test_a_project_holding_no_revision_is_recorded_and_skipped(self):

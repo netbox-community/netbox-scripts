@@ -52,6 +52,14 @@ class ProposedProject:
     data_path: str
     module_pks: tuple[int, ...]
 
+    def source_path_for(self, module):
+        """Return the module's path inside this proposal, or None when it is outside."""
+        # Both branches call what staging calls, so this cannot propose a path ingestion refuses.
+        # file_path is a basename for a synced module, which is why that branch uses data_path.
+        if self.source_type == ProjectSourceTypeChoices.UPLOAD:
+            return uploaded_source_path(module.file_path)
+        return data_source_relative_path(module.data_path, self.data_path)
+
 
 def group(modules):
     """Return the Projects a set of legacy modules would migrate into, ordered by key."""
@@ -125,15 +133,6 @@ def build_report(modules=None, read=None):
 def _path(module):
     """Return the path to name a module by, preferring where it came from."""
     return module.data_path or module.file_path
-
-
-def _staged_path(module, proposal):
-    """Return the project-relative path a module's content is staged at, or None if it is outside."""
-    # file_path is a basename for a synced module, so it is not what gets imported. Both branches
-    # mirror staging exactly, which is what stops the inventory reporting a path ingestion refuses.
-    if proposal.source_type == ProjectSourceTypeChoices.UPLOAD:
-        return uploaded_source_path(module.file_path)
-    return data_source_relative_path(module.data_path, proposal.data_path)
 
 
 def _root_findings(proposed):
@@ -327,7 +326,7 @@ def _inspect(module, read, proposal):
 def _path_findings(module, proposal, path):
     """Return the findings for where one module's content would be staged."""
     try:
-        staged = _staged_path(module, proposal)
+        staged = proposal.source_path_for(module)
     except ValidationError as error:
         return [_finding(BLOCKING, 'not_importable', module, f'{path} cannot be staged: {error.messages[0]}')]
     if staged is None:

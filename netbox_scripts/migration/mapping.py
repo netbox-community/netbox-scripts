@@ -2,10 +2,8 @@
 
 from django.core.exceptions import ValidationError
 
-from ..choices import ProjectSourceTypeChoices
-from ..ingestion import uploaded_source_path
 from ..models import NetBoxScript
-from ..utils import data_source_relative_path, source_path_to_dotted_name
+from ..utils import source_path_to_dotted_name
 from . import plan
 from . import source as legacy_source
 
@@ -38,7 +36,7 @@ def build_map(modules=None, *, resolve_existing=None):
     for module in modules:
         project_plan = proposed[module.pk]
         try:
-            source_path = _source_path(module, project_plan)
+            source_path = project_plan.source_path_for(module)
             if source_path is None:
                 raise ValidationError('The module sits outside the proposed project directory.')
             # The dotted name, not the source path: a NetBoxScript records the module a class was
@@ -102,11 +100,3 @@ def resolve_scripts(mapping):
             else:
                 resolved[entry['legacy_pk']] = row
     return resolved, unresolved
-
-
-def _source_path(module, project_plan):
-    """Return the project-relative path a legacy module's content is staged at."""
-    # Both branches mirror staging exactly, because the identity has to match what it created.
-    if project_plan.source_type == ProjectSourceTypeChoices.UPLOAD:
-        return uploaded_source_path(module.file_path)
-    return data_source_relative_path(module.data_path, project_plan.data_path)

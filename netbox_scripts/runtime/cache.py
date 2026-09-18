@@ -27,6 +27,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from django.utils.translation import gettext_lazy as _
+
 from netbox.plugins import get_plugin_config
 
 from ..storage.manifest import validate_manifest
@@ -95,7 +97,7 @@ def verify_local_tree(local_dir, manifest):
     tree is judged against the manifest exactly as given.
     """
     local_dir = Path(local_dir)
-    failure = f'The cached tree at "{local_dir}" does not match the revision manifest.'
+    failure = _('The cached tree at "{local_dir}" does not match the revision manifest.').format(local_dir=local_dir)
     root = _lstat_or_none(local_dir)
     if root is None or stat.S_ISLNK(root.st_mode) or not stat.S_ISDIR(root.st_mode):
         raise LocalCacheCorruptError(failure, ['missing_root'])
@@ -109,7 +111,9 @@ def verify_local_tree(local_dir, manifest):
     try:
         entries = list(_scan_tree(local_dir))
     except OSError as error:
-        raise LocalCacheError(f'Unable to inspect the cached tree "{local_dir}": {error}') from error
+        raise LocalCacheError(
+            _('Unable to inspect the cached tree "{local_dir}": {error}').format(local_dir=local_dir, error=error)
+        ) from error
 
     reasons = []
     flagged = set()
@@ -175,7 +179,11 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
     try:
         project_dir.mkdir(parents=True, exist_ok=True)  # cloud-compat: ok, the runtime cache tier
     except OSError as error:
-        raise LocalCacheError(f'Unable to create the cache directory "{project_dir}": {error}') from error
+        raise LocalCacheError(
+            _('Unable to create the cache directory "{project_dir}": {error}').format(
+                project_dir=project_dir, error=error
+            )
+        ) from error
 
     last_failure = None
     with _slot_lock(project_dir / f'.{digest}.lock'):
@@ -205,8 +213,10 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
 
     reasons = ', '.join(last_failure.reasons) if last_failure else 'unknown'
     raise LocalCacheError(
-        f'The staged tree for "{target}" failed verification {_MAX_MATERIALIZE_ATTEMPTS} times in a row, '
-        f'giving up on this attempt. Last reasons: {reasons}.'
+        _(
+            'The staged tree for "{target}" failed verification {attempts} times in a row, giving up on '
+            'this attempt. Last reasons: {reasons}.'
+        ).format(target=target, attempts=_MAX_MATERIALIZE_ATTEMPTS, reasons=reasons)
     )
 
 
@@ -228,22 +238,30 @@ def _ensure_private_root(root):
         except FileExistsError:
             continue
         except OSError as error:
-            raise LocalCacheError(f'Unable to create the cache root "{directory}": {error}') from error
+            raise LocalCacheError(
+                _('Unable to create the cache root "{directory}": {error}').format(directory=directory, error=error)
+            ) from error
     for directory in (root, *root.parents):
         try:
             info = directory.stat()
         except OSError as error:
-            raise LocalCacheError(f'Unable to inspect the cache root "{directory}": {error}') from error
+            raise LocalCacheError(
+                _('Unable to inspect the cache root "{directory}": {error}').format(directory=directory, error=error)
+            ) from error
         if info.st_uid not in (os.getuid(), 0):
             raise LocalCacheError(
-                f'The cache path "{directory}" belongs to another user, who could substitute the '
-                f'tree the loader imports. Point runtime_cache_root somewhere this process owns.'
+                _(
+                    'The cache path "{directory}" belongs to another user, who could substitute the tree '
+                    'the loader imports. Point runtime_cache_root somewhere this process owns.'
+                ).format(directory=directory)
             )
         if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
             raise LocalCacheError(
-                f'The cache path "{directory}" is writable by other users and not sticky, so the '
-                f'tree the loader imports could be substituted. Restrict it with '
-                f'"chmod 700 {directory}", or point runtime_cache_root somewhere already private.'
+                _(
+                    'The cache path "{directory}" is writable by other users and not sticky, so the tree '
+                    'the loader imports could be substituted. Restrict it with "chmod 700 {directory}", or '
+                    'point runtime_cache_root somewhere already private.'
+                ).format(directory=directory)
             )
 
 
@@ -254,8 +272,10 @@ def _guard_path_budget(project_dir, digest, manifest):
     longest = len(str(project_dir / staging_name).encode('utf-8')) + 1 + longest_entry
     if longest > _MAX_LOCAL_PATH_BYTES:
         raise LocalCacheError(
-            f'The cache root leaves this revision a longest path of {longest} bytes, over the '
-            f'{_MAX_LOCAL_PATH_BYTES} byte budget. Point runtime_cache_root at a shorter location.'
+            _(
+                'The cache root leaves this revision a longest path of {longest} bytes, over the {budget} '
+                'byte budget. Point runtime_cache_root at a shorter location.'
+            ).format(longest=longest, budget=_MAX_LOCAL_PATH_BYTES)
         )
 
 
@@ -283,12 +303,16 @@ def _slot_lock(lock_path):
     try:
         handle = lock_path.open('ab')  # cloud-compat: ok, the slot lock lives beside the cache it serializes
     except OSError as error:
-        raise LocalCacheError(f'Unable to open the cache lock "{lock_path}": {error}') from error
+        raise LocalCacheError(
+            _('Unable to open the cache lock "{lock_path}": {error}').format(lock_path=lock_path, error=error)
+        ) from error
     try:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         except OSError as error:
-            raise LocalCacheError(f'Unable to take the cache lock "{lock_path}": {error}') from error
+            raise LocalCacheError(
+                _('Unable to take the cache lock "{lock_path}": {error}').format(lock_path=lock_path, error=error)
+            ) from error
         yield
     finally:
         handle.close()
@@ -331,7 +355,9 @@ def _set_aside_corrupt(target, error):
             target.chmod(stat.S_IMODE(info.st_mode) | stat.S_IWUSR)  # cloud-compat: ok, the runtime cache tier
         target.rename(aside)  # cloud-compat: ok, the runtime cache tier
     except OSError as rename_error:
-        raise LocalCacheError(f'Unable to set the failed tree "{target}" aside: {rename_error}') from rename_error
+        raise LocalCacheError(
+            _('Unable to set the failed tree "{target}" aside: {error}').format(target=target, error=rename_error)
+        ) from rename_error
 
 
 def _purge_bytecode(local_dir):
@@ -362,7 +388,11 @@ def _purge_bytecode(local_dir):
                 else:
                     shutil.rmtree(candidate)  # cloud-compat: ok, compiled artifacts in the disposable cache
     except OSError as error:
-        raise LocalCacheError(f'Unable to remove compiled artifacts under "{local_dir}": {error}') from error
+        raise LocalCacheError(
+            _('Unable to remove compiled artifacts under "{local_dir}": {error}').format(
+                local_dir=local_dir, error=error
+            )
+        ) from error
 
 
 def _fill_staging(storage, storage_key, digest, manifest, staging):
@@ -370,19 +400,25 @@ def _fill_staging(storage, storage_key, digest, manifest, staging):
     try:
         staging.mkdir()  # cloud-compat: ok, our own staging tree
     except OSError as error:
-        raise LocalCacheError(f'Unable to create the staging tree "{staging}": {error}') from error
+        raise LocalCacheError(
+            _('Unable to create the staging tree "{staging}": {error}').format(staging=staging, error=error)
+        ) from error
     for entry in manifest:
         destination = staging / entry['path']
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)  # cloud-compat: ok, our own staging tree
         except OSError as error:
-            raise LocalCacheError(f'Unable to create a directory for "{entry["path"]}": {error}') from error
+            raise LocalCacheError(
+                _('Unable to create a directory for "{path}": {error}').format(path=entry['path'], error=error)
+            ) from error
         try:
             copy_verified(storage, revision_key(storage_key, digest, entry['path']), entry, destination)
         except OSError as error:
             # copy_verified reports its backend and content failures itself, an OSError out
             # of it is this host failing to accept the bytes.
-            raise LocalCacheError(f'Unable to write "{entry["path"]}" into the staging tree: {error}') from error
+            raise LocalCacheError(
+                _('Unable to write "{path}" into the staging tree: {error}').format(path=entry['path'], error=error)
+            ) from error
 
 
 def _make_read_only(root):
@@ -395,7 +431,9 @@ def _make_read_only(root):
                 (base / name).chmod(0o555)  # cloud-compat: ok, the runtime cache tier
         root.chmod(0o555)  # cloud-compat: ok, the runtime cache tier
     except OSError as error:
-        raise LocalCacheError(f'Unable to write-protect the published tree "{root}": {error}') from error
+        raise LocalCacheError(
+            _('Unable to write-protect the published tree "{root}": {error}').format(root=root, error=error)
+        ) from error
 
 
 def _publish(staging, target, manifest):
@@ -409,7 +447,9 @@ def _publish(staging, target, manifest):
         try:
             verify_local_tree(target, manifest)
         except LocalCacheCorruptError:
-            raise LocalCacheError(f'Unable to publish the staged tree into "{target}": {error}') from error
+            raise LocalCacheError(
+                _('Unable to publish the staged tree into "{target}": {error}').format(target=target, error=error)
+            ) from error
 
 
 def _scan_tree(local_dir):
@@ -435,7 +475,9 @@ def _measure_file(path, expected_size):
                 remaining -= len(chunk)
                 digest.update(chunk)
     except OSError as error:
-        raise LocalCacheError(f'Unable to read "{path}" for verification: {error}') from error
+        raise LocalCacheError(
+            _('Unable to read "{path}" for verification: {error}').format(path=path, error=error)
+        ) from error
     return size, digest.hexdigest()
 
 

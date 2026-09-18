@@ -13,6 +13,7 @@ checked before use. It carries no digest, unlike those two, because activation r
 rows from it rather than executing it.
 """
 
+from django.utils.translation import gettext_lazy as _
 from rq.exceptions import TimeoutFormatError
 from rq.utils import parse_timeout
 
@@ -67,7 +68,7 @@ def describe_script(discovered, *, script_file_id, script_file_path, position, p
         if isinstance(error, passthrough):
             raise
         raise ScriptMetadataError(
-            f'The run form of "{discovered.name}" could not be built.',
+            _('The run form of "{name}" could not be built.').format(name=discovered.name),
             code='form_construction_failed',
             name=discovered.name,
         ) from error
@@ -97,19 +98,21 @@ def validate_discovered_scripts(value):
     that path. Raises ScriptMetadataError.
     """
     if not isinstance(value, list):
-        raise ScriptMetadataError('The discovered scripts must be a list.', code='invalid_snapshot')
+        raise ScriptMetadataError(_('The discovered scripts must be a list.'), code='invalid_snapshot')
 
     identities = set()
     for index, record in enumerate(value):
         if not isinstance(record, dict):
             raise ScriptMetadataError(
-                f'Entry {index} of the discovered scripts must be an object.',
+                _('Entry {index} of the discovered scripts must be an object.').format(index=index),
                 code='invalid_entry',
             )
         for key in _REQUIRED_TEXT_KEYS:
             if not isinstance(record.get(key), str):
                 raise ScriptMetadataError(
-                    f'Entry {index} of the discovered scripts is missing a text "{key}".',
+                    _('Entry {index} of the discovered scripts is missing a text "{key}".').format(
+                        index=index, key=key
+                    ),
                     code='invalid_entry',
                     name=key,
                 )
@@ -117,18 +120,18 @@ def validate_discovered_scripts(value):
         # bool is a subclass of int, so True would otherwise pass as a module id.
         if not isinstance(script_file_id, int) or isinstance(script_file_id, bool) or script_file_id <= 0:
             raise ScriptMetadataError(
-                f'Entry {index} of the discovered scripts is missing a script file id.',
+                _('Entry {index} of the discovered scripts is missing a script file id.').format(index=index),
                 code='invalid_entry',
                 name='script_file_id',
             )
         if record.get('position') != index:
             raise ScriptMetadataError(
-                f'Entry {index} of the discovered scripts records the wrong position.',
+                _('Entry {index} of the discovered scripts records the wrong position.').format(index=index),
                 code='invalid_position',
             )
         if not isinstance(record.get('metadata'), dict):
             raise ScriptMetadataError(
-                f'Entry {index} of the discovered scripts must carry an object of metadata.',
+                _('Entry {index} of the discovered scripts must carry an object of metadata.').format(index=index),
                 code='invalid_entry',
                 name='metadata',
             )
@@ -143,7 +146,9 @@ def validate_discovered_scripts(value):
         identity = (record['module_path'], record['class_name'])
         if identity in identities:
             raise ScriptMetadataError(
-                f'Two entries of the discovered scripts publish as "{record["module_path"]}.{record["class_name"]}".',
+                _('Two entries of the discovered scripts publish as "{module_path}.{class_name}".').format(
+                    module_path=record['module_path'], class_name=record['class_name']
+                ),
                 code='duplicate_identity',
                 name=record['class_name'],
             )
@@ -155,20 +160,24 @@ def validate_discovered_scripts(value):
 def validate_job_timeout(value, *, name=None):
     """Return a job timeout that is a positive number of seconds. Raises ScriptMetadataError for anything else."""
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        subject = f'The job timeout of "{name}"' if name else 'The recorded job timeout'
-        raise ScriptMetadataError(
-            f'{subject} must be a positive number of seconds.', code='invalid_job_timeout', name=name
-        )
+        if name:
+            message = _('The job timeout of "{name}" must be a positive number of seconds.').format(name=name)
+        else:
+            message = _('The recorded job timeout must be a positive number of seconds.')
+        raise ScriptMetadataError(message, code='invalid_job_timeout', name=name)
     return value
 
 
 def validate_notification_policy(value, *, name=None):
     """Return a notification policy that is one of the Job choices. Raises ScriptMetadataError for anything else."""
     if value not in JobNotificationChoices.values():
-        subject = f'The notification policy of "{name}"' if name else 'The recorded notification policy'
-        raise ScriptMetadataError(
-            f'{subject} is not a supported Job notification choice.', code='invalid_notifications_default', name=name
-        )
+        if name:
+            message = _('The notification policy of "{name}" is not a supported Job notification choice.').format(
+                name=name
+            )
+        else:
+            message = _('The recorded notification policy is not a supported Job notification choice.')
+        raise ScriptMetadataError(message, code='invalid_notifications_default', name=name)
     return str(value)
 
 
@@ -180,7 +189,9 @@ def _job_timeout(cls):
         return validate_job_timeout(parse_timeout(cls.job_timeout))
     except (TimeoutFormatError, TypeError, ValueError, AssertionError, ScriptMetadataError) as error:
         raise ScriptMetadataError(
-            f'The job timeout of "{cls.__name__}" must be a positive number of seconds or an RQ duration string.',
+            _('The job timeout of "{name}" must be a positive number of seconds or an RQ duration string.').format(
+                name=cls.__name__
+            ),
             code='invalid_job_timeout',
             name=cls.__name__,
         ) from error
@@ -191,7 +202,9 @@ def _require_free_variable_names(cls):
     reserved = sorted(RESERVED_VARIABLE_NAMES.intersection(cls._get_vars()))
     if reserved:
         raise ScriptMetadataError(
-            f'The variable "{reserved[0]}" of "{cls.__name__}" uses a name the run form reserves.',
+            _('The variable "{variable}" of "{name}" uses a name the run form reserves.').format(
+                variable=reserved[0], name=cls.__name__
+            ),
             code='reserved_variable_name',
             name=reserved[0],
         )
@@ -201,13 +214,13 @@ def _require_storable_identity(module_path, class_name):
     """Refuse an identity longer than the fields a published script is recorded in."""
     if len(class_name) > MAX_SCRIPT_CLASS_NAME_LENGTH:
         raise ScriptMetadataError(
-            f'The class name "{class_name}" is too long to store.',
+            _('The class name "{name}" is too long to store.').format(name=class_name),
             code='identity_too_long',
             name=class_name,
         )
     if len(module_path) > MAX_SCRIPT_MODULE_PATH_LENGTH:
         raise ScriptMetadataError(
-            f'The module path of "{class_name}" is too long to store.',
+            _('The module path of "{name}" is too long to store.').format(name=class_name),
             code='identity_too_long',
             name=class_name,
         )
@@ -219,7 +232,7 @@ def _require_storable_display_name(display_name, class_name):
     # over-long one and a database error at activation.
     if len(display_name) > MAX_SCRIPT_DISPLAY_NAME_LENGTH:
         raise ScriptMetadataError(
-            f'The display name of "{class_name}" is too long to store.',
+            _('The display name of "{name}" is too long to store.').format(name=class_name),
             code='display_name_too_long',
             name=class_name,
         )
@@ -233,7 +246,9 @@ def _require_known_fieldset_fields(instance, form):
         for name in names:
             if name not in form.fields:
                 raise ScriptMetadataError(
-                    f'The fieldsets of "{type(instance).__name__}" name "{name}", which is not a variable.',
+                    _('The fieldsets of "{type_name}" name "{field_name}", which is not a variable.').format(
+                        type_name=type(instance).__name__, field_name=name
+                    ),
                     code='unknown_fieldset_field',
                     name=name,
                 )

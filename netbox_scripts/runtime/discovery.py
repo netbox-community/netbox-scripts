@@ -15,6 +15,8 @@ user-facing identity and two projects always log apart.
 
 from typing import NamedTuple
 
+from django.utils.translation import gettext_lazy as _
+
 from ..compat import MIGRATION_HINTS
 from ..scripts.base import BaseScript, Script
 from .exceptions import DiscoveryError
@@ -74,36 +76,43 @@ def zero_publication_reason(module):
             continue
         for base in candidate.__mro__[1:]:
             if base.__module__ in MIGRATION_HINTS:
-                return (
-                    f'"{candidate.__name__}" subclasses {base.__module__}.{base.__name__}, which belongs to '
-                    f'NetBox Community rather than to this plugin. {MIGRATION_HINTS[base.__module__]}'
+                return _(
+                    '"{name}" subclasses {base_module}.{base_name}, which belongs to NetBox Community rather '
+                    'than to this plugin. {hint}'
+                ).format(
+                    name=candidate.__name__,
+                    base_module=base.__module__,
+                    base_name=base.__name__,
+                    hint=MIGRATION_HINTS[base.__module__],
                 )
-    return 'The module imports cleanly and defines no Script.'
+    return _('The module imports cleanly and defines no Script.')
 
 
 def _order_entries(module, revision_prefix):
     """Yield the validated script_order entries of one module, in listed order."""
     order = getattr(module, 'script_order', ())
     if not isinstance(order, (list, tuple)):
-        raise DiscoveryError('script_order must be a list or tuple of script classes.', code='invalid_script_order')
+        raise DiscoveryError(_('script_order must be a list or tuple of script classes.'), code='invalid_script_order')
     seen = set()
     for entry in order:
         if not isinstance(entry, type) or not issubclass(entry, Script):
             raise DiscoveryError(
-                'Every script_order entry must be a Script subclass.',
+                _('Every script_order entry must be a Script subclass.'),
                 code='not_a_script',
                 name=getattr(entry, '__name__', None),
             )
         if not entry.__module__.startswith(f'{revision_prefix}.'):
             raise DiscoveryError(
-                f'"{entry.__name__}" is not defined in a module of this revision. Classes from installed '
-                f'packages or the package root cannot be published.',
+                _(
+                    '"{name}" is not defined in a module of this revision. Classes from installed packages '
+                    'or the package root cannot be published.'
+                ).format(name=entry.__name__),
                 code='not_revision_local',
                 name=entry.__name__,
             )
         if entry in seen:
             raise DiscoveryError(
-                f'"{entry.__name__}" appears more than once in script_order.',
+                _('"{name}" appears more than once in script_order.').format(name=entry.__name__),
                 code='duplicate_entry',
                 name=entry.__name__,
             )
@@ -126,8 +135,10 @@ def _publish(cls, project_key, revision_prefix):
     """Stamp one class with its identity markers and describe the publication."""
     if _report_style(cls):
         raise DiscoveryError(
-            f'"{cls.__name__}" is a report rather than a Script. Reports are not supported. '
-            f'Give the class a run(self, data, commit) method to publish it as a script.',
+            _(
+                '"{name}" is a report rather than a Script. Reports are not supported. Give the class a '
+                'run(self, data, commit) method to publish it as a script.'
+            ).format(name=cls.__name__),
             code='report_style',
             name=cls.__name__,
         )
@@ -144,7 +155,9 @@ def _require_distinct_identities(results):
         identity = (result.logical_module, result.name)
         if identity in seen:
             raise DiscoveryError(
-                f'Two script classes publish as "{result.logical_module}.{result.name}".',
+                _('Two script classes publish as "{module}.{name}".').format(
+                    module=result.logical_module, name=result.name
+                ),
                 code='duplicate_identity',
                 name=result.name,
             )

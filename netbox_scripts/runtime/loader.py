@@ -29,6 +29,8 @@ import threading
 import traceback
 from contextlib import contextmanager
 
+from django.utils.translation import gettext_lazy as _
+
 from ..compat import wrap_loader
 from ..storage.manifest import validate_manifest
 from .cache import materialize_revision
@@ -65,7 +67,7 @@ def import_script_file(storage_key, digest, script_file_path, *, storage, manife
     validate_manifest(manifest, digest)
     manifest_paths = {entry['path'] for entry in manifest}
     if script_file_path not in manifest_paths:
-        message = f'The script file "{script_file_path}" is not part of the revision manifest.'
+        message = _('The script file "{path}" is not part of the revision manifest.').format(path=script_file_path)
         raise ScriptFileImportError(
             message,
             {
@@ -94,7 +96,7 @@ def import_script_file(storage_key, digest, script_file_path, *, storage, manife
             if isinstance(error, (*passthrough, KeyboardInterrupt, GeneratorExit)):
                 raise
             raise ScriptFileImportError(
-                f'The script file "{script_file_path}" failed to import.',
+                _('The script file "{path}" failed to import.').format(path=script_file_path),
                 _failure_detail(script_file_path, error, revision_dir),
             ) from error
 

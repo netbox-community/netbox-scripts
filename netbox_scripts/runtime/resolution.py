@@ -15,6 +15,8 @@ Nothing here opens an import session or unloads afterwards. The caller runs the 
 back, so the namespace has to outlive this call, and the session is the caller's to hold.
 """
 
+from django.utils.translation import gettext_lazy as _
+
 from .discovery import discover_scripts
 from .exceptions import ScriptResolutionError
 from .introspection import validate_discovered_scripts
@@ -58,7 +60,7 @@ def resolve_script_class(
     )
     if record is None:
         raise ScriptResolutionError(
-            f'This revision does not publish "{identity}".',
+            _('This revision does not publish "{identity}".').format(identity=identity),
             code='not_published',
             name=identity,
         )
@@ -78,7 +80,7 @@ def resolve_script_class(
             return found.cls
 
     raise ScriptResolutionError(
-        f'"{record["script_file_path"]}" no longer publishes "{identity}".',
+        _('"{path}" no longer publishes "{identity}".').format(path=record['script_file_path'], identity=identity),
         code='no_longer_published',
         name=identity,
     )

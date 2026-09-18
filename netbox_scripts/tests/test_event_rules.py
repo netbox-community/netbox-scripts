@@ -91,8 +91,18 @@ class RunNetBoxScriptActionTestCase(ScriptJobTestMixin, TestCase):
         self.assertEqual(event['event_type'], OBJECT_CREATED)
 
     def test_the_snapshots_stay_off_an_immediate_job_row(self):
-        # An immediate run builds its row in _run_now, by a different statement.
-        job = self.run_job(self.netbox_script, event=self.action._event_payload(self.rule, self.context()))
+        # An immediate run builds its row in _run_now, by a different statement. It needs a payload
+        # that still carries snapshots, which enqueue()'s own output no longer does.
+        event = {
+            'event_rule_id': self.rule.pk,
+            'event_rule': str(self.rule),
+            'event_type': OBJECT_CREATED,
+            'object_type': 'dcim.device',
+            'object_id': 7,
+            'snapshots': {'prechange': None, 'postchange': {'name': 'device-1'}},
+        }
+
+        job = self.run_job(self.netbox_script, event=event)
 
         self.assertNotIn('snapshots', job.data['event'])
         self.assertEqual(job.data['event']['event_type'], OBJECT_CREATED)

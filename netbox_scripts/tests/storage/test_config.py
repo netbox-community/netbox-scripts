@@ -23,18 +23,6 @@ def storages_config(**aliases):
 
 class StorageConfigTestCase(TestCase):
     @override_settings(PLUGINS_CONFIG=plugin_config())
-    def test_limits_fall_back_to_defaults_when_unset(self):
-        self.assertEqual(config.get_max_file_size(), constants.DEFAULT_MAX_FILE_SIZE)
-        self.assertEqual(config.get_max_project_size(), constants.DEFAULT_MAX_PROJECT_SIZE)
-        self.assertEqual(config.get_max_file_count(), constants.DEFAULT_MAX_FILE_COUNT)
-
-    @override_settings(PLUGINS_CONFIG=plugin_config(max_file_size=123, max_project_size=456, max_file_count=7))
-    def test_limits_honor_plugin_setting_override(self):
-        self.assertEqual(config.get_max_file_size(), 123)
-        self.assertEqual(config.get_max_project_size(), 456)
-        self.assertEqual(config.get_max_file_count(), 7)
-
-    @override_settings(PLUGINS_CONFIG=plugin_config())
     def test_get_storage_limits_returns_all_three_values(self):
         resolved = config.get_storage_limits()
         self.assertEqual(resolved.max_file_size, constants.DEFAULT_MAX_FILE_SIZE)
@@ -47,13 +35,15 @@ class StorageConfigTestCase(TestCase):
         self.assertEqual((resolved.max_file_size, resolved.max_project_size, resolved.max_file_count), (123, 456, 7))
 
     def test_limits_reject_non_positive_or_non_integer_values(self):
-        for bad in ('5', 1.5, True, 0, -1):
-            with (
-                self.subTest(bad=bad),
-                override_settings(PLUGINS_CONFIG=plugin_config(max_file_size=bad)),
-                self.assertRaises(StorageConfigurationError),
-            ):
-                config.get_max_file_size()
+        for parameter in ('max_file_size', 'max_project_size', 'max_file_count'):
+            message = f'The {parameter} storage setting must be a positive integer.'
+            for bad in ('5', 1.5, True, 0, -1):
+                with (
+                    self.subTest(parameter=parameter, bad=bad),
+                    override_settings(PLUGINS_CONFIG=plugin_config(**{parameter: bad})),
+                    self.assertRaisesMessage(StorageConfigurationError, message),
+                ):
+                    config.get_storage_limits()
 
 
 class StorageBackendTestCase(TestCase):

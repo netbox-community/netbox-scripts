@@ -40,6 +40,16 @@ class RunNetBoxScriptAction(EventRuleAction):
     def enqueue(self, *, event_rule, event_context, action_object, action_data):
         """Queue one run of the Script, reporting a script that cannot run."""
         request = event_context.get('request')
+        object_type = event_context.get('object_type')
+        # Rides on the Job row, so only the JSON-safe part of the context travels.
+        event = {
+            'event_rule_id': event_rule.pk,
+            'event_rule': str(event_rule),
+            'event_type': event_context.get('event_type'),
+            'object_type': f'{object_type.app_label}.{object_type.model}' if object_type else None,
+            'object_id': event_context.get('object_id'),
+            'snapshots': event_context.get('snapshots'),
+        }
         try:
             NetBoxScriptJob.enqueue_run(
                 action_object,
@@ -51,7 +61,7 @@ class RunNetBoxScriptAction(EventRuleAction):
                 # of anything sensitive before it travels.
                 request=copy_safe_request(request, include_files=False) if request else None,
                 user=event_context.get('user'),
-                event=self._event_payload(event_rule, event_context),
+                event=event,
             )
         except ScriptNotExecutableError as error:
             # One rule's misconfiguration must not end the batch, so this is reported and dropped.
@@ -65,19 +75,6 @@ class RunNetBoxScriptAction(EventRuleAction):
         project_key, _separator, full_name = value.partition(':')
         module_path, _dot, class_name = full_name.rpartition('.')
         return NetBoxScript.objects.get(project__key=project_key, module_path=module_path, class_name=class_name)
-
-    @staticmethod
-    def _event_payload(event_rule, event_context):
-        """Return the JSON-safe part of the event context, since it rides on the Job row."""
-        object_type = event_context.get('object_type')
-        return {
-            'event_rule_id': event_rule.pk,
-            'event_rule': str(event_rule),
-            'event_type': event_context.get('event_type'),
-            'object_type': f'{object_type.app_label}.{object_type.model}' if object_type else None,
-            'object_id': event_context.get('object_id'),
-            'snapshots': event_context.get('snapshots'),
-        }
 
 
 event_rule_actions = [RunNetBoxScriptAction]

@@ -25,9 +25,6 @@ __all__ = (
     'STORAGE_ALIAS',
     'StorageLimits',
     'check_storage_configured',
-    'get_max_file_count',
-    'get_max_file_size',
-    'get_max_project_size',
     'get_storage',
     'get_storage_limits',
 )
@@ -94,21 +91,6 @@ def _resolve_positive_integer(parameter, default):
     return value
 
 
-def get_max_file_size():
-    """Return the maximum accepted size in bytes for a single source file."""
-    return _resolve_positive_integer('max_file_size', constants.DEFAULT_MAX_FILE_SIZE)
-
-
-def get_max_project_size():
-    """Return the maximum accepted total size in bytes for a project's source tree."""
-    return _resolve_positive_integer('max_project_size', constants.DEFAULT_MAX_PROJECT_SIZE)
-
-
-def get_max_file_count():
-    """Return the maximum accepted number of files in a project's source tree."""
-    return _resolve_positive_integer('max_file_count', constants.DEFAULT_MAX_FILE_COUNT)
-
-
 @dataclasses.dataclass(frozen=True)
 class StorageLimits:
     """The storage limits that apply to one staging operation."""
@@ -126,7 +108,7 @@ def get_storage_limits():
     that operation sees the same limits even if the settings change while it runs.
     """
     return StorageLimits(
-        max_file_size=get_max_file_size(),
-        max_project_size=get_max_project_size(),
-        max_file_count=get_max_file_count(),
+        max_file_size=_resolve_positive_integer('max_file_size', constants.DEFAULT_MAX_FILE_SIZE),
+        max_project_size=_resolve_positive_integer('max_project_size', constants.DEFAULT_MAX_PROJECT_SIZE),
+        max_file_count=_resolve_positive_integer('max_file_count', constants.DEFAULT_MAX_FILE_COUNT),
     )

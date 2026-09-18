@@ -28,6 +28,7 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from .branching import require_safe_routing
 from .choices import FileDiscoveryStatusChoices, RevisionStatusChoices
@@ -90,8 +91,10 @@ def validate_revision(revision, *, job, passthrough=()):
     )
     if not claimed:
         raise ValidationStateError(
-            'The revision is not claimable for validation. Only a materialized revision or a '
-            'validation whose lease has expired can be claimed.'
+            _(
+                'The revision is not claimable for validation. Only a materialized revision or a '
+                'validation whose lease has expired can be claimed.'
+            )
         )
     revision.refresh_from_db()
 
@@ -323,7 +326,11 @@ def _collect_publications(failures, identities, records, sanitize, entry, found,
                     {
                         'source_path': source_path,
                         'code': 'duplicate_identity',
-                        'message': sanitize(f'Two script classes publish as "{item.logical_module}.{item.name}".'),
+                        'message': sanitize(
+                            _('Two script classes publish as "{module}.{name}".').format(
+                                module=item.logical_module, name=item.name
+                            )
+                        ),
                         'exception_type': None,
                         'traceback': None,
                     }

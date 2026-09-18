@@ -14,6 +14,7 @@ about.
 from typing import NamedTuple
 
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
 
 from . import branching
 from .choices import RevisionStatusChoices
@@ -114,7 +115,7 @@ def deactivate_revision(revision):
             project_id=project.pk,
         )
         if project.active_revision_id != locked.pk:
-            raise ActivationError(f'Revision {locked.pk} is not the active revision of its project.')
+            raise ActivationError(_('Revision {pk} is not the active revision of its project.').format(pk=locked.pk))
 
         # No count is threaded out here: deactivation has one outcome, every Script
         # retired, which the confirmation page states before it happens.
@@ -186,7 +187,9 @@ def _validated_records(revision):
         return validate_discovered_scripts(revision.discovered_scripts)
     except ScriptMetadataError as error:
         raise ActivationError(
-            f'Revision {revision.pk} cannot be activated, its recorded Scripts are unusable: {error}'
+            _('Revision {pk} cannot be activated, its recorded Scripts are unusable: {error}').format(
+                pk=revision.pk, error=error
+            )
         ) from error
 
 

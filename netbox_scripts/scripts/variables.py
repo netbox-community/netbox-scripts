@@ -1,5 +1,6 @@
 from django import forms
 from django.core.validators import RegexValidator
+from django.utils.translation import gettext_lazy as _
 
 from ipam.formfields import IPAddressFormField, IPNetworkFormField
 from ipam.validators import MaxPrefixLengthValidator, MinPrefixLengthValidator, prefix_validator
@@ -86,7 +87,7 @@ class StringVar(ScriptVariable):
             self.field_attrs['validators'] = [
                 RegexValidator(
                     regex=regex,
-                    message='Invalid value. Must match regex: {}'.format(regex),
+                    message=_('Invalid value. Must match regex: {regex}').format(regex=regex),
                     code='invalid',
                 )
             ]

@@ -153,7 +153,7 @@ class BaseScript:
 
     def run(self, data, commit):
         """Run the script. Authors must override this method."""
-        raise NotImplementedError('A Script must define a run(self, data, commit) method.')
+        raise NotImplementedError(_('A Script must define a run(self, data, commit) method.'))
 
     def get_job_data(self):
         """Bundle the run's log and output for storage on the executing Job."""
@@ -212,7 +212,7 @@ class BaseScript:
         Script code should call the level-specific log_* helpers instead.
         """
         if level not in LogLevelChoices.values():
-            raise ValueError(f'Invalid logging level: {level}')
+            raise ValueError(_('Invalid logging level: {level}').format(level=level))
 
         if message:
             self.messages.append(

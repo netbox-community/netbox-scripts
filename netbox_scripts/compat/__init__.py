@@ -15,6 +15,8 @@ import importlib.util
 import sys
 from types import ModuleType
 
+from django.utils.translation import gettext_lazy as _
+
 from ..runtime.naming import PRIVATE_ROOT
 
 __all__ = (
@@ -31,8 +33,8 @@ LEGACY_MODULES = {
 }
 
 MIGRATION_HINTS = {
-    'extras.scripts': 'Import the authoring API from "netbox_scripts.scripts" instead.',
-    'extras.reports': 'Reports are not supported. Write a script importing "netbox_scripts.scripts".',
+    'extras.scripts': _('Import the authoring API from "netbox_scripts.scripts" instead.'),
+    'extras.reports': _('Reports are not supported. Write a script importing "netbox_scripts.scripts".'),
 }
 
 _builtins_template = None
@@ -115,7 +117,10 @@ def _host_provides(legacy):
 def _serve_legacy(legacy):
     """Return the plugin module serving one legacy name, or refuse once the host has dropped it."""
     if not _host_provides(legacy):
-        raise ImportError(f'"{legacy}" is no longer part of NetBox. {MIGRATION_HINTS[legacy]}', name=legacy)
+        raise ImportError(
+            _('"{legacy}" is no longer part of NetBox. {hint}').format(legacy=legacy, hint=MIGRATION_HINTS[legacy]),
+            name=legacy,
+        )
     return importlib.import_module(LEGACY_MODULES[legacy])
 
 

@@ -149,7 +149,7 @@ def script_class_context(script):
     if revision is None:
         # A project can be deactivated between a caller's is_executable check and this call.
         raise ScriptResolutionError(
-            f'This project is not serving a revision, so "{identity}" cannot be loaded.',
+            _('This project is not serving a revision, so "{identity}" cannot be loaded.').format(identity=identity),
             code='not_serving',
             name=identity,
         )
@@ -186,8 +186,10 @@ def _execute(instance, *, data, commit, request):
                 # reads the default alias, so nothing covers that write.
                 if branch := branching.active_branch_name():
                     raise ImproperlyConfigured(
-                        f'{reason} Branch {branch} is active, so changes this run makes could not be '
-                        f'rolled back with it.'
+                        _(
+                            '{reason} Branch {branch} is active, so changes this run makes could not be '
+                            'rolled back with it.'
+                        ).format(reason=reason, branch=branch)
                     )
                 instance.log_warning(reason)
             changelogged_alias = router.db_for_write(probe)

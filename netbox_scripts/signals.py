@@ -30,6 +30,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import DEFAULT_DB_ALIAS
 from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
+from django.utils.translation import gettext_lazy as _
 
 from core.signals import post_sync
 
@@ -90,8 +91,10 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
         validate_manifest(manifest, digest)
     except RevisionCorruptError as error:
         raise RevisionCorruptError(
-            f'Refusing to delete revision {instance.pk}: its captured manifest cannot be '
-            'trusted, and it is the only inventory naming the stored content to reclaim.',
+            _(
+                'Refusing to delete revision {pk}: its captured manifest cannot be '
+                'trusted, and it is the only inventory naming the stored content to reclaim.'
+            ).format(pk=instance.pk),
             error.reasons,
         ) from error
     paths = [entry['path'] for entry in manifest]
@@ -115,9 +118,11 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
     # API, so cleanup recorded for a delete on any other alias could commit independently.
     if using != DEFAULT_DB_ALIAS:
         raise ImproperlyConfigured(
-            f'Script Project revisions must live on the "{DEFAULT_DB_ALIAS}" database. '
-            f'This revision was deleted on "{using}", where its cleanup Job cannot be recorded '
-            'in the same transaction.'
+            _(
+                'Script Project revisions must live on the "{default}" database. '
+                'This revision was deleted on "{using}", where its cleanup Job cannot be recorded '
+                'in the same transaction.'
+            ).format(default=DEFAULT_DB_ALIAS, using=using)
         )
     # Since script file configuration joined revision identity, several rows can reference
     # one stored tree. Content a surviving row still names is kept, the check fails on the

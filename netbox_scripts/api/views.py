@@ -93,7 +93,7 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
         # The upload declares its own script file, so it creates a Script File. The browser upload
         # asks for the same pair, and the two surfaces must not disagree about what it costs.
         if not request.user.has_perm('netbox_scripts.add_scriptfile'):
-            raise PermissionDenied('Uploading source requires the Script File add permission.')
+            raise PermissionDenied(_('Uploading source requires the Script File add permission.'))
 
         input_serializer = ScriptProjectUploadSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
@@ -145,10 +145,10 @@ class ScriptProjectViewSet(NetBoxModelViewSet):
         project = self.get_object()
         if request.method == 'PUT':
             if not request.user.has_perm('netbox_scripts.change_scriptfile'):
-                raise PermissionDenied('Changing script files requires the Script File change permission.')
+                raise PermissionDenied(_('Changing script files requires the Script File change permission.'))
             paths = request.data.get('paths')
             if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
-                raise APIValidationError({'paths': 'Provide a list of source paths.'})
+                raise APIValidationError({'paths': _('Provide a list of source paths.')})
             using = require_default_database(project)
             try:
                 with transaction.atomic(using=using), discard_events_on_rollback(self, using=using):
@@ -245,7 +245,9 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
             with script_class_context(script) as script_class:
                 return self._enqueue_run(request, script, script_class(), queue_name=queue_name)
         except LOAD_FAILURES as error:
-            raise APIValidationError({'detail': f'The Script could not be loaded from its source: {error}'}) from error
+            raise APIValidationError(
+                {'detail': _('The Script could not be loaded from its source: {error}').format(error=error)}
+            ) from error
 
     def _enqueue_run(self, request, script, instance, *, queue_name):
         """Validate inputs and enqueue while the script's revision namespace is loaded."""
@@ -257,7 +259,7 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         if (parameters.get('schedule_at') or parameters.get('interval')) and not request.user.has_perm(
             get_permission_for_model(NetBoxScript, 'schedule'), script
         ):
-            raise PermissionDenied('Scheduling a Script requires the schedule permission.')
+            raise PermissionDenied(_('Scheduling a Script requires the schedule permission.'))
 
         # The declared variables are the only authority on what is valid, so the class's own form
         # validates them.

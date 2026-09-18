@@ -25,6 +25,7 @@ from contextlib import contextmanager, nullcontext
 from django.apps import apps
 from django.core.checks import Error
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.translation import gettext_lazy as _
 
 APP_LABEL = 'netbox_scripts'
 BRANCHING_APP_LABEL = 'netbox_branching'
@@ -54,7 +55,7 @@ GLOBAL_MODELS = (
 # its own cannot resolve a missing inspection API, because the routing then cannot be confirmed
 # either way. The labels are individual rather than a netbox_scripts.* wildcard, so a model
 # added later is not swept in with them.
-ROUTING_HINT = (
+ROUTING_HINT = _(
     'Use a NetBox Branching release that exposes the supports_branching API, since this plugin '
     'cannot confirm the routing without it. If these models are still routed to a branch, add the '
     "labels to PLUGINS_CONFIG['netbox_branching']['exempt_models']: "
@@ -112,7 +113,7 @@ def unsafe_routing_reason():
     try:
         from netbox_branching.utilities import supports_branching
     except ImportError:
-        return 'NetBox Branching is installed, but its supports_branching API is unavailable.'
+        return _('NetBox Branching is installed, but its supports_branching API is unavailable.')
 
     try:
         branch_aware = [
@@ -121,10 +122,10 @@ def unsafe_routing_reason():
     except Exception as error:
         # Fail closed on purpose. An answer that cannot be obtained is not an answer that these
         # models are safe, so this must not become a pass.
-        return f"NetBox Branching could not report how this plugin's models are routed: {error}"
+        return _("NetBox Branching could not report how this plugin's models are routed: {error}").format(error=error)
 
     if branch_aware:
-        return f'NetBox Branching routes {", ".join(branch_aware)} to a branch schema.'
+        return _('NetBox Branching routes {models} to a branch schema.').format(models=', '.join(branch_aware))
     return None
 
 
@@ -136,19 +137,21 @@ def probe_unusable_reason(model):
     try:
         from netbox_branching.utilities import supports_branching
     except ImportError:
-        return (
-            f'NetBox Branching is installed, but its supports_branching API is unavailable, so {label} '
-            f'cannot report where a change-logged write goes.'
-        )
+        return _(
+            'NetBox Branching is installed, but its supports_branching API is unavailable, so {label} '
+            'cannot report where a change-logged write goes.'
+        ).format(label=label)
     try:
         if supports_branching(model):
             return None
     except Exception as error:
-        return f'NetBox Branching could not report how {label} is routed: {str(error).rstrip(".")}.'
-    return (
-        f'NetBox Branching no longer routes {label} to a branch schema, so it cannot report where a '
-        f'change-logged write goes.'
-    )
+        return _('NetBox Branching could not report how {label} is routed: {error}.').format(
+            label=label, error=str(error).rstrip('.')
+        )
+    return _(
+        'NetBox Branching no longer routes {label} to a branch schema, so it cannot report where a '
+        'change-logged write goes.'
+    ).format(label=label)
 
 
 def active_branch_name():
@@ -211,7 +214,7 @@ def check_routing(app_configs, **kwargs):
     if reason := unsafe_routing_reason():
         return [
             Error(
-                f'{reason} Script Project storage operations are refused until it is resolved.',
+                _('{reason} Script Project storage operations are refused until it is resolved.').format(reason=reason),
                 hint=ROUTING_HINT,
                 id='netbox_scripts.E001',
             )

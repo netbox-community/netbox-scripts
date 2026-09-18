@@ -15,6 +15,7 @@ import dataclasses
 from django.conf import settings
 from django.core import checks
 from django.core.files.storage import storages
+from django.utils.translation import gettext_lazy as _
 
 from netbox.plugins import get_plugin_config
 
@@ -54,13 +55,17 @@ def get_storage():
     """
     if STORAGE_ALIAS not in settings.STORAGES:
         raise StorageConfigurationError(
-            f'Project storage is not configured. Define a "{STORAGE_ALIAS}" entry in the STORAGES setting.'
+            _('Project storage is not configured. Define a "{alias}" entry in the STORAGES setting.').format(
+                alias=STORAGE_ALIAS
+            )
         )
     try:
         return storages[STORAGE_ALIAS]
     except Exception as error:
         raise StorageConfigurationError(
-            f'The "{STORAGE_ALIAS}" entry in the STORAGES setting could not be used for project storage: {error}'
+            _('The "{alias}" entry in the STORAGES setting could not be used for project storage: {error}').format(
+                alias=STORAGE_ALIAS, error=error
+            )
         ) from error
 
 
@@ -76,9 +81,11 @@ def check_storage_configured(app_configs, **kwargs):
         return []
     return [
         checks.Warning(
-            'Script Project storage is not configured. Revision staging, activation, '
-            'and cleanup are refused until it is.',
-            hint=f'Define a "{STORAGE_ALIAS}" entry in the STORAGES setting.',
+            _(
+                'Script Project storage is not configured. Revision staging, activation, '
+                'and cleanup are refused until it is.'
+            ),
+            hint=_('Define a "{alias}" entry in the STORAGES setting.').format(alias=STORAGE_ALIAS),
             id='netbox_scripts.W001',
         )
     ]
@@ -87,7 +94,9 @@ def check_storage_configured(app_configs, **kwargs):
 def _resolve_positive_integer(parameter, default):
     value = get_plugin_config(_PLUGIN_NAME, parameter, default)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise StorageConfigurationError(f'The {parameter} storage setting must be a positive integer.')
+        raise StorageConfigurationError(
+            _('The {parameter} storage setting must be a positive integer.').format(parameter=parameter)
+        )
     return value
 
 

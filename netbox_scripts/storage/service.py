@@ -17,6 +17,7 @@ from typing import NamedTuple
 from django.core.exceptions import ImproperlyConfigured
 from django.db import DEFAULT_DB_ALIAS, router, transaction
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from .. import branching, constants
 from ..choices import ActivationPolicyChoices, RevisionStatusChoices
@@ -173,7 +174,11 @@ def _stage_revision(project, files):
             ).update(
                 status=RevisionStatusChoices.STORAGE_FAILED,
                 validation_errors=[
-                    {'path': None, 'code': 'storage_write_failed', 'message': f'Unable to store the revision: {error}'}
+                    {
+                        'path': None,
+                        'code': 'storage_write_failed',
+                        'message': _('Unable to store the revision: {error}').format(error=error),
+                    }
                 ],
                 last_updated=timezone.now(),
             )
@@ -325,7 +330,7 @@ def _promote(snapshot, revision_pk, using, on_promote, *, automatic=False):
                 project.activation_policy != ActivationPolicyChoices.AUTOMATIC_IF_VALID
             ):
                 return None
-            _, selection_digest = build_script_file_snapshot(
+            _snapshot, selection_digest = build_script_file_snapshot(
                 ScriptFile.objects.using(using).filter(project_id=project.pk, enabled=True)
             )
             if selection_digest != locked.script_file_digest:
@@ -340,7 +345,9 @@ def _promote(snapshot, revision_pk, using, on_promote, *, automatic=False):
             or locked.script_file_snapshot != snapshot.script_file_snapshot
             or locked.discovered_scripts != snapshot.discovered_scripts
         ):
-            raise ActivationError(f'Revision {locked.pk} changed while its stored tree was being verified.')
+            raise ActivationError(
+                _('Revision {revision} changed while its stored tree was being verified.').format(revision=locked.pk)
+            )
         already_active = locked.status == RevisionStatusChoices.ACTIVE and project.active_revision_id == locked.pk
         _require_activatable(locked, already_active)
         # Before the early return, so re-promoting the revision already in force repairs
@@ -376,7 +383,9 @@ def project_or_vanished(query, project_id):
     try:
         return query.get(pk=project_id)
     except ScriptProject.DoesNotExist as error:
-        raise ProjectVanishedError(f'Project {project_id} was deleted while its content was being changed.') from error
+        raise ProjectVanishedError(
+            _('Project {project} was deleted while its content was being changed.').format(project=project_id)
+        ) from error
 
 
 def revision_or_vanished(query, revision_pk, **filters):
@@ -385,7 +394,7 @@ def revision_or_vanished(query, revision_pk, **filters):
         return query.get(pk=revision_pk, **filters)
     except ScriptProjectRevision.DoesNotExist as error:
         raise RevisionVanishedError(
-            f'Revision {revision_pk} was deleted while its content was being changed.'
+            _('Revision {revision} was deleted while its content was being changed.').format(revision=revision_pk)
         ) from error
 
 
@@ -402,19 +411,25 @@ def _refresh_surviving(revision, using):
         revision.refresh_from_db(using=using)
     except ScriptProjectRevision.DoesNotExist as error:
         raise RevisionVanishedError(
-            f'Revision {revision.pk} was deleted while its content was being staged.'
+            _('Revision {revision} was deleted while its content was being staged.').format(revision=revision.pk)
         ) from error
 
 
 def _require_activatable(revision, already_active):
     """Refuse a revision whose status or digest rules activation out."""
     if not already_active and revision.status not in constants.ACTIVATABLE_REVISION_STATUSES:
-        raise ActivationError(f'Revision {revision.pk} has status "{revision.status}" and cannot be activated.')
+        raise ActivationError(
+            _('Revision {revision} has status "{status}" and cannot be activated.').format(
+                revision=revision.pk, status=revision.status
+            )
+        )
     # The check constraint makes a digest-less activatable revision impossible to create
     # through the ORM. This stays as the backstop for a row written by raw SQL, and for
     # any future status that is allowed to precede its content.
     if not revision.digest:
-        raise ActivationError(f'Revision {revision.pk} has no digest and cannot be activated.')
+        raise ActivationError(
+            _('Revision {revision} has no digest and cannot be activated.').format(revision=revision.pk)
+        )
 
 
 def require_default_database(instance):
@@ -428,9 +443,11 @@ def require_default_database(instance):
     using = instance._state.db or router.db_for_write(ScriptProjectRevision, instance=instance)
     if using != DEFAULT_DB_ALIAS:
         raise ImproperlyConfigured(
-            f'Script Project storage operations run on the "{DEFAULT_DB_ALIAS}" database only. '
-            f'This operation arrived on "{using}", where stored content could never be reclaimed, '
-            'because deletion cleanup is recorded on the default connection.'
+            _(
+                'Script Project storage operations run on the "{default}" database only. '
+                'This operation arrived on "{using}", where stored content could never be reclaimed, '
+                'because deletion cleanup is recorded on the default connection.'
+            ).format(default=DEFAULT_DB_ALIAS, using=using)
         )
     return using
 
@@ -472,5 +489,7 @@ def _validated_manifest(revision):
     if revision.total_size != sum(entry['size'] for entry in revision.manifest):
         reasons.append('total_size_mismatch')
     if reasons:
-        raise RevisionCorruptError(f'Revision {revision.pk} does not match its own manifest.', reasons)
+        raise RevisionCorruptError(
+            _('Revision {revision} does not match its own manifest.').format(revision=revision.pk), reasons
+        )
     return revision.manifest

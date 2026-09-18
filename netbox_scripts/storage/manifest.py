@@ -12,6 +12,8 @@ import hashlib
 import json
 import re
 
+from django.utils.translation import gettext_lazy as _
+
 from .exceptions import LimitExceededError, RevisionCorruptError, UnsafePathError
 from .paths import case_insensitive_collisions, normalize_source_path
 
@@ -53,7 +55,7 @@ def build_manifest(files, limits):
                 {
                     'path': original_path,
                     'code': 'duplicate_path',
-                    'message': f'Multiple source files resolve to the path "{canonical}".',
+                    'message': _('Multiple source files resolve to the path "{path}".').format(path=canonical),
                 }
             )
             continue
@@ -75,7 +77,9 @@ def build_manifest(files, limits):
             {
                 'path': None,
                 'code': 'too_many_files',
-                'message': f'The project has {len(files)} files, over the {max_file_count} file limit.',
+                'message': _('The project has {count} files, over the {limit} file limit.').format(
+                    count=len(files), limit=max_file_count
+                ),
             }
         )
     candidate_total_size = sum(len(content) for content in files.values())
@@ -84,7 +88,9 @@ def build_manifest(files, limits):
             {
                 'path': None,
                 'code': 'project_too_large',
-                'message': f'The project totals {candidate_total_size} bytes, over the {max_project_size} byte limit.',
+                'message': _('The project totals {size} bytes, over the {limit} byte limit.').format(
+                    size=candidate_total_size, limit=max_project_size
+                ),
             }
         )
 
@@ -117,7 +123,7 @@ def _reject_path_conflicts(entries):
             {
                 'path': entry['path'],
                 'code': 'path_conflict',
-                'message': f'"{blocking}" is a file and cannot also contain another file.',
+                'message': _('"{blocking}" is a file and cannot also contain another file.').format(blocking=blocking),
             }
         )
 
@@ -133,7 +139,9 @@ def _reject_path_conflicts(entries):
             {
                 'path': entry['path'],
                 'code': 'case_fold_conflict',
-                'message': f'"{node}" and "{other}" collide when letter case is ignored.',
+                'message': _('"{node}" and "{other}" collide when letter case is ignored.').format(
+                    node=node, other=other
+                ),
             }
         )
     return remaining, errors
@@ -145,7 +153,9 @@ def _build_entry(canonical, content, max_file_size):
         raise LimitExceededError(
             path=canonical,
             code='file_too_large',
-            message=f'"{canonical}" is {size} bytes, over the {max_file_size} byte limit.',
+            message=_('"{path}" is {size} bytes, over the {limit} byte limit.').format(
+                path=canonical, size=size, limit=max_file_size
+            ),
         )
     return {'path': canonical, 'size': size, 'sha256': hashlib.sha256(content).hexdigest()}
 
@@ -180,7 +190,7 @@ def validate_manifest(manifest, digest=None):
     found.
     """
     if not isinstance(manifest, list):
-        raise RevisionCorruptError('The stored manifest is not a list.', ['manifest_not_a_list'])
+        raise RevisionCorruptError(_('The stored manifest is not a list.'), ['manifest_not_a_list'])
 
     reasons = []
     paths = set()
@@ -193,7 +203,7 @@ def validate_manifest(manifest, digest=None):
         reasons.append('digest_mismatch')
 
     if reasons:
-        raise RevisionCorruptError('The stored manifest cannot be trusted.', reasons)
+        raise RevisionCorruptError(_('The stored manifest cannot be trusted.'), reasons)
 
 
 def _validate_entry(index, entry, paths):

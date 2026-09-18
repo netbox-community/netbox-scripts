@@ -27,6 +27,7 @@ import logging
 from pathlib import Path
 
 from django.core.files.base import ContentFile
+from django.utils.translation import gettext_lazy as _
 
 from .exceptions import RevisionCorruptError, StorageError, UnsafePathError
 from .manifest import validate_manifest
@@ -73,7 +74,9 @@ def write_revision(storage, storage_key, digest, files, manifest):
     for entry in manifest:
         path = entry['path']
         if path not in source:
-            raise StorageError(f'The manifest names "{path}", which the source mapping does not hold.')
+            raise StorageError(
+                _('The manifest names "{path}", which the source mapping does not hold.').format(path=path)
+            )
         _write_one(storage, f'{prefix}{path}', source[path], entry)
     _verify_tree(storage, storage_key, digest, manifest)
     return prefix
@@ -109,9 +112,13 @@ def _verify_tree(storage, storage_key, digest, manifest):
     if expected and len(reasons) == len(expected) and all(reason.startswith('missing:') for reason in reasons):
         # One reason rather than one per entry, because a revision that is entirely absent is a
         # different situation for an operator than a revision with damaged files in it.
-        raise RevisionCorruptError(f'The stored revision at {prefix} is missing.', ['prefix_missing'])
+        raise RevisionCorruptError(
+            _('The stored revision at {prefix} is missing.').format(prefix=prefix), ['prefix_missing']
+        )
     if reasons:
-        raise RevisionCorruptError(f'The stored revision at {prefix} does not match its manifest.', reasons)
+        raise RevisionCorruptError(
+            _('The stored revision at {prefix} does not match its manifest.').format(prefix=prefix), reasons
+        )
     return prefix
 
 
@@ -139,7 +146,9 @@ def delete_revision(storage, storage_key, digest, paths):
         except Exception as error:
             failures.append(f'{path}: {error}')
     if failures:
-        raise StorageError('Unable to remove stored revision content: ' + ', '.join(failures))
+        raise StorageError(
+            _('Unable to remove stored revision content: {failures}').format(failures=', '.join(failures))
+        )
 
 
 def present_keys(storage, storage_key, digest, paths):
@@ -223,7 +232,9 @@ def _canonical_source(files):
         canonical = normalize_source_path(path)
         if canonical in source:
             raise UnsafePathError(
-                path=path, code='duplicate_path', message=f'Multiple source files resolve to the path "{canonical}".'
+                path=path,
+                code='duplicate_path',
+                message=_('Multiple source files resolve to the path "{canonical}".').format(canonical=canonical),
             )
         source[canonical] = content
     return source
@@ -247,7 +258,7 @@ def _write_one(storage, key, content, entry):
     try:
         stored = storage.save(key, ContentFile(content))
     except Exception as error:
-        raise StorageError(f'Unable to store "{key}": {error}') from error
+        raise StorageError(_('Unable to store "{key}": {error}').format(key=key, error=error)) from error
     if stored != key:
         # The key was taken in the window between the check above and the save, so the backend
         # parked this write under an invented name. Remove that stray object, then look at
@@ -261,7 +272,11 @@ def _write_one(storage, key, content, entry):
             # here is its one record until the housekeeping reconciler owns orphans.
             logger.error('Could not remove the stray object "%s" left by a renamed save: %s', stored, error)
         if _verify_entry(storage, key, entry):
-            raise StorageError(f'The storage backend stored "{key}" as "{stored}" instead of the key it was given.')
+            raise StorageError(
+                _('The storage backend stored "{key}" as "{stored}" instead of the key it was given.').format(
+                    key=key, stored=stored
+                )
+            )
 
 
 def _verify_entry(storage, key, entry):
@@ -276,7 +291,7 @@ def _verify_entry(storage, key, entry):
 def _stream_verified(storage, key, entry, sink):
     """Verify one stored object against its manifest entry, streaming the bytes to sink when given."""
     path = entry['path']
-    mismatch = f'The stored file "{key}" does not match its manifest entry.'
+    mismatch = _('The stored file "{key}" does not match its manifest entry.').format(key=key)
     try:
         reported = _size(storage, key)
         if reported is not None and reported != entry['size']:
@@ -290,7 +305,7 @@ def _stream_verified(storage, key, entry, sink):
     except (RevisionCorruptError, StorageError):
         raise
     except Exception as error:
-        raise StorageError(f'Unable to read the stored file "{key}": {error}') from error
+        raise StorageError(_('Unable to read the stored file "{key}": {error}').format(key=key, error=error)) from error
 
     if size != entry['size']:
         raise RevisionCorruptError(mismatch, [f'size_mismatch:{path}'])
@@ -349,7 +364,9 @@ def _exists(storage, key):
     try:
         return storage.exists(key)
     except Exception as error:
-        raise StorageError(f'Unable to inspect whether "{key}" exists: {error}') from error
+        raise StorageError(
+            _('Unable to inspect whether "{key}" exists: {error}').format(key=key, error=error)
+        ) from error
 
 
 def _size(storage, key):
@@ -366,7 +383,7 @@ def _size(storage, key):
     except FileNotFoundError:
         raise
     except Exception as error:
-        raise StorageError(f'Unable to inspect the size of "{key}": {error}') from error
+        raise StorageError(_('Unable to inspect the size of "{key}": {error}').format(key=key, error=error)) from error
 
 
 def _delete(storage, key):
@@ -374,4 +391,4 @@ def _delete(storage, key):
     try:
         storage.delete(key)
     except Exception as error:
-        raise StorageError(f'Unable to remove "{key}": {error}') from error
+        raise StorageError(_('Unable to remove "{key}": {error}').format(key=key, error=error)) from error

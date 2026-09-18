@@ -13,6 +13,7 @@ import hashlib
 import json
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
 
 from ..utils import source_path_to_dotted_name
 from .exceptions import RevisionCorruptError, UnsafePathError
@@ -66,7 +67,7 @@ def validate_script_file_snapshot(snapshot, script_file_digest):
     listing every problem found. Returns the entries as a tuple.
     """
     if not isinstance(snapshot, list):
-        raise RevisionCorruptError('The stored script file snapshot is not a list.', ['snapshot_not_a_list'])
+        raise RevisionCorruptError(_('The stored script file snapshot is not a list.'), ['snapshot_not_a_list'])
 
     reasons = []
     script_file_ids = set()
@@ -94,7 +95,7 @@ def validate_script_file_snapshot(snapshot, script_file_digest):
         reasons.append('script_file_digest_mismatch')
 
     if reasons:
-        raise RevisionCorruptError('The stored script file snapshot cannot be trusted.', reasons)
+        raise RevisionCorruptError(_('The stored script file snapshot cannot be trusted.'), reasons)
     return tuple(snapshot)
 
 

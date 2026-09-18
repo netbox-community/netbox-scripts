@@ -139,8 +139,9 @@ def synchronize_scripts(*, project, revision, records, using):
     enabled is never written, because it belongs to the administrator.
 
     Returns a ScriptSyncResult. Each row it writes is a real row change, so inside a request
-    it is change logged and queues an OBJECT_UPDATED event attributed to the user who asked for
-    the activation. A job applies no request processor, so the same write records neither.
+    it is change logged and queues an event attributed to the user who asked for the activation,
+    OBJECT_CREATED for a newly published Script and OBJECT_UPDATED for one that changed. A job
+    applies no request processor, so the same write records neither.
     """
     written = 0
     retired = 0

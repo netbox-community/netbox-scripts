@@ -17,7 +17,7 @@ Nothing else about the plugin changes.
 
 | Input | Value |
 |---|---|
-| The form data | The rule's **Data** field, merged with the event payload, passed through unchanged. Whatever an author would have typed into the run form, the rule supplies instead. |
+| `data` | The rule's **Data** field, merged with the event payload and passed to `run()` unchanged. It is not validated through the Script's form, so no default is applied and an object's key stays a plain value. Check the fields and types your script requires. |
 | `self.event` | The event context, in the JSON-safe form described below. |
 | `self.request` | The request behind the change that triggered the rule, as a stripped copy carrying no uploaded files. Nothing when the event carried no request. |
 
@@ -52,7 +52,7 @@ different moments on purpose.
 
 | State | When it is reported |
 |---|---|
-| Retired | When the rule is saved. Retirement is permanent, because the active revision has stopped publishing the class, so a rule naming one is misconfigured rather than idle. |
+| Retired | When the rule is saved. The active revision has stopped publishing the class, so a rule naming one is misconfigured rather than idle. Retirement lifts if a later activation publishes the class again. |
 | Disabled | When the rule fires. The reason is written to the pass's log and nothing is queued. |
 | Its Project is disabled, or serves no revision | When the rule fires, the same way. |
 
@@ -83,7 +83,12 @@ A webhook fired by one of these carries the same body the REST API returns for t
 so the receiver reads the fields it already knows. A revision's stored documents are not part
 of it: the manifest and the script file snapshot stay in NetBox.
 
-A rule fires for a change made while handling a request, because a request processor is what
-flushes the event queue. A change a background job makes reaches no rule, which covers a
-revision staged by a Data Source synchronization, a validation verdict, and the rows the
-migration passes create.
+A change made while handling a UI or REST request can trigger matching rules. A Script run also
+publishes the object-change events it queued when it finishes successfully with commit enabled,
+even without a request. A dry run, or a run that fails, publishes none of them.
+
+Staging, validation and migration jobs, and an activation a job performs, deliver no
+object-change events, so a revision staged by a Data Source synchronization, a validation
+verdict and the rows the migration passes create reach no rule. Follow those through the
+revision's status and the migration Job results. Job start and completion events are separate
+from these.

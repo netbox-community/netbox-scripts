@@ -186,8 +186,10 @@ class ProjectReconciliationJob(JobRunner):
     Rebuild one project's source from its Data Source directory and drive it to a verdict.
 
     The directory is read when this runs rather than when it was enqueued, so two jobs queued by
-    two quick synchronizations are not a correctness problem: the second stages identical content,
-    resolves to the revision the first created, and enqueues no second validation.
+    two quick synchronizations are not a correctness problem: the second stages identical content
+    and resolves to the revision the first created. Queueing is not deduplicated, so the revision
+    can carry a second validation Job. The lease settles ownership, and the run that loses the
+    claim ends as a failed Job rather than validating the revision twice.
 
     Per project rather than per Data Source, so one project's failure leaves its siblings to
     reconcile on their own.
@@ -271,7 +273,8 @@ class ProjectScriptFileRefreshJob(JobRunner):
 
     The content is read when this runs rather than when it was enqueued, so two saves in
     quick succession are not a correctness problem: the second resolves to the revision the
-    first created and enqueues no second validation.
+    first created. Queueing is not deduplicated, so the lease settles which run validates that
+    revision, and the run that loses the claim ends as a failed Job.
     """
 
     class Meta:

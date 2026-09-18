@@ -5,9 +5,10 @@ Validation is the lifecycle step between MATERIALIZED and a verdict. It imports 
 script file the revision's snapshot names, discovers the Scripts they publish, builds each one's
 run form to prove it usable, and records VALID or INVALID along with the published set a valid
 revision offers. A verdict is a statement about revision content, so environment trouble
-(an unreachable backend, a broken cache, a missing external distribution) never produces
-one: the revision reverts to MATERIALIZED and the failure propagates for the job layer to
-retry.
+(an unreachable backend, a broken cache, a failed submodule of a distribution this host has)
+never produces one: the revision reverts to MATERIALIZED and the failure propagates for the
+job layer to retry. An import naming a distribution the host cannot resolve at all is content
+instead, because no run here could satisfy it.
 
 Ownership works as a lease. A run claims its revision with a compare-and-swap that records
 the owning Job and the claim time, and the claim is reclaimable purely by age, because a

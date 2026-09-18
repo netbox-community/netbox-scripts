@@ -79,14 +79,16 @@ PUT  /api/plugins/netbox-scripts/projects/<id>/script-files/   {"paths": [...]}
 
 `GET` reports every candidate with `selected`, `available`, and its
 `discovery_status`. `PUT` replaces the selection, refusing any path the project
-has no source file at. Both need the Project's change permission and the
-Script File's, because the request is scoped to a Project but writes declarations.
+has no source file at. `GET` needs the Project's view permission and nothing else.
+`PUT` needs the Project's change permission and the Script File's, because the
+request is scoped to a Project but writes declarations.
 
 Script Files keep surfaces of their own for triage across projects: list, detail,
 edit, filtering, global search, REST, and GraphQL. They carry no top-level navigation
-item and no create, delete, bulk delete, bulk import or bulk edit route, because a
+item and no create, delete, bulk delete, bulk import or UI bulk edit route, because a
 declaration is a Project setting. Over REST that is a method restriction, so POST and
-DELETE answer 405.
+DELETE answer 405. Bulk update is inherited and stays available, so a bulk `PUT` or
+`PATCH` on the list route edits declarations.
 
 The three discovery fields are readable and filterable everywhere, and writable
 nowhere: no form, serializer, or GraphQL input accepts them, only project

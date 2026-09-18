@@ -3,9 +3,10 @@ Project-scoped serialization for the storage lifecycle.
 
 Every operation that reads or writes one project's stored content takes the lock this module
 hands out, keyed by the project's immutable storage_key. Staging, script file refresh,
-activation, the validation service's row transitions, and physical cleanup therefore observe
-one another's writes in a defined order instead of interleaving inside a store the database
-cannot see.
+activation and physical cleanup therefore observe one another's writes in a defined order
+instead of interleaving inside a store the database cannot see. Validation is not among them.
+It reads one revision through the digest-addressed runtime cache and serializes on that
+revision row's own lease instead.
 
 The lock is a PostgreSQL session-level advisory lock rather than a row lock or a lease. A row
 lock would hold a transaction open across a remote conversation with the object store, which

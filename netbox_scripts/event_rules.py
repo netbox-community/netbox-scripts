@@ -30,10 +30,10 @@ class RunNetBoxScriptAction(EventRuleAction):
     object_required = True
 
     def validate(self, *, action_object, action_data):
-        """Refuse a Script that can never run again."""
-        # Retirement is permanent, because the active revision has stopped publishing the class.
-        # A disabled script or project is temporary state an administrator flips back, so those
-        # are reported at dispatch instead of blocking the rule from being saved.
+        """Refuse a Script the active revision no longer publishes."""
+        # Retirement holds only until some activation publishes the class again, so this
+        # blocks on today's state. A disabled script or project is temporary state an
+        # administrator flips back, so those are reported at dispatch instead.
         if action_object.is_retired:
             raise ValidationError({'action_object_id': _('This Script is retired and cannot be run.')})
 

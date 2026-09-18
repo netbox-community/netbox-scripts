@@ -86,7 +86,8 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
     if captured is None:
         return
     digest, storage_key, manifest = captured
-    # An invalid revision carries no digest and was never written to the store.
+    # Only a rejected staging attempt lacks a digest, and nothing was written for it. An
+    # invalid revision that did reach the store keeps its digest and still needs cleaning.
     if not digest:
         return
     # The captured manifest is input read back from a row, and it is the only inventory of

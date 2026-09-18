@@ -209,8 +209,8 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         path = uploaded_source_path(upload.name)
         _check_upload_size(upload)
         # The rule lives in ingestion so this form and the REST upload action cannot disagree
-        # about what replacing a file costs. Surfaced on the field rather than raised, because
-        # the editing view does not catch a ValidationError out of clean().
+        # about what replacing a file costs. Attached to upload_file rather than raised, so the
+        # message lands on the field that caused it instead of becoming a non-field error.
         try:
             check_upload_conflicts(self.instance, path, confirm_replace=self.cleaned_data.get('confirm_replace'))
         except ValidationError as error:
@@ -312,10 +312,10 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
         changed = self.instance.select_script_files(selection, user=request.user if request else None)
         if changed:
             # A revision freezes the enabled declarations at staging time, so the selection has
-            # no effect until something restages. That is storage work, which never happens in a
-            # request, so it is a job. A selection that did not move would resolve to the
-            # revision that already exists, so the comparison keeps an unchanged save out of the
-            # Job list rather than relying on the job to find nothing to do.
+            # no effect until something restages, which happens as a job here. A selection that
+            # did not move would resolve to the revision that already exists, so the comparison
+            # keeps an unchanged save out of the Job list rather than relying on the job to find
+            # nothing to do.
             ProjectScriptFileRefreshJob.enqueue_refresh(self.instance)
         return self.instance
 

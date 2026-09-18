@@ -190,7 +190,7 @@ def ingest_data_source(project):
 
 
 def queue_revision_processing(revision):
-    """Queue validation or activation of a reused verdict, without duplicating an in-flight validation."""
+    """Queue validation for a revision that needs it. Returns the Job, or None when nothing is owed."""
     from .choices import ActivationPolicyChoices
     from .constants import ACTIVATABLE_REVISION_STATUSES
     from .models import ScriptProject

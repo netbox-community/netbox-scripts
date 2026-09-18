@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 
 from django.core.exceptions import SuspiciousOperation, ValidationError
 from django.utils.text import slugify
+from django.utils.translation import gettext_lazy as _
 
 from ..choices import ActivationPolicyChoices, ProjectSourceTypeChoices
 from ..compat import MIGRATION_HINTS
@@ -110,13 +111,13 @@ def build_report(modules=None, read=None):
                 'code': 'reports_excluded',
                 'pk': None,
                 'path': '',
-                'message': (
-                    f'{reports} built-in report module(s) are not part of this migration. Reports use an '
-                    f'authoring API this plugin does not serve, so nothing moves them onto it. The cutover '
-                    f'still withdraws any permission, and disables any Event Rule, naming extras.script or '
-                    f'extras.scriptmodule, object types that serve reports too, and the repointing pass '
-                    f'then drops that coverage for good.'
-                ),
+                'message': _(
+                    '{reports} built-in report module(s) are not part of this migration. Reports use an '
+                    'authoring API this plugin does not serve, so nothing moves them onto it. The cutover '
+                    'still withdraws any permission, and disables any Event Rule, naming extras.script or '
+                    'extras.scriptmodule, object types that serve reports too, and the repointing pass '
+                    'then drops that coverage for good.'
+                ).format(reports=reports),
             }
         )
     return {
@@ -148,11 +149,11 @@ def _root_findings(proposed):
                 'code': 'data_source_root',
                 'pk': None,
                 'path': '',
-                'message': (
-                    f'{len(proposal.module_pks)} module(s) collapse to the root of a data source, so '
-                    f'project "{proposal.key}" would take the whole source as its tree. Move those '
-                    f'scripts under a directory on the source, then run the inventory again.'
-                ),
+                'message': _(
+                    '{count} module(s) collapse to the root of a data source, so '
+                    'project "{key}" would take the whole source as its tree. Move those '
+                    'scripts under a directory on the source, then run the inventory again.'
+                ).format(count=len(proposal.module_pks), key=proposal.key),
             }
         )
     return findings
@@ -190,11 +191,11 @@ def _not_manual_finding(proposal, project):
         'code': 'project_not_manual',
         'pk': None,
         'path': proposal.data_path,
-        'message': (
-            f'Script Project "{project.name}" already holds what project "{proposal.key}" would '
-            f'stage, and its activation policy is {label}. Staging would declare the built-in modules on '
-            f'it and validation would then put them into service. Set it to Manual, then run this again.'
-        ),
+        'message': _(
+            'Script Project "{name}" already holds what project "{key}" would '
+            'stage, and its activation policy is {label}. Staging would declare the built-in modules on '
+            'it and validation would then put them into service. Set it to Manual, then run this again.'
+        ).format(name=project.name, key=proposal.key, label=label),
     }
 
 
@@ -205,10 +206,14 @@ def _conflict_finding(proposal, project):
         'code': 'project_conflict',
         'pk': None,
         'path': proposal.data_path,
-        'message': (
-            f'Script Project "{project.name}" holds {project.data_path or _ROOT_NAME}, which overlaps '
-            f'the {proposal.data_path or _ROOT_NAME} this migration proposes. One data source cannot carry '
-            f'two projects whose paths contain one another. Move or remove one of them, then run this again.'
+        'message': _(
+            'Script Project "{name}" holds {existing_path}, which overlaps '
+            'the {proposed_path} this migration proposes. One data source cannot carry '
+            'two projects whose paths contain one another. Move or remove one of them, then run this again.'
+        ).format(
+            name=project.name,
+            existing_path=project.data_path or _ROOT_NAME,
+            proposed_path=proposal.data_path or _ROOT_NAME,
         ),
     }
 
@@ -273,7 +278,7 @@ def _propose(identity, members):
             data_path='',
             module_pks=module_pks,
         )
-    _, data_source_id, folder = identity
+    _source_type, data_source_id, folder = identity
     return ProposedProject(
         key=_key(folder or _ROOT_STEM, identity),
         name=folder or _ROOT_NAME,
@@ -298,7 +303,7 @@ def _inspect(module, read, proposal):
         body = read(module)
     except (OSError, SuspiciousOperation) as error:
         # One unreadable file must not deny an operator the rest of the report.
-        message = f'{path} could not be read: {error}'
+        message = _('{path} could not be read: {error}').format(path=path, error=error)
         return dialects.UNPARSABLE, [_finding(BLOCKING, 'source_unreadable', module, message)]
 
     dialect = dialects.classify(body)
@@ -314,11 +319,11 @@ def _inspect(module, read, proposal):
     if not dialects.publishes(module.scripts, body):
         # A helper and a module that stopped importing look identical from the built-in rows, so
         # the operator is told rather than either one being guessed at.
-        message = (
-            f'{path} publishes no Script and defines no class that could, so it migrates as a helper '
-            f'file rather than a script file. If it should publish one, check that its built-in '
-            f'module still imports.'
-        )
+        message = _(
+            '{path} publishes no Script and defines no class that could, so it migrates as a helper '
+            'file rather than a script file. If it should publish one, check that its built-in '
+            'module still imports.'
+        ).format(path=path)
         findings.append(_finding(WARNING, 'publishes_nothing', module, message))
     return dialect, findings
 
@@ -328,14 +333,19 @@ def _path_findings(module, proposal, path):
     try:
         staged = proposal.source_path_for(module)
     except ValidationError as error:
-        return [_finding(BLOCKING, 'not_importable', module, f'{path} cannot be staged: {error.messages[0]}')]
+        message = _('{path} cannot be staged: {error}').format(path=path, error=error.messages[0])
+        return [_finding(BLOCKING, 'not_importable', module, message)]
     if staged is None:
-        message = f'{path} sits outside the {proposal.name} project directory, so it cannot be staged.'
+        message = _('{path} sits outside the {name} project directory, so it cannot be staged.').format(
+            path=path, name=proposal.name
+        )
         return [_finding(BLOCKING, 'not_importable', module, message)]
     try:
         source_path_to_dotted_name(staged)
     except ValidationError as error:
-        message = f'{path} cannot be imported as {staged}: {error.messages[0]}'
+        message = _('{path} cannot be imported as {staged}: {error}').format(
+            path=path, staged=staged, error=error.messages[0]
+        )
         return [_finding(BLOCKING, 'not_importable', module, message)]
     return []
 
@@ -343,13 +353,16 @@ def _path_findings(module, proposal, path):
 def _dialect_findings(module, dialect, path):
     """Return the finding one module's authoring dialect produces, if it produces one."""
     if dialect == dialects.REPORT_STYLE:
-        message = f'{path} is report-style. {MIGRATION_HINTS["extras.reports"]}'
+        message = _('{path} is report-style. {hint}').format(path=path, hint=MIGRATION_HINTS['extras.reports'])
         return [_finding(BLOCKING, 'report_style', module, message)]
     if dialect == dialects.LEGACY_IMPORT:
-        message = f'{path} imports the legacy authoring API. {MIGRATION_HINTS["extras.scripts"]}'
+        message = _('{path} imports the legacy authoring API. {hint}').format(
+            path=path, hint=MIGRATION_HINTS['extras.scripts']
+        )
         return [_finding(WARNING, 'legacy_import', module, message)]
     if dialect == dialects.UNPARSABLE:
-        return [_finding(BLOCKING, 'unparsable', module, f'{path} is not valid Python.')]
+        message = _('{path} is not valid Python.').format(path=path)
+        return [_finding(BLOCKING, 'unparsable', module, message)]
     return []
 
 
@@ -366,31 +379,31 @@ def _source_findings(module, body, dialect):
         if conditional:
             # Refusing the whole pass over a branch that may never run costs more than the accurate
             # refusal validation records against the one revision if it does.
-            message = (
-                f'{path} imports {name} only inside a conditional branch, and it is neither a '
-                f'standard-library module nor a distribution installed here. Reading the source '
-                f'cannot say whether that branch runs, so this does not refuse the migration. If it '
-                f'does run, validation records the failure against the revision rather than here.'
-            )
+            message = _(
+                '{path} imports {name} only inside a conditional branch, and it is neither a '
+                'standard-library module nor a distribution installed here. Reading the source '
+                'cannot say whether that branch runs, so this does not refuse the migration. If it '
+                'does run, validation records the failure against the revision rather than here.'
+            ).format(path=path, name=name)
             findings.append(_finding(WARNING, 'import_unresolvable_in_branch', module, message))
             continue
-        message = (
-            f'{path} imports {name}, which is neither a standard-library module nor a distribution '
-            f'installed here, so the module cannot import and no verdict can ever be reached for it. '
-            f'A plain import never reaches a file beside it, so make it relative if that is the intent.'
-        )
+        message = _(
+            '{path} imports {name}, which is neither a standard-library module nor a distribution '
+            'installed here, so the module cannot import and no verdict can ever be reached for it. '
+            'A plain import never reaches a file beside it, so make it relative if that is the intent.'
+        ).format(path=path, name=name)
         findings.append(_finding(BLOCKING, 'import_unresolvable', module, message))
     defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
     for script in module.scripts:
         # A soft-deleted class left the file on purpose and has no counterpart to lose.
         if not script.is_executable or script.name in defined:
             continue
-        message = (
-            f'{path} does not define {script.name}, which the built-in feature publishes from it. A '
-            f'class defined elsewhere in the revision publishes only through a script_order listing, '
-            f'and it publishes under the module that defines it, so {path}.{script.name} is not an '
-            f'identity a migration can preserve. Move the class into this file to keep it.'
-        )
+        message = _(
+            '{path} does not define {name}, which the built-in feature publishes from it. A '
+            'class defined elsewhere in the revision publishes only through a script_order listing, '
+            'and it publishes under the module that defines it, so {path}.{name} is not an '
+            'identity a migration can preserve. Move the class into this file to keep it.'
+        ).format(path=path, name=script.name)
         findings.append(_finding(WARNING, 'script_not_defined_here', module, message))
     return findings
 

@@ -109,11 +109,11 @@ def unservable_projects(run):
     for key in keys:
         project = projects.get(key)
         if project is None:
-            blocked.append({'project_key': key, 'reason': _('has not been staged')})
+            blocked.append({'project_key': key, 'reason': str(_('has not been staged'))})
             continue
         revisions = by_project.get(project.pk, [])
         if not revisions:
-            blocked.append({'project_key': key, 'reason': _('holds no revision')})
+            blocked.append({'project_key': key, 'reason': str(_('holds no revision'))})
             continue
         # Serving anything is enough: an older revision keeps serving across the fence, whatever
         # activation would later do with the pointer.
@@ -187,6 +187,9 @@ def _merged_outcomes(run, results):
 
 def _activate_project(project):
     """Activate the revision one project should serve, reporting rather than raising on refusal."""
+    # The outcomes below are journal identifiers, not prose: they are persisted, the tests match
+    # them literally, and jobs.py substitutes one into a translated sentence. Translating them
+    # would both freeze a stored value's language and compose two translated strings.
     newest = project.revisions.order_by('-created').first()
     if newest is None:
         return _outcome(project, None, 'holds no revision')
@@ -199,7 +202,8 @@ def _activate_project(project):
         if candidate is None:
             # Retired is deliberately not accepted here: preferring it over an older valid revision
             # would serve a revision the project had already stood down from.
-            return _outcome(project, newest.pk, f'has no valid revision to activate, its newest is {newest.status}')
+            outcome = f'has no valid revision to activate, its newest is {newest.status}'
+            return _outcome(project, newest.pk, outcome)
         revision, outcome = candidate, 'activated'
     try:
         activation.activate_revision(revision)
@@ -284,14 +288,18 @@ def _capture_schedules():
         entry, dropped = _capture_schedule(job)
         if entry is None:
             warnings.append(
-                f'Job {job.pk} ("{job.name}") is queued but its task is no longer in the queue, so its '
-                f'input could not be read. Recreate it by hand after the cutover.'
+                _(
+                    'Job {pk} ("{name}") is queued but its task is no longer in the queue, so its '
+                    'input could not be read. Recreate it by hand after the cutover.'
+                ).format(pk=job.pk, name=job.name)
             )
             continue
         if dropped:
             warnings.append(
-                f'Job {job.pk} ("{job.name}") has input that cannot be recorded ({", ".join(dropped)}), '
-                f'so it will not be recreated with those values.'
+                _(
+                    'Job {pk} ("{name}") has input that cannot be recorded ({dropped}), '
+                    'so it will not be recreated with those values.'
+                ).format(pk=job.pk, name=job.name, dropped=', '.join(dropped))
             )
         captured.append(entry)
     return captured, warnings
@@ -411,7 +419,7 @@ def _cancel_schedules(captured):
         # was cancelled. There is no cancelled status, so this fails closed.
         job.terminate(
             JobStatusChoices.STATUS_FAILED,
-            error='Cancelled by the Custom Scripts migration cutover. The plugin recreates this run.',
+            error=str(_('Cancelled by the Custom Scripts migration cutover. The plugin recreates this run.')),
         )
         cancelled += 1
     return cancelled

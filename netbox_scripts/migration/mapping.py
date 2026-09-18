@@ -1,6 +1,7 @@
 """Which Script one built-in Custom Script becomes."""
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
 
 from ..models import NetBoxScript
 from ..utils import source_path_to_dotted_name
@@ -38,7 +39,7 @@ def build_map(modules=None, *, resolve_existing=None):
         try:
             source_path = project_plan.source_path_for(module)
             if source_path is None:
-                raise ValidationError('The module sits outside the proposed project directory.')
+                raise ValidationError(_('The module sits outside the proposed project directory.'))
             # The dotted name, not the source path: a NetBoxScript records the module a class was
             # defined in, which discovery reads off cls.__module__.
             module_path = source_path_to_dotted_name(source_path)

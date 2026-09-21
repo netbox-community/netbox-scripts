@@ -20,6 +20,7 @@ permissions:
 jobs:
   build:
     name: Build distribution
+    if: github.repository == 'netbox-community/netbox-scripts'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,9 +47,67 @@ jobs:
           name: dist-packages
           path: dist/
 
+  check-version:
+    name: Check the tag against the version
+    if: github.repository == 'netbox-community/netbox-scripts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup Python
+        # actions/setup-python v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Refuse a tag that misnames the version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 -m pip install --quiet packaging
+          python3 - <<'PY'
+          import os
+          import re
+          import tomllib
+
+          from packaging.version import InvalidVersion, Version
+
+          INIT = 'netbox_scripts/__init__.py'
+
+
+          def fail(message):
+              print(f'::error::{message}')
+              raise SystemExit(1)
+
+
+          sources = {'tag': os.environ['TAG'].removeprefix('v')}
+          with open('pyproject.toml', 'rb') as fh:
+              sources['pyproject.toml'] = tomllib.load(fh)['project']['version']
+          found = re.search(
+              r'''^__version__ = ['"]([^'"]+)['"]''', open(INIT).read(), re.M
+          )
+          if found is None:
+              fail(f'no __version__ found in {INIT}')
+          sources[INIT] = found.group(1)
+
+          parsed = {}
+          for name, raw in sources.items():
+              try:
+                  parsed[name] = Version(raw)
+              except InvalidVersion:
+                  fail(f'{name} is not a valid version: {raw}')
+
+          print(' '.join(f'{n}={v}' for n, v in sources.items()))
+          if len(set(parsed.values())) > 1:
+              fail('the tag and the two version pins disagree')
+          PY
+
   publish-pypi:
     name: Publish to PyPI
-    needs: build
+    needs: [build, check-version]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

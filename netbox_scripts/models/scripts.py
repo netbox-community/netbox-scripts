@@ -1,6 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models, router
+from django.db import models, router, transaction
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
@@ -241,21 +241,27 @@ class NetBoxScript(JobsMixin, PrimaryModel):
         return None
 
     def save(self, *args, **kwargs):
-        """Persist an administrator's edit under its project's transaction-scoped source lock."""
-        using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
-        with project_write_lock(self.project.storage_key, using=using):
-            return self._save_script(*args, **kwargs)
-
-    def _save_script(self, *args, **kwargs):
         """Restore what publication owns, so a full save cannot write an instance's stale copy back."""
-        if not self._state.adding and normalize_update_fields(kwargs) is None:
-            using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
-            # Under the lock: an activation may have published between this instance loading and now.
-            original = type(self).objects.using(using).filter(pk=self.pk).values(*PUBLISHED_SCRIPT_FIELDS).first()
+        if self._state.adding or normalize_update_fields(kwargs) is not None:
+            return super().save(*args, **kwargs)
+        using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+        # The row rather than the project: synchronization writes this row under the project lock
+        # and holds that lock across a whole-tree hash, so waiting on it would stall an ordinary
+        # edit for as long as a backend takes. Locking the row serializes against the only write
+        # that competes, and takes nothing synchronization is not already about to take.
+        with transaction.atomic(using=using):
+            original = (
+                type(self)
+                .objects.using(using)
+                .select_for_update()
+                .filter(pk=self.pk)
+                .values(*PUBLISHED_SCRIPT_FIELDS)
+                .first()
+            )
             if original:
                 for name, value in original.items():
                     setattr(self, name, value)
-        super().save(*args, **kwargs)
+            return super().save(*args, **kwargs)
 
 
 class ScriptFile(PrimaryModel):

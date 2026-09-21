@@ -19,12 +19,13 @@ from unittest import mock
 
 import django_rq
 from django.db import DEFAULT_DB_ALIAS, connections
+from django.db.models.signals import post_save
 from django.test import TransactionTestCase, override_settings
 
 from core.models import Job
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
-from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.locks import advisory_key
@@ -99,6 +100,40 @@ class SerializationTestCase(TransactionTestCase):
     def cleanup(self, digest, paths):
         """Drive the cleanup job body the way handle() does."""
         return self.runner().run(storage_key=str(self.project.storage_key), digest=digest, paths=paths, job_id='x')
+
+
+class ScriptEditLockScopeTestCase(SerializationTestCase):
+    """An ordinary Script edit serializes on its own row, never on the project."""
+
+    def observe_project_lock_during_save(self, instance):
+        """Save one row and report whether another session could take the project lock meanwhile."""
+        observed = {}
+
+        def observe(sender, **kwargs):
+            with SecondSession() as other:
+                observed['free'] = other.can_lock(self.project.storage_key)
+
+        post_save.connect(observe, sender=type(instance))
+        self.addCleanup(post_save.disconnect, observe, sender=type(instance))
+        instance.save()
+        return observed.get('free')
+
+    def test_an_edit_does_not_wait_on_the_project_lock(self):
+        # Activation holds the project lock across a whole-tree hash, so an edit that took it
+        # would stall for as long as the backend needs.
+        script = NetBoxScript.objects.create(
+            project=self.project, module_path='deploy', class_name='Deploy', display_name='Deploy'
+        )
+        script.enabled = False
+
+        self.assertTrue(self.observe_project_lock_during_save(script), 'The edit took the project lock.')
+
+    def test_a_declaration_still_takes_the_project_lock(self):
+        # The control: Script Files serialize their path invariants on the project, unchanged.
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        script_file.description = 'Edited'
+
+        self.assertFalse(self.observe_project_lock_during_save(script_file), 'The declaration lost its lock.')
 
 
 class ProjectLockHeldTestCase(SerializationTestCase):

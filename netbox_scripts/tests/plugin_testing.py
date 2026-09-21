@@ -1,7 +1,7 @@
 import shutil
 import sys
 
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections
 
 from core.models import ObjectType
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
@@ -56,6 +56,18 @@ class SecondSession:
             if acquired:
                 cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (namespace, key))
         return acquired
+
+    def row_locked(self, model, pk):
+        """Report whether another session already holds a row lock on one row."""
+        with self.connection.cursor() as cursor:
+            try:
+                # NOWAIT so the answer is an error rather than a wait this thread cannot end.
+                cursor.execute(f'SELECT 1 FROM {model._meta.db_table} WHERE id = %s FOR UPDATE NOWAIT', (pk,))
+            except OperationalError:
+                self.connection.rollback()
+                return True
+            self.connection.rollback()
+            return False
 
 
 class ObjectPermissionTestMixin:

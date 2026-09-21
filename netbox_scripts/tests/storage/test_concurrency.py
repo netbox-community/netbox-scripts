@@ -18,7 +18,7 @@ import uuid
 from unittest import mock
 
 import django_rq
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.test import TransactionTestCase, override_settings
 
 from core.models import Job
@@ -104,6 +104,28 @@ class ScriptEditLockScopeTestCase(SerializationTestCase):
         script_file.description = 'Edited'
 
         self.assertFalse(self.observe_project_lock_during_save(script_file), 'The declaration lost its lock.')
+
+
+class DeclarationGuardRowLockTestCase(SerializationTestCase):
+    """The declaration guard holds the row it read until its own write lands."""
+
+    def test_the_guard_reads_the_discovery_fields_under_a_row_lock(self):
+        # Validation writes those fields with QuerySet.update() and takes no project lock of its
+        # own, so the row is the only thing these two writers have in common.
+        script_file = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        observed = []
+
+        def observe(sender, instance, **kwargs):
+            with SecondSession() as other:
+                observed.append(other.row_locked(ScriptFile, instance.pk))
+
+        # pre_save fires after the guard's read and before its UPDATE, which is the window.
+        pre_save.connect(observe, sender=ScriptFile, dispatch_uid='declaration-guard-row-lock')
+        self.addCleanup(pre_save.disconnect, observe, sender=ScriptFile, dispatch_uid='declaration-guard-row-lock')
+        script_file.description = 'operator edit'
+        script_file.save()
+
+        self.assertEqual(observed, [True], 'The guard read the discovery fields without the row lock.')
 
 
 class ProjectLockHeldTestCase(SerializationTestCase):

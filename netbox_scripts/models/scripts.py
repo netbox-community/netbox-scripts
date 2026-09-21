@@ -412,6 +412,9 @@ class ScriptFile(PrimaryModel):
             original = (
                 type(self)
                 .objects.using(using)
+                # Locked, so a discovery result landing after this read is not restored over by
+                # the save below. project_write_lock has the transaction this needs open.
+                .select_for_update()
                 .filter(pk=self.pk)
                 .values('project_id', 'source_path', *DISCOVERED_SCRIPT_FILE_FIELDS)
                 .first()

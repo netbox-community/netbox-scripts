@@ -636,6 +636,34 @@ class ScriptFileTestCase(TestCase):
         self.assertEqual(loaded.discovery_error, 'It did not import.')
         self.assertFalse(loaded.enabled)
 
+    def test_a_discovery_result_arriving_after_a_save_stands(self):
+        # The other surviving ordering. The test above covers a result that landed before the
+        # guard read it, this one covers a result that lands after the save, which the edit has
+        # no business reverting either.
+        instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        revision = ScriptProjectRevision.objects.create(
+            project=self.project,
+            digest=DIGEST_A,
+            status=RevisionStatusChoices.VALIDATING,
+            validation_started=local_now(),
+        )
+        instance.description = 'Edited'
+        instance.save()
+
+        _persist_script_file_results(
+            revision,
+            [{'source_path': 'deploy.py', 'script_file': instance.pk}],
+            {'deploy.py': FileDiscoveryStatusChoices.FAILED},
+            [{'source_path': 'deploy.py', 'message': 'It did not import.'}],
+            {},
+        )
+
+        instance.refresh_from_db()
+        self.assertEqual(instance.discovery_status, FileDiscoveryStatusChoices.FAILED)
+        self.assertEqual(instance.discovery_error, 'It did not import.')
+        self.assertEqual(instance.last_discovered_revision, revision)
+        self.assertEqual(instance.description, 'Edited')
+
     def test_a_field_limited_discovery_write_still_lands(self):
         instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         instance.discovery_status = FileDiscoveryStatusChoices.FAILED

@@ -20,7 +20,9 @@ irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
 | Verification | Reports whether the migration landed. Reads only, and is safe to run at any point and as often as you like. | Nothing to undo |
 
 Each runs as a background job and records what it found on its own Job row, so the result stays
-readable after the run. Run them in the order above. Each refuses if the one before it has not
+readable after the run. **NetBox's RQ worker has to be running for the whole migration, the cutover
+included.** Pausing the queues stops the migration itself, not only the runs it is meant to hold.
+Run them in the order above. Each refuses if the one before it has not
 completed. Verification is the exception: it waits for nothing and refuses nothing, so you can run it
 between any two passes to see where the migration stands.
 
@@ -36,13 +38,16 @@ irreversible, so do all of it before you press **Enter cutover**.
 1. **Take a maintenance window.** The fence a plugin can build withdraws every grant NetBox's own
    permissions UI can make, and no more. A superuser is unaffected. Treat the window as the real
    fence and this pass as the tidying.
-2. **Pause the workers.** A run that starts while the cutover is capturing is a run the migration
-   cannot account for. The cutover refuses outright while a built-in Custom Script job is executing, so
-   pausing first is what stops you having to wait mid-migration.
+2. **Stop new script runs from being requested.** A run that starts while the cutover is capturing
+   is a run the migration cannot account for. The maintenance window is what holds them, because
+   every pass below is itself a background job and needs the worker. A scheduled legacy run can
+   still fire inside the window, and the cutover refuses outright while any built-in Custom Script
+   job is executing, naming the ones it is waiting on. Let those finish and run the cutover again.
 3. **Back up the database and the source storage together, as one restore point.** The plugin's
    Projects live in the database and their content lives in the storage backend, so a database
    restored against a different storage state serves revisions whose bytes are gone. Note the NetBox
-   and plugin versions with the backup.
+   and plugin versions with the backup. The backup does not cover the queue, so record any pending
+   scheduled run you would want back if you reversed. See [Recovery](#recovery).
 4. **Synchronize each Data Source one last time, and let its reconciliation finish.** Staging freezes
    whatever the Project holds at that moment, so a repository that moves afterwards leaves the
    migrated Project a revision behind. The **Reconcile Source** action on each Data Source Project is
@@ -393,7 +398,8 @@ Two more pieces of operator work, in this order.
 1. **Restart every web and worker process.** A process that imported a built-in script module still
    holds it in memory, and deleting the row does not unload it. Until every process has restarted,
    what an installation can execute is not what its rows say.
-2. **Resume the queues.**
+2. **Close the maintenance window.** Runs can be requested again, now against the migrated
+   Projects.
 
 Then run **Verify**, and read what it reports before you call the migration done.
 
@@ -428,10 +434,21 @@ That is a property of the design rather than a missing feature. The cutover dele
 disables rows an operator may since have edited, and hands execution to Projects whose content is
 addressed by digest. Nothing reconstructs the state before it.
 
+Going forward, a queued or recurring run is not lost: its input is recorded in the migration run's
+journal before the task is deleted, and the repointing pass recreates it. See
+[Two guarantees](#two-guarantees-and-what-each-one-is-worth).
+
 The supported reversal is restoring the backup from step 3 of
 [Before you start](#before-you-start): the database, the source storage, and the matching NetBox and
 plugin versions, together. Restoring one without the others gives an installation that disagrees with
 itself.
+
+**That reversal does not restore the queue.** A queued run's input lives only on its RQ task, which
+the cutover deletes, so a database restored from before the cutover brings back the built-in Job
+rows with nothing left to execute them. The journal holding the captured copies was written during
+the cutover, so a backup taken before it does not contain them either. Record the pending scheduled
+runs you care about before you press **Enter cutover**, and recreate them by hand if you reverse.
+Restoring Redis from a backup is not a substitute, because it replays unrelated work.
 
 Forward is the cheaper direction in every case the migration leaves unfinished. A Project serving no
 revision is activated, a permission left withdrawn is recreated by hand, a module cleanup skipped is

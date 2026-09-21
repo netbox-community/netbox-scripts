@@ -68,7 +68,7 @@ declared and enabled automatically.
 
 Re-uploading a path the Project already holds needs the **Replace the existing file** tick.
 That check compares the canonical path, not the name you picked, which is what makes the
-flattening above visible rather than silent. The replacement produces a new revision, so the
+flattening above visible rather than silent. A replacement never edits a revision in place, so the
 previous one keeps its content and stays in the Project's history.
 
 The tick is also asked for a path an upload has claimed but not finished storing. A browser
@@ -102,10 +102,10 @@ curl -sS -X POST \
 It accepts one Python file and returns the revision it staged, so the caller can poll that
 revision until it reaches a verdict. Add `-F confirm_replace=true` to replace a path the
 Project already holds, which is the same confirmation the form asks for. Uploading identical
-bytes resolves to the revision that already holds them, verdict included, rather than creating
-a second one.
+bytes under an unchanged Script File selection resolves to the revision that already holds
+them, verdict included, rather than creating a second one.
 
-**A 201 means the file was stored as a revision, not that the source is usable.** What the route
+**A 201 returns a revision record, which does not mean the source was stored or is usable.** What the route
 refuses outright it answers with a 400 naming `file`: a body over the per-file byte limit, a name
 that is not a Python file, a path the Project already holds without `confirm_replace`, a path a
 browser upload has declared but not finished storing, also without `confirm_replace`, a path that
@@ -133,9 +133,10 @@ decides:
 | Manual | The revision stops at `valid` and waits for an operator. |
 
 For a manual Project, **Activate** on the Project's page names the revision that would go live
-and puts it in service. It appears only when there is something to activate, so a Project
-already serving its newest revision shows no button. Activating retires the previous revision
-in the same step.
+and puts it in service. It appears whenever an eligible revision other than the active one
+exists, which includes a previously retired one, so a Project already serving its newest
+revision still offers the button when it has something to roll back to. The confirmation names
+the exact revision. Activating retires the previous revision in the same step.
 
 Activation re-verifies the stored tree before moving the pointer, so a revision whose content
 no longer matches its manifest is refused and the Project keeps serving what it served before.
@@ -172,11 +173,13 @@ resolves to the revision that already exists.
 
 ## Where the bytes go
 
-Uploaded content is stored through the `netbox_scripts` entry of NetBox's `STORAGES`
-setting, never on the local filesystem, under a prefix naming the Project's storage key and the
-revision digest. See [Project storage](configuration.md#project-storage) for the backend
-choice and [Storage layout](models/scriptprojectrevision.md#storage-layout) for the key
-layout.
+Uploaded content is stored through the `netbox_scripts` entry of NetBox's `STORAGES` setting,
+under a prefix naming the Project's storage key and the revision digest. That entry's backend can
+keep it in local files or in object storage, and it is an entry of its own rather than the
+`scripts` storage the built-in Custom Scripts use. See
+[Project storage](configuration.md#project-storage) for the backend choice and
+[Storage layout](models/scriptprojectrevision.md#storage-layout) for the key layout.
 
-Identical content uploaded twice resolves to the existing revision rather than storing a second
-copy, because a revision is addressed by the digest of its manifest.
+Identical content uploaded twice is stored once, because stored content is addressed by the
+digest of its manifest. It resolves to the existing revision too while the Script File
+selection is unchanged.

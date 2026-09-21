@@ -17,11 +17,11 @@ __all__ = (
 
 class ActivateRevision(ObjectAction):
     """
-    Put a Script Project's newest validated revision into service.
+    Put one of a Script Project's eligible revisions into service.
 
-    Only rendered when there is something to activate, so a project already serving its newest
-    revision shows no button. Its own permission rather than change, because choosing what code a
-    project runs is more privileged than renaming it.
+    Rendered whenever an eligible revision other than the active one exists, retired ones
+    included, so rolling back is a matter of choosing one. Its own permission rather than change,
+    because choosing what code a project runs is more privileged than renaming it.
     """
 
     name = 'activate'

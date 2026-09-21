@@ -16,7 +16,7 @@ package boundary used when loading and executing scripts.
 | `data_path` | string | conditional | Required for `data_source` projects, not allowed for uploads. Names a directory within the source, never its root |
 | `activation_policy` | choice | yes | `manual` (default) or `automatic_if_valid` |
 | `active_revision` | FK | auto | Currently active revision, set only by the storage activation service |
-| `enabled` | boolean | yes | Whether the project is active, defaults to `true` |
+| `enabled` | boolean | yes | Whether the Project's Scripts may run, defaults to `true`. Disabling it leaves the active revision in place |
 | `description` | string | no | Free-form description |
 | `comments` | text | no | Free-form operational notes |
 
@@ -53,6 +53,31 @@ does not hold is annotated, and the annotation distinguishes one that is gone
 from the source from one a newer revision holds that is not being served yet.
 The tab is empty until a revision holds content.
 
+## Activation policy
+
+`activation_policy` decides whether a revision that passes validation goes into service on its
+own:
+
+| Value | Behaviour |
+|---|---|
+| `manual` | The revision stops at `valid`. An operator activates it from the project's page. |
+| `automatic_if_valid` | The validation job activates the revision itself on a `valid` verdict. |
+
+The [upload form](../uploading.md) asks for this separately from its **Activate this upload**
+tick, because the two are different decisions: the tick puts that one revision into service,
+while this field decides what later revisions do. The form leaves this on `manual`. An
+automatic activation that is refused, for
+example because the stored tree no longer matches its manifest, fails the validation job and
+leaves both the verdict and the previously active revision alone.
+
+For a Data Source-backed project the policy is what decides whether a synchronization changes
+what the project serves, so it is the field to reach for when a repository should be tracked
+but not trusted unattended. See [Data Source Projects](../data-sources.md).
+
+Activating is always a choice between validated revisions, never a promotion of unvalidated
+content. Retired revisions remain eligible, so returning to an earlier one is a matter of
+selecting it.
+
 ## Invariants
 
 | Invariant | Enforcement |
@@ -79,31 +104,6 @@ content is reclaimed by a cleanup job the delete enqueues, so the committing
 process performs no storage I/O. A revision whose captured manifest cannot be
 trusted refuses the delete instead, keeping the row and the only inventory that
 names what there was to reclaim.
-
-## Activation policy
-
-`activation_policy` decides whether a revision that passes validation goes into service on its
-own:
-
-| Value | Behaviour |
-|---|---|
-| `manual` | The revision stops at `valid`. An operator activates it from the project's page. |
-| `automatic_if_valid` | The validation job activates the revision itself on a `valid` verdict. |
-
-The [upload form](../uploading.md) asks for this separately from its **Activate this upload**
-tick, because the two are different decisions: the tick puts that one revision into service,
-while this field decides what later revisions do. The form leaves this on `manual`. An
-automatic activation that is refused, for
-example because the stored tree no longer matches its manifest, fails the validation job and
-leaves both the verdict and the previously active revision alone.
-
-For a Data Source-backed project the policy is what decides whether a synchronization changes
-what the project serves, so it is the field to reach for when a repository should be tracked
-but not trusted unattended. See [Data Source Projects](../data-sources.md).
-
-Activating is always a choice between validated revisions, never a promotion of unvalidated
-content. Retired revisions remain eligible, so returning to an earlier one is a matter of
-selecting it.
 
 ## Identity notes
 
@@ -160,8 +160,8 @@ through its public API whether these models are still routed to the main schema:
   NetBox Branching release that exposes the inspection API.
 - **Deleting a project or a revision never removes source under an unresolved
   answer.** The rows go, the directory stays, and the skip is logged at error
-  level. A leaked directory is recoverable by an operator or a future reconciler,
-  whereas source deleted out from under a schema that still serves it is not.
+  level. A leaked directory is recoverable by an operator, whereas source deleted
+  out from under a schema that still serves it is not.
 
 NetBox itself keeps running throughout. An optional peer plugin whose routing
 cannot be confirmed disables this plugin's storage operations, not the

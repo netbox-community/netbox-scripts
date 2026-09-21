@@ -53,6 +53,10 @@ STORAGES = {
 }
 ```
 
+The directory has to exist before the first upload, writable by the web and worker
+processes and by nothing else. [Quickstart](quickstart.md#configuring-project-storage)
+shows one way to create it.
+
 ```text
 /var/lib/netbox-scripts/netbox-scripts/<storage_key>/revisions/<digest>/hello.py
 ```
@@ -235,9 +239,8 @@ revision manifest, and the protocol is built so nothing unverified can execute:
 
 The root must offer enough space for the revisions in active use, and staging happens
 beside the final location, so the root must be one filesystem. There is no automatic
-eviction: reclaiming stale slots and set-aside failures belongs to a housekeeping
-reconciler planned for a later release, until then the directory can be cleared out of
-band while NetBox is stopped.
+eviction, and nothing reclaims stale slots or set-aside failures, so the directory is
+cleared out of band while NetBox is stopped.
 
 ## Storage trust boundary
 

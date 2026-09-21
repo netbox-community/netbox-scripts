@@ -47,12 +47,10 @@ its old location is retired.
 | `metadata` | JSON | system | Execution defaults the most recent validation read from the class |
 
 Everything marked system is owned by synchronization. No form, serializer, or
-GraphQL input accepts those fields.
+GraphQL input accepts those fields, and a save that names no fields restores them
+from the row, so an edit that began before an activation cannot write the older
+values back.
 
-`description` is a text field rather than the 200-character field the base model
-provides, because `Meta.description` has no length of its own and truncating an
-author's text would be lossy. Since it is system-managed, there is nothing for an
-administrator to type into and nothing for synchronization to overwrite.
 Operational notes belong in `comments`, which is yours.
 
 ## Enabled versus retired

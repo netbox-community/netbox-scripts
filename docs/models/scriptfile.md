@@ -24,7 +24,9 @@ what an existing revision was validated against.
 | `last_discovered_revision` | FK | system | The revision whose validation last wrote these discovery fields |
 
 The three discovery fields are system-managed. Project validation writes them,
-no form or serializer accepts them, and they describe the current declaration.
+no form or serializer accepts them, and a save that names no fields restores them
+from the row, so an edit cannot write an older verdict back. They describe the
+current declaration.
 
 A script file has no name of its own. It is identified by its project and its source
 path, and both are frozen once the script file exists, so a declaration can never be
@@ -80,8 +82,10 @@ PUT  /api/plugins/netbox-scripts/projects/<id>/script-files/   {"paths": [...]}
 `GET` reports every candidate with `selected`, `available`, and its
 `discovery_status`. `PUT` replaces the selection, refusing any path the project
 has no source file at. `GET` needs the Project's view permission and nothing else.
-`PUT` needs the Project's change permission and the Script File's, because the
-request is scoped to a Project but writes declarations.
+`PUT` needs the Project's change permission and the Script File `change` action, and
+creating declarations also needs `add` on those rows. Existing declarations it changes
+are checked against their `change` constraints before and after the update. See
+[Permissions](../permissions.md#two-privileges-with-no-codename-of-their-own).
 
 Script Files keep surfaces of their own for triage across projects: list, detail,
 edit, filtering, global search, REST, and GraphQL. They carry no top-level navigation
@@ -123,7 +127,7 @@ rejected up front rather than at validation time:
 | The source path cannot be changed | `clean()` and `save()`, compared after canonicalization so a re-spelling is not a change |
 | The stored path is canonical | `save()` canonicalizes, so snapshots built straight from rows are safe |
 | The stored path is importable | `save()` refuses an unimportable path, so it cannot freeze into a snapshot that activation could only reject |
-| Discovery fields are system-managed | `editable=False`, only project validation writes them |
+| Discovery fields are system-managed | `editable=False`, only project validation writes them, and `save()` restores them when no fields are named |
 | `last_discovered_revision` belongs to the same project | `clean()` check |
 
 Script Files are installation-global, like projects and revisions. Under NetBox

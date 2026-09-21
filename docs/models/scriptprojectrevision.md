@@ -95,6 +95,12 @@ has served something. Retiring the scripts rather than deleting them is what let
 a later activation return the same rows, with their Job history and with whatever
 `enabled` an administrator left them at.
 
+Under **Automatic if valid**, deactivation lasts only until the same source is
+accepted again. The next reconciliation, Script File refresh or upload that
+resolves to this revision activates it again, and so can a validation queued
+before the deactivation. To keep it inactive, switch the Project to **Manual**
+before deactivating.
+
 One more path reaches the serializer. Event serialization resolves a serializer
 by model name, and it runs on any request that deletes a revision, which a
 project delete does by cascade.
@@ -241,23 +247,23 @@ project while it does: staging, restaging under a new script file configuration,
 the cleanup that reclaims content. The lock is keyed on the project's immutable storage key, so
 it names the content itself and cannot be moved by anything an author edits.
 
-It is a PostgreSQL session-level advisory lock rather than a row lock, because these operations
-hold conversations with the storage backend and a row lock would keep a database transaction
-open for their duration. A session lock is released when the connection drops, so a worker that
-dies without warning frees its own claim and no reclaim timer is needed.
+It is a session-level advisory lock rather than a row lock, so a database transaction is not
+held open while an operation talks to the storage backend, and a worker that dies frees its own
+claim. See [Configuration](../configuration.md#database-connection-pooling) for what that
+requires of a connection pooler.
 
-Two operations deliberately stay outside it:
+Two operations use other mechanisms:
 
-- **Deleting a revision takes no lock.** The cleanup job is what decides whether stored
-  content is still claimed, and it rechecks for a referencing row *under* the lock before
-  removing anything. A bare check before the lock would lose to a revision staged between
-  the check and the delete. Deleting a project takes no project lock either, but each
-  cascaded script file serializes its own removal through the write lock, which shares this
-  keyspace, so the delete waits on whatever holds it.
-- **Validation holds it only for its row transitions.** Importing a revision's script files runs
-  arbitrary project code and can take minutes, and the [validation lease](#the-validation-lease)
-  plus job fencing already own that span. Holding the project lock across a whole run would
-  queue every upload to that project behind it.
+- **Deleting a revision takes no project lock.** The cleanup job it enqueues decides whether
+  stored content is still claimed, and rechecks for a referencing row *under* the lock before
+  removing anything, because a bare check before the lock would lose to a revision staged in
+  between. A Project deleted over REST takes the project lock before its row, one deleted in
+  the browser does not, and in both each cascaded script file serializes its own removal
+  through the write lock, which shares this keyspace.
+- **Validation never takes it.** Importing a revision's script files runs arbitrary project code
+  and can take minutes, so a validation claims its revision through the
+  [validation lease](#the-validation-lease), and every transition it makes is a conditional
+  update tied to the owning job.
 
 One consequence a caller has to handle: a project deleted while a staging call is inside its
 write window cascades that revision away, and staging reports the vanished row rather than
@@ -280,8 +286,7 @@ staging call reuses it, and before a revision is activated, and a mismatch is
 reported rather than repaired, so tampering cannot pass silently. The manifest
 is the whole boundary: only the keys it names are ever read, materialized, or
 executed, so a key it does not describe is inert rather than importable.
-Reclaiming such strays belongs to the housekeeping reconciler planned for a
-later release.
+Nothing reclaims such strays.
 
 No backend can make a whole tree appear at once, so a revision being written is
 visible under its prefix while it is still incomplete. The status is what says
@@ -318,12 +323,10 @@ keys it left behind, and the job keeps its full cleanup payload, the storage
 key, digest, and file paths, so the work can be reconstructed and run again
 once the backend is reachable. The job also repeats the branching routing
 check before it removes anything, and a run that finds routing unsafe fails
-while leaving the content in place. Reclaiming
-anything the jobs miss is left to a future housekeeping reconciler. On a
-backend that keeps real directories, such as a local filesystem, removing every
+while leaving the content in place. Anything the jobs miss stays where it is. On
+a backend that keeps real directories, such as a local filesystem, removing every
 key can leave the empty directories behind, since the Django storage API has no
-way to remove one. They hold no content and the reconciler is the right owner
-for them.
+way to remove one. They hold no content.
 
 ## Limitations
 

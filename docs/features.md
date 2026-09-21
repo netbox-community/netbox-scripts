@@ -63,14 +63,11 @@ Each Script supports administrator overrides for its timeout, notification polic
 and commit default through the UI and REST. Unset values follow the class defaults.
 Recurring successors resolve the timeout from the current Script configuration.
 
-## Not yet implemented
+## What is not in this release
 
-The following areas are intentionally absent from this release and arrive in
-follow-up releases:
-
-| Area | Status |
+| Area | What that means |
 |---|---|
-| Uploading helper modules, archives, and other resources | Planned, uploads are one script file at a time. A Project needing helpers is managed through a Data Source |
-| A repository manifest declaring its own script files | Planned, script file selection is a Project setting made in NetBox |
-| Declared pip requirements | Planned, a revision's external dependencies are neither read nor installed |
-| Recorded input values | Planned, a run records which script and revision ran and the result, but not the values submitted |
+| Uploading helper modules, archives, and other resources | Uploads are one script file at a time. A Project needing helpers is managed through a Data Source |
+| A repository manifest declaring its own script files | Script file selection is a Project setting made in NetBox |
+| Declared pip requirements | A revision's external dependencies are neither read nor installed |
+| Recorded input values | A run records which script and revision ran and the result, but not the values submitted |

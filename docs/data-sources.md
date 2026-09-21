@@ -42,10 +42,10 @@ The complete directory is staged every time rather than a set of changes, so a f
 from the source is simply absent from the next revision. Every file is stored, not only Python
 modules, because a script legitimately reads templates and data sitting next to it.
 
-A synchronization that changed nothing produces nothing. A revision is addressed by the digest
-of its content together with its script file configuration, so an unchanged directory resolves
-to the revision that already holds it and no second revision, validation, or activation
-happens.
+An unchanged directory and Script File selection reuse the revision that already holds them,
+because a revision is addressed by its content together with its script file configuration. The
+plugin may still validate or activate that revision, depending on its status and the Project's
+activation settings.
 
 Compiled Python files and `__pycache__` directories are skipped wherever they sit, because
 bytecode is not source and cannot be reviewed as source. Every other path the
@@ -132,11 +132,11 @@ is one of the retired revisions that can be activated again.
 This is why revisions are retired rather than deleted: going back to a known-good tree is a
 matter of choosing it, not of rebuilding it.
 
-## What is not supported yet
+## What is not supported
 
 | Area | Status |
 |---|---|
-| A manifest in the repository declaring its own script files | Planned. Script file selection is a Project setting, made in NetBox |
-| Declared pip requirements | Planned. A revision's requirements are not read or installed |
+| A manifest in the repository declaring its own script files | Script file selection is a Project setting, made in NetBox |
+| Declared pip requirements | A revision's requirements are not read or installed |
 | Reconciling one file at a time | Not planned. A revision is a whole tree by design |
 | Driving a Data Source's synchronization from a Project | Not planned. Synchronize the Data Source itself |

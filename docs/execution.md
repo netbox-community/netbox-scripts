@@ -288,10 +288,9 @@ message and out of string output before the record is saved, including out of a
 traceback, which names the file it was raised in. The record keeps the revision
 digest, which is what says the run's own provenance.
 
-## Not implemented yet
+## What is not in this release
 
-These are known gaps rather than design decisions, each tracked against a later
-piece of work.
+These are gaps rather than design decisions.
 
 | Gap | Notes |
 |---|---|

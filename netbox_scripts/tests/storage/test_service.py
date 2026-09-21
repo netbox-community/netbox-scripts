@@ -202,9 +202,9 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         self.assertEqual(revision.validation_errors[0]['code'], 'storage_write_failed')
 
     def test_stage_revision_records_a_tree_that_failed_verification(self):
-        # This is where a verification failure has to arrive for an operator or a later
-        # reconciler to act on. The revision must not be materialized, and the written keys
-        # stay for the retry that owns them.
+        # This is where a verification failure has to arrive for an operator to act on. The
+        # revision must not be materialized, and the written keys stay for the retry that owns
+        # them.
         corrupt = RevisionCorruptError('The stored revision does not match its manifest.', ['size_mismatch:hello.py'])
         with (
             mock.patch.object(store, '_verify_tree', side_effect=corrupt),

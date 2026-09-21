@@ -12,8 +12,7 @@ A published tree is immutable. It appears with one rename, is write-protected be
 materialization returns it, and its content is never repaired in place, so a reader that
 resolved the directory can trust what verification just proved about it. Concurrent builders
 of one revision serialize on a per-slot file lock that the operating system releases with the
-owning process, and eviction is deliberately absent, reclaiming stale slots belongs to a
-housekeeping reconciler.
+owning process, and eviction is deliberately absent, so nothing reclaims a stale slot.
 """
 
 import fcntl
@@ -336,8 +335,8 @@ def _set_aside_corrupt(target, error):
     Move a failed tree out of the slot without destroying it.
 
     The tree is evidence of what went wrong, so it is renamed beside the slot rather than
-    removed in place, and the housekeeping reconciler owns reclaiming it. Raises
-    LocalCacheError when it cannot be moved.
+    removed in place, and nothing reclaims it afterwards. Raises LocalCacheError when it
+    cannot be moved.
     """
     aside = target.with_name(f'{target.name}.corrupt.{uuid.uuid4().hex}')
     logger.warning(

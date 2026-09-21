@@ -94,7 +94,7 @@ class ProjectStorageCleanupJob(JobRunner):
             except (OSError, StorageError, StorageConfigurationError) as error:
                 # An unreachable backend or a missing storage entry is an expected operational
                 # failure. The job log carries the detail, and the failed status plus the payload
-                # persisted in data are what an operator or a future reconciler retries from. The
+                # persisted in data are what an operator retries from. The
                 # message is rendered up front, because the job log records it verbatim rather
                 # than interpolating lazy logging arguments.
                 detail = _('Storage cleanup left content in the store: {storage_key} {digest}: {error}').format(

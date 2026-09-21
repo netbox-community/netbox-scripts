@@ -10,8 +10,8 @@ The manifest is the sole correctness boundary here. Every operation reads, verif
 removes exactly the keys the manifest names, so the backend contract stays the ordinary open,
 save, exists, and delete calls, with no directory semantics. A key under the prefix that the
 manifest does not name is inert: verification never reads it, and runtime materialization
-copies manifest entries only, so it can never become an importable module. Reclaiming such
-strays belongs to a future housekeeping reconciler, on backends that can enumerate them.
+copies manifest entries only, so it can never become an importable module. Nothing reclaims
+such strays.
 
 Content is trusted because it hashes to what the manifest recorded, not because of where it
 appears to sit. That verification is also what makes writing safe to repeat: a key already
@@ -131,8 +131,8 @@ def delete_revision(storage, storage_key, digest, paths):
     gone counts as removed, which is what makes retrying this operation safe. A path no key
     can be built from is collected like any other failure, so one bad payload entry cannot
     keep the remaining keys from being reclaimed. Failures are reported together in one
-    StorageError, so a caller records one failure naming everything an operator or a future
-    reconciler still has to reclaim.
+    StorageError, so a caller records one failure naming everything an operator still has to
+    reclaim.
     """
     failures = []
     # Exact keys only. storage.delete() on the revision prefix is not portable: FileSystemStorage
@@ -268,8 +268,8 @@ def _write_one(storage, key, content, entry):
         try:
             storage.delete(stored)
         except Exception as error:
-            # The stray sits in no manifest, so nothing can rediscover it later. Naming it
-            # here is its one record until the housekeeping reconciler owns orphans.
+            # The stray sits in no manifest, so nothing can rediscover it later and this log
+            # line is its only record.
             logger.error('Could not remove the stray object "%s" left by a renamed save: %s', stored, error)
         if _verify_entry(storage, key, entry):
             raise StorageError(

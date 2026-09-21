@@ -256,8 +256,8 @@ class RevisionStoreTestCase(TestCase):
 
     def test_a_stray_the_backend_keeps_is_logged_and_the_competitor_success_stands(self):
         # The stray sits in no manifest, so nothing can rediscover it later. The error log
-        # line naming its exact key is its one record until the housekeeping reconciler owns
-        # orphans, and it must not cost the write its otherwise correct outcome.
+        # line naming its exact key is its only record, and it must not cost the write its
+        # otherwise correct outcome.
         storage = RenamingStorage(divert=f'{self.prefix}hello.py', plant=self.files['hello.py'], keep_stray=True)
         with self.assertLogs(store.logger, 'ERROR') as logged:
             self.assertEqual(self.write(storage=storage), self.prefix)
@@ -366,8 +366,8 @@ class RevisionVerificationTestCase(TestCase):
 
     def test_a_key_the_manifest_does_not_name_is_inert(self):
         # Verification reads manifest keys only and materialization copies manifest entries
-        # only, so a stray object under the prefix can never become an importable module.
-        # Reclaiming it belongs to a future housekeeping reconciler.
+        # only, so a stray object under the prefix can never become an importable module, and
+        # nothing reclaims it.
         self.storage.save(f'{self.prefix}pkg/sneaky.py', ContentFile(b'import os'))
         self.assertEqual(self.verify(), self.prefix)
 

@@ -2,10 +2,12 @@ from django.core.exceptions import ValidationError
 from django.db import DEFAULT_DB_ALIAS, IntegrityError, connection, transaction
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils.timezone import now as local_now
 
 from netbox_scripts.activation import synchronize_scripts
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import (
+    DISCOVERED_SCRIPT_FILE_FIELDS,
     MAX_SCRIPT_CLASS_NAME_LENGTH,
     MAX_SCRIPT_MODULE_PATH_LENGTH,
     PUBLISHED_SCRIPT_FIELDS,
@@ -17,6 +19,7 @@ from netbox_scripts.models import (
     ScriptProjectRevision,
 )
 from netbox_scripts.utils import source_path_to_dotted_name
+from netbox_scripts.validation import _persist_script_file_results
 
 DIGEST_A = 'a' * 64
 DIGEST_B = 'b' * 64
@@ -640,3 +643,29 @@ class ScriptFileTestCase(TestCase):
 
         instance.refresh_from_db()
         self.assertEqual(instance.discovery_status, FileDiscoveryStatusChoices.FAILED)
+
+    def test_the_protected_field_set_matches_what_discovery_writes(self):
+        # A field discovery starts writing that the constant does not name would go unprotected
+        # in silence, so this compares against what one real write recorded.
+        instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        revision = ScriptProjectRevision.objects.create(
+            project=self.project,
+            digest=DIGEST_A,
+            status=RevisionStatusChoices.VALIDATING,
+            # The writer compares against this, so a claim without one cannot be recorded.
+            validation_started=local_now(),
+        )
+        before = {field.attname: getattr(instance, field.attname) for field in ScriptFile._meta.concrete_fields}
+
+        _persist_script_file_results(
+            revision,
+            [{'source_path': 'deploy.py', 'script_file': instance.pk}],
+            {'deploy.py': FileDiscoveryStatusChoices.FAILED},
+            [{'source_path': 'deploy.py', 'message': 'It did not import.'}],
+            {},
+        )
+
+        instance.refresh_from_db()
+        after = {field.attname: getattr(instance, field.attname) for field in ScriptFile._meta.concrete_fields}
+        written = {name for name, value in after.items() if before[name] != value} - {'last_updated'}
+        self.assertEqual(written, set(DISCOVERED_SCRIPT_FILE_FIELDS))

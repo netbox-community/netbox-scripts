@@ -1,0 +1,46 @@
+---
+# .github/workflows/close-incomplete-issues.yml
+#
+# Closes an issue left in 'status: revisions needed', the label a
+# maintainer applies when a report cannot be acted on as written.
+# Separate from the stale workflow because the clock is much shorter.
+
+name: Close incomplete issues
+
+"on":
+  schedule:
+    - cron: '15 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  issues: write
+
+jobs:
+  stale:
+    name: Close incomplete issues
+    if: github.repository == 'netbox-community/netbox-scripts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions/stale v11.0.0
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93
+        with:
+          close-issue-message: >
+            This issue has been closed because the requested
+            information was not provided. Edit the original post to
+            add it, then ask for the issue to be reopened.
+          days-before-issue-stale: 7
+          days-before-issue-close: 7
+          # only-issue-labels narrows the issue side alone, so the
+          # shared timers reach pull requests until disabled by hand.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          only-issue-labels: 'status: revisions needed'
+          operations-per-run: 100
+          remove-stale-when-updated: false
+          stale-issue-label: 'pending closure'
+          stale-issue-message: >
+            Additional information is still needed before this issue
+            can be triaged. Without it the issue will be closed
+            automatically.

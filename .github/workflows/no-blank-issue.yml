@@ -1,0 +1,31 @@
+---
+# .github/workflows/no-blank-issue.yml
+#
+# Closes an issue opened without any label. Every issue template in
+# .github/ISSUE_TEMPLATE applies labels and blank issues are disabled,
+# so this catches only an issue created by other means.
+
+name: Enforce issue templates
+
+"on":
+  issues:
+    # Not 'reopened': the action locks what it closes, so a maintainer
+    # reopening an unlabelled issue must not be overridden.
+    types:
+      - opened
+
+permissions:
+  issues: write
+
+jobs:
+  no-blank-issue:
+    name: No Blank Issue
+    if: github.repository == 'netbox-community/netbox-scripts'
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - name: Close new issues without labels
+        # ldez/no-blank-issue v1.2.0
+        uses: ldez/no-blank-issue@800e2d0c81c9e0ca7bdb58f3e7480a74602d91e0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

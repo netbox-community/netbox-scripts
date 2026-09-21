@@ -1,0 +1,33 @@
+---
+# .github/workflows/lock-threads.yml
+#
+# Locks long-inactive threads so a closed thread does not collect new
+# comments that nobody is watching.
+
+name: Lock threads
+
+"on":
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: lock-threads
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  lock:
+    name: Lock threads
+    if: github.repository == 'netbox-community/netbox-scripts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # dessant/lock-threads v6.0.2
+      - uses: dessant/lock-threads@89ae32b08ed1a541efecbab17912962a5e38981c
+        with:
+          # The action covers discussions too unless scoped, and this
+          # repository has none. Thresholds stay at its own defaults.
+          process-only: 'issues, prs'

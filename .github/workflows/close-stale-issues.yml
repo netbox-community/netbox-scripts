@@ -1,0 +1,63 @@
+---
+# .github/workflows/close-stale-issues.yml
+#
+# Marks inactive issues and pull requests stale, then closes them.
+# Exempt labels are the three that mean a maintainer has already
+# committed to the issue, so an accepted item never ages out.
+
+name: Close stale issues/PRs
+
+"on":
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Close stale issues and PRs
+    if: github.repository == 'netbox-community/netbox-scripts'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions/stale v11.0.0
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93
+        with:
+          operations-per-run: 200
+          remove-stale-when-updated: false
+
+          close-issue-message: >
+            This issue has been closed automatically after a period of
+            inactivity. A maintainer may reopen it if it is still
+            relevant.
+          days-before-issue-stale: 90
+          days-before-issue-close: 30
+          exempt-issue-labels: >-
+            status: accepted,status: backlog,status: blocked
+          stale-issue-label: 'pending closure'
+          # The contributing link cannot be wrapped inside a folded
+          # scalar without changing the text a reader sees.
+          # yamllint disable rule:line-length
+          stale-issue-message: >
+            This issue has been marked stale because it has had no
+            recent activity, and it will be closed if none follows.
+            If it still matters to you, please add whatever detail
+            would help a maintainer act on it. See the
+            [contributing guide](https://github.com/netbox-community/netbox-scripts/blob/main/CONTRIBUTING.md).
+          # yamllint enable rule:line-length
+
+          close-pr-message: >
+            This pull request has been closed automatically after a
+            period of inactivity.
+          days-before-pr-stale: 30
+          days-before-pr-close: 15
+          exempt-pr-labels: >-
+            status: blocked
+          stale-pr-label: 'pending closure'
+          stale-pr-message: >
+            This pull request has been marked stale because it has had
+            no recent activity, and it will be closed if none follows.

@@ -96,6 +96,7 @@ ignore = [
     "uv.lock",
     ".github/ISSUE_TEMPLATE/*.yaml",
     ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/codeql/*.yml",
     ".github/labels.yml",
     ".github/pull_request_template.md",
     ".github/workflows/*.yml",

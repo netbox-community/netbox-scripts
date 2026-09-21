@@ -1,0 +1,9 @@
+---
+# .github/codeql/codeql-config.yml
+#
+# The test suite is excluded: a finding there is not a finding in
+# shipped code. Nothing else is filtered, so a first report shows
+# everything before anything is suppressed.
+
+paths-ignore:
+  - netbox_scripts/tests

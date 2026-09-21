@@ -50,16 +50,20 @@ caller moving over changes the URL and nothing else.
 {
   "data": {"site": 3, "count": 5},
   "commit": true,
-  "schedule_at": "2026-08-11T02:00:00Z",
-  "interval": 1440,
   "notifications": "on_failure"
 }
 ```
 
 Every field is optional. The variable values go in `data`, which keeps a
 variable named `commit` or `interval` from colliding with an execution
-parameter. An omitted `commit` or `notifications` takes the default the script
-class declared.
+parameter. An omitted `commit` or `notifications` takes the Script's effective
+default, which is the operator's override where one is set and the value the
+class declared otherwise. See
+[Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults).
+
+To schedule instead of running now, add `schedule_at` with a future timestamp
+and an explicit timezone, and `interval` only when the run should repeat. A time
+already past is refused. See [Scheduling a run](#scheduling-a-run).
 
 The values in `data` are validated by the same form the run page renders, so a
 bad value comes back as a 400 naming the variable that was wrong. The reply to
@@ -69,8 +73,7 @@ an accepted run is the Job itself, at 201:
 {
   "id": 88,
   "url": "/api/core/jobs/88/",
-  "status": {"value": "scheduled", "label": "Scheduled"},
-  "scheduled": "2026-08-11T02:00:00Z"
+  "status": {"value": "pending", "label": "Pending"}
 }
 ```
 

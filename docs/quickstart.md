@@ -34,14 +34,6 @@ Everything in `PLUGINS_CONFIG` is optional and has a working default. See
 [Configuration](configuration.md) for the full list. The storage backend below is
 configured separately and is not optional.
 
-Then run migrations, collect static files, and restart NetBox:
-
-```sh
-python manage.py migrate
-python manage.py collectstatic --no-input
-systemctl restart netbox netbox-rq
-```
-
 ## Configuring project storage
 
 Project source is written to the backend registered under the `netbox_scripts`
@@ -67,11 +59,27 @@ and the others intact. A horizontally scaled deployment points it at object stor
 instead. See [Configuration](configuration.md) for that and for why the entry does not
 fall back to NetBox's `default` storage.
 
+## Applying the configuration
+
+With both settings in place, run migrations, collect static files, and restart
+NetBox so every process loads them:
+
+```sh
+python manage.py migrate
+python manage.py collectstatic --no-input
+systemctl restart netbox netbox-rq
+```
+
+Use your deployment's own restart procedure where those service names do not
+apply. A process that has not restarted is still running without the storage
+entry.
+
 ## Background work
 
-The plugin does its real work in background jobs, so NetBox's RQ worker has to be
-running. Staging a revision, validating it, activating it, reconciling a Data Source
-project, every script run, and every migration pass are all jobs.
+Validating a revision, reconciling a Data Source project, a queued script run and
+every migration pass are background jobs, so NetBox's RQ worker has to be running.
+Uploading a revision and activating one by hand also do work in the web process,
+and `runcustomscript` executes in the process that invoked it.
 
 With no worker, an uploaded revision stops at `materialized` and never reaches a verdict,
 and a run requested over REST is refused with a 503 rather than queued for nobody.
@@ -84,6 +92,6 @@ and a run requested over REST is refused with a 503 rather than queued for nobod
 | Open the navigation menu | A "Scripts" menu appears, with a Projects group and a Scripts group |
 | `GET /api/plugins/netbox-scripts/` | Plugin API root responds |
 | `python manage.py check` | No `netbox_scripts.W001`, meaning project storage is configured |
-| Upload a script from *Scripts > Projects > Upload Script* | The Project's revision reaches `valid`, which proves storage and the worker are both working |
+| Upload a script from *Scripts > Projects > Upload Script* | The revision reaches `active`, since **Activate this upload** is ticked by default, which proves storage and the worker are both working. Clearing that tick leaves it at `valid` for manual activation |
 
 See [Uploading Scripts](uploading.md) for that last step in full.

@@ -13,16 +13,16 @@ Import the authoring API from `netbox_scripts` and subclass `Script`:
 from netbox_scripts import Script, StringVar
 
 
-class RenameDevice(Script):
+class PreviewName(Script):
     class Meta:
-        name = 'Rename Device'
-        description = 'Renames a device to match the naming convention'
+        name = 'Preview a name'
+        description = 'Shows a proposed device name without changing anything'
 
-    new_name = StringVar(max_length=64)
+    proposed_name = StringVar(max_length=64)
 
     def run(self, data, commit):
-        self.log_info(f'Requested name: {data["new_name"]}')
-        return data['new_name']
+        self.log_info(f'Proposed name: {data["proposed_name"]}')
+        return data['proposed_name']
 ```
 
 Every Script defines a `run(self, data, commit)` method. `data` carries
@@ -171,7 +171,7 @@ module, list the classes in a `script_order` at the top of the script file:
 ```python
 from .helpers import SharedAudit
 
-script_order = [SharedAudit, RenameDevice]
+script_order = [SharedAudit, PreviewName]
 ```
 
 Every entry must be a `Script` subclass defined in this project, listed once.

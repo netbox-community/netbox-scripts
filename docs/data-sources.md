@@ -1,9 +1,10 @@
 # Data Source Projects
 
 A Script Project whose source type is `data_source` mirrors one directory of a NetBox
-Core Data Source. The Data Source owns the files, and the Project decides what is published
-from them. This page covers pointing a Project at a directory, what a synchronization does, and
-why a Python file appearing in a repository publishes nothing on its own.
+Core Data Source. Each synchronization rebuilds the Project's source from that directory, so
+the Data Source owns the files and the Project decides which of them publish. This page covers
+pointing a Project at a directory, what a synchronization does, and why a Python file appearing
+in a repository publishes nothing on its own.
 
 ## Pointing a Project at a directory
 

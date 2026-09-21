@@ -61,9 +61,10 @@ default, which is the operator's override where one is set and the value the
 class declared otherwise. See
 [Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults).
 
-To schedule instead of running now, add `schedule_at` with a future timestamp
-and an explicit timezone, and `interval` only when the run should repeat. A time
-already past is refused. See [Scheduling a run](#scheduling-a-run).
+To schedule instead of running now, add `schedule_at` with a future timestamp,
+and `interval` only when the run should repeat. A time already past is refused.
+Give the timestamp an explicit timezone: a naive one is read in NetBox's
+configured timezone rather than rejected. See [Scheduling a run](#scheduling-a-run).
 
 The values in `data` are validated by the same form the run page renders, so a
 bad value comes back as a 400 naming the variable that was wrong. The reply to

@@ -1,8 +1,11 @@
 import shutil
 import sys
 
+from django.db import DEFAULT_DB_ALIAS, connections
+
 from core.models import ObjectType
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
+from netbox_scripts.storage.locks import advisory_key
 from users.models import ObjectPermission
 from utilities.testing import (  # noqa: F401
     APIViewTestCases,
@@ -25,6 +28,34 @@ def discard_tree(root):
             for name in directories:
                 (base / name).chmod(0o755)
     shutil.rmtree(root, ignore_errors=True)
+
+
+class SecondSession:
+    """
+    A separate database session, used to observe what this connection holds.
+
+    A session-level advisory lock is only meaningful against another session, so proving
+    exclusion needs a real second connection rather than a second cursor.
+    """
+
+    def __enter__(self):
+        self.connection = connections.create_connection(DEFAULT_DB_ALIAS)
+        self.connection.ensure_connection()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.connection.close()
+        return False
+
+    def can_lock(self, storage_key):
+        """Report whether this other session could take one project's lock right now."""
+        namespace, key = advisory_key(storage_key)
+        with self.connection.cursor() as cursor:
+            cursor.execute('SELECT pg_try_advisory_lock(%s, %s)', (namespace, key))
+            acquired = cursor.fetchone()[0]
+            if acquired:
+                cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (namespace, key))
+        return acquired
 
 
 class ObjectPermissionTestMixin:

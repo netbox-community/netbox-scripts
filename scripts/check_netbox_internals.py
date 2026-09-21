@@ -40,6 +40,11 @@ ROWS = (
         'netbox.api.viewsets.mixins.discard_events_on_rollback',
         'netbox.api.viewsets.mixins:discard_events_on_rollback',
     ),
+    (
+        'netbox.api.viewsets.NetBoxModelViewSet.perform_update and perform_destroy',
+        'netbox.api.viewsets:NetBoxModelViewSet.perform_update',
+        'netbox.api.viewsets:NetBoxModelViewSet.perform_destroy',
+    ),
     ('utilities.exceptions.PermissionsViolation', 'utilities.exceptions:PermissionsViolation'),
     ('utilities.exceptions.AbortRequest', 'utilities.exceptions:AbortRequest'),
     (

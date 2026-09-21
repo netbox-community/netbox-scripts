@@ -18,7 +18,6 @@ import uuid
 from unittest import mock
 
 import django_rq
-from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.models.signals import post_save
 from django.test import TransactionTestCase, override_settings
 
@@ -28,10 +27,9 @@ from netbox_scripts.jobs import ProjectStorageCleanupJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import RevisionVanishedError
-from netbox_scripts.storage.locks import advisory_key
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
-from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
+from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, SecondSession
 
 SOURCE = {'hello.py': b'print("hi")\n'}
 
@@ -42,34 +40,6 @@ def manifest_for(files):
         ({'path': path, 'size': len(body), 'sha256': hashlib.sha256(body).hexdigest()} for path, body in files.items()),
         key=lambda entry: entry['path'],
     )
-
-
-class SecondSession:
-    """
-    A separate database session, used to observe what this connection holds.
-
-    A session-level advisory lock is only meaningful against another session, so proving
-    exclusion needs a real second connection rather than a second cursor.
-    """
-
-    def __enter__(self):
-        self.connection = connections.create_connection(DEFAULT_DB_ALIAS)
-        self.connection.ensure_connection()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.connection.close()
-        return False
-
-    def can_lock(self, storage_key):
-        """Report whether this other session could take one project's lock right now."""
-        namespace, key = advisory_key(storage_key)
-        with self.connection.cursor() as cursor:
-            cursor.execute('SELECT pg_try_advisory_lock(%s, %s)', (namespace, key))
-            acquired = cursor.fetchone()[0]
-            if acquired:
-                cursor.execute('SELECT pg_advisory_unlock(%s, %s)', (namespace, key))
-        return acquired
 
 
 class SerializationTestCase(TransactionTestCase):

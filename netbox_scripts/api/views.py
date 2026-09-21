@@ -1,7 +1,8 @@
+from contextlib import contextmanager
 from pathlib import PurePosixPath
 
 from django.core.exceptions import ImproperlyConfigured, ValidationError
-from django.db import transaction
+from django.db import router, transaction
 from django.utils.translation import gettext as _
 from rest_framework import status
 from rest_framework.decorators import action
@@ -46,6 +47,10 @@ from .serializers import (
     ScriptProjectUploadSerializer,
 )
 
+#
+# Permission classes
+#
+
 
 class RunScriptPermissions(TokenPermissions):
     """Resolve a POST to the run permission, which the method-derived default spells as add."""
@@ -59,18 +64,65 @@ class UploadSourcePermissions(TokenPermissions):
     perms_map = {**TokenPermissions.perms_map, 'POST': ['%(app_label)s.change_%(model_name)s']}
 
 
-class ScriptFileViewSet(NetBoxModelViewSet):
+#
+# View mixins
+#
+
+
+class ProjectLockOrderMixin:
+    """Hold the project lock across every write this viewset performs, before core locks the row."""
+
+    # Path from this viewset's model to the owning project's storage key.
+    storage_key_path = 'storage_key'
+
+    def perform_update(self, serializer):
+        """Update under the project lock."""
+        with self._project_lock(serializer.instance):
+            super().perform_update(serializer)
+
+    def perform_destroy(self, instance):
+        """Delete under the project lock."""
+        with self._project_lock(instance):
+            super().perform_destroy(instance)
+
+    @contextmanager
+    def _project_lock(self, instance):
+        """Hold the lock for the project owning one row."""
+        # From the row rather than the instance, which the serializer has already assigned the
+        # submitted values onto by the time this runs.
+        storage_key = (
+            self.queryset.model.objects.filter(pk=instance.pk).values_list(self.storage_key_path, flat=True).first()
+        )
+        if storage_key is None:
+            yield
+            return
+        # The alias the save writes to, so the lock and the write share one connection.
+        using = instance._state.db or router.db_for_write(type(instance), instance=instance)
+        # Core locks the row before serializer.save() on an If-Match request and the model save
+        # then asks for this, which reverses activation's order. Taken for every write, not only
+        # the conditional one, so there is one order rather than one per request shape.
+        with project_lock(storage_key, using=using):
+            yield
+
+
+#
+# Viewsets
+#
+
+
+class ScriptFileViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
     """REST API viewset for Script Files. Read and update only: POST and DELETE answer 405."""
 
     queryset = ScriptFile.objects.select_related('project', 'last_discovered_revision')
     serializer_class = ScriptFileSerializer
     filterset_class = ScriptFileFilterSet
+    storage_key_path = 'project__storage_key'
     # A nested numeric id reaches any Project, so declarations are written on the Project only.
     # By method, not by mixin composition, for the reason on NetBoxScriptViewSet below.
     http_method_names = ('get', 'put', 'patch', 'head', 'options')
 
 
-class ScriptProjectViewSet(NetBoxModelViewSet):
+class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
     """REST API viewset for Script Projects."""
 
     queryset = ScriptProject.objects.all()

@@ -60,7 +60,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── navigation.py              , PluginMenu 'Scripts': a Projects group and a Scripts group.
 │   ├── api/
 │   │   ├── urls.py                , NetBoxRouter registrations for the four endpoints.
-│   │   ├── views.py               , Four viewsets, the run / upload / script-files actions, two permission classes.
+│   │   ├── views.py               , Four viewsets, the run / upload / script-files actions, the lock-order mixin, two permission classes.
 │   │   └── serializers/           , One module per topic: projects, revisions (read-only), scripts, upload, run.
 │   ├── filtersets/                , One FilterSet per model, by topic module.
 │   ├── forms/                     , By type then topic: model_forms, bulk_edit, bulk_import, filtersets, confirmations.

@@ -28,7 +28,7 @@ logging, global search, REST, and GraphQL.
 | Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |
 | Reconciliation | Rebuilding a Data Source-backed project's source from the whole directory as it stands, after a synchronization or on demand. | [Data Source Projects](data-sources.md) |
 | Script file candidate | A Python file in a project's source that could be declared a script file, and publishes nothing until it is. | [Data Source Projects](data-sources.md) |
-| Private runtime namespace | The generated package names revision code imports under, keeping projects, revisions, and installed packages from colliding by **name**. It is not a sandbox: a revision runs with the permissions of whichever process loaded it. | [Runtime and Loading](runtime.md) |
+| Private runtime namespace | The generated package names revision code imports under, so projects, revisions and installed packages cannot collide by **name**. It is not a sandbox: a revision runs with the permissions of whichever process loaded it. | [Runtime and Loading](runtime.md) |
 
 ## Supported workflows
 
@@ -38,20 +38,20 @@ logging, global search, REST, and GraphQL.
 | Upload a script | Administrator | Create a Project from one `.py` file, or add another to an existing one, without naming a path. See [Uploading Scripts](uploading.md). |
 | Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
 | Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |
-| Repair published scripts | Operator | Republish a serving Project's Scripts from the revision it already serves, for rows that drifted from the snapshot they derive from. The Project reports how many rows moved, or that none did. |
-| List a Project's files | Operator | Read the current revision's files with size, checksum, and script file state on the Revision Files tab. A declared path the served revision does not hold is annotated, and the annotation says which case it is: gone from the source, or waiting on a newer revision to be activated. |
+| Repair published scripts | Operator | Republish a serving Project's Scripts from the revision it already serves, for rows that drifted from their snapshot. The Project reports how many moved. |
+| List a Project's files | Operator | Read the current revision's files with size, checksum and script file state on the Revision Files tab, with a declared path the served revision does not hold annotated as gone or as waiting on a newer revision. |
 | Query revision history | Operator | Read a Project's revisions and their validation outcomes over REST or GraphQL, filtered by project, status, or digest. |
 | Select script files | Administrator | Choose which of a Project's source modules discovery imports, on its Script Files tab or over REST, without typing a path. |
 | Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. See [Data Source Projects](data-sources.md). |
 | Track a Data Source directory | Operator | Every synchronization of the Data Source rebuilds the project's source from the whole directory, validates it, and activates it when the policy allows. |
 | Reconcile a project on demand | Administrator | Rebuild a Data Source-backed project's source from the current file inventory without waiting for the next synchronization. |
-| Migrate off the built-in feature | Administrator | Report what moving off NetBox's built-in Custom Scripts would do, stage that content as inactive Projects, then cut over and move Job history, Event Rules, permissions, and schedules onto the plugin. See [Migration](migration.md). |
+| Migrate off the built-in feature | Administrator | Report what moving off NetBox's built-in Custom Scripts would do, stage that content as inactive Projects, then cut over. See [Migration](migration.md). |
 | Browse published scripts | Operator | List, search, and filter every published Script, or read a Project's own on its detail page. |
 | Enable or disable a script | Administrator | Toggle `enabled` on a published Script, one at a time or in bulk, without affecting what synchronization owns. |
 | Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Scripts](execution.md). |
 | Read a run | Operator | Follow one run's status, log and output on its result page, and every run a script has performed on its Jobs tab. |
 | Run a script from an Event Rule | Administrator | Have a rule run a Script when something happens, passing its own data as the script's input. See [Event Rules](event-rules.md). |
-| React to a Script object | Administrator | Point an Event Rule or webhook at the plugin's own object types. A change made while handling a request raises the rule, so an activation an operator performs reaches one. A change a background job makes does not. See [Event Rules](event-rules.md#scripts-as-event-sources). |
+| React to a Script object | Administrator | Point an Event Rule or webhook at the plugin's own object types. Only a change made while handling a request raises the rule, never one a background job makes. See [Event Rules](event-rules.md#scripts-as-event-sources). |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
 | Author Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
 | Publish scripts from a project | Developer | Declare script files and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |

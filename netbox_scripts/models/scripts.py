@@ -15,6 +15,7 @@ from ..constants import (
     MAX_SCRIPT_MODULE_PATH_LENGTH,
 )
 from ..storage.exceptions import UnsafePathError
+from ..storage.locks import project_write_lock
 from ..storage.paths import case_insensitive_nodes, normalize_source_path
 from ..utils import source_path_to_dotted_name
 
@@ -350,20 +351,8 @@ class ScriptFile(PrimaryModel):
 
     def save(self, *args, **kwargs):
         """Persist the declaration under its project's transaction-scoped source lock."""
-        from ..storage.locks import project_write_lock
-        from .projects import ScriptProject
-
         using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
-        # Declarations are written in a loop by ingestion and by migration staging, each with the
-        # project already in hand, so the cached relation saves one query per file.
-        cached = self._state.fields_cache.get('project')
-        if cached is not None:
-            storage_key = cached.storage_key
-        else:
-            storage_key = (
-                ScriptProject.objects.using(using).values_list('storage_key', flat=True).get(pk=self.project_id)
-            )
-        with project_write_lock(storage_key, using=using):
+        with project_write_lock(self.project.storage_key, using=using):
             return self._save_declaration(*args, **kwargs)
 
     def _save_declaration(self, *args, **kwargs):

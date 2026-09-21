@@ -57,11 +57,16 @@ root `__init__.py` pulled in before failing, so a broken revision leaves
 nothing behind and a sibling revision is unaffected. The original exception is
 preserved for classification.
 
-Imports run inside the NetBox worker process that requested them. The worker is
-the isolation boundary: importing a revision executes its module-level code
-with the worker's permissions, which is why content is verified first and why
-the [storage trust boundary](configuration.md#storage-trust-boundary) treats
-write access to the store as equivalent to code execution.
+Script code loads during validation, while a run form is prepared, and during
+execution. Depending on the operation that is an RQ worker, a NetBox web
+process, or the process running `runcustomscript`. Whichever it is, importing a
+revision executes its module-level code with that process's permissions, which
+is why content is verified first and why the
+[storage trust boundary](configuration.md#storage-trust-boundary) treats write
+access to the store as equivalent to code execution.
+
+Keep module imports, constructors and form-building code free of side effects,
+because all three can run inside a web request.
 
 ## How legacy imports resolve
 

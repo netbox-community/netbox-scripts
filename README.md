@@ -13,9 +13,9 @@ works end to end.
 
 Implemented:
 
-- four models with full UI, REST API, GraphQL, and global-search surfaces:
-  `ScriptProject`, `ScriptProjectRevision`, `ScriptFile`,
-  and `NetBoxScript`
+- UI, REST API, GraphQL and global search for `ScriptProject`, `ScriptFile` and
+  `NetBoxScript`, plus read-only UI, REST and GraphQL for
+  `ScriptProjectRevision`
 - the plugin-owned script authoring API: `Script` base classes, variable
   types, dynamic form generation, structured logging, and `AbortScript`
 - compatibility with the built-in authoring API, so a script importing from
@@ -37,14 +37,6 @@ Implemented:
   and schedules onto the plugin
 - per-installation overrides for a script's timeout, notification policy, and
   commit default, with an unset override following the script class
-
-Not yet implemented, planned for follow-up releases:
-
-- uploading helper modules, archives, and other resources, since an upload is
-  one script file at a time. A Project needing helpers uses a Data Source
-- a manifest in the repository declaring its own script files
-- declared pip requirements, which are neither read nor installed
-- recording the input values a run was given
 
 ## Compatibility
 

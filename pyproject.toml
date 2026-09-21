@@ -48,7 +48,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/netbox-community/netbox-scripts"
-Documentation = "https://github.com/netbox-community/netbox-scripts/tree/main/docs"
+Documentation = "https://netbox-community.github.io/netbox-scripts/"
 Source = "https://github.com/netbox-community/netbox-scripts"
 Issues = "https://github.com/netbox-community/netbox-scripts/issues"
 Changelog = "https://github.com/netbox-community/netbox-scripts/releases"

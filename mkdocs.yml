@@ -1,5 +1,6 @@
 site_name: "NetBox Scripts"
 site_description: "Custom Scripts for NetBox"
+site_url: https://netbox-community.github.io/netbox-scripts/
 repo_url: https://github.com/netbox-community/netbox-scripts
 repo_name: "netbox-community/netbox-scripts"
 

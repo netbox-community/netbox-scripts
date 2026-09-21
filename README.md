@@ -89,7 +89,7 @@ STORAGES = {
 ```
 
 NetBox merges this with its built-in entries, so defining only this key leaves
-`default` and the others intact. See the [configuration guide](https://github.com/netbox-community/netbox-scripts/blob/main/docs/configuration.md)
+`default` and the others intact. See the [configuration guide](https://netbox-community.github.io/netbox-scripts/configuration/)
 for object storage, for the `netbox_scripts.W001` check that reports a missing entry,
 and for why it does not fall back to NetBox's `default` storage.
 
@@ -101,7 +101,8 @@ python manage.py migrate
 
 ## Documentation
 
-User documentation lives under [`docs/`](https://github.com/netbox-community/netbox-scripts/tree/main/docs).
+User documentation is published at
+[netbox-community.github.io/netbox-scripts](https://netbox-community.github.io/netbox-scripts/).
 
 ## Support
 

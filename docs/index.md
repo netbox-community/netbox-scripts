@@ -1,45 +1,54 @@
 # NetBox Scripts
 
-Custom Scripts for NetBox
+Manage, validate and run Python scripts in NetBox.
 
-## Overview
+Upload scripts or connect a Project to a directory in a NetBox Data Source.
+The plugin keeps source in immutable revisions, validates changes before
+activation and lets each Project serve one active revision at a time.
 
-NetBox Scripts brings project-based management of Custom Scripts to
-NetBox. A Script Project represents one complete, internally consistent
-script source tree. It is the ownership boundary for source files and the
-Python package boundary used when loading and executing scripts. Projects own
-either uploaded content or a directory of a NetBox Data Source, never both.
+!!! warning "Alpha release"
 
-The current release is alpha. It ships the project and script file models with
-full UI, REST API, GraphQL, and global-search surfaces, the plugin-owned script
-authoring API with variable classes, form generation, and structured logging,
-immutable project revisions held in plugin-owned project storage with manifest
-verification, activation, and cleanup, and the loading engine: declared
-script files, a manifest-verified runtime cache, a name-isolating package
-loader, Script discovery, and leased revision validation. Source reaches
-a Project two ways, both driven through staging, validation, discovery, and
-activation: one uploaded script at a time, or a directory of a Data Source
-rebuilt every time that source synchronizes. Published `NetBoxScript` objects and
-execution complete the path, so a script can be run against the revision its
-Project is serving. See [Features](features.md) for the capability breakdown and
-current boundaries.
+    **NetBox Scripts is in alpha and is not recommended for production use.**
+    Expect bugs and changes to features, APIs and upgrade procedures before a
+    stable release. Please try it in a test environment and back up your data
+    before upgrading or migrating from NetBox's built-in Custom Scripts.
+
+## Getting started
+
+Start with the [Quickstart](quickstart.md) to install and configure the plugin.
+Then [upload your scripts](uploading.md) or
+[connect a Data Source directory](data-sources.md).
+
+Already using NetBox's built-in Custom Scripts? Read the
+[migration guide](migration.md) before moving your scripts.
+
+## Main concepts
+
+| Term | Meaning |
+|---|---|
+| Project | Source files and settings for a group of scripts, using either uploads or a Data Source directory. |
+| Script File | A Python file in a Project selected for discovering runnable Scripts. |
+| Revision | An immutable snapshot of a Project's source and its selected Script Files. |
+| Script | A runnable Python class published from an activated revision. |
+
+A new revision does not replace the active one until activation succeeds.
 
 ## Documentation
 
-| Page | What it covers |
+| Guide | What it covers |
 |---|---|
-| [Features](features.md) | What NetBox Scripts adds to NetBox |
-| [Quickstart](quickstart.md) | Install and enable the plugin |
-| [Configuration](configuration.md) | Supported settings |
-| [Uploading Scripts](uploading.md) | Adding source to a Project and putting it in service |
-| [Data Source Projects](data-sources.md) | Mirroring a Data Source directory, and what a synchronization does |
-| [Migration](migration.md) | Moving off NetBox's built-in Custom Scripts |
-| [Authoring](authoring.md) | Writing Scripts against the plugin API |
-| [Runtime and Loading](runtime.md) | How revisions load, get discovered, and validate |
-| [Running Scripts](execution.md) | Requesting a run, revision pinning, commit and dry run, reading a result |
-| [Event Rules](event-rules.md) | Running a Script from a rule, and reacting to the plugin's own objects |
-| [Permissions](permissions.md) | The standard permissions and the four the plugin adds |
-| [Releases](releases.md) | Version history and upgrade notes |
+| [Features](features.md) | Supported functionality and current limitations. |
+| [Quickstart](quickstart.md) | Install and enable the plugin. |
+| [Configuration](configuration.md) | Configure source storage and plugin settings. |
+| [Uploading Scripts](uploading.md) | Add files to a Project and activate your scripts. |
+| [Data Source Projects](data-sources.md) | Connect a Data Source directory and understand synchronization. |
+| [Migration](migration.md) | Move from NetBox's built-in Custom Scripts. |
+| [Authoring](authoring.md) | Write scripts using the plugin's authoring API. |
+| [Runtime and Loading](runtime.md) | Understand how Scripts are discovered, validated and loaded. |
+| [Running Scripts](execution.md) | Run and schedule scripts, use dry runs and read results. |
+| [Event Rules](event-rules.md) | Run scripts from events and use plugin objects in Event Rules. |
+| [Permissions](permissions.md) | Manage access with NetBox's standard and plugin-specific permissions. |
+| [Releases](releases.md) | Version history and upgrade notes. |
 
 ## Compatibility
 

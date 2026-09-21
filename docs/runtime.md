@@ -5,6 +5,17 @@ project validation judges it. It is background for operators and script
 authors, none of it requires configuration beyond the
 [runtime cache](configuration.md#runtime-cache).
 
+Script code loads during validation, while a run form is prepared, and during
+execution. Depending on the operation that is an RQ worker, a NetBox web
+process, or the process running `runcustomscript`. Whichever it is, importing a
+revision executes its module-level code with that process's permissions, which
+is why content is verified first and why the
+[storage trust boundary](configuration.md#storage-trust-boundary) treats write
+access to the store as equivalent to code execution.
+
+Keep module imports, constructors and form-building code free of side effects,
+because all three can run inside a web request.
+
 ## The private namespace
 
 Revision code never imports under a name an author chose. Every loaded module
@@ -22,10 +33,11 @@ never change. The consequences:
 - Two revisions of one project coexist in one process, which is what lets a new
   revision be validated while the active one keeps serving.
 - A revision module can never shadow an installed distribution. A project file
-  named `requests.py` is importable as a relative module, while `import
-  requests` inside project code still resolves the real package.
-- Loading never touches `sys.path`, the working directory, or Python's global
-  finder chain, so the host process is unaffected by what projects contain.
+  named `requests.py` is importable as a relative module, while
+  `import requests` inside project code still resolves the real package.
+- Loading never touches `sys.path` or the working directory. The plugin registers one import
+  finder at startup, which answers only for names inside its private revision namespace, so
+  imports elsewhere in the host process resolve as they would without it.
 
 These generated names are internal. Everything user-facing, from logger names
 to stored validation errors, uses the project key and project-relative module
@@ -56,17 +68,6 @@ A failed import sweeps every module it managed to register, including helpers a
 root `__init__.py` pulled in before failing, so a broken revision leaves
 nothing behind and a sibling revision is unaffected. The original exception is
 preserved for classification.
-
-Script code loads during validation, while a run form is prepared, and during
-execution. Depending on the operation that is an RQ worker, a NetBox web
-process, or the process running `runcustomscript`. Whichever it is, importing a
-revision executes its module-level code with that process's permissions, which
-is why content is verified first and why the
-[storage trust boundary](configuration.md#storage-trust-boundary) treats write
-access to the store as equivalent to code execution.
-
-Keep module imports, constructors and form-building code free of side effects,
-because all three can run inside a web request.
 
 ## How legacy imports resolve
 
@@ -108,10 +109,10 @@ After a script file imports, discovery decides which classes it offers:
 
 Each published class is stamped with its identity: the logical module path
 (project-relative, such as `tools.deploy`) and a logger name of the form
-`netbox.plugins.netbox_scripts.scripts.<project key>.<logical
-module>.<Class>`. The logger carries the stable project key and never a
-revision digest, so two projects publishing the same class name log apart and
-log routing survives new revisions.
+`netbox.plugins.netbox_scripts.scripts.<project key>.<logical module>.<Class>`.
+The logger carries the stable project key and never a revision digest, so two
+projects publishing the same class name log apart and log routing survives new
+revisions.
 
 ## Import-safe module-level code
 

@@ -72,16 +72,13 @@ Code paths that bypass validation (`QuerySet.update()`, raw SQL) must supply
 canonical values themselves. The database constraint enforces the ownership
 rules but not path spelling.
 
-`QuerySet.delete()` never calls the model's `delete()`, so it does not clear
-`active_revision` and a project that is serving one of its own revisions raises
-`ProtectedError`. Clear the pointer first, or delete through the model. Storage
-cleanup itself is unaffected, because the cleanup receivers rule out Django's
-signal-free fast-delete path.
-
-No user-facing surface hits this. Both NetBox's bulk-delete view and its REST
-bulk destroy iterate the selected objects and call each one's `delete()`, so the
-caveat applies only to migrations, housekeeping commands, tests, and internal
-plugin code.
+Deleting a project cascades to its revisions and clears `active_revision`, which
+is `SET_NULL` so that a project cannot protect itself against its own deletion.
+Each revision's stored identity is captured while its row still exists, and its
+content is reclaimed by a cleanup job the delete enqueues, so the committing
+process performs no storage I/O. A revision whose captured manifest cannot be
+trusted refuses the delete instead, keeping the row and the only inventory that
+names what there was to reclaim.
 
 ## Activation policy
 
@@ -194,8 +191,11 @@ it belongs alongside the five above, and whether it holds a concrete relation to
 a branch-aware model, which would leave a row in the main schema pointing at a
 row that exists only inside a branch.
 
-Whether script *execution* is branch-aware is a separate question and remains
-an execution-model decision that lands with the execution work.
+Script execution is not branch-aware. A run always writes to the main schema,
+whatever branch the requesting user had active, which is enforced rather than
+incidental. See
+[Configuration](../configuration.md#netbox-branching) for what a branch does and
+does not change.
 
 ## Limitations
 

@@ -1,14 +1,16 @@
 from django.contrib.auth import get_user_model
 from django.db import connection
+from django.db.models.signals import post_save
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 
-from core.models import ObjectChange
+from core.models import ObjectChange, ObjectType
 from core.tables import ObjectChangeTable
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.tests.plugin_testing import PluginTestCases
-from utilities.testing import TestCase, create_tags
+from users.models import ObjectPermission
+from utilities.testing import TestCase, create_tags, post_data
 
 
 class NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
@@ -39,6 +41,43 @@ class NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
         cls.bulk_edit_data = {
             'enabled': False,
         }
+
+    def test_a_bulk_edit_does_not_revert_a_published_field(self):
+        # Bulk edit materializes the whole selection before its loop and carries no stale-form
+        # check, so a publication landing mid-loop is written back from the cached copy. The
+        # receiver is that landing, timed against the first row the loop saves.
+        scripts = list(NetBoxScript.objects.filter(class_name__in=('First', 'Second')))
+        published = {}
+
+        def publish_between(sender, instance, **kwargs):
+            if published:
+                return
+            other = next(script for script in scripts if script.pk != instance.pk)
+            NetBoxScript.objects.filter(pk=other.pk).update(display_name='Renamed By Sync')
+            published['pk'] = other.pk
+
+        post_save.connect(publish_between, sender=NetBoxScript)
+        self.addCleanup(post_save.disconnect, publish_between, sender=NetBoxScript)
+        obj_perm = ObjectPermission(name='Bulk edit scripts', actions=['view', 'change'])
+        obj_perm.save()
+        obj_perm.users.add(self.user)
+        obj_perm.object_types.add(ObjectType.objects.get_for_model(NetBoxScript))
+
+        response = self.client.post(
+            self._get_url('bulk_edit'),
+            data={
+                'pk': [script.pk for script in scripts],
+                '_apply': True,
+                'changelog_message': 'Pausing',
+                **post_data({'enabled': False}),
+            },
+        )
+
+        # A rejected form re-renders at 200 and saves nothing, which would pass every assertion below.
+        self.assertHttpStatus(response, 302)
+        clobbered = NetBoxScript.objects.get(pk=published['pk'])
+        self.assertEqual(clobbered.display_name, 'Renamed By Sync')
+        self.assertFalse(clobbered.enabled)
 
 
 class NetBoxScriptViewTestCase(TestCase):

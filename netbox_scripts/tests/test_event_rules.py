@@ -140,7 +140,7 @@ class RunNetBoxScriptActionTestCase(ScriptJobTestMixin, TestCase):
     def test_a_retired_script_cannot_be_selected(self):
         # _validate() is the entry point EventRule.clean() uses, so it is what the test drives.
         self.netbox_script.is_retired = True
-        self.netbox_script.save()
+        self.netbox_script.save(update_fields=('is_retired',))
 
         with self.assertRaises(ValidationError):
             self.action._validate(action_object=self.netbox_script, action_data={})

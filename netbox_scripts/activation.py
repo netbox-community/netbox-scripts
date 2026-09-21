@@ -133,18 +133,14 @@ def synchronize_scripts(*, project, revision, records, using):
     Bring one project's Script rows in line with a validated discovery snapshot.
 
     Database work only, inside the transaction the caller opens. A row the snapshot no longer
-    names is retired rather than deleted, which keeps its primary key and with it the Job
-    history the row has accumulated. A row whose recorded fields already match is left
-    untouched, because this runs again on every activation and an unconditional save would log
-    a change and queue an event per script per activation.
+    names is retired rather than deleted, keeping its primary key and the Job history on it. A
+    row whose recorded fields already match is left untouched. enabled is never written. Each
+    row it writes takes the project's write lock, which an ordinary Script edit takes too.
 
-    The project row is already locked by the promotion, so no row needs a lock of its own, and
-    enabled is never written, because it belongs to the administrator.
-
-    Returns a ScriptSyncResult. Each row it writes is a real row change, so inside a request
-    it is change logged and queues an event attributed to the user who asked for the activation,
-    OBJECT_CREATED for a newly published Script and OBJECT_UPDATED for one that changed. A job
-    applies no request processor, so the same write records neither.
+    Returns a ScriptSyncResult. Inside a request each written row is change logged and queues an
+    event attributed to the user who asked for the activation, OBJECT_CREATED for a newly
+    published Script and OBJECT_UPDATED for one that changed. A job applies no request processor
+    and records neither.
     """
     written = 0
     retired = 0

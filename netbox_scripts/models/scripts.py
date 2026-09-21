@@ -7,12 +7,15 @@ from django.utils.translation import ngettext
 from core.choices import JobNotificationChoices
 from netbox.models import PrimaryModel
 from netbox.models.features import JobsMixin
+from utilities.data import normalize_update_fields
 
 from ..choices import FileDiscoveryStatusChoices
 from ..constants import (
+    DISCOVERED_SCRIPT_FILE_FIELDS,
     MAX_SCRIPT_CLASS_NAME_LENGTH,
     MAX_SCRIPT_DISPLAY_NAME_LENGTH,
     MAX_SCRIPT_MODULE_PATH_LENGTH,
+    PUBLISHED_SCRIPT_FIELDS,
 )
 from ..storage.exceptions import UnsafePathError
 from ..storage.locks import project_write_lock
@@ -30,12 +33,12 @@ class NetBoxScript(JobsMixin, PrimaryModel):
     script file is provenance recorded in the revision snapshot, not a relational parent,
     because a helper file can publish a class without being a script file itself.
 
-    Rows are derived from an activated revision rather than authored. Synchronization owns
-    the display name, description, metadata, retirement, and last seen revision, while
-    enabled and the three execution overrides belong to the administrator and no
-    synchronization touches them. A script the
-    active revision stops publishing is retired rather than deleted, which preserves the
-    primary key and with it the Job history the row has accumulated.
+    Rows are derived from an activated revision rather than authored. Synchronization owns the
+    display name, description, metadata, retirement, and last seen revision, and a save naming no
+    fields restores them, so an ordinary edit cannot write a stale copy back. enabled and the three
+    execution overrides belong to the administrator. A script the active revision stops publishing
+    is retired rather than deleted, which preserves the primary key and with it the Job history the
+    row has accumulated.
     """
 
     project = models.ForeignKey(
@@ -237,6 +240,23 @@ class NetBoxScript(JobsMixin, PrimaryModel):
             return _('Its Project is serving no revision.')
         return None
 
+    def save(self, *args, **kwargs):
+        """Persist an administrator's edit under its project's transaction-scoped source lock."""
+        using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+        with project_write_lock(self.project.storage_key, using=using):
+            return self._save_script(*args, **kwargs)
+
+    def _save_script(self, *args, **kwargs):
+        """Restore what publication owns, so a full save cannot write an instance's stale copy back."""
+        if not self._state.adding and normalize_update_fields(kwargs) is None:
+            using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
+            # Under the lock: an activation may have published between this instance loading and now.
+            original = type(self).objects.using(using).filter(pk=self.pk).values(*PUBLISHED_SCRIPT_FIELDS).first()
+            if original:
+                for name, value in original.items():
+                    setattr(self, name, value)
+        super().save(*args, **kwargs)
+
 
 class ScriptFile(PrimaryModel):
     """
@@ -383,7 +403,13 @@ class ScriptFile(PrimaryModel):
             # The persisted row is read from the alias this save writes to. Reading it from
             # anywhere else compares the new value against a different database.
             using = kwargs.get('using') or self._state.db or router.db_for_write(type(self), instance=self)
-            original = type(self).objects.using(using).filter(pk=self.pk).values('project_id', 'source_path').first()
+            original = (
+                type(self)
+                .objects.using(using)
+                .filter(pk=self.pk)
+                .values('project_id', 'source_path', *DISCOVERED_SCRIPT_FILE_FIELDS)
+                .first()
+            )
             if original:
                 errors = {}
                 if original['project_id'] != self.project_id:
@@ -394,6 +420,10 @@ class ScriptFile(PrimaryModel):
                     )
                 if errors:
                     raise ValidationError(errors)
+                # Written by validation, never by a stale edit form.
+                if normalize_update_fields(kwargs) is None:
+                    for name in DISCOVERED_SCRIPT_FILE_FIELDS:
+                        setattr(self, name, original[name])
         super().save(*args, **kwargs)
 
     def get_discovery_status_color(self):

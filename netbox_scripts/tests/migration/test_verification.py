@@ -173,7 +173,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         run = self.repoint_all()
         script = self.plugin_script()
         script.is_retired = True
-        script.save()
+        script.save(update_fields=('is_retired',))
 
         check = self.named(verification.verify(run), verification.SCRIPTS)
 

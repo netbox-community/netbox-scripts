@@ -40,6 +40,18 @@ class NetBoxScriptEditFormTestCase(TestCase):
         self.assertFalse(self.script.enabled)
         self.assertEqual(self.script.comments, 'Paused pending review.')
 
+    def test_a_stale_save_does_not_revert_a_derived_field(self):
+        # The form binds to the row as it was, then a concurrent synchronization renames it.
+        form = NetBoxScriptEditForm(data={'enabled': False}, instance=self.script)
+        self.assertTrue(form.is_valid(), form.errors)
+
+        NetBoxScript.objects.filter(pk=self.script.pk).update(display_name='Renamed By Sync')
+        form.save()
+
+        self.script.refresh_from_db()
+        self.assertEqual(self.script.display_name, 'Renamed By Sync')
+        self.assertFalse(self.script.enabled)
+
     def test_the_derived_fields_are_absent_from_the_form(self):
         form = NetBoxScriptEditForm(instance=self.script)
         for name in ('project', 'module_path', 'class_name', 'display_name', 'description', 'is_retired', 'metadata'):

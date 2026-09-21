@@ -7,6 +7,24 @@ GATED_SOURCE_FIELDS = ('activation_policy', 'data_source', 'data_path')
 # An attribute rather than an argument, because the save is several framework layers below.
 AUTHORIZED_SOURCE_MOVES = '_authorized_source_moves'
 
+# Synchronization owns these on a Script. Attnames, so a row re-read under the lock can assign
+# them straight back, which is what a save naming no fields does with them.
+PUBLISHED_SCRIPT_FIELDS = (
+    'description',
+    'display_name',
+    'is_retired',
+    'last_seen_revision_id',
+    'metadata',
+)
+# Discovery owns these on a Script File. validation writes them with QuerySet.update() and
+# names no last_updated, so NetBox's stale-form check cannot see the write and this is the
+# only thing standing between a discovery result and an ordinary edit.
+DISCOVERED_SCRIPT_FILE_FIELDS = (
+    'discovery_error',
+    'discovery_status',
+    'last_discovered_revision_id',
+)
+
 # Default storage limits applied to a project's source tree when a revision is staged.
 # A deployment can override any of these through the plugin's PLUGINS_CONFIG settings.
 DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024

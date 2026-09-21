@@ -1,10 +1,15 @@
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, transaction
+from django.db import DEFAULT_DB_ALIAS, IntegrityError, connection, transaction
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
+from netbox_scripts.activation import synchronize_scripts
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
-from netbox_scripts.constants import MAX_SCRIPT_CLASS_NAME_LENGTH, MAX_SCRIPT_MODULE_PATH_LENGTH
+from netbox_scripts.constants import (
+    MAX_SCRIPT_CLASS_NAME_LENGTH,
+    MAX_SCRIPT_MODULE_PATH_LENGTH,
+    PUBLISHED_SCRIPT_FIELDS,
+)
 from netbox_scripts.models import (
     NetBoxScript,
     ScriptFile,
@@ -158,7 +163,7 @@ class NetBoxScriptTestCase(TestCase):
         instance = self._script()
         original_pk = instance.pk
         instance.is_retired = True
-        instance.save()
+        instance.save(update_fields=('is_retired',))
         instance.refresh_from_db()
         self.assertEqual(instance.pk, original_pk)
         self.assertTrue(instance.is_retired)
@@ -303,6 +308,71 @@ class NetBoxScriptTestCase(TestCase):
             ).get_notifications_default_display(),
             'On failure',
         )
+
+    def test_a_stale_save_does_not_revert_a_published_field(self):
+        # An activation publishing between the load and the save.
+        script = self._script()
+        loaded = NetBoxScript.objects.get(pk=script.pk)
+        NetBoxScript.objects.filter(pk=script.pk).update(display_name='Renamed By Sync')
+
+        loaded.comments = 'An administrator note.'
+        loaded.save()
+
+        loaded.refresh_from_db()
+        self.assertEqual(loaded.display_name, 'Renamed By Sync')
+        self.assertEqual(loaded.comments, 'An administrator note.')
+
+    def test_a_stale_save_does_not_clear_retirement(self):
+        script = self._script()
+        loaded = NetBoxScript.objects.get(pk=script.pk)
+        NetBoxScript.objects.filter(pk=script.pk).update(is_retired=True)
+
+        loaded.enabled = False
+        loaded.save()
+
+        loaded.refresh_from_db()
+        self.assertTrue(loaded.is_retired)
+        self.assertFalse(loaded.enabled)
+
+    def test_a_field_limited_publication_write_still_lands(self):
+        # synchronize_scripts writes this way, so the guard must let it through.
+        script = self._script()
+        script.display_name = 'Published By Sync'
+        script.save(update_fields=('display_name', 'last_updated'))
+
+        script.refresh_from_db()
+        self.assertEqual(script.display_name, 'Published By Sync')
+
+    def test_the_protected_field_set_matches_what_synchronization_writes(self):
+        # A field synchronization starts writing that the constant does not name would go
+        # unprotected in silence, so this compares against what one real sync wrote.
+        script = self._script(display_name='Before', description='Before', metadata={})
+        NetBoxScript.objects.filter(pk=script.pk).update(is_retired=True)
+        revision = ScriptProjectRevision.objects.create(
+            project=self.project, digest='c' * 64, status=RevisionStatusChoices.VALID
+        )
+        script.refresh_from_db()
+        before = {field.attname: getattr(script, field.attname) for field in NetBoxScript._meta.concrete_fields}
+
+        synchronize_scripts(
+            project=self.project,
+            revision=revision,
+            records=[
+                {
+                    'module_path': script.module_path,
+                    'class_name': script.class_name,
+                    'display_name': 'After',
+                    'description': 'After',
+                    'metadata': {'job_timeout': 60},
+                }
+            ],
+            using=DEFAULT_DB_ALIAS,
+        )
+
+        script.refresh_from_db()
+        after = {field.attname: getattr(script, field.attname) for field in NetBoxScript._meta.concrete_fields}
+        written = {name for name, value in after.items() if before[name] != value} - {'last_updated'}
+        self.assertEqual(written, set(PUBLISHED_SCRIPT_FIELDS))
 
 
 class SourcePathToDottedNameTestCase(TestCase):
@@ -542,6 +612,31 @@ class ScriptFileTestCase(TestCase):
         instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
         instance.last_discovered_revision = revision
         instance.full_clean()
-        instance.save()
+        instance.save(update_fields=('last_discovered_revision',))
         instance.refresh_from_db()
         self.assertEqual(instance.last_discovered_revision, revision)
+
+    def test_a_stale_save_does_not_revert_a_discovery_result(self):
+        # A discovery result landing between the load and the save.
+        instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        loaded = ScriptFile.objects.get(pk=instance.pk)
+        ScriptFile.objects.filter(pk=instance.pk).update(
+            discovery_status=FileDiscoveryStatusChoices.FAILED,
+            discovery_error='It did not import.',
+        )
+
+        loaded.enabled = False
+        loaded.save()
+
+        loaded.refresh_from_db()
+        self.assertEqual(loaded.discovery_status, FileDiscoveryStatusChoices.FAILED)
+        self.assertEqual(loaded.discovery_error, 'It did not import.')
+        self.assertFalse(loaded.enabled)
+
+    def test_a_field_limited_discovery_write_still_lands(self):
+        instance = ScriptFile.objects.create(project=self.project, source_path='deploy.py')
+        instance.discovery_status = FileDiscoveryStatusChoices.FAILED
+        instance.save(update_fields=('discovery_status',))
+
+        instance.refresh_from_db()
+        self.assertEqual(instance.discovery_status, FileDiscoveryStatusChoices.FAILED)

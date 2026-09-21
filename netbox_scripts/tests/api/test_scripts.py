@@ -1,8 +1,11 @@
+from unittest import mock
+
 from django.urls import reverse
 from rest_framework import status
 
 from extras.events import serialize_for_event
 from netbox_scripts.api.serializers import NetBoxScriptSerializer
+from netbox_scripts.api.views import ScriptFileViewSet
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase, PluginAPIViewTestCases
@@ -282,6 +285,25 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.NestedObjectAPIViewTestCa
         ScriptFile.objects.create(project=cls.project, source_path='tools/first.py', description='First script file')
         ScriptFile.objects.create(project=cls.project, source_path='tools/second.py', description='Second script file')
         ScriptFile.objects.create(project=cls.project, source_path='tools/third.py', enabled=False)
+
+    def test_a_patch_does_not_revert_a_discovery_result(self):
+        # read_only keeps a submitted value out and settles nothing about the copy the view
+        # already holds. Core closes this window only when the caller sends If-Match, so the
+        # load is patched to reach it and everything past the load stays real.
+        self.add_permissions('netbox_scripts.view_scriptfile', 'netbox_scripts.change_scriptfile')
+        script_file = ScriptFile.objects.get(source_path='tools/first.py')
+        stale = ScriptFile.objects.get(pk=script_file.pk)
+        ScriptFile.objects.filter(pk=script_file.pk).update(discovery_status=FileDiscoveryStatusChoices.FAILED)
+
+        with mock.patch.object(ScriptFileViewSet, 'get_object_with_snapshot', return_value=stale):
+            response = self.client.patch(
+                self._get_detail_url(script_file), {'enabled': False}, format='json', **self.header
+            )
+
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.FAILED)
+        self.assertFalse(script_file.enabled)
 
     def test_the_list_route_refuses_a_post(self):
         """A declaration is a Project setting, and a nested numeric id is always permitted."""

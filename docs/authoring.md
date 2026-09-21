@@ -96,17 +96,22 @@ def run(self, data, commit):
 ```
 
 Each entry records a timestamp, the severity, the message, and a link to the
-related object when one is given. `log_failure()` also marks the whole run as
-failed. Messages are forwarded to the NetBox system log under the
-`netbox.plugins.netbox_scripts.scripts` namespace.
+related object when one is given. Messages are forwarded to the NetBox system
+log under the `netbox.plugins.netbox_scripts.scripts` namespace.
+
+`log_failure()` records a failure-level message and sets `self.failed`. It does
+not stop the run, fail the Job, or roll back anything on its own. See
+[Aborting a script](#aborting-a-script) for stopping a run and rolling its
+database changes back.
 
 **What you log is persisted and readable.** The run log is stored on the Job row,
 so anyone holding NetBox's `core.view_job` permission can read it, and it
-outlives the run. Before it lands there the plugin scrubs its own runtime
-identities out of the whole record, storage keys, digests and cache paths, and
-your messages go through that same pass. Nothing looks for a secret. Treat
-`log_*` like any other output destination: do not pass a credential, a token,
-or a response body you have not looked at.
+outlives the run. Before it lands there the plugin removes its own runtime
+identities, storage keys, digests and cache paths, from each log message and
+from string output. It does not sanitize structured output recursively, and it
+does not look for secrets. The run deliberately keeps its revision digest as
+execution provenance. Treat `log_*` like any other output destination: do not
+pass a credential, a token, or a response body you have not looked at.
 
 ## What a run knows about its own context
 

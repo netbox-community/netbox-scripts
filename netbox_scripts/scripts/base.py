@@ -247,7 +247,7 @@ class BaseScript:
         self._log(message, obj, level=LogLevelChoices.LOG_WARNING)
 
     def log_failure(self, message=None, obj=None):
-        """Record a failure-level message on the run log and mark the run failed."""
+        """Record a failure-level message on the run log and set self.failed, without stopping the run."""
         self._log(message, obj, level=LogLevelChoices.LOG_FAILURE)
         self.failed = True
 
@@ -256,6 +256,6 @@ class Script(BaseScript):
     """
     Marker base class for runnable scripts.
 
-    Script discovery (a later release) publishes subclasses of this class, while plain
-    BaseScript subclasses stay private helpers.
+    Script discovery publishes subclasses of this class, while plain BaseScript subclasses
+    stay private helpers.
     """

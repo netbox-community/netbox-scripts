@@ -240,13 +240,17 @@ With commit **on**, changes are written normally. Change logging records them
 against the user who requested the run, and Event Rules and webhooks fire as they
 would for any other change.
 
-With commit **off**, everything the script writes is rolled back when it finishes.
+With commit **off**, the run's database changes are rolled back when it finishes.
 The script still receives `commit=False`, so it can behave differently if the
 author wrote it that way, and the run still records its full log and its output.
 No events are queued, so a dry run cannot trigger a webhook by accident.
 
+**A dry run does not undo external actions.** Device configuration, HTTP requests
+and file writes a script performs still take effect. Check `commit` before
+performing them.
+
 A script that raises is treated the same way as a dry run as far as the database
-is concerned: everything it wrote is rolled back, and pending events are
+is concerned: its database changes are rolled back, and pending events are
 discarded. The difference is that the run is recorded as failed and the log
 carries the exception and its traceback. A script that calls `AbortScript` stops
 cleanly, and its message is recorded without a traceback, because the author
@@ -275,9 +279,10 @@ a module global will find it gone on the next run, whichever worker picks it up.
 Source is verified against the revision's manifest before any of it is imported,
 every time. A cached copy is never trusted because it exists.
 
-Nothing about the storage layout reaches the run record. Storage keys, content
-digests and local cache paths are stripped out of the log before it is saved,
-including out of a traceback, which names the file it was raised in.
+Storage keys, content digests and local cache paths are stripped out of each log
+message and out of string output before the record is saved, including out of a
+traceback, which names the file it was raised in. The record keeps the revision
+digest, which is what says the run's own provenance.
 
 ## Not implemented yet
 

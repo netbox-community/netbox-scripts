@@ -95,10 +95,10 @@ def run_script(instance, *, data, commit, request=None):
     """
     Run one Script instance under the transaction, request, and event context a run needs.
 
-    Sets output on the instance and appends to its run log, including a final line saying
-    whether changes were kept. Re-raises whatever the script raised, after logging it, so the
-    caller decides what a failed run does to its Job. A dry run reverts every change and is
-    not a failure. request may be None, for a run with no request behind it.
+    Sets output on the instance and appends to its run log, including a final line when the
+    database changes were reverted. Re-raises whatever the script raised, after logging it, so
+    the caller decides what a failed run does to its Job. A dry run reverts the database changes
+    this covers and is not a failure. request may be None, for a run with no request behind it.
     """
     # Entering event tracking makes this run's request the current one, and leaving it puts
     # back None rather than what was there before, and only on the way out of a clean exit. A

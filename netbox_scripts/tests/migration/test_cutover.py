@@ -197,6 +197,33 @@ class CutoverTestCase(TestCase):
         self.assertEqual(self.migration.state, MigrationStateChoices.STAGING)
         self.assertIsNone(self.migration.cutover_started)
 
+    def test_it_refuses_while_a_second_worker_could_take_a_built_in_run(self):
+        # One worker covering every queue runs them one at a time, which is what closes the window.
+        # A second can start a built-in run beside the pass, so the pass refuses rather than race it.
+        workers = mock.patch.object(cutover, 'get_all_workers', return_value={'worker-a', 'worker-b'})
+        with workers, self.assertRaises(cutover.CutoverRefused) as caught:
+            cutover.enter_cutover(self.migration)
+
+        self.assertIn('worker-a', str(caught.exception))
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.STAGING)
+
+    def test_one_worker_does_not_refuse(self):
+        # Without this the precondition could pass by refusing everything.
+        with mock.patch.object(cutover, 'get_all_workers', return_value={'worker-a'}):
+            cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.CUTOVER)
+
+    def test_an_accepted_risk_crosses_and_records_which_workers_were_running(self):
+        with mock.patch.object(cutover, 'get_all_workers', return_value={'worker-a', 'worker-b'}):
+            cutover.enter_cutover(self.migration, accept_concurrent_workers=True)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.state, MigrationStateChoices.CUTOVER)
+        self.assertEqual(self.migration.journal['concurrent_workers_accepted'], ['worker-a', 'worker-b'])
+
     def test_a_permission_is_captured_with_who_holds_it_and_what_else_it_names(self):
         site_type = ObjectType.objects.get_for_model(Site)
         permission = self.legacy_permission(actions=('view', 'run'), extra_type=site_type)
@@ -378,6 +405,50 @@ class CutoverTestCase(TestCase):
         self.assertEqual(second['schedules'], 1)
         self.assertEqual(outstanding, [])
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'cancelled')
+
+    def test_an_interrupted_cancellation_is_not_read_back_as_an_execution(self):
+        # The row is failed and the pass stopped before recording that it failed it. Nothing ran,
+        # so a retry must still replace the run rather than report it as already executed.
+        self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        original = cutover._fail_closed
+
+        def interrupt(job, error):
+            original(job, error)
+            raise RuntimeError('stopped before the outcome was recorded')
+
+        with mock.patch.object(cutover, '_fail_closed', interrupt), self.assertRaises(RuntimeError):
+            cutover._close(self.migration)
+
+        reloaded = MigrationRun.objects.get(pk=self.migration.pk)
+        counts, outstanding, _warnings = cutover._close(reloaded)
+
+        self.assertEqual(counts['schedules'], 1)
+        self.assertEqual(outstanding, [])
+        self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'cancelled')
+
+    def test_a_job_a_worker_took_while_cancelling_is_not_replaced(self):
+        # started is what separates the two, because a worker sets it once and terminate() never
+        # does. Set here, so the interrupted pass lost a race rather than finishing its own work.
+        job = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        original = cutover._fail_closed
+
+        def interrupt(failed, error):
+            original(failed, error)
+            raise RuntimeError('stopped before the outcome was recorded')
+
+        with mock.patch.object(cutover, '_fail_closed', interrupt), self.assertRaises(RuntimeError):
+            cutover._close(self.migration)
+        Job.objects.filter(pk=job.pk).update(started=timezone.now())
+
+        reloaded = MigrationRun.objects.get(pk=self.migration.pk)
+        counts, outstanding, warnings = cutover._close(reloaded)
+
+        self.assertEqual(counts['schedules'], 0)
+        self.assertEqual(len(outstanding), 1)
+        self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'executed')
+        self.assertIn('taken by a worker', ' '.join(str(warning) for warning in warnings))
 
     def test_a_capture_replayed_before_any_close_records_nothing_twice(self):
         # A crash before the closures leaves every job enqueued, so a second capture sees them all.

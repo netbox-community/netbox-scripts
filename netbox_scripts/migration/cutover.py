@@ -3,8 +3,17 @@
 import contextlib
 import datetime
 
+import django_rq
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from rq.exceptions import NoSuchJobError
+from rq.job import Job as RQJob
+
+from core.choices import JobStatusChoices
+from core.models import Job
+from extras.models import EventRule
+from users.models import ObjectPermission
+from utilities.rqworker import get_all_workers
 
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
@@ -44,7 +53,7 @@ class CutoverRefused(Exception):
 
 
 @serialized_migration_step
-def enter_cutover(run):
+def enter_cutover(run, *, accept_concurrent_workers=False):
     """
     Capture every reference the later steps replay, record the cutover state, then close what closes.
 
@@ -53,8 +62,9 @@ def enter_cutover(run):
     anything when the step has already completed. Leaves the step incomplete while an occurrence is
     still executing, or one enqueued after the capture is still waiting, for a later pass to close.
     Raises CutoverRefused when the run is not in a state that may cross, while a built-in Custom
-    Script job is still running, or when a Project this migration mapped could serve nothing on the
-    far side.
+    Script job is still running, when a worker other than this pass could take a built-in run and
+    accept_concurrent_workers is not set, or when a Project this migration mapped could serve
+    nothing on the far side.
     """
     if run is None:
         raise CutoverRefused(_('Nothing has been staged yet, so there is nothing to cut over to.'))
@@ -68,6 +78,16 @@ def enter_cutover(run):
                 count=len(running), keys=', '.join(str(key) for key in running)
             )
         )
+    # Every worker by name: per-queue counts cannot tell one worker on two queues from two workers on one each.
+    competing = sorted(get_all_workers())
+    if len(competing) > 1 and not accept_concurrent_workers:
+        raise CutoverRefused(
+            _(
+                '{count} workers are running: {names}. A second worker can take a built-in Custom Script '
+                'run while this pass works, where one worker covering every queue involved runs them one '
+                'at a time. Reduce to one for the cutover, or enter it again accepting the risk.'
+            ).format(count=len(competing), names=', '.join(competing))
+        )
     if blocked := unservable_projects(run):
         raise CutoverRefused(
             _(
@@ -80,6 +100,9 @@ def enter_cutover(run):
             )
         )
 
+    if len(competing) > 1:
+        # A flag would not say which workers the risk was accepted against.
+        run.record_journal(concurrent_workers_accepted=competing)
     warnings = _capture(run)
     # After the capture and before the closures. Before the capture too, a crash here would leave
     # a run that unservable_projects() can still refuse and staging will not take back.
@@ -322,10 +345,6 @@ def _capture_schedules(exclude=()):
 
 def _capture_schedule(job):
     """Return one waiting job's replay parameters and the input names dropped, or None if RQ lost it."""
-    import django_rq
-    from rq.exceptions import NoSuchJobError
-    from rq.job import Job as RQJob
-
     queue = django_rq.get_queue(job.queue_name)
     try:
         task = RQJob.fetch(str(job.job_id), connection=queue.connection)
@@ -384,8 +403,8 @@ def _close(run):
     """Close every door available to a plugin, report how many of each, and what stayed open."""
     journal = run.journal
     unreadable = journal.get('schedules_unreadable', [])
-    cancelled, outstanding, warnings = _cancel_schedules(journal['schedules'], unreadable)
-    # _cancel_schedules annotated these in memory.
+    cancelled, outstanding, warnings = _cancel_schedules(run, journal['schedules'], unreadable)
+    # The outcomes it resolved from a job's own state, which it does not record as it goes.
     run.record_journal(schedules=journal['schedules'])
     captured = {entry['job_pk'] for entry in journal['schedules']}
     # Enqueued since the capture, an occurrence's own successor among them. A row whose task the
@@ -412,8 +431,6 @@ def _close(run):
 
 def _disable_permissions(captured):
     """Withdraw every captured grant on the built-in feature, and report how many are withdrawn."""
-    from users.models import ObjectPermission
-
     keys = [entry['pk'] for entry in captured]
     # This is the closest a plugin has to the write and execution fence. It withdraws every grant
     # NetBox's own permissions UI can make and nothing more: a superuser still passes, and so does
@@ -425,22 +442,18 @@ def _disable_permissions(captured):
 
 def _disable_event_rules(captured):
     """Take every captured Event Rule out of service, and report how many are out of service."""
-    from extras.models import EventRule
-
     keys = [entry['pk'] for entry in captured]
     EventRule.objects.filter(pk__in=keys, enabled=True).update(enabled=False)
     return EventRule.objects.filter(pk__in=keys, enabled=False).count()
 
 
-def _cancel_schedules(captured, unreadable=()):
+def _cancel_schedules(run, captured, unreadable=()):
     """Fail every reachable job closed, and record on each captured entry what that achieved.
 
-    Annotates every entry with a 'cancellation' of 'cancelled', 'executed', 'running' or 'vanished'.
+    Annotates every entry with a 'cancellation' of 'cancelled', 'executed', 'running' or 'vanished',
+    recording 'cancelling' before it touches a row so an interrupted pass can resolve it.
     Returns the number cancelled, the entries that were not, and one warning naming each of those.
     """
-    from core.choices import JobStatusChoices
-    from core.models import Job
-
     cancelled, outstanding, warnings = 0, [], []
     for entry in captured:
         if entry.get('cancellation') == 'cancelled':
@@ -450,6 +463,25 @@ def _cancel_schedules(captured, unreadable=()):
         job = Job.objects.filter(pk=entry['job_pk']).first()
         if job is None:
             entry['cancellation'] = 'vanished'
+            continue
+        if entry.get('cancellation') == 'cancelling' and job.status not in legacy_source.cancellable_statuses():
+            # An earlier pass failed this row and stopped before recording that it had. Its own
+            # terminal status cannot say which of the two happened, so started decides. Only a worker
+            # assigns it, but terminate() saves the whole row, so a start by a second worker can be lost.
+            if job.started is None:
+                entry['cancellation'] = 'cancelled'
+                cancelled += 1
+            else:
+                entry['cancellation'] = 'executed'
+                warnings.append(
+                    _(
+                        'Job {pk} ("{name}") was taken by a worker while the cutover was cancelling it, '
+                        'so it ran and will not be recreated. Schedule it again by hand against the '
+                        'Script that replaced it if it should keep running.'
+                    ).format(pk=entry['job_pk'], name=entry['name'])
+                )
+                outstanding.append(entry)
+            run.record_journal(schedules=captured)
             continue
         if job.status not in legacy_source.cancellable_statuses():
             # Never terminated underneath the worker that owns it, so the outcome is recorded instead.
@@ -472,8 +504,12 @@ def _cancel_schedules(captured, unreadable=()):
                 )
             outstanding.append(entry)
             continue
+        # Without this, an interruption leaves a failed row a retry reads as one a worker ran.
+        entry['cancellation'] = 'cancelling'
+        run.record_journal(schedules=captured)
         _fail_closed(job, _('Cancelled by the Custom Scripts migration cutover. The plugin recreates this run.'))
         entry['cancellation'] = 'cancelled'
+        run.record_journal(schedules=captured)
         cancelled += 1
     for key in unreadable:
         # Still waiting, and no capture could read it, so closing is all that is left to do.
@@ -491,13 +527,7 @@ def _cancel_schedules(captured, unreadable=()):
 
 
 def _fail_closed(job, error):
-    """Drop one job's queued task and fail its row, so no worker can still pick it up."""
-    import django_rq
-    from rq.exceptions import NoSuchJobError
-    from rq.job import Job as RQJob
-
-    from core.choices import JobStatusChoices
-
+    """Drop one job's queued task and fail its row."""
     queue = django_rq.get_queue(job.queue_name)
     with contextlib.suppress(NoSuchJobError):
         RQJob.fetch(str(job.job_id), connection=queue.connection).delete()

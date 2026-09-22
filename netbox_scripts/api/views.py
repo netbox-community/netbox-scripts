@@ -4,6 +4,8 @@ from pathlib import PurePosixPath
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import router, transaction
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -38,6 +40,7 @@ from ..storage import config
 from ..storage.exceptions import StorageError
 from ..storage.locks import project_lock
 from ..storage.service import require_default_database
+from .schemas import SCRIPT_FILE_SELECTION, SCRIPT_FILE_STATE
 from .serializers import (
     NetBoxScriptRunInputSerializer,
     NetBoxScriptSerializer,
@@ -70,7 +73,7 @@ class UploadSourcePermissions(TokenPermissions):
 
 
 class ProjectLockOrderMixin:
-    """Hold the project lock across every write this viewset performs, before core locks the row."""
+    """Hold the project lock across this viewset's update and delete, before core locks the row."""
 
     # Path from this viewset's model to the owning project's storage key.
     storage_key_path = 'storage_key'
@@ -138,9 +141,20 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
             # of the pair for a project that already exists.
             self.queryset = type(self).queryset.restrict(request.user, 'change')
 
+    @extend_schema(
+        request=ScriptProjectUploadSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=ScriptProjectRevisionSerializer,
+                description=gettext_lazy(
+                    'Returns the revision record for this upload. Inspect its status for the outcome.'
+                ),
+            ),
+        },
+    )
     @action(detail=True, methods=['post'], url_path='upload', permission_classes=[UploadSourcePermissions])
     def upload(self, request, pk=None):
-        """Stage one uploaded Python file as a new revision of this project's source."""
+        """Stage one uploaded Python file as a revision of this project's source."""
         project = self.get_object()
         # The upload declares its own script file, so it creates a Script File. The browser upload
         # asks for the same pair, and the two surfaces must not disagree about what it costs.
@@ -190,6 +204,15 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(
+        methods=['GET'],
+        responses={200: OpenApiResponse(response=SCRIPT_FILE_STATE)},
+    )
+    @extend_schema(
+        methods=['PUT'],
+        request=SCRIPT_FILE_SELECTION,
+        responses={200: OpenApiResponse(response=SCRIPT_FILE_STATE)},
+    )
     @action(detail=True, methods=['get', 'put'], url_path='script-files')
     def script_files(self, request, pk=None):
         """Report or replace which of a project's source modules are its script files."""
@@ -275,6 +298,15 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
 
     # http_method_names is checked on every dispatch, so the action declares its own as an
     # initkwarg, which applies to this route alone and leaves POST refused on the list route.
+    @extend_schema(
+        request=NetBoxScriptRunInputSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=JobSerializer,
+                description=gettext_lazy('The Script has been enqueued for execution.'),
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=['post'],

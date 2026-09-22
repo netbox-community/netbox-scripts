@@ -61,6 +61,7 @@ Defer all version pins to those files; do not duplicate them elsewhere.
 │   ├── api/
 │   │   ├── urls.py                , NetBoxRouter registrations for the four endpoints.
 │   │   ├── views.py               , Four viewsets, the run / upload / script-files actions, the lock-order mixin, two permission classes.
+│   │   ├── schemas.py             , Schema-only payload declarations for the actions that assemble their own responses.
 │   │   └── serializers/           , One module per topic: projects, revisions (read-only), scripts, upload, run.
 │   ├── filtersets/                , One FilterSet per model, by topic module.
 │   ├── forms/                     , By type then topic: model_forms, bulk_edit, bulk_import, filtersets, confirmations.
@@ -198,7 +199,7 @@ inside a NetBox checkout that has this plugin installed with
 | `ruff format .` | Format |
 | `pre-commit install` | Install the pre-commit hook into `.git/hooks` |
 | `pre-commit run --all-files` | Run every default-stage hook against the whole tree |
-| `pre-commit run --hook-stage manual check-manifest` | Run `check-manifest` (manual stage), exercise before tagging a release |
+| `pre-commit run --hook-stage manual check-manifest` | Run `check-manifest` (manual stage). The CI lint job runs it on every push |
 | `python scripts/check_netbox_internals.py --netbox <netbox>/netbox` | Resolve every NetBox internal the plugin depends on against that checkout, no database needed |
 | `python netbox/manage.py makemigrations netbox_scripts` | Generate Django migrations after model changes |
 | `python netbox/manage.py migrate` | Apply migrations |

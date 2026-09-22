@@ -387,6 +387,66 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.refresh_from_db()
         self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
+    def test_an_occurrence_a_worker_took_is_not_recreated(self):
+        self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        self.migration.journal['schedules'][0]['cancellation'] = 'executed'
+        self.migration.save(update_fields=('journal',))
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 0)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('already taken it' in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        # Counting it outstanding instead would leave this step, and the whole migration, open.
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_an_occurrence_whose_row_vanished_is_still_recreated(self):
+        # Nothing can execute a Job row that is gone, so its schedule has to come back.
+        self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        self.migration.journal['schedules'][0]['cancellation'] = 'vanished'
+        self.migration.save(update_fields=('journal',))
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+
+    def test_an_entry_recorded_before_outcomes_were_kept_is_still_recreated(self):
+        # A journal written by an earlier build carries no outcome at all, and a gate written as
+        # "not cancelled" would silently drop every schedule such a run had captured.
+        self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        del self.migration.journal['schedules'][0]['cancellation']
+        self.migration.save(update_fields=('journal',))
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+
+    def test_an_occurrence_that_ran_during_the_cutover_is_never_replayed(self):
+        # The whole finding in one pass. The two halves live in separate modules and until now
+        # nothing exercised the chain between them.
+        job = self.legacy_schedule(scheduled=self.future())
+        capture = cutover._capture
+
+        def run_it(run):
+            warnings = capture(run)
+            Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_COMPLETED)
+            return warnings
+
+        with patch.object(cutover, '_capture', run_it):
+            self.cross_over()
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'executed')
+        self.assertEqual(counts['recreated'], 0)
+        self.assertFalse(self.new_jobs().exists())
+
     def owned_schedule(self, username='scheduler'):
         """Capture one schedule owned by a named account, and return the account."""
         user = get_user_model().objects.create_user(username=username)

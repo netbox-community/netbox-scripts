@@ -262,6 +262,18 @@ def recreate_schedules(run):
     for entry in run.journal.get('schedules', []):
         if str(entry['job_pk']) in recreated:
             continue
+        # Matched by outcome rather than inverted: 'vanished' and a journal recording none at all
+        # must still replay. Skipped rather than outstanding, or the step could never end.
+        if entry.get('cancellation') in ('executed', 'running'):
+            counts['skipped'] += 1
+            warnings.append(
+                _(
+                    'Schedule "{name}" was not cancelled by the cutover, because a worker had already '
+                    'taken it, so it has not been recreated. Check whether it ran and schedule it '
+                    'again by hand if it did not.'
+                ).format(name=entry['name'])
+            )
+            continue
         # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
         if entry.get('legacy_object_type') != 'extras.script':
             counts['skipped'] += 1
@@ -387,8 +399,8 @@ def _replay_schedule(entry):
     scheduled = parse_datetime(entry['scheduled'])
     if scheduled and scheduled > timezone.now():
         return scheduled, False
-    # rq runs a past-due job the moment it is enqueued, and a migration must not run an operator's
-    # script unasked. A recurrence keeps its interval and starts now, a one-shot is refused.
+    # A queue holds a past-due job for the next free worker, and a migration must not run an
+    # operator's script unasked. A recurrence keeps its interval, a one-shot is refused.
     return (None, True) if entry['interval'] else (_UNSCHEDULABLE, False)
 
 

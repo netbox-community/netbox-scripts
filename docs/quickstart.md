@@ -22,10 +22,12 @@ instead.
 
 ## Enabling the plugin
 
-Add `netbox_scripts` to `PLUGINS` in NetBox's `configuration.py`:
+Add `netbox_scripts` to `PLUGINS` in NetBox's `configuration.py`, keeping any
+existing plugins:
 
 ```python
 PLUGINS = [
+    # Keep your existing plugins here.
     'netbox_scripts',
 ]
 ```
@@ -57,17 +59,31 @@ STORAGES = {
 NetBox merges this with its built-in entries, so defining only this key leaves `default`
 and the others intact. A horizontally scaled deployment points it at object storage
 instead. See [Configuration](configuration.md) for that and for why the entry does not
-fall back to NetBox's `default` storage.
+fall back to NetBox's `default` storage. Where your configuration already defines
+`STORAGES`, add this key to that dictionary instead of assigning a second one.
+
+Create that directory before the first upload. The NetBox web and worker processes both read
+and write it, and nothing else should be able to write to it. For a standard installation where
+both run as `netbox`:
+
+```sh
+sudo install -d -m 0700 -o netbox -g netbox /var/lib/netbox-scripts
+```
+
+Where they run as different users, give both of them read and write access instead.
 
 ## Applying the configuration
 
-With both settings in place, run migrations, collect static files, and restart
-NetBox so every process loads them:
+With both settings in place, run migrations and collect static files from the directory holding
+NetBox's `manage.py`, with NetBox's virtual environment active, then restart NetBox so every
+process loads them. In a standard installation:
 
 ```sh
+source /opt/netbox/venv/bin/activate
+cd /opt/netbox/netbox
 python manage.py migrate
 python manage.py collectstatic --no-input
-systemctl restart netbox netbox-rq
+sudo systemctl restart netbox netbox-rq
 ```
 
 Use your deployment's own restart procedure where those service names do not

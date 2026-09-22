@@ -132,10 +132,10 @@ def synchronize_scripts(*, project, revision, records, using):
     """
     Bring one project's Script rows in line with a validated discovery snapshot.
 
-    Database work only, inside the transaction the caller opens. A row the snapshot no longer
-    names is retired rather than deleted, keeping its primary key and the Job history on it. A
-    row whose recorded fields already match is left untouched. enabled is never written. Each
-    row it writes takes the project's write lock, which an ordinary Script edit takes too.
+    Database work only, inside the transaction and the project lock the caller holds. A row the
+    snapshot no longer names is retired rather than deleted, keeping its primary key and the Job
+    history on it. A row whose recorded fields already match is left untouched. enabled is never
+    written.
 
     Returns a ScriptSyncResult. Inside a request each written row is change logged and queues an
     event attributed to the user who asked for the activation, OBJECT_CREATED for a newly

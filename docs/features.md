@@ -22,7 +22,7 @@ logging, global search, REST, and GraphQL.
 | Script File | One declared file that discovery imports and publishes Scripts from. | [Script File](models/scriptfile.md) |
 | Script file snapshot | The enabled script file declarations frozen into a revision at staging time. | [Script Project Revision](models/scriptprojectrevision.md) |
 | Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Script](models/netboxscript.md) |
-| Run | One execution of a Script, recorded as a Job and pinned to the revision that was being served when it was requested. | [Running Scripts](execution.md) |
+| Run | One execution of a Script, recorded as a Job. A one-shot run is pinned to the revision being served when it was requested, a recurring run is pinned to nothing and resolves the active revision as each occurrence starts. | [Running Scripts](execution.md) |
 | Commit and dry run | Whether a run's database changes are kept or rolled back when it finishes. | [Running Scripts](execution.md) |
 | Revision validation | The leased background step that imports a revision's script files and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |
 | Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |

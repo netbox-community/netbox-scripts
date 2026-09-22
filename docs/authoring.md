@@ -59,6 +59,13 @@ through `data`. Every variable type accepts the common keyword arguments
 
 Subclass `ScriptVariable` to define a custom variable type.
 
+**`FileVar` accepts only an upload Django keeps in memory.** A run is executed by a
+worker in another process, so its inputs are serialized onto the queue, and an upload
+Django spilled to a temporary file cannot be. Such a request is refused before any Job
+is created, on both the run form and the REST endpoint. Django decides which it is from
+the size of the whole request against `FILE_UPLOAD_MAX_MEMORY_SIZE`, so several files or
+other large fields in one request can push a modest file onto disk.
+
 ## Meta attributes
 
 The inner `Meta` class carries the script's presentation and execution
@@ -307,9 +314,10 @@ giving the class a `run(self, data, commit)` method and doing the work there.
 
 ### The compatibility layer is transitional
 
-Legacy imports work for as long as NetBox itself ships `extras.scripts`. When a
-future NetBox release removes it, the import stops working and fails with a
-message pointing at this plugin's own module. Nothing about your Project
+Legacy imports work for as long as NetBox itself ships `extras.scripts`, which
+this guide and the migration guide both expect to end at NetBox v5.0. When that
+release removes it, the import stops working and fails with a message pointing
+at this plugin's own module. Nothing about your Project
 changes in the meantime, and there is no configuration to set.
 
 Treat it as a migration aid rather than a permanent interface. New scripts

@@ -3,6 +3,7 @@
 import uuid
 from datetime import timedelta
 
+from django.core.files.uploadedfile import TemporaryUploadedFile
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -474,9 +475,10 @@ class NetBoxScriptJob(JobRunner):
     """
     Run one Script against the revision its enqueue pinned.
 
-    The revision is fixed when the run is requested, not when the worker picks it up, so a
-    queued run executes the source the operator was looking at even if the project has moved
-    on since. The pin is recorded on the Job row as well as passed to the worker, which is what
+    A one-shot run's revision is fixed when the run is requested, not when the worker picks it
+    up, so a queued run executes the source the operator was looking at even if the project has
+    moved on since. A recurring run pins nothing and resolves the active revision at each
+    occurrence. A pin is recorded on the Job row as well as passed to the worker, which is what
     makes a finished Job say what it ran rather than only what it was called.
 
     Everything the run needs from the tree is read through the runtime tier, so the source is
@@ -514,8 +516,9 @@ class NetBoxScriptJob(JobRunner):
         task whose record of what it runs is missing. A recurring run is pinned to nothing and
         resolves the active revision at each occurrence. The script's own recorded metadata
         supplies the job timeout, and the notification policy unless one is given here. Raises
-        ValidationError for a recorded or overridden setting a run cannot be queued with, before
-        any row is written. An immediate run commits its Job row before executing, so the row is
+        ValidationError for a recorded or overridden setting a run cannot be queued with, and for a
+        disk-backed upload, which cannot travel to a worker. Both before any row is written.
+        An immediate run commits its Job row before executing, so the row is
         visible for the whole run and an interrupted run leaves it behind. Raises
         ScriptNotExecutableError when the script cannot run, which covers a disabled or retired
         script, a disabled project, and a project serving no revision, ValueError for an immediate
@@ -570,8 +573,9 @@ class NetBoxScriptJob(JobRunner):
         """
         Initialize both first occurrences and core-generated recurring successors.
 
-        Raises ValidationError when the Script has gone or its execution settings cannot be
-        queued with, which core records on the finished Job instead of rescheduling.
+        Raises ValidationError when the Script has gone, when its execution settings cannot be
+        queued with, or when a disk-backed upload came with it, which core records on the finished
+        Job instead of rescheduling.
         """
         from django.core.exceptions import ValidationError
 
@@ -603,6 +607,24 @@ class NetBoxScriptJob(JobRunner):
             'event': kwargs.get('event'),
         }
         kwargs.update(payload)
+        # rq pickles the task and cannot pickle a disk-backed upload. Refused before the row
+        # exists, not from the commit callback, which would leave a Job nothing will ever run.
+        uploads = list((kwargs.get('data') or {}).values())
+        carried = getattr(kwargs.get('request'), 'FILES', None) or {}
+        if hasattr(carried, 'lists'):
+            # Not values(), which reports only the last file under a repeated name.
+            uploads.extend(upload for _field, group in carried.lists() for upload in group)
+        else:
+            # runcustomscript builds its request with a plain dict, which has no lists().
+            uploads.extend(carried.values())
+        if any(isinstance(upload, TemporaryUploadedFile) for upload in uploads):
+            raise ValidationError(
+                _(
+                    'This request carries an upload held in a temporary file. A background Script '
+                    'run supports only an upload small enough to stay in memory, so nothing was '
+                    'queued.'
+                )
+            )
         with transaction.atomic():
             job = super().enqueue(*args, **kwargs)
             job.data = cls._row_data(payload)
@@ -961,7 +983,7 @@ class MigrationCutoverJob(JobRunner):
 
         run = MigrationRun.current()
         try:
-            counts = cutover.enter_cutover(run)
+            counts = cutover.enter_cutover(run, accept_concurrent_workers=bool(kwargs.get('accept_concurrent_workers')))
         except cutover.CutoverRefused as refusal:
             self.logger.error(str(refusal))
             raise JobFailed() from refusal

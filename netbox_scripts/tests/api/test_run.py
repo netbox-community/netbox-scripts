@@ -4,6 +4,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 
@@ -215,6 +216,32 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(given, status.HTTP_201_CREATED)
         self.assertEqual(captured['content'], b'given')
         self.assertHttpStatus(self.post_multipart(script, {}), status.HTTP_201_CREATED)
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_disk_backed_upload_is_refused_before_any_job_exists(self):
+        # Zero rather than a multi-megabyte body: this is about the file's representation.
+        script = self.publish_elsewhere(TAKES_A_FILE)
+        self.grant('view', 'run')
+        before = Job.objects.count()
+
+        response = self.post_multipart(script, {}, attachment=SimpleUploadedFile('notes.txt', b'hello'))
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('temporary file', str(response.data))
+        self.assertEqual(Job.objects.count(), before)
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_disk_backed_upload_the_form_never_declared_is_still_refused(self):
+        # Travels only in the copied request, which a guard reading the declared values misses.
+        script = self.publish_elsewhere(TAKES_AN_OPTIONAL_FILE)
+        self.grant('view', 'run')
+        before = Job.objects.count()
+
+        response = self.post_multipart(script, {}, undeclared=SimpleUploadedFile('other.txt', b'hello'))
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('temporary file', str(response.data))
+        self.assertEqual(Job.objects.count(), before)
 
     def test_the_list_route_still_refuses_post(self):
         # Routing a detail action must not reopen creation on a derived model.

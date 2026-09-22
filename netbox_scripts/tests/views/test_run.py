@@ -4,6 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 
@@ -25,6 +26,16 @@ from netbox_scripts.tests.plugin_testing import (
 from netbox_scripts.validation import validate_revision
 from utilities.datetime import local_now
 from utilities.testing import TestCase
+
+TAKES_A_FILE = (
+    b'from netbox_scripts.scripts import FileVar, Script\n\n\n'
+    b'class ReadFile(Script):\n'
+    b'    class Meta:\n'
+    b"        name = 'Read One File'\n\n"
+    b"    attachment = FileVar(label='Attachment')\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        return data['attachment'].read().decode()\n"
+)
 
 TAKES_A_NAME = (
     b'from netbox_scripts.scripts import Script, StringVar\n'
@@ -187,6 +198,23 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         content = response.content.decode()
         self.assertNotIn(key, content)
         self.assertNotIn(self.revision.digest, content)
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_disk_backed_upload_is_refused_on_the_browser_path_too(self):
+        self.publish(TAKES_A_FILE)
+        # Publishing retires the fixture's own script, so the run URL has to name the new one.
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='ReadFile')
+        self.grant('view', 'run')
+        before = Job.objects.count()
+
+        response = self.client.post(
+            self.url(),
+            {'attachment': SimpleUploadedFile('notes.txt', b'hello'), '_commit': 'on'},
+        )
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn('temporary file', response.content.decode())
+        self.assertEqual(Job.objects.count(), before)
 
     def test_a_valid_submission_queues_one_run_and_redirects_to_it(self):
         self.grant('view', 'run')

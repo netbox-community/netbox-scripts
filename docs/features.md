@@ -71,3 +71,5 @@ Recurring successors resolve the timeout from the current Script configuration.
 | A repository manifest declaring its own script files | Script file selection is a Project setting made in NetBox |
 | Declared pip requirements | A revision's external dependencies are neither read nor installed |
 | Recorded input values | A run records which script and revision ran and the result, but not the values submitted |
+| Legacy Reports | A class declaring `test_*` methods and no `run()` is refused at validation rather than emulated. Convert it by giving the class a `run()` method |
+| A permanent `extras.scripts` layer | Those imports work today as a transitional layer and stop working at NetBox v5.0. Moving to the plugin's authoring API is the work to do before that upgrade |

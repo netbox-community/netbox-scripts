@@ -24,7 +24,9 @@ activation and lets each Project serve one active revision at a time.
   revision details.
 - **Bring your existing scripts.** Keep using `extras.scripts` imports or adopt
   the plugin's authoring API. A migration workflow helps you move from NetBox's
-  built-in Custom Scripts.
+  built-in Custom Scripts. Two boundaries to know up front: the
+  `extras.scripts` layer is transitional and stops working at NetBox v5.0, and
+  legacy Reports are refused rather than emulated.
 
 See the [Features guide](https://netbox-community.github.io/netbox-scripts/features/)
 for supported functionality and current limitations.

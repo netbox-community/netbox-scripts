@@ -343,9 +343,8 @@ class CutoverTestCase(TestCase):
         self.assertFalse(source_rule.enabled)
         self.assertEqual(counts['event_rules'], 2)
 
-    def test_a_stale_built_in_job_cannot_execute_after_the_fence(self):
-        # Security-relevant rather than tidy: the task is gone from the queue and the row is no
-        # longer in an enqueued state, so nothing can pick it up.
+    def test_a_job_still_waiting_at_the_fence_cannot_execute_after_it(self):
+        # Security-relevant rather than tidy, which is why the queue is asserted on as well as the row.
         job = self.legacy_job(task_kwargs={'data': {}, 'commit': True})
         queue = django_rq.get_queue(job.queue_name)
 
@@ -428,8 +427,6 @@ class CutoverTestCase(TestCase):
         self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'cancelled')
 
     def test_a_job_a_worker_took_while_cancelling_is_not_replaced(self):
-        # started is what separates the two, because a worker sets it once and terminate() never
-        # does. Set here, so the interrupted pass lost a race rather than finishing its own work.
         job = self.legacy_job(task_kwargs={})
         cutover._capture(self.migration)
         original = cutover._fail_closed
@@ -440,6 +437,7 @@ class CutoverTestCase(TestCase):
 
         with mock.patch.object(cutover, '_fail_closed', interrupt), self.assertRaises(RuntimeError):
             cutover._close(self.migration)
+        # A worker's start after the cancellation failed the row, so the pass lost the race.
         Job.objects.filter(pk=job.pk).update(started=timezone.now())
 
         reloaded = MigrationRun.objects.get(pk=self.migration.pk)

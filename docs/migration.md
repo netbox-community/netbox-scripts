@@ -26,6 +26,24 @@ Run them in the order above. Each refuses if the one before it has not
 completed. Verification is the exception: it waits for nothing and refuses nothing, so you can run it
 between any two passes to see where the migration stands.
 
+**Check the worker arrangement before the cutover.** Out of the box every relevant job uses the
+`default` queue: built-in Custom Script runs, this plugin's Script runs, and the migration passes
+themselves. What decides whether a built-in run can start while the cutover works is **the number of
+workers, not the number of queues**. One worker consuming everything runs jobs one at a time, so the
+cutover holds it for the whole pass. Several workers consuming `default` can run a built-in job
+beside it, and one worker can serve several queues and still run them one at a time.
+
+Then check which queues those workers cover. `QUEUE_MAPPINGS` for `script` can send built-in runs
+to a queue of their own, while the migration passes stay on `default`, because they are queued
+against no object and always fall back to it. A worker subscribed to both still runs them one at a
+time, so a second queue only matters when nothing covers both. And a job already waiting keeps the
+queue name it was created with, so changing the mapping now does not move it. Read the queue
+recorded on the built-in Jobs themselves, not only today's configuration.
+
+Aim for no concurrent execution path between the cutover and the built-in runs it has to close. That
+is narrower than it sounds: it closes the window in which a captured run can start, and it is not a
+write fence, because nothing stops someone with the permission submitting new work.
+
 A migration is tracked as a single **migration run**, which holds the state, the journal the later
 passes replay from, and what each pass recorded. Only one run is open at a time, and its state only
 moves forward: `legacy`, `staging`, `cutover`, `migrated`.
@@ -48,10 +66,13 @@ irreversible, so do all of it before you press **Enter cutover**.
    restored against a different storage state serves revisions whose bytes are gone. Note the NetBox
    and plugin versions with the backup. The backup does not cover the queue, so record any pending
    scheduled run you would want back if you reversed. See [Recovery](#recovery).
-4. **Synchronize each Data Source one last time, and let its reconciliation finish.** Staging freezes
-   whatever the Project holds at that moment, so a repository that moves afterwards leaves the
-   migrated Project a revision behind. The **Reconcile Source** action on each Data Source Project is
-   what drives that, and each Project's revision list is where you confirm it finished.
+4. **Synchronize each NetBox Data Source one last time, and let the sync finish.** Staging freezes
+   whatever the source holds at that moment, so a repository that moves afterwards leaves the
+   migrated Project a revision behind. Do this on the Data Source itself, under *Operations > Data
+   Sources*. There is no Script Project to act on yet, because staging is what creates them. After
+   staging, each new Project's revision list is where you confirm what it captured, and its
+   **Reconcile Source** action is how you rebuild it from the directory as it stands now if the
+   source moved in between.
 5. **Run the inventory and clear every blocking finding.** Staging refuses on any of them and creates
    nothing, so this is not optional. The Migration page lists them above the buttons.
 
@@ -151,8 +172,12 @@ Event Rule, a permission or a Job.
 A `warning` is almost always the `legacy_import` finding: the module imports its authoring API from
 `extras.scripts`. That import works here today and stops working at NetBox v5.0, so **the
 legacy-import list is the work queue to clear before that upgrade**. It is what turns v5.0 into a
-deadline rather than a cliff. See [Authoring](authoring.md) for the forms that resolve and for why
-the compatibility layer is transitional.
+deadline rather than a cliff. NetBox deprecated its built-in Custom Scripts in 4.7.0, the release
+this plugin requires, and tracks their removal for v5.0 in
+[netbox#22935](https://github.com/netbox-community/netbox/issues/22935) and
+[netbox#22938](https://github.com/netbox-community/netbox/issues/22938). See
+[Authoring](authoring.md) for the forms that resolve and for why the compatibility layer is
+transitional.
 
 The other one worth knowing is `import_unresolvable_in_branch`: a module imports something this
 host cannot provide, but only inside an `if`. Reading the source cannot say whether that branch
@@ -317,9 +342,9 @@ Recreating a schedule follows five rules worth knowing, because between them the
 migration runs your code and who it runs as.
 
 - A schedule still in the future keeps its time.
-- A recurrence that fell due during the handover keeps its interval and starts now. A queue runs a
-  past-due job the moment it is enqueued, and a migration must not run a script unasked.
-- A one-shot that fell due is refused for the same reason, and reported so you can decide.
+- A recurrence that fell due during the handover keeps its interval and is queued to run at the
+  first opportunity, because a queue holds a past-due job for the next free worker.
+- A one-shot that fell due is refused rather than run unasked, and reported so you can decide.
 - A schedule is replayed under the account that owned it, and only while that account can still run
   the script. One whose owner no longer holds the permission is refused and the step stays open, so
   granting it and running the pass again picks the schedule up.
@@ -328,11 +353,14 @@ migration runs your code and who it runs as.
   nobody and is attributed to nobody, and no grant lets a deactivated account run anything.
   Recreate it by hand under an account that should own it.
 
-**A run that was merely queued rather than scheduled is recreated to run at once**, with the commit
-setting it was queued with, because that is what the cutover promised the owner when it cancelled it.
-That is the one case where this pass executes your script, so if you would rather it did not, let the
-queue drain before you enter the cutover. It refuses to start while a built-in Custom Script job is actually
-running, but a job still waiting is captured and replayed.
+**A run that was merely queued rather than scheduled, and a recurrence that fell due, both become
+eligible to run the moment this pass recreates them**, each with the commit setting it was captured
+with, because that is what the cutover promised their owners when it cancelled them. Eligible is not
+immediate: a worker occupied by this pass finishes it first. Draining the queue before you enter the
+cutover deals with the run that was merely queued. Nothing deals with the recurrence, because its
+next occurrence can fall due at any point in the handover, however short that handover is. Do not
+assume your scripts wait for the migration to finish. The cutover refuses to start while a built-in
+Custom Script job is actually running, but a job still waiting is captured and replayed.
 
 Each of the four steps records its completion only once it has left nothing a later run could still
 do. So a reference it could not move, because the Script it names does not resolve yet, is
@@ -413,15 +441,28 @@ thing makes it reversible by hand. Anyone who can create an Object Permission ca
 `extras.add_scriptmodule` again and upload a new built-in script, and nothing this plugin ships can
 refuse that. It is a fresh script rather than a returning one, because the old rows are gone.
 
-**A stale built-in job cannot execute.** The cutover fails every waiting job closed and drops its
-task from the queue, so there is nothing left for a worker to pick up. Recurring runs are recreated
-against the Script that replaced the built-in one, subject to the owner rules above, which is
-why the reference pass comes before cleanup rather than after.
+**Nothing the cutover can still reach is left able to execute, and it says so when something was
+out of reach.** Every waiting job it can reach is failed closed and its task dropped. A job a worker
+had already taken is not terminated underneath that worker, because killing a run mid-flight is
+worse than letting it finish. It is recorded instead, and a run recorded that way is withheld from
+the replay, so the migration never runs it a second time. The cutover step stays open while any such
+run is still executing, or while a built-in run was queued after the capture, and running the
+cutover again closes what has since settled. Recurring runs are recreated against the Script that
+replaced the built-in one, subject to the owner rules above, which is why the reference pass comes
+before cleanup rather than after.
+
+The honest limit is the window itself. A built-in run that starts between the capture and the
+closures does execute, against the built-in Custom Script, and the cutover reports it rather than
+preventing it. The worker arrangement that closes that window is in
+[What the seven passes do](#what-the-seven-passes-do).
 
 ## Recovery
 
-**Before the fence, recovery is abandonment.** Delete the staged Projects and their revisions. The
-built-in feature has not been touched, so there is nothing to undo and no state to reconcile.
+**Before the fence, recovery is abandonment.** Delete the Projects and revisions this migration
+created. **Staging can stage onto a Project you already had**, so deleting everything it names would
+take content that predates the migration. Its result records, per Project, whether the pass created
+the Project and whether it created the revision, which is what tells the two apart. The built-in
+feature has not been touched, so there is nothing to undo and no state to reconcile.
 
 **After the fence there is no rollback.**
 

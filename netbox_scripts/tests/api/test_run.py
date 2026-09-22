@@ -1,7 +1,9 @@
+import json
 import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework import status
 
@@ -28,6 +30,28 @@ UNSCHEDULABLE = (
     b'        scheduling_enabled = False\n\n'
     b'    def run(self, data, commit):\n'
     b"        self.log_success('ran')\n"
+)
+
+# A required FileVar, which only a multipart request can supply a value for.
+TAKES_A_FILE = (
+    b'from netbox_scripts.scripts import FileVar, Script\n\n\n'
+    b'class ReadFile(Script):\n'
+    b'    class Meta:\n'
+    b"        name = 'Read One File'\n\n"
+    b"    attachment = FileVar(label='Attachment')\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        return data['attachment'].read().decode()\n"
+)
+
+# The same variable declared optional, so an omitted file is a valid request rather than a 400.
+TAKES_AN_OPTIONAL_FILE = (
+    b'from netbox_scripts.scripts import FileVar, Script\n\n\n'
+    b'class ReadMaybe(Script):\n'
+    b'    class Meta:\n'
+    b"        name = 'Read One File If Given'\n\n"
+    b"    attachment = FileVar(label='Attachment', required=False)\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        return 'got it' if data['attachment'] else 'nothing'\n"
 )
 
 # The same script under a different comment, so it stages to a different digest.
@@ -61,6 +85,11 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         revision = validate_revision(revision, job=Job.objects.create(name='validation', job_id=uuid.uuid4()))
         activate_revision(revision)
         return NetBoxScript.objects.get(project=project)
+
+    def post_multipart(self, script, data, **files):
+        """POST one run request as multipart, which is the only way to carry an uploaded file."""
+        body = {'data': json.dumps(data), **files}
+        return self.client.post(self.run_url(script), body, format='multipart', **self.header)
 
     def test_an_omitted_commit_falls_back_to_the_scripts_effective_default(self):
         # The fallback has to read the row, so an operator's override applies to a caller that
@@ -147,6 +176,45 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
         self.assertIn('label', response.data)
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_a_file_variable_supplied_over_rest_reaches_the_run(self):
+        # The built-in feature binds files on this path, so without it a migrating script loses an input.
+        script = self.publish_elsewhere(TAKES_A_FILE)
+        self.grant('view', 'run')
+        captured = {}
+        original = NetBoxScriptJob.enqueue_run
+
+        def record(script, **kwargs):
+            # Django closes an uploaded file when the request ends, so read it while it is open.
+            attachment = kwargs['data']['attachment']
+            captured['content'] = attachment.read()
+            attachment.seek(0)
+            return original(script, **kwargs)
+
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
+            response = self.post_multipart(script, {}, attachment=SimpleUploadedFile('notes.txt', b'hello'))
+
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertEqual(captured['content'], b'hello')
+
+    def test_an_optional_file_variable_is_bound_when_given_and_may_be_omitted(self):
+        # Omitting it alone passes either way, so the supplied half is what gives this teeth.
+        script = self.publish_elsewhere(TAKES_AN_OPTIONAL_FILE)
+        self.grant('view', 'run')
+        captured = {}
+        original = NetBoxScriptJob.enqueue_run
+
+        def record(script, **kwargs):
+            attachment = kwargs['data']['attachment']
+            captured['content'] = attachment.read() if attachment else None
+            return original(script, **kwargs)
+
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
+            given = self.post_multipart(script, {}, attachment=SimpleUploadedFile('notes.txt', b'given'))
+
+        self.assertHttpStatus(given, status.HTTP_201_CREATED)
+        self.assertEqual(captured['content'], b'given')
+        self.assertHttpStatus(self.post_multipart(script, {}), status.HTTP_201_CREATED)
 
     def test_the_list_route_still_refuses_post(self):
         # Routing a detail action must not reopen creation on a derived model.

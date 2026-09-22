@@ -317,6 +317,8 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         # validates them.
         form = instance.as_form(
             parameters['data'],
+            # A FileVar's value cannot travel in the JSON envelope, so it arrives as its own part.
+            files=request.FILES,
             commit_default=script.commit_default,
             notifications_default=script.notifications_default,
         )

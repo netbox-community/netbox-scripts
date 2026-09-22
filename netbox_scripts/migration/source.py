@@ -4,6 +4,9 @@ Content comes back as frozen dataclasses and counts. The reference readers retur
 instead. What to do with them is the caller's business.
 """
 
+# Core imports here are deferred into their functions: the feature they name may be removed, so a
+# missing symbol must fail one migration pass rather than plugin loading.
+
 from dataclasses import dataclass
 
 __all__ = (

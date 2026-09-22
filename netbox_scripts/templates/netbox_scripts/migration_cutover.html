@@ -5,7 +5,7 @@
 Cutover confirmation.
 
 Context:
-  - form:         MigrationCutoverForm, whose one checkbox the pass will not run without
+  - form:         MigrationCutoverForm, whose backup checkbox the pass will not run without
   - report_count: Built-in report modules, which this migration does not cover
   - return_url:   Where Cancel goes, the migration page
 {% endcomment %}
@@ -38,4 +38,5 @@ Context:
     </p>
   {% endif %}
   {% render_field form.backup_taken %}
+  {% render_field form.accept_concurrent_workers %}
 {% endblock message %}

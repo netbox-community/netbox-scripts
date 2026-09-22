@@ -40,9 +40,20 @@ time, so a second queue only matters when nothing covers both. And a job already
 queue name it was created with, so changing the mapping now does not move it. Read the queue
 recorded on the built-in Jobs themselves, not only today's configuration.
 
-Aim for no concurrent execution path between the cutover and the built-in runs it has to close. That
-is narrower than it sounds: it closes the window in which a captured run can start, and it is not a
-write fence, because nothing stops someone with the permission submitting new work.
+The cutover requires no concurrent execution path between itself and the built-in runs it has to
+close, and it checks when you enter it, before it captures anything. Entering it while a second
+worker is running is refused, naming the workers, because a second worker can take a built-in run
+beside the pass. The check sees only the workers registered at that moment and cannot stop one
+starting later, so **keep one worker for the whole pass**, not just for the moment you enter it. The
+requirement is narrower than it sounds: it closes the window in which a captured run can start, and
+it is not a write fence, because nothing stops someone with the permission submitting new work.
+
+Ticking **Accept concurrent workers** enters the cutover anyway and records on the migration run
+which workers were running when the risk was accepted. It gives up the second of the
+[two guarantees](#two-guarantees-and-what-each-one-is-worth). A built-in run that a second worker
+takes while the pass is cancelling it can execute and be recreated as well, and nothing the
+migration records can always say which runs that happened to. If a Script must not run twice,
+reduce to one worker instead.
 
 A migration is tracked as a single **migration run**, which holds the state, the journal the later
 passes replay from, and what each pass recorded. Only one run is open at a time, and its state only
@@ -68,8 +79,9 @@ irreversible, so do all of it before you press **Enter cutover**.
    scheduled run you would want back if you reversed. See [Recovery](#recovery).
 4. **Synchronize each NetBox Data Source one last time, and let the sync finish.** Staging freezes
    whatever the source holds at that moment, so a repository that moves afterwards leaves the
-   migrated Project a revision behind. Do this on the Data Source itself, under *Operations > Data
-   Sources*. There is no Script Project to act on yet, because staging is what creates them. After
+   migrated Project a revision behind. Do this on the Data Source itself, under *Operations >
+   Integrations > Data Sources*. Staging creates the Script Projects, so on a first pass there is
+   none to act on yet, and a repeated pass stages onto the ones it made before. After
    staging, each new Project's revision list is where you confirm what it captured, and its
    **Reconcile Source** action is how you rebuild it from the directory as it stands now if the
    source moved in between.
@@ -266,8 +278,9 @@ recorded progress.
 it. Every Event Rule naming the built-in feature, as an action or as a source. Every waiting
 built-in Custom Script job, with the input it was going to run with. All three go on the migration run's
 journal, which is what makes the later passes replayable and what makes a half-finished migration
-resumable rather than stuck. Capture happens once, because a second capture would read the closed
-state back as though it were the original.
+resumable rather than stuck. The first pass records permissions, Event Rules and the migration map,
+and a retry keeps those records rather than reading the closed state back as though it were the
+original. What a retry does add is any built-in run queued since, which is not recorded yet.
 
 **Then it closes four doors.**
 
@@ -441,20 +454,25 @@ thing makes it reversible by hand. Anyone who can create an Object Permission ca
 `extras.add_scriptmodule` again and upload a new built-in script, and nothing this plugin ships can
 refuse that. It is a fresh script rather than a returning one, because the old rows are gone.
 
-**Nothing the cutover can still reach is left able to execute, and it says so when something was
-out of reach.** Every waiting job it can reach is failed closed and its task dropped. A job a worker
-had already taken is not terminated underneath that worker, because killing a run mid-flight is
-worse than letting it finish. It is recorded instead, and a run recorded that way is withheld from
-the replay, so the migration never runs it a second time. The cutover step stays open while any such
-run is still executing, or while a built-in run was queued after the capture, and running the
-cutover again closes what has since settled. Recurring runs are recreated against the Script that
-replaced the built-in one, subject to the owner rules above, which is why the reference pass comes
-before cleanup rather than after.
+**Nothing the cutover can still reach is left able to execute, and it says so when something was out
+of reach.** Every waiting job it can reach is failed closed and its task dropped. A job a worker had
+already taken is not terminated underneath that worker, because killing a run mid-flight is worse
+than letting it finish. It is recorded instead, and a run recorded that way is withheld from the
+replay, so the migration never runs it a second time. The cutover step stays open while any such run
+is still executing, or while a built-in run was queued after the capture, and running the cutover
+again closes what has since settled. Recurring runs are recreated against the Script that replaced
+the built-in one, subject to the owner rules above, which is why the reference pass comes before
+cleanup rather than after.
 
-The honest limit is the window itself. A built-in run that starts between the capture and the
-closures does execute, against the built-in Custom Script, and the cutover reports it rather than
-preventing it. The worker arrangement that closes that window is in
-[What the seven passes do](#what-the-seven-passes-do).
+**That guarantee rests on one worker for the whole pass**, the arrangement described in
+[What the seven passes do](#what-the-seven-passes-do). The one worker is busy with the pass, so no
+built-in run can start while it works. If the pass is interrupted, a run can still fall due and
+execute before you enter the cutover again, and the pass then records it as executed rather than
+recreating it. With **Accept concurrent workers** ticked, the guarantee does not hold. A second
+worker can take a built-in run while the cutover is cancelling it. That run executes against the
+built-in Custom Script, and the cutover can still record it as cancelled. The repointing pass then
+recreates it, and it runs a second time. Neither the journal nor the Job row can always tell such a
+run apart from a real cancellation.
 
 ## Recovery
 

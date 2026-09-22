@@ -10,7 +10,7 @@ __all__ = ('MigrationCutoverForm', 'ScriptProjectActivationForm')
 
 
 class MigrationCutoverForm(ConfirmationForm):
-    """Add the backup acknowledgement the cutover requires."""
+    """Confirm the backup the cutover requires, and optionally accept concurrent workers."""
 
     backup_taken = forms.BooleanField(
         required=True,
@@ -18,6 +18,15 @@ class MigrationCutoverForm(ConfirmationForm):
         help_text=_(
             'The database and the source storage as one restore point, taken before this pass and '
             'noted with the NetBox and plugin versions.'
+        ),
+    )
+    accept_concurrent_workers = forms.BooleanField(
+        required=False,
+        label=_('Accept concurrent workers'),
+        help_text=_(
+            'Only needed when the cutover refuses because more than one worker can take a built-in '
+            'run while it works. Accepting means a run that starts in that window executes against '
+            'the built-in feature and may also be recreated.'
         ),
     )
 

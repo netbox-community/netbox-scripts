@@ -57,6 +57,8 @@ ROWS = (
     ('rq.exceptions.TimeoutFormatError', 'rq.exceptions:TimeoutFormatError'),
     ('rq.timeouts.JobTimeoutException', 'rq.timeouts:JobTimeoutException'),
     ('utilities.rqworker.any_workers_for_queue', 'utilities.rqworker:any_workers_for_queue'),
+    ('utilities.rqworker.get_all_workers', 'utilities.rqworker:get_all_workers'),
+    ('drf_spectacular.drainage.GENERATOR_STATS', 'drf_spectacular.drainage:GENERATOR_STATS'),
     ('utilities.exceptions.RQWorkerNotRunningException', 'utilities.exceptions:RQWorkerNotRunningException'),
     ('netbox.api.authentication.TokenPermissions', 'netbox.api.authentication:TokenPermissions'),
     ('extras.models.ScriptModule and its manager', 'extras.models:ScriptModule.objects'),

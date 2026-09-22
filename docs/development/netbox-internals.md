@@ -30,6 +30,8 @@ the plugin contract allows explicitly.
 | `rq.exceptions.TimeoutFormatError` | `runtime/introspection.py` | The refusal RQ raises for a timeout string it cannot parse, which becomes a script metadata error rather than an unhandled failure |
 | `rq.timeouts.JobTimeoutException` | `jobs.py` | The worker's own deadline. It is propagated rather than classified, so a run that ran out of time releases its lease instead of recording a permanent verdict |
 | `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Whether a worker is live for the queue, so a REST run that nothing could pick up is refused rather than queued |
+| `utilities.rqworker.get_all_workers` | `migration/cutover.py` | Every live worker by name. A second one can take a built-in run beside the cutover pass, which is the window the cutover refuses to cross without an acknowledgement |
+| `drf_spectacular.drainage.GENERATOR_STATS` | `tests/api/test_schema.py` | Silences schema-generation warnings for the whole NetBox API while the plugin's own operations are checked. The same import core uses in its own tests |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | The 503 that refusal answers with, which is what NetBox's own run endpoint returns |
 | `netbox.api.authentication.TokenPermissions` | `api/views.py` | The permission class the REST run action subclasses, so a POST resolves to the run permission rather than to add |
 | `extras.models.ScriptModule` and its manager | `migration/source.py` | Every built-in script module. A proxy on `ManagedFile` whose manager admits both the `scripts` and `reports` roots, so legacy Reports are already rows |
@@ -45,7 +47,7 @@ the plugin contract allows explicitly.
 | `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Withdrawing every grant on the built-in feature, which is what the shipped cutover fences with |
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Taking a rule out of service for the handover, and putting it back once its action and sources name plugin rows |
 | `core.models.Job.terminate` | `migration/cutover.py` | Failing a queued run closed. Used rather than an `update()` so the owner is notified, and there is no cancelled status to set |
-| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | A queued run's input, which lives only on the RQ task because `Job.enqueue()` keeps it off the row, and then dropping that task so nothing can execute it |
+| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | A queued run's input, which lives only on the RQ task because `Job.enqueue()` keeps it off the row, and then dropping that task, which RQ's scheduler can still queue again when the run fell due at that moment |
 | `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | The miss RQ raises when a queued run's task is already gone. The capture records that run's input as unrecoverable, and the closure treats the task as already dropped |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Deregistering the built-in source, so no later synchronization rewrites it. Filtered on the **concrete** `ManagedFile` type, the inverse of the proxy rule below |
 | `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repointing a rule onto the Script that replaced its built-in one. `full_clean()` first, because a rule can be invalid for reasons that predate the migration |
@@ -251,8 +253,9 @@ Per-record isolation there would fix that for every plugin, not only for this on
 small.** The cutover withdraws every grant NetBox's own permissions UI can make,
 disables every Event Rule that uses the feature, fails every queued run closed and
 drops its task, and deregisters the source from synchronization. Cleanup then deletes
-the Script and ScriptModule rows outright. Once those rows are gone there is nothing
-left to execute, so the hole is not "the old scripts still run" but "a privileged user
+the Script and ScriptModule rows of every mapped module nothing still needs, and
+retains one whose Job history no plugin row can take over. Once a module's rows are gone
+there is nothing of it left to execute, so the hole is not "the old scripts still run" but "a privileged user
 can create new ones": a superuser, or anyone regranted `extras.add_scriptmodule`, can
 still upload and run a fresh built-in script. Three narrower gaps sit beside it, and
 all three are permission composition rather than the feature itself. A superuser
@@ -263,5 +266,5 @@ and sits ahead of NetBox's own backend.
 
 Nothing on the inventory and staging side depends on the fence, because both passes are
 re-runnable and content-addressed, so a source that moved underneath them simply
-produces another revision. The cutover depends on it only for the guarantee, not for
-correctness: it is what turns "plan a maintenance window" into "the feature is closed".
+produces another revision. What the cutover lacks without it is a closed feature: it
+is what would turn "plan a maintenance window" into "the feature is closed".

@@ -350,7 +350,10 @@ class MigrationCutoverView(DestructiveMigrationView):
                     'return_url': reverse('plugins:netbox_scripts:migration'),
                 },
             )
-        MigrationCutoverJob.enqueue(user=request.user)
+        MigrationCutoverJob.enqueue(
+            user=request.user,
+            accept_concurrent_workers=form.cleaned_data['accept_concurrent_workers'],
+        )
         messages.success(request, _('Queued the Custom Script migration cutover.'))
         return redirect('plugins:netbox_scripts:migration')
 

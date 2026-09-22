@@ -250,7 +250,7 @@ state back as though it were the original.
 |---|---|
 | Permissions | Every captured grant on the built-in feature is disabled. Scoped by object type, so a grant covering reports goes with it, and the repointing pass then drops the report coverage for good. |
 | Event Rules | Every captured rule is disabled, so nothing fires during the handover. The action decides: a rule firing a report is left alone entirely, so one that also watches the built-in feature keeps that subscription and no later pass repoints it. |
-| Queued runs | Every waiting job is failed closed and its task dropped, so nothing queued can still execute. The owner is notified, and the message says the plugin will recreate it. |
+| Queued runs | Every waiting job it can still reach is failed closed and its task dropped, so nothing queued can still execute. The owner is notified, and the message says whether the plugin recreates the run or it has to be scheduled again by hand. One a worker had already taken is left to finish and recorded instead, and the cutover stays open until it has. |
 | Synchronization | The built-in script source is deregistered, so no later synchronization rewrites it. |
 
 **What this is not.** It is not a complete write fence, and it does not try to be. It withdraws

@@ -280,6 +280,12 @@ class CutoverTestCase(TestCase):
         self.assertEqual(self.migration.journal['schedules'], [])
         self.assertEqual(counts['schedules'], 0)
         self.assertTrue(any(str(job.pk) in warning for warning in self.migration.warnings))
+        # Its row stays waiting, so without a record of it the step could never complete.
+        self.assertEqual(self.migration.journal['schedules_unreadable'], [job.pk])
+        self.assertEqual(counts['unreadable'], 1)
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
 
     def test_a_terminal_job_is_not_captured(self):
         self.legacy_job(status=JobStatusChoices.STATUS_COMPLETED)
@@ -332,20 +338,24 @@ class CutoverTestCase(TestCase):
         self.assertEqual(len(self.migration.journal['schedules']), 1)
         Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
 
-        counts = cutover._close(self.migration)
+        counts, outstanding, warnings = cutover._close(self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
         self.assertEqual(counts['schedules'], 0)
+        # Skipping is the deliberate half, recording it is the fix: the replay has to know.
+        self.assertEqual(outstanding, self.migration.journal['schedules'])
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
+        self.assertTrue(any(str(job.pk) in warning for warning in warnings))
 
     def test_a_resumed_close_reports_what_is_closed_not_what_it_changed(self):
         # Counting the delta made a resumed pass report zeroes for what the first attempt closed.
         permission = self.legacy_permission()
         rule = self.legacy_action_rule()
         cutover._capture(self.migration)
-        first = cutover._close(self.migration)
+        first, _outstanding, _raised = cutover._close(self.migration)
 
-        second = cutover._close(self.migration)
+        second, _resumed, _restated = cutover._close(self.migration)
 
         self.assertEqual(first['permissions'], second['permissions'])
         self.assertEqual(first['event_rules'], second['event_rules'])
@@ -354,6 +364,84 @@ class CutoverTestCase(TestCase):
         rule.refresh_from_db()
         self.assertFalse(permission.enabled)
         self.assertFalse(rule.enabled)
+
+    def test_a_re_run_does_not_downgrade_the_cancellation_it_already_made(self):
+        # After the first pass the row is failed, which reads exactly like one a worker took, so a
+        # second close must not reclassify its own work and withhold the replay for ever.
+        self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+
+        first, _outstanding, _raised = cutover._close(self.migration)
+        second, outstanding, _restated = cutover._close(self.migration)
+
+        self.assertEqual(first['schedules'], 1)
+        self.assertEqual(second['schedules'], 1)
+        self.assertEqual(outstanding, [])
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'cancelled')
+
+    def test_a_capture_replayed_before_any_close_records_nothing_twice(self):
+        # A crash before the closures leaves every job enqueued, so a second capture sees them all.
+        job = self.legacy_job(task_kwargs={})
+        lost = self.legacy_job(task_kwargs=None)
+
+        cutover._capture(self.migration)
+        cutover._capture(self.migration)
+
+        self.assertEqual([entry['job_pk'] for entry in self.migration.journal['schedules']], [job.pk])
+        self.assertEqual(self.migration.journal['schedules_unreadable'], [lost.pk])
+
+    def test_a_job_that_starts_after_the_capture_leaves_the_step_open(self):
+        # The window the fence could not see: the up-front running check passes, then a worker
+        # takes the occurrence before the closures reach it.
+        job = self.legacy_job(task_kwargs={})
+        captured = cutover._capture
+
+        def start_it(run):
+            warnings = captured(run)
+            Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
+            return warnings
+
+        with mock.patch.object(cutover, '_capture', start_it):
+            counts = cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
+        self.assertEqual(counts['schedules'], 0)
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+        self.assertTrue(any(str(job.pk) in warning for warning in self.migration.warnings))
+
+    def test_a_job_that_finished_after_the_capture_does_not_hold_the_step(self):
+        # It has already had its effect, so there is nothing left to wait for. Recording it is what
+        # keeps the replay from running it a second time.
+        job = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_COMPLETED)
+
+        counts = cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'executed')
+        self.assertEqual(counts['schedules'], 0)
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
+    def test_a_successor_enqueued_after_the_first_capture_is_still_captured(self):
+        # A capture that skips its own journal key never sees the successor a recurring run makes.
+        first = self.legacy_job(interval=60, task_kwargs={})
+        cutover._capture(self.migration)
+        Job.objects.filter(pk=first.pk).update(status=JobStatusChoices.STATUS_COMPLETED)
+        successor = self.legacy_job(interval=60, task_kwargs={})
+
+        counts = cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        entries = {entry['job_pk']: entry for entry in self.migration.journal['schedules']}
+        self.assertEqual(entries[successor.pk]['cancellation'], 'cancelled')
+        self.assertEqual(entries[first.pk]['cancellation'], 'executed')
+        self.assertEqual(counts['schedules'], 1)
+        self.assertEqual(counts['uncaptured'], 0)
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+        successor.refresh_from_db()
+        self.assertEqual(successor.status, JobStatusChoices.STATUS_FAILED)
 
     def test_the_deregistered_records_are_journalled(self):
         # The only closure with no record of what it removed, so a manual restore had nothing to read.

@@ -972,15 +972,27 @@ class MigrationCutoverJob(JobRunner):
         self.logger.info(
             _(
                 'Withdrew {permissions} permission(s) on the built-in feature, disabled '
-                '{event_rules} Event Rule(s), cancelled {schedules} queued job(s), '
-                'and deregistered {auto_sync} synchronization record(s).'
+                '{event_rules} Event Rule(s), cancelled {schedules} queued job(s), closed '
+                '{unreadable} whose input could not be read, and deregistered {auto_sync} '
+                'synchronization record(s).'
             ).format(
                 permissions=counts['permissions'],
                 event_rules=counts['event_rules'],
                 schedules=counts['schedules'],
+                unreadable=counts['unreadable'],
                 auto_sync=counts['auto_sync'],
             )
         )
+        if not run.step_done(cutover.STEP):
+            # Everything but the queue is closed, so the honest report is what is still open.
+            self.logger.warning(
+                _(
+                    'The cutover is incomplete and the warnings above name what is still open. Run '
+                    'this job again once they are resolved. The built-in feature accepts no new '
+                    'work in the meantime.'
+                )
+            )
+            return
         self.logger.info(
             _(
                 'The built-in Custom Scripts accept no further work from any user this installation '

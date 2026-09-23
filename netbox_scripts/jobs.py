@@ -3,7 +3,8 @@
 import uuid
 from datetime import timedelta
 
-from django.core.files.uploadedfile import TemporaryUploadedFile
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import TemporaryUploadedFile, UploadedFile
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -516,8 +517,9 @@ class NetBoxScriptJob(JobRunner):
         task whose record of what it runs is missing. A recurring run is pinned to nothing and
         resolves the active revision at each occurrence. The script's own recorded metadata
         supplies the job timeout, and the notification policy unless one is given here. Raises
-        ValidationError for a recorded or overridden setting a run cannot be queued with, and for a
-        disk-backed upload, which cannot travel to a worker. Both before any row is written.
+        ValidationError for a recorded or overridden setting a run cannot be queued with, for a
+        disk-backed upload, which cannot travel to a worker, and for a recurrence carrying any
+        upload, each before any row is written.
         An immediate run commits its Job row before executing, so the row is
         visible for the whole run and an interrupted run leaves it behind. Raises
         ScriptNotExecutableError when the script cannot run, which covers a disabled or retired
@@ -574,11 +576,9 @@ class NetBoxScriptJob(JobRunner):
         Initialize both first occurrences and core-generated recurring successors.
 
         Raises ValidationError when the Script has gone, when its execution settings cannot be
-        queued with, or when a disk-backed upload came with it, which core records on the finished
-        Job instead of rescheduling.
+        queued with, when a disk-backed upload came with it, or when a recurrence carries any
+        upload, which core records on the finished Job instead of rescheduling.
         """
-        from django.core.exceptions import ValidationError
-
         if kwargs.get('immediate'):
             raise ValueError('Use enqueue_run(immediate=True) for synchronous Script execution.')
         instance = kwargs.get('instance')
@@ -607,8 +607,7 @@ class NetBoxScriptJob(JobRunner):
             'event': kwargs.get('event'),
         }
         kwargs.update(payload)
-        # rq pickles the task and cannot pickle a disk-backed upload. Refused before the row
-        # exists, not from the commit callback, which would leave a Job nothing will ever run.
+        # Refused before the row exists, not from the commit callback, which would leave a Job nothing will ever run.
         uploads = list((kwargs.get('data') or {}).values())
         carried = getattr(kwargs.get('request'), 'FILES', None) or {}
         if hasattr(carried, 'lists'):
@@ -617,6 +616,15 @@ class NetBoxScriptJob(JobRunner):
         else:
             # runcustomscript builds its request with a plain dict, which has no lists().
             uploads.extend(carried.values())
+        # Core queues each successor with these same file objects, after an occurrence may have read or closed them.
+        if kwargs.get('interval') and any(isinstance(upload, UploadedFile) for upload in uploads):
+            raise ValidationError(
+                _(
+                    'File uploads are not supported for recurring runs, so nothing was queued. Remove the '
+                    'upload or run the Script once.'
+                )
+            )
+        # rq pickles the task and cannot pickle a disk-backed upload.
         if any(isinstance(upload, TemporaryUploadedFile) for upload in uploads):
             raise ValidationError(
                 _(
@@ -796,7 +804,7 @@ class NetBoxScriptJob(JobRunner):
         instance = script_class()
         instance.request = request
         instance.event = event
-        # Cleaned values win. A request file only fills a name the form never declared.
+        # Cleaned values win. A request file only fills a name the cleaned values do not carry.
         values = dict(data)
         for name, uploaded in getattr(request, 'FILES', {}).items():
             values.setdefault(name, uploaded)
@@ -1009,15 +1017,15 @@ class MigrationCutoverJob(JobRunner):
             self.logger.warning(
                 _(
                     'The cutover is incomplete and the warnings above name what is still open. Run '
-                    'this job again once they are resolved. The built-in feature accepts no new '
-                    'work in the meantime.'
+                    'this job again once they are resolved, and keep built-in Script submissions '
+                    'stopped in the meantime.'
                 )
             )
             return
         self.logger.info(
             _(
-                'The built-in Custom Scripts accept no further work from any user this installation '
-                'grants permissions to. Activate the staged Projects next.'
+                'Captured permissions and Event Rules are withdrawn. Keep built-in Script submissions '
+                'stopped while you activate the staged Projects and repoint references.'
             )
         )
 

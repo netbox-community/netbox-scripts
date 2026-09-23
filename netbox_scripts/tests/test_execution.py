@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import django_rq
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -885,6 +885,59 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertTrue(any('not rescheduled' in line for line in logs.output))
+        self.assertFalse(
+            Job.objects.filter(object_id=script.pk, object_type=job.object_type).exclude(pk=job.pk).exists()
+        )
+
+    def test_a_recurrence_carrying_an_upload_in_its_input_is_refused(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        before = Job.objects.count()
+
+        with self.assertRaises(ValidationError):
+            NetBoxScriptJob.enqueue_run(
+                self.script(),
+                data={'attachment': SimpleUploadedFile('notes.txt', b'hello')},
+                commit=True,
+                user=self.user,
+                interval=60,
+            )
+
+        self.assertEqual(Job.objects.count(), before)
+
+    def test_a_recurrence_carrying_an_upload_in_a_plain_request_mapping_is_refused(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        request = fake_request(self.user)
+        request.FILES = {'attachment': SimpleUploadedFile('notes.txt', b'hello')}
+        before = Job.objects.count()
+
+        with self.assertRaises(ValidationError):
+            NetBoxScriptJob.enqueue_run(
+                self.script(), data={}, commit=True, user=self.user, request=request, interval=60
+            )
+
+        self.assertEqual(Job.objects.count(), before)
+
+    def test_the_core_recurring_successor_is_declined_when_it_would_carry_an_upload(self):
+        # Only a schedule queued before this refusal existed can hand its successor an upload.
+        self.publish({'deploy.py': MAKES_A_TAG})
+        script = self.script()
+        with patch('core.models.jobs.django_rq.get_queue'):
+            with self.captureOnCommitCallbacks(execute=True):
+                job = NetBoxScriptJob.enqueue_run(script, data={}, commit=False, user=self.user, interval=60)
+            with self.captureOnCommitCallbacks(execute=True), self.assertLogs('netbox.jobs', level='ERROR') as logs:
+                NetBoxScriptJob.handle(
+                    job=job,
+                    revision_id=None,
+                    revision_digest=None,
+                    module_path='deploy',
+                    class_name='MakeTag',
+                    data={'attachment': SimpleUploadedFile('notes.txt', b'hello')},
+                    commit=False,
+                    event=None,
+                )
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertTrue(any('not supported for recurring runs' in line for line in logs.output))
         self.assertFalse(
             Job.objects.filter(object_id=script.pk, object_type=job.object_type).exclude(pk=job.pk).exists()
         )

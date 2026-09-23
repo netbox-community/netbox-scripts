@@ -216,6 +216,21 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertIn('temporary file', response.content.decode())
         self.assertEqual(Job.objects.count(), before)
 
+    def test_a_recurring_run_carrying_an_upload_is_refused_on_the_browser_path_too(self):
+        self.publish(TAKES_A_FILE)
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='ReadFile')
+        self.grant('view', 'run', 'schedule')
+        before = Job.objects.count()
+
+        response = self.client.post(
+            self.url(),
+            {'attachment': SimpleUploadedFile('notes.txt', b'hello'), '_commit': 'on', '_interval': '60'},
+        )
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn('not supported for recurring runs', response.content.decode())
+        self.assertEqual(Job.objects.count(), before)
+
     def test_a_valid_submission_queues_one_run_and_redirects_to_it(self):
         self.grant('view', 'run')
 

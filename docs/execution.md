@@ -16,10 +16,11 @@ The button is present but inert when the script cannot be run, in both places.
 That happens when the script is disabled or retired, when its project is
 disabled, or when the project is not serving a revision at all.
 
-A script's page also shows the execution defaults its author declared: whether
-commit starts on, the run timeout, who is notified, and whether the script may
-be scheduled. They are read from the class on every activation, so they are
-reported rather than configured.
+A script's page also shows its execution settings: whether commit starts on,
+the run timeout, who is notified, and whether the script may be scheduled. The
+author's class declares them, and an operator can override the first three, as
+[Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults)
+describes.
 
 Running is its own permission, `run`, granted separately from `change`. Someone
 who may edit a script's administrative fields cannot necessarily run it, and the
@@ -155,7 +156,8 @@ Four execution parameters sit below the script's own fields.
 | **Recurs every** | Run repeatedly, in minutes. The picker offers the usual intervals and any whole number is accepted. |
 | **Notifications** | When to notify you about the Job. Leave it on "Follow the Script", which names the script's effective `notifications_default`, or pick a policy for this run. |
 
-A time in the past is refused. Setting a recurrence with no start time begins it
+A time in the past is refused, and so is a recurrence that carries an uploaded file. See
+[Variables](authoring.md#variables). Setting a recurrence with no start time begins it
 now. Notifications stay available either way, since they describe the run rather
 than the schedule.
 
@@ -197,9 +199,11 @@ Scheduling is not overridable on purpose. `scheduling_enabled` is the author's
 statement that the script is safe to run unattended, and an operator override
 would be an override of a safety claim rather than of a preference.
 
-An override survives activation. Every other field on a Script is rewritten
-from the class each time a revision is activated, which is exactly why an override
-is stored separately from the values validation records.
+An override survives activation. Activation refreshes what comes from the
+class, its display name, description and metadata, along with whether the
+script is retired. It never writes `enabled`, the overrides or any other field
+an operator maintains, which is why an override is stored apart from the values
+validation records.
 
 Leaving an override empty means "follow the class", so it is also how you undo one.
 One consequence is worth knowing: because empty already means inherit, there is no
@@ -269,9 +273,10 @@ The log is filtered to info and above by default. Add `?log_threshold=debug` to
 the URL to see debug records as well, or `?log_threshold=warning` to see only
 problems.
 
-Every run a script has ever performed is on its **Jobs** tab. Because a script
-that stops being published is retired rather than deleted, that history survives
-a revision that drops the class and comes back if a later revision publishes it
+A script's **Jobs** tab lists its runs for as long as NetBox keeps their Job
+records, which retention and deletion can remove. Because a script that stops
+being published is retired rather than deleted, that history survives a
+revision that drops the class and comes back if a later revision publishes it
 again.
 
 ## What a run does not see

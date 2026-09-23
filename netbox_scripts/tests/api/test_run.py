@@ -116,9 +116,9 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         activate_revision(revision)
         return NetBoxScript.objects.get(project=project)
 
-    def post_multipart(self, script, data, **files):
+    def post_multipart(self, script, data, parameters=None, **files):
         """POST one run request as multipart, which is the only way to carry an uploaded file."""
-        body = {'data': json.dumps(data), **files}
+        body = {'data': json.dumps(data), **(parameters or {}), **files}
         return self.client.post(self.run_url(script), body, format='multipart', **self.header)
 
     def queued_run(self, script, data, **files):
@@ -298,6 +298,58 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
         self.assertIn('temporary file', str(response.data))
         self.assertEqual(Job.objects.count(), before)
+
+    def test_a_recurring_run_carrying_an_upload_is_refused_before_any_job_exists(self):
+        script = self.publish_elsewhere(TAKES_A_FILE)
+        self.grant('view', 'run', 'schedule')
+        before = Job.objects.count()
+
+        response = self.post_multipart(
+            script, {}, parameters={'interval': 60}, attachment=SimpleUploadedFile('notes.txt', b'hello')
+        )
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not supported for recurring runs', str(response.data))
+        self.assertEqual(Job.objects.count(), before)
+
+    def test_a_recurring_run_carrying_an_undeclared_upload_is_still_refused(self):
+        script = self.publish_elsewhere(TAKES_AN_OPTIONAL_FILE)
+        self.grant('view', 'run', 'schedule')
+        before = Job.objects.count()
+
+        response = self.post_multipart(
+            script, {}, parameters={'interval': 60}, undeclared=SimpleUploadedFile('other.txt', b'hello')
+        )
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not supported for recurring runs', str(response.data))
+        self.assertEqual(Job.objects.count(), before)
+
+    @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
+    def test_a_recurring_run_carrying_a_disk_backed_upload_gets_the_recurring_refusal(self):
+        # Recurring comes first, because that refusal stays true once the file is small enough for memory.
+        script = self.publish_elsewhere(TAKES_A_FILE)
+        self.grant('view', 'run', 'schedule')
+        before = Job.objects.count()
+
+        with patch.object(Job, 'enqueue') as core_enqueue:
+            response = self.post_multipart(
+                script, {}, parameters={'interval': 60}, attachment=SimpleUploadedFile('notes.txt', b'hello')
+            )
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not supported for recurring runs', str(response.data))
+        self.assertEqual(Job.objects.count(), before)
+        core_enqueue.assert_not_called()
+
+    def test_a_recurring_run_with_an_optional_file_left_empty_is_queued(self):
+        script = self.publish_elsewhere(TAKES_AN_OPTIONAL_FILE)
+        self.grant('view', 'run', 'schedule')
+
+        response = self.post_multipart(script, {}, parameters={'interval': 60})
+
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        self.assertEqual(Job.objects.get(pk=response.data['id']).interval, 60)
 
     def test_the_list_route_still_refuses_post(self):
         # Routing a detail action must not reopen creation on a derived model.

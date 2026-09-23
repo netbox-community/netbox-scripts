@@ -25,19 +25,23 @@ class PreviewName(Script):
         return data['proposed_name']
 ```
 
-Every Script defines a `run(self, data, commit)` method. `data` carries
-the cleaned form values for the script's variables, keyed by attribute name.
-`commit` tells the script whether database changes should persist (`False`
-means a dry-run). The value returned from `run()` becomes the script's output.
+Every Script defines a `run(self, data, commit)` method. For a run requested
+through the UI, the REST API or `runcustomscript`, `data` carries the cleaned
+form values for the script's variables, keyed by attribute name. An Event Rule
+passes its own payload instead, without the Script's form, as
+[Event Rules](event-rules.md#what-the-script-receives) describes. `commit`
+tells the script whether database changes should persist (`False` means a
+dry-run). The value returned from `run()` becomes the script's output.
 
 Subclass `BaseScript` instead of `Script` for shared helper classes that should
 not themselves appear as runnable scripts.
 
 ## Variables
 
-Variables render as form fields when the script runs and deliver cleaned values
-through `data`. Every variable type accepts the common keyword arguments
-`label`, `description`, `default`, `required` (default `True`), and `widget`.
+Variables render as form fields when a run is requested, and their cleaned
+values reach `run()` through `data`. Every variable type accepts the common
+keyword arguments `label`, `description`, `default`, `required` (default
+`True`), and `widget`.
 
 | Class | Purpose | Type-specific arguments |
 |---|---|---|
@@ -65,6 +69,12 @@ Django spilled to a temporary file cannot be. Such a request is refused before a
 is created, on both the run form and the REST endpoint. Django decides which it is from
 the size of the whole request against `FILE_UPLOAD_MAX_MEMORY_SIZE`, so several files or
 other large fields in one request can push a modest file onto disk.
+
+**A recurring run cannot carry an upload.** Each occurrence is queued with the input the one
+before it ran with, so it would receive a file that occurrence had already read or closed. A
+request that sets a recurrence and carries a file is refused before any Job is created, on both
+the run form and the REST endpoint. A one-time run keeps its upload, and an optional `FileVar`
+left empty does not stop a recurrence.
 
 ## Meta attributes
 
@@ -236,6 +246,9 @@ surface built into NetBox. The deliberate differences:
   implementation has no revision concept, so there is nothing to compare
   against, but a scheduled run there executes whatever the module holds when it
   fires, which is the same intent.
+- A recurring run cannot carry an uploaded file. The built-in implementation
+  accepts one and hands every later occurrence the same file object, which the
+  occurrence before may have read to the end or closed.
 - `TextVar` honors an author-supplied widget instead of always forcing a
   textarea, matching the contract that every variable accepts `widget`.
   The built-in implementation replaces the widget unconditionally.

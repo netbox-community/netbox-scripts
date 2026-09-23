@@ -49,9 +49,9 @@ logging, global search, REST, and GraphQL.
 | Browse published scripts | Operator | List, search, and filter every published Script, or read a Project's own on its detail page. |
 | Enable or disable a script | Administrator | Toggle `enabled` on a published Script, one at a time or in bulk, without affecting what synchronization owns. |
 | Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Scripts](execution.md). |
-| Read a run | Operator | Follow one run's status, log and output on its result page, and every run a script has performed on its Jobs tab. |
+| Read a run | Operator | Follow one run's status, log and output on its result page, and the runs NetBox still keeps on its Jobs tab. |
 | Run a script from an Event Rule | Administrator | Have a rule run a Script when something happens, passing its own data as the script's input. See [Event Rules](event-rules.md). |
-| React to a Script object | Administrator | Point an Event Rule or webhook at the plugin's own object types. Only a change made while handling a request raises the rule, never one a background job makes. See [Event Rules](event-rules.md#scripts-as-event-sources). |
+| React to object changes | Administrator | Use Event Rules or webhooks for supported changes to the plugin's objects. See [Event Rules](event-rules.md#scripts-as-event-sources) for when events are delivered. |
 | Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
 | Author Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
 | Publish scripts from a project | Developer | Declare script files and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
@@ -71,5 +71,6 @@ Recurring successors resolve the timeout from the current Script configuration.
 | A repository manifest declaring its own script files | Script file selection is a Project setting made in NetBox |
 | Declared pip requirements | A revision's external dependencies are neither read nor installed |
 | Recorded input values | A run records which script and revision ran and the result, but not the values submitted |
+| Recurring runs carrying an upload | A recurring run cannot carry an uploaded file. Run the Script once per upload instead |
 | Legacy Reports | A class declaring `test_*` methods and no `run()` is refused at validation rather than emulated. Convert it by giving the class a `run()` method |
 | A permanent `extras.scripts` layer | Those imports work today as a transitional layer and stop working at NetBox v5.0. Moving to the plugin's authoring API is the work to do before that upgrade |

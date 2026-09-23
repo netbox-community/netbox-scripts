@@ -1,4 +1,5 @@
 import json
+import pickle
 import uuid
 from datetime import timedelta
 from unittest.mock import patch
@@ -55,6 +56,34 @@ TAKES_AN_OPTIONAL_FILE = (
     b"        return 'got it' if data['attachment'] else 'nothing'\n"
 )
 
+# A checkbox reads the posted data and never the files, so an upload of the same name leaves it False.
+TAKES_A_FLAG = (
+    b'from netbox_scripts.scripts import BooleanVar, Script\n\n\n'
+    b'class ReadFlag(Script):\n'
+    b'    class Meta:\n'
+    b"        name = 'Read One Flag'\n\n"
+    b"    apply = BooleanVar(label='Apply')\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        return repr(data['apply'])\n"
+)
+
+# A variable whose own field cleans the upload into its lines, so the cleaned value is not the file.
+CLEANS_A_FILE = (
+    b'from django import forms\n\n'
+    b'from netbox_scripts.scripts import FileVar, Script\n\n\n'
+    b'class LinesField(forms.FileField):\n'
+    b'    def clean(self, data, initial=None):\n'
+    b'        return super().clean(data, initial).read().decode().splitlines()\n\n\n'
+    b'class LinesVar(FileVar):\n'
+    b'    form_field = LinesField\n\n\n'
+    b'class CountLines(Script):\n'
+    b'    class Meta:\n'
+    b"        name = 'Count Lines'\n\n"
+    b"    rows = LinesVar(label='Rows')\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        return repr(data['rows'])\n"
+)
+
 # The same script under a different comment, so it stages to a different digest.
 TAKES_A_NAME_AGAIN = b'# a second revision of the same script\n' + TAKES_A_NAME
 
@@ -91,6 +120,21 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         """POST one run request as multipart, which is the only way to carry an uploaded file."""
         body = {'data': json.dumps(data), **files}
         return self.client.post(self.run_url(script), body, format='multipart', **self.header)
+
+    def queued_run(self, script, data, **files):
+        """POST one multipart run and return its Job with the input a worker would unpickle."""
+        queued = {}
+        original = NetBoxScriptJob.enqueue_run
+
+        def record(script, **kwargs):
+            # Pickled while the request is open, the way the queue carries a run to its worker.
+            queued.update(pickle.loads(pickle.dumps({'data': kwargs['data'], 'request': kwargs['request']})))
+            return original(script, **kwargs)
+
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
+            response = self.post_multipart(script, data, **files)
+        self.assertHttpStatus(response, status.HTTP_201_CREATED)
+        return Job.objects.get(pk=response.data['id']), queued
 
     def test_an_omitted_commit_falls_back_to_the_scripts_effective_default(self):
         # The fallback has to read the row, so an operator's override applies to a caller that
@@ -182,21 +226,33 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         # The built-in feature binds files on this path, so without it a migrating script loses an input.
         script = self.publish_elsewhere(TAKES_A_FILE)
         self.grant('view', 'run')
-        captured = {}
-        original = NetBoxScriptJob.enqueue_run
 
-        def record(script, **kwargs):
-            # Django closes an uploaded file when the request ends, so read it while it is open.
-            attachment = kwargs['data']['attachment']
-            captured['content'] = attachment.read()
-            attachment.seek(0)
-            return original(script, **kwargs)
+        job, queued = self.queued_run(script, {}, attachment=SimpleUploadedFile('notes.txt', b'hello'))
+        NetBoxScriptJob.handle(job, **job.data, **queued)
+        job.refresh_from_db()
 
-        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
-            response = self.post_multipart(script, {}, attachment=SimpleUploadedFile('notes.txt', b'hello'))
+        self.assertEqual(job.data['output'], 'hello')
 
-        self.assertHttpStatus(response, status.HTTP_201_CREATED)
-        self.assertEqual(captured['content'], b'hello')
+    def test_an_upload_cannot_replace_a_validated_value_of_the_same_name(self):
+        script = self.publish_elsewhere(TAKES_A_FLAG)
+        self.grant('view', 'run')
+
+        job, queued = self.queued_run(script, {}, apply=SimpleUploadedFile('apply.txt', b'yes'))
+        NetBoxScriptJob.handle(job, **job.data, **queued)
+        job.refresh_from_db()
+
+        self.assertIn('apply', queued['request'].FILES)
+        self.assertEqual(job.data['output'], 'False')
+
+    def test_a_custom_file_field_reaches_the_run_as_it_cleaned(self):
+        script = self.publish_elsewhere(CLEANS_A_FILE)
+        self.grant('view', 'run')
+
+        job, queued = self.queued_run(script, {}, rows=SimpleUploadedFile('rows.txt', b'leaf-01\nleaf-02\n'))
+        NetBoxScriptJob.handle(job, **job.data, **queued)
+        job.refresh_from_db()
+
+        self.assertEqual(job.data['output'], "['leaf-01', 'leaf-02']")
 
     def test_an_optional_file_variable_is_bound_when_given_and_may_be_omitted(self):
         # Omitting it alone passes either way, so the supplied half is what gives this teeth.

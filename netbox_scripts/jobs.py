@@ -796,11 +796,10 @@ class NetBoxScriptJob(JobRunner):
         instance = script_class()
         instance.request = request
         instance.event = event
-        # A variable of the FileVar kind is bound in the upload rather than in the posted data,
-        # so the two halves of the form are put back together here.
+        # Cleaned values win. A request file only fills a name the form never declared.
         values = dict(data)
         for name, uploaded in getattr(request, 'FILES', {}).items():
-            values[name] = uploaded
+            values.setdefault(name, uploaded)
         try:
             run_script(instance, data=values, commit=commit, request=request)
         finally:

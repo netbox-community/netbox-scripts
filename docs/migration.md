@@ -1,559 +1,564 @@
 # Migration
 
-An installation that already uses NetBox's built-in Custom Scripts can have that content read,
-reported on, staged as Script Projects, and finally handed over. This page covers the seven
-passes that do it, how to read what they report, and what they deliberately leave alone.
+Use the migration workflow to move NetBox's built-in Custom Scripts into NetBox
+Scripts. It inventories your installation, stages the source as Script Projects,
+and moves supported references onto the plugin.
 
-The first two change nothing an operator depends on, and you can stop after them. The third is
-irreversible. Read [Crossing the fence](#crossing-the-fence) before you run it.
+!!! warning "Alpha migration"
+
+    NetBox Scripts is in alpha and is not recommended for production use.
+    Rehearse the migration in a test environment using copies of your database
+    and source storage. Keep test workers isolated from production queues.
+
+    Inventory leaves the built-in feature unchanged. Staging creates or updates
+    plugin objects without activating them. **Cutover has no automatic rollback.**
+    Read [Crossing the fence](#crossing-the-fence) and [Recovery](#recovery) before
+    starting it.
 
 ## What the seven passes do
 
-| Pass | What it does | Reversible |
+| Pass | What it does | Recovery |
 |---|---|---|
-| Inventory | Reads every built-in script module, classifies its authoring dialect, works out which Projects a migration would create, and counts the Event Rules, permissions and Jobs a migration would touch. Writes nothing. | Nothing to undo |
-| Staging | Creates those Projects, declares their script files, and stages their content as revisions. Activates nothing. | Yes, delete what it created |
-| Cutover | Records every reference the repointing pass replays, then withdraws permissions on the built-in feature, disables its Event Rules, cancels its queued runs, and deregisters its source from synchronization. | **No** |
-| Activation | Puts every staged Project into service, so its Scripts exist as rows. | After the cutover |
-| Repointing | Moves Event Rules, permissions and Job history onto those Scripts, and recreates the schedules the cutover cancelled. | After the cutover |
-| Cleanup | Deletes the built-in script modules this migration mapped, the Scripts under them, and their stored source. Records the migration as complete. | **No** |
-| Verification | Reports whether the migration landed. Reads only, and is safe to run at any point and as often as you like. | Nothing to undo |
+| Inventory | Reads built-in Custom Script modules, checks their source, proposes Projects and counts affected references. | No changes to the built-in feature to undo. |
+| Staging | Creates or reuses Projects, declares Script Files and stages revisions for validation. Activates nothing. | Remove only objects created by the migration. Review changes to reused Projects separately. |
+| Cutover | Captures references and queued input, withdraws captured permissions, disables captured Event Rules, cancels waiting runs and removes built-in synchronization registrations. | No automatic rollback. |
+| Activation | Activates eligible revisions and publishes their Script rows. | The built-in feature remains closed. |
+| Repointing | Moves supported Event Rules, permissions and Job history, then recreates eligible captured runs. | Review unresolved and skipped items in the results. |
+| Cleanup | Deletes mapped built-in modules and stored source where no protected references remain. Records completion. | No automatic undo. |
+| Verification | Checks migration results without changing the objects being checked. | Safe to repeat at any stage. |
 
-Each runs as a background job and records what it found on its own Job row, so the result stays
-readable after the run. **NetBox's RQ worker has to be running for the whole migration, the cutover
-included.** Pausing the queues stops the migration itself, not only the runs it is meant to hold.
-Run them in the order above. Each refuses if the one before it has not
-completed. Verification is the exception: it waits for nothing and refuses nothing, so you can run it
-between any two passes to see where the migration stands.
+Every pass runs as a background Job and records its log and results there.
+**Keep an RQ worker running, including during cutover.** Stopping all workers
+also stops migration and revision validation.
 
-**Check the worker arrangement before the cutover.** Out of the box every relevant job uses the
-`default` queue: built-in Custom Script runs, this plugin's Script runs, and the migration passes
-themselves. What decides whether a built-in run can start while the cutover works is **the number of
-workers, not the number of queues**. One worker consuming everything runs jobs one at a time, so the
-cutover holds it for the whole pass. Several workers consuming `default` can run a built-in job
-beside it, and one worker can serve several queues and still run them one at a time.
+Follow the order above and check each result before continuing. Passes have
+specific prerequisites, not simply a requirement that the preceding Job
+completed. Verification can run before, between or after the other passes.
 
-Then check which queues those workers cover. `QUEUE_MAPPINGS` for `script` can send built-in runs
-to a queue of their own, while the migration passes stay on `default`, because they are queued
-against no object and always fall back to it. A worker subscribed to both still runs them one at a
-time, so a second queue only matters when nothing covers both. And a job already waiting keeps the
-queue name it was created with, so changing the mapping now does not move it. Read the queue
-recorded on the built-in Jobs themselves, not only today's configuration.
+### Worker arrangement
 
-The cutover requires no concurrent execution path between itself and the built-in runs it has to
-close, and it checks when you enter it, before it captures anything. Entering it while a second
-worker is running is refused, naming the workers, because a second worker can take a built-in run
-beside the pass. The check sees only the workers registered at that moment and cannot stop one
-starting later, so **keep one worker for the whole pass**, not just for the moment you enter it. The
-requirement is narrower than it sounds: it closes the window in which a captured run can start, and
-it is not a write fence, because nothing stops someone with the permission submitting new work.
+By default, built-in Script runs, plugin Script runs and migration passes use
+`default`. Queue names alone do not prevent concurrent execution: one worker can
+consume several queues sequentially, while several workers can execute Jobs from
+one queue at the same time.
 
-Ticking **Accept concurrent workers** enters the cutover anyway and records on the migration run
-which workers were running when the risk was accepted. It gives up the second of the
-[two guarantees](#two-guarantees-and-what-each-one-is-worth). A built-in run that a second worker
-takes while the pass is cancelling it can execute and be recreated as well, and nothing the
-migration records can always say which runs that happened to. If a Script must not run twice,
-reduce to one worker instead.
+**Use one worker throughout cutover.** It must consume the migration queue and
+all queues needed for the handover. Check the queue names recorded on existing
+Jobs as well as `QUEUE_MAPPINGS`. Changing a mapping does not move work already
+queued. Migration passes are not associated with an object and normally use
+`default`.
 
-A migration is tracked as a single **migration run**, which holds the state, the journal the later
-passes replay from, and what each pass recorded. Only one run is open at a time, and its state only
-moves forward: `legacy`, `staging`, `cutover`, `migrated`.
+Cutover checks registered workers before capture and refuses when it sees more
+than one, unless **Accept concurrent workers** is selected. This is a preflight
+check, not a lock on worker startup. Keep additional workers stopped throughout
+the pass, including workers your deployment might restart automatically. The
+check counts registered workers, not only those subscribed to a particular
+Script queue.
+
+!!! warning "A cancelled run can still execute"
+
+    One worker prevents a second worker from executing built-in Custom Scripts
+    beside the cutover. It does not stop RQ's scheduler, which every NetBox
+    worker runs, from queueing a run it fetched just before the cutover
+    cancelled it. That run can then execute after the pass and also be
+    recreated by the plugin. This applies even when **Accept concurrent
+    workers** is clear.
+
+    **Accept concurrent workers** bypasses the worker-count refusal and records
+    the worker names on the migration run. A second worker can then also take a
+    built-in run while cutover is cancelling it. The Job row and migration
+    journal cannot reliably distinguish every such outcome, so do not rely on
+    worker count or cancellation status alone to prevent duplicate execution.
+    One worker does not prevent users, integrations or Event Rules from
+    submitting new work either, so the maintenance window is still required.
+
+A **migration run** records the state, captured journal and pass results. Only
+one run can be open at a time. Its state moves forward through `legacy`,
+`staging`, `cutover` and `migrated`.
 
 ## Before you start
 
-Everything in this section is operator work. No pass can do any of it, and the cutover is
-irreversible, so do all of it before you press **Enter cutover**.
+Inventory can be run ahead of the maintenance window. Complete the following
+preparation before selecting **Enter cutover**.
 
-1. **Take a maintenance window.** The fence a plugin can build withdraws every grant NetBox's own
-   permissions UI can make, and no more. A superuser is unaffected. Treat the window as the real
-   fence and this pass as the tidying.
-2. **Stop new script runs from being requested.** A run that starts while the cutover is capturing
-   is a run the migration cannot account for. The maintenance window is what holds them, because
-   every pass below is itself a background job and needs the worker. A scheduled legacy run can
-   still fire inside the window, and the cutover refuses outright while any built-in Custom Script
-   job is executing, naming the ones it is waiting on. Let those finish and run the cutover again.
-3. **Back up the database and the source storage together, as one restore point.** The plugin's
-   Projects live in the database and their content lives in the storage backend, so a database
-   restored against a different storage state serves revisions whose bytes are gone. Note the NetBox
-   and plugin versions with the backup. The backup does not cover the queue, so record any pending
-   scheduled run you would want back if you reversed. See [Recovery](#recovery).
-4. **Synchronize each NetBox Data Source one last time, and let the sync finish.** Staging freezes
-   whatever the source holds at that moment, so a repository that moves afterwards leaves the
-   migrated Project a revision behind. Do this on the Data Source itself, under *Operations >
-   Integrations > Data Sources*. Staging creates the Script Projects, so on a first pass there is
-   none to act on yet, and a repeated pass stages onto the ones it made before. After
-   staging, each new Project's revision list is where you confirm what it captured, and its
-   **Reconcile Source** action is how you rebuild it from the directory as it stands now if the
-   source moved in between.
-5. **Run the inventory and clear every blocking finding.** Staging refuses on any of them and creates
-   nothing, so this is not optional. The Migration page lists them above the buttons.
+1. **Arrange a maintenance window and stop new submissions.** Coordinate with
+   users, integrations and automation owners. Prevent new built-in Script runs
+   and source changes throughout the handover. The plugin's permission changes
+   do not restrict superusers or every other way of granting access.
+2. **Check workers and existing runs.** Keep the single-worker arrangement above
+   in place for cutover. Let running built-in Scripts finish. Cutover names and
+   refuses running Jobs, but waiting and scheduled work can still become due
+   before it starts. Review that work rather than assuming the maintenance
+   window pauses it.
+3. **Take a consistent backup.** Back up the database, built-in source storage
+   and plugin source storage together as one restore point. A mismatched
+   restore can leave revisions pointing to missing source files. Record the
+   NetBox and plugin versions, along with the inputs, owners, commit settings,
+   queue names, times and intervals of pending runs you may need to recreate.
+   These backups do not restore RQ task data. See [Recovery](#recovery).
+4. **Finish Data Source synchronization.** Synchronize each source under
+   *Operations > Integrations > Data Sources* and wait for completion. Avoid
+   further synchronization while staging and reviewing its revisions. On a
+   first migration, staging creates the Projects. Afterwards, check each
+   Project's revision list. Use **Reconcile Source** to restage a directory that
+   changed, then wait for validation again.
+5. **Resolve inventory blockers and review warnings.** Check existing Project
+   conflicts, Reports, constrained permissions and scheduled inputs. Confirm
+   that staged Projects have usable revisions before cutover. A successful
+   staging Job does not mean every revision passed validation.
 
 ## Starting a pass
 
-*Scripts > Migration* carries every pass and names the most recent run of each, so you can see
-whether one is still queued and where the migration stands.
+Open *Scripts > Migration*. The page shows the latest Job for each pass and the
+current state of proposed or staged Projects. **Not staged** means inventory
+proposed a Project that staging has not created.
 
-The buttons are numbered in the order the passes run, and the one to run next is filled in while
-the rest are outlined. The hint reads the same live conditions the buttons take, so a Project that
-stopped serving reopens **Activate Projects** rather than pointing further down the sequence. It
-stays blank when the next move is not a button on this page: while the inventory reports a blocking
-finding, and before the cutover while a staged Project could serve nothing.
+Buttons are numbered in workflow order. The highlighted button suggests the
+next available action. A Project that stops serving can make activation the next
+action again. When a source or validation problem needs attention, the page may
+have no suggested button.
 
-It also lists every Script Project the inventory and staging passes name, with the state each is in right
-now. A Project the inventory proposed but staging has not created yet is listed as **Not staged**,
-so running one pass without the other is visible rather than implied. Each state is read as the
-page renders, so it is the verdict validation reached rather than what a pass recorded, and the
-count beside it is how many Scripts that revision publishes.
+**Run inventory** is safe to repeat. The page lists blockers and summarizes
+warnings. Open its Job for the complete report.
 
-**Run inventory** queues the report. It changes nothing, so run it as often as you like.
+**Stage Projects** asks for confirmation and refuses a second queued staging
+pass. The worker runs a fresh inventory check. If it finds any blocking
+finding, the entire pass stops before creating Projects, declarations or
+revisions. After that check passes, review each Project's staging result.
 
-Whatever the last inventory found that would refuse a migration is named on this page, one row per
-module, with the reason and the code. Staging refuses on any of them and creates nothing, so the page
-says so before you press the button rather than leaving you to read a failed Job. The
-legacy-import list is counted rather than listed, because it is one entry per module and it does not
-block anything. The inventory Job carries the full list.
+**Enter cutover** requires confirmation that you took the backup. **Activate
+Projects** and **Repoint references** become available after their prerequisites
+are met and do not ask for a second confirmation. **Clean up** confirms before
+removing built-in modules and their stored source.
 
-**Stage Projects** confirms first, because it creates Script Projects. It refuses while
-another staging pass is queued, and it refuses if the inventory reports any blocking finding. What it
-reads is its own fresh report rather than the one on this page, so a blocking finding you have since
-resolved does not stop it, and one introduced since the last inventory still will.
+Each action returns to the Migration page with a link to its Job. Read both the
+log and recorded results. A Job can finish while reporting skipped Projects,
+unresolved references or an incomplete cutover.
 
-**Enter cutover** confirms first, and is the point of no return. The confirmation will not submit until you
-state that the backup from step 3 of [Before you start](#before-you-start) is taken, because restoring it is
-the only route back.
-
-**Activate Projects** and **Repoint references** appear once the cutover has been recorded. Neither
-confirms, because by then the decision has been made.
-
-Every button returns you to this page, with the run it just queued named at the top. Follow that
-link to the Job when you want the detail, because the log and the recorded result are both on the
-Job's own page.
-
-The inventory, staging and verification passes need permission to **add** a Script Project.
-**Entering the cutover, activating, repointing and cleaning up need the Script Project
-`migrate` action instead**, which is separate precisely because those four change rows this plugin
-does not own and cannot be undone. A user holding `add` alone still sees the page and can run the
-first two and the verification, and is not offered the other four. Reading any result needs the
-*Core > Jobs* view permission, which is granted separately. See
+Inventory, staging and verification require permission to **add** a Script
+Project. Cutover, activation, repointing and cleanup require the separate Script
+Project **`migrate`** action. The page itself requires `add`, and reading Job
+results requires *Core > Jobs* view permission. See
 [Permissions](permissions.md#the-migration-page).
 
 ## Reports are not covered
 
-NetBox merged Reports into script modules in 4.0, so an installation upgraded from 3.x can still carry
-module rows whose file root is `reports`. The inventory and staging skip them, and the cutover leaves
-their runs and their own Event Rules alone, so a report keeps running and keeps synchronizing.
+Report modules with the `reports` file root are excluded from inventory and
+staging. Their Jobs, synchronization registrations and Event Rules whose action
+runs a Report are not migrated. That exclusion also applies when a Report's
+Event Rule watches built-in Script object types.
 
-**Two closures reach a report anyway.** A permission granting access to the built-in feature, and an
-Event Rule watching it for changes, name the `extras.script` and `extras.scriptmodule` object
-types, both of which serve reports and Custom Scripts alike. Neither can be partitioned, so a
-report loses that grant and stops being watched by that rule.
+**Shared permissions and event subscriptions still affect Reports.** Both
+Reports and Custom Scripts use `extras.script` and `extras.scriptmodule`.
+Permissions and source subscriptions on those types cannot be separated by file
+root. Cutover withdraws the captured grants and rules, and repointing replaces
+their built-in coverage with plugin coverage where possible.
 
-The fence only disables them, but the repointing pass makes the loss permanent: it narrows each
-grant to the plugin's types and then re-enables the row, so the grant looks healthy while no longer
-covering reports. Recreate a report-only grant by hand rather than re-enabling the old one.
+A restored permission can therefore be enabled without granting access to
+Reports. Recreate the required Report access and subscriptions explicitly.
+Re-enabling an old row does not restore object types that repointing removed.
 
-The inventory counts them and says so, as a warning rather than a blocker, so none of this is
-silent. Reports use an authoring API this plugin does not serve at all, and its own discovery refuses
-a report-style class outright, so there is nothing for a migration to move them onto. Moving a Report
-means rewriting it as a Script by hand.
+Inventory reports the number of excluded Report modules as a warning. The
+plugin does not support their authoring API. Rewrite a Report as a Script before
+moving its functionality into the plugin.
 
 ## Reading the inventory
 
-The report lands on the Job's data. It carries six keys.
+The inventory report is stored in the Job's data.
 
-| Key | What it holds |
+| Key | What it contains |
 |---|---|
-| `status` | `ready`, `warning` or `blocking`, whichever is the worst level any finding reached. |
-| `modules` | One entry per built-in script module: its path, its file root, its authoring dialect, and the script classes it publishes today. |
-| `projects` | The Projects a migration would create, each with its key, name, source type and the modules it would hold. |
-| `dialects` | How many modules fell into each dialect. |
-| `references` | How many Event Rules, permissions and Jobs point at the built-in feature. |
-| `findings` | Everything an operator has to act on, each with a level, a code, the module or data path it concerns, and a message. |
+| `status` | The highest finding level: `ready`, `warning` or `blocking`. |
+| `modules` | Built-in Custom Script modules, their paths, file roots, dialects and recorded classes. |
+| `reports` | The number of excluded Report modules. |
+| `projects` | Proposed Project keys, names, source types and member modules. |
+| `dialects` | Module counts by authoring dialect. |
+| `references` | Counts of affected Event Rules, permissions and Jobs. |
+| `findings` | Levels, codes, affected modules or paths, and messages explaining what needs attention. |
 
-The reference counts are the size of the cutover, not of this migration. Nothing here rewrites an
-Event Rule, a permission or a Job.
+Reference counts describe the scope of the built-in feature being examined.
+They are not a promise that every reference has a plugin counterpart. Inventory
+does not rewrite them.
 
 ## What the three statuses mean
 
 | Status | Meaning |
 |---|---|
-| `ready` | Every module is already written against this plugin's authoring API. Staging can run. |
-| `warning` | Staging can run. Most warnings are work to do before NetBox v5.0, and the rest name something the inventory could not settle by reading the source. |
-| `blocking` | Staging refuses. Something in the source could never be imported or needs a rewrite, or an existing Project stands in the way. |
+| `ready` | Inventory found no warnings or blockers. This is not a validation verdict. |
+| `warning` | Staging can proceed, but review the findings and any manual work they identify. |
+| `blocking` | The entire staging pass is refused. Resolve every blocking finding before trying again. |
 
-A `warning` is almost always the `legacy_import` finding: the module imports its authoring API from
-`extras.scripts`. That import works here today and stops working at NetBox v5.0, so **the
-legacy-import list is the work queue to clear before that upgrade**. It is what turns v5.0 into a
-deadline rather than a cliff. NetBox deprecated its built-in Custom Scripts in 4.7.0, the release
-this plugin requires, and tracks their removal for v5.0 in
+`legacy_import` identifies source using `extras.scripts`. NetBox deprecated its
+built-in Custom Scripts in 4.7.0 and schedules their removal for v5.0 in
 [netbox#22935](https://github.com/netbox-community/netbox/issues/22935) and
-[netbox#22938](https://github.com/netbox-community/netbox/issues/22938). See
-[Authoring](authoring.md) for the forms that resolve and for why the compatibility layer is
-transitional.
+[netbox#22938](https://github.com/netbox-community/netbox/issues/22938). Use the
+warning list to plan the move to the plugin's authoring API before upgrading.
+See [Authoring](authoring.md) for supported imports and compatibility limits.
 
-The other one worth knowing is `import_unresolvable_in_branch`: a module imports something this
-host cannot provide, but only inside an `if`. Reading the source cannot say whether that branch
-runs on your deployment, so the migration is not refused over it. If the branch does run, the
-revision fails validation and says so, which is a refusal you can act on for that one Project
-rather than one that stops the whole pass.
+`import_unresolvable_in_branch` identifies an unavailable import inside a
+conditional branch. Inventory cannot determine whether an arbitrary branch runs
+in your deployment. Review it, then use the revision's validation result to
+check the staged source.
 
-The blocking findings are these. The first five concern one module's source, the last three the
-Projects a migration would create or reuse.
+The eight blocking codes are:
 
-| Code | Why it blocks |
+| Code | What to check |
 |---|---|
-| `report_style` | The class declares `test_` methods and no `run()`. A report needs a rewrite, at any NetBox version, so it is reported apart from the legacy-import list rather than inside it. |
-| `not_importable` | The file name is not a valid Python identifier, so no loader could ever import it. A hyphenated name is the common case. Rename the file in the source. |
-| `unparsable` | The stored source is not valid Python. |
-| `source_unreadable` | The module's stored bytes could not be read at all. |
-| `import_unresolvable` | The module imports a name that is neither a standard-library module nor a distribution installed here, so it cannot import and no verdict can ever be reached for it. Only an import that runs unconditionally reaches this row. One a `TYPE_CHECKING` or always-false guard makes unreachable, one inside a function body, and one the module already handles with `except ImportError` are all left alone. A plain import never reaches a file beside it, so a relative import is usually what was meant. |
-| `data_source_root` | Every module a proposed Project would hold sits at the Data Source root, so the Project would take the whole source as its tree. A Project must name a directory within its source rather than the root. Move those scripts under a directory on the source. |
-| `project_not_manual` | An existing Script Project already holds what a proposed one would stage, and that Project's activation policy would put the built-in modules into service. Set it to Manual. |
-| `project_conflict` | An existing Script Project's data path either contains the one a proposed Project needs or sits inside it. One Data Source cannot carry two Projects whose paths contain one another. Move or remove one of them. |
+| `report_style` | A class has Report-style `test_` methods without `run()`. Rewrite it as a Script. |
+| `not_importable` | A source filename cannot be used as a Python module identifier by the plugin. Rename it, for example by replacing a hyphen with an underscore. |
+| `unparsable` | The stored source is not valid Python. Correct the syntax. |
+| `source_unreadable` | Inventory could not read the stored source. Restore access or the missing file. |
+| `import_unresolvable` | Inventory cannot resolve an unconditional external import on this host. Check the dependency or use a relative import for a Project-local helper. |
+| `data_source_root` | Grouping would create a Project at the Data Source root. Move the scripts into a directory within the source. |
+| `project_not_manual` | A Project that staging would reuse has a non-manual activation policy. Set it to Manual before staging. |
+| `project_conflict` | An existing Project overlaps the proposed directory within the same Data Source. Resolve the overlap. |
 
-One unreadable or unparsable module never stops the inventory. It becomes a finding, and the rest
-of the report is still produced.
+The import check excludes supported `TYPE_CHECKING` and always-false guards,
+function-body imports and imports handled by `except ImportError`. It is a
+source-analysis check, not proof that every remaining import or runtime path
+will succeed.
+
+An unreadable or unparsable module becomes a finding. It does not prevent
+inventory from reporting on the remaining modules.
 
 ## What grouping produces
 
-A Project is one source tree and one Python package boundary, so a migration has to decide which
-legacy modules belong together. The rule reads the path each module already records.
+A Project is a source tree and a Python package boundary. Migration groups
+built-in modules using their recorded paths.
 
-| Source | Result |
+| Source | Grouping |
 |---|---|
-| Backed by a Data Source | One Project per folder that holds scripts, keyed by the Data Source and that folder. |
-| Uploaded | One Project per module, holding that single file. |
+| Data Source | One Project per script-holding directory, identified by its Data Source and path. |
+| Upload | One Project per module, containing that file. |
 
-A folder inside another script-holding folder joins the one above it rather than becoming a second
-Project. A Project's tree already contains its subdirectories, so the higher Project holds the
-deeper file either way, and two Projects would hold the same content twice.
+A nested script-holding directory joins the Project above it. The parent tree
+already includes its subdirectories, so migration does not create overlapping
+Projects.
 
-One consequence is worth knowing, because it is a gain rather than a compromise. The built-in
-feature stores a synchronized file under its base name and never brings a sibling with it, so a
-script has no way to share code with a helper module. A migrated Project holds the **whole folder**,
-so the helpers beside a script arrive with it and a relative import between them resolves.
+For a Data Source Project, staging copies the whole directory, not only the
+files the built-in feature registered as scripts. Helpers and resources in that
+tree are available to the migrated scripts. Use relative imports for
+Project-local Python helpers.
 
 ## Staging
 
-Staging creates each proposed Project and stages its content. It can be run as many times as you
-like: identity is derived from the source rather than recorded in bookkeeping, so a Data Source
-Project resolves to the one already covering that folder, an uploaded one to its own key, and
-identical content resolves to the revision that already holds it. A second pass creates nothing.
+Staging creates or reuses each proposed Project and stages its source. New
+Projects use **Manual** activation. Reused Projects must also have that policy.
+Staging itself does not activate a revision.
 
-Every Project it creates takes the **manual** activation policy, whatever you might choose for it
-later. So staging settles nothing on its own: it queues each revision for validation, and the
-verdict lands on the revision rather than on the pass. The job reports which revisions it queued,
-not whether they are good. A revision that fails records what it found, which its own page lists.
-Putting a valid one in service is the separate, deliberate step described under
+Repeating staging reuses the same Project identities. Unchanged content and
+Script File selection can reuse an existing revision. Changed source or
+selection can create another revision, so a repeat is not necessarily a no-op.
+Staging can also add declarations to a reused Project.
+
+Validation runs separately. Read each revision's verdict and errors rather than
+treating the staging Job's completion as approval. See
 [Putting a revision in service](data-sources.md#putting-a-revision-in-service).
 
-A built-in module that publishes nothing migrates as a **helper file** rather than a script file.
-Its content is staged like any other file, but nothing declares it, so the Project it belongs to
-never claims it publishes a Script. A module counts as publishing when the built-in feature
-recorded a Script for it, or when its source defines a class that could publish one, so source
-already written against this plugin's API is declared even though the built-in feature never
-recognised it.
+A module that publishes no Script is staged as a helper without adding a
+Script File declaration. Publication is determined from executable built-in
+rows or a class recognized in its source, so code already using the plugin API
+can still be selected for discovery.
 
-The inventory names every module this applies to, because a genuine helper and a module that has
-stopped importing look the same from the built-in rows. If one of them should be publishing a
-Script, fix it in the built-in feature and run the inventory again.
-
-If the report is `blocking`, staging logs every blocking finding and stops without creating
-anything. Fix the source, run the inventory again, and stage once it is clear.
+Inventory warns about modules that appear to publish nothing. Check these
+warnings: the module may be an intentional helper, or its Script may no longer
+load. Correct the source and repeat inventory and staging before cutover.
 
 ## Crossing the fence
 
-The cutover is the irreversible step, and it does two things in one pass: it records every
-reference the later passes replay, and then it closes what a plugin is able to close.
+**Cutover has no automatic rollback.** It captures references first, records the
+`cutover` state, and then closes the parts of the built-in feature it controls.
 
-**Capture completes before the run enters the cutover state.** The run then records `cutover`
-before withdrawing grants, disabling Event Rules or cancelling queued work. A failure during
-capture leaves the run in staging. A failure after that state transition leaves it in `cutover`
-with the crossing unfinished. Staging refuses that state, the Migration page keeps offering
-**Enter cutover**, and running it again resumes the recorded crossing. Capture and completed
-steps are not repeated. Mutating migration passes serialize across workers before checking
-recorded progress.
+The journal preserves the original permissions, Event Rules, migration map and
+readable waiting-run inputs. Retries keep those records instead of replacing
+them with the already-modified state. While cutover is incomplete, capture also
+adds previously unrecorded waiting runs, including new recurring successors.
+Completed cutover steps are not replayed.
 
-**It captures first.** Every permission granting an action on the built-in feature, with who holds
-it. Every Event Rule naming the built-in feature, as an action or as a source. Every waiting
-built-in Custom Script job, with the input it was going to run with. All three go on the migration run's
-journal, which is what makes the later passes replayable and what makes a half-finished migration
-resumable rather than stuck. The first pass records permissions, Event Rules and the migration map,
-and a retry keeps those records rather than reading the closed state back as though it were the
-original. What a retry does add is any built-in run queued since, which is not recorded yet.
+A failure after the state transition leaves the run in `cutover` with the step
+unfinished. Return to **Enter cutover** after resolving the reported problem.
+The state alone does not prove that the step completed. A recorded capture can
+also prevent staging from running again even if the state still reads
+`staging`. Mutating migration passes serialize their work across workers.
 
-**Then it closes four doors.**
+Cutover affects four areas:
 
-| What | How |
+| Area | Effect |
 |---|---|
-| Permissions | Every captured grant on the built-in feature is disabled. Scoped by object type, so a grant covering reports goes with it, and the repointing pass then drops the report coverage for good. |
-| Event Rules | Every captured rule is disabled, so nothing fires during the handover. The action decides: a rule firing a report is left alone entirely, so one that also watches the built-in feature keeps that subscription and no later pass repoints it. |
-| Queued runs | Every waiting job it can still reach is failed closed and its task dropped, so nothing queued can still execute. The owner is notified, and the message says whether the plugin recreates the run or it has to be scheduled again by hand. One a worker had already taken is left to finish and recorded instead, and the cutover stays open until it has. |
-| Synchronization | The built-in script source is deregistered, so no later synchronization rewrites it. |
+| Permissions | Disables captured Object Permissions. Shared Report coverage is affected too. |
+| Event Rules | Disables captured rules. Rules whose action runs a Report are excluded. |
+| Queued runs | Deletes reachable waiting tasks and marks their Jobs failed. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
+| Synchronization | Removes synchronization registrations for the built-in Custom Script modules. |
 
-**What this is not.** It is not a complete write fence, and it does not try to be. It withdraws
-every grant NetBox's own permissions UI can make and nothing more. A superuser still passes, and so
-does anything `DEFAULT_PERMISSIONS` or a plain Django permission grant confers. Plan the cutover as
-a maintenance window rather than relying on this alone.
+These changes do not form an installation-wide write fence. Superusers,
+`DEFAULT_PERMISSIONS`, plain Django grants and already-authorized work can
+remain outside the permission closure. Do not resume submissions yet.
 
-**What it refuses.** A run that has not staged anything, a run that has already moved past the
-cutover, and any installation where a built-in Custom Script job is still running. Wait for those to
-finish rather than cancelling them.
+!!! warning "Completion events during cutover"
 
-It also refuses while any Project this migration mapped could serve nothing on the far side, naming
-each one and why. That covers a Project staging never created, one holding no revision, one whose
-newest revision is still waiting on a verdict, and one whose newest revision was refused with no
-earlier valid one behind it. A Project already serving a revision passes, including one serving an
-older revision than its newest, because it keeps serving it across the fence.
+    During cutover, waiting Jobs are cancelled before captured Event Rules
+    are disabled. Cancellation can therefore trigger enabled Job-completion
+    rules, even with one worker. Review those rules and
+    any resulting work as part of the maintenance procedure. Do not assume
+    cutover suppresses all Event Rule actions.
 
-The Migration page says the same thing and withholds the button, because a fence crossed with
-nothing to serve leaves the built-in feature closed and the plugin publishing nothing, which only a
-database and storage restore undoes. Wait for the verdicts that are still coming, and for the rest,
-fix the source and stage it again. Each Project's revision list is where the verdict is recorded.
+Cutover refuses before staging, outside an allowed migration state, while
+built-in Custom Script Jobs are running, or when the worker check fails. It also
+checks that every mapped Project exists and either serves a revision or has a
+`valid` revision available. A pending or invalid newest revision does not by
+itself block a Project that already has a usable revision.
 
-The check reads revision states and not stored content, so it does not catch a revision whose bytes
-were removed from the storage backend after it validated. Activation reports that one and skips it.
+This readiness check reads revision state, not source storage. Bytes removed
+after validation can still cause activation to fail. Review activation results
+before proceeding to repointing.
 
-Two warnings the pass can record rather than fail on. A queued job whose task is no longer in the
-queue cannot have its input read, so it is named and left for you to recreate by hand. A job whose
-input includes an uploaded file cannot have that value journalled, so it is recreated without it.
+A missing queue task leaves no input to capture, so the run requires manual
+recreation. Uploaded files and other unsupported input values are omitted from
+the journal with a warning. Replay validates the remaining input: it can be
+refused, or an optional omitted value can use its default. **Do not assume that
+a run with dropped input is an equivalent replacement.**
 
 ## Activating the staged Projects
 
-**Activate Projects** puts every Project this migration staged into service. It comes after the
-fence and before repointing, because a Script row exists only once a revision is active, and
-an Event Rule's action has to name one.
+**Activate Projects** runs after cutover and publishes the Script rows needed
+for repointing. It records an outcome for each Project. One activation failure
+does not stop the remaining Projects.
 
-Per Project it takes the newest valid revision. A Project already serving its newest revision is
-activated once more, which repairs its rows and writes nothing where nothing is wrong. A retired
-revision is never chosen, because preferring it over an older valid one would serve something the
-Project had already stood down from. A Project with no valid revision is reported and skipped, so
-one bad Project does not stop the rest.
+The pass selects the newest `valid` revision unless the Project already serves
+its newest revision. In that case, it synchronizes the published rows to
+repair any differences. It does not select `retired` revisions.
 
-Safe to run again.
+!!! warning "Review Projects that already serve a revision"
+
+    This selection can choose an older `valid` revision even when a newer
+    revision is active. Do not assume the pass preserves the current active
+    revision. Review Projects with multiple revisions before running it.
+
+Check the recorded outcomes and each Project's active revision before
+repointing. Repeating activation re-evaluates Projects. It is not an
+unconditional no-op.
 
 ## Repointing what the installation refers to
 
-**Repoint references** replays the journal onto the plugin's rows, in four steps.
+**Repoint references** replays the journal in four steps.
 
-Three of the four steps refuse while any migrated Project is serving no revision, because an Event
-Rule and a repointed job both have to name a Script that exists, and only a Project in
-service publishes one. The Migration page withholds the button and names each Project. Put them
-into service, run **Activate Projects** again, and the pass proceeds. Permissions is the exception
-and runs regardless: it moves object types rather than scripts, and the cutover withdrew every
-grant on the built-in feature, so holding it back would leave everyone but a superuser locked out
-until an unrelated Project was fixed.
-
-| Step | What moves |
+| Step | What it moves |
 |---|---|
-| Event Rules | Each captured rule's action is pointed at the Script that replaced its built-in Custom Script, and the built-in object types it watched are replaced with the plugin's. A rule that moved completely is re-enabled. |
-| Permissions | Each captured grant is moved onto the plugin's object types. An action with no counterpart on the plugin is dropped and reported. |
-| Job history | The built-in Custom Scripts' Jobs are moved onto the Scripts that replaced them, so a run's history stays reachable from the script that replaced it. |
-| Schedules | Every schedule the cutover cancelled is enqueued again against the Script. |
+| Event Rules | Replaces supported built-in action targets and source object types. A fully moved rule is re-enabled only if it was enabled when captured. |
+| Permissions | Maps supported actions and object types. Mixed grants are split to preserve unrelated coverage. Constrained grants and unmappable actions are reported. |
+| Job history | Associates supported built-in Script Jobs with their replacement Scripts. Module-level history has no equivalent target. |
+| Schedules | Recreates eligible captured runs against replacement Scripts. |
 
-Recreating a schedule follows five rules worth knowing, because between them they decide when a
-migration runs your code and who it runs as.
+Activation must have recorded its pass before any of these steps runs. Event
+Rules, history and schedules also require every remaining mapped Project to
+serve a revision. Permissions do not have that additional serving requirement,
+because they map object types rather than individual Scripts.
 
-- A schedule still in the future keeps its time.
-- A recurrence that fell due during the handover keeps its interval and is queued to run at the
-  first opportunity, because a queue holds a past-due job for the next free worker.
-- A one-shot that fell due is refused rather than run unasked, and reported so you can decide.
-- A schedule is replayed under the account that owned it, and only while that account can still run
-  the script. One whose owner no longer holds the permission is refused and the step stays open, so
-  granting it and running the pass again picks the schedule up.
-- A schedule whose owner has been deleted or deactivated is refused for good rather than replayed
-  with no owner or under an account that cannot act, because a recurring run nobody owns notifies
-  nobody and is attributed to nobody, and no grant lets a deactivated account run anything.
-  Recreate it by hand under an account that should own it.
+Constrained permissions remain withdrawn for manual recreation. Copying their
+old constraints or silently dropping them would not preserve the intended
+access. Review permissions that combine built-in Script types with unrelated
+types, because the withdrawal temporarily affects the whole captured grant.
 
-**A run that was merely queued rather than scheduled, and a recurrence that fell due, both become
-eligible to run the moment this pass recreates them**, each with the commit setting it was captured
-with, because that is what the cutover promised their owners when it cancelled them. Eligible is not
-immediate: a worker occupied by this pass finishes it first. Draining the queue before you enter the
-cutover deals with the run that was merely queued. Nothing deals with the recurrence, because its
-next occurrence can fall due at any point in the handover, however short that handover is. Do not
-assume your scripts wait for the migration to finish. The cutover refuses to start while a built-in
-Custom Script job is actually running, but a job still waiting is captured and replayed.
+### Schedule timing and ownership
 
-Each of the four steps records its completion only once it has left nothing a later run could still
-do. So a reference it could not move, because the Script it names does not resolve yet, is
-picked up the next time you run the pass rather than skipped for good.
+Replay applies both checks below.
 
-What it reports as **permanent** is not retried: it is what you would have to redo by hand rather
-than fix and let the pass finish. A class removed or renamed before the migration keeps a built-in
-Script row only so its history survives, and that row is deliberately absent from the map, so its
-Job history, an Event Rule naming it and a schedule naming it are all left where they are for good.
-So are a job naming a built-in module rather than a Script, a permission carrying constraints, and
-a schedule whose time has passed, whose owner has been deleted or deactivated, or whose input names
-an object you deleted. Every one of those is listed on the migration's own page so you can deal
-with it by hand, and none of them holds the migration open.
+**Timing**
 
-**Staying put is not the same as staying reachable.** NetBox removes the built-in Custom Scripts
-feature at v5.0. It says nothing about deleting the rows, but a row naming a model that no longer
-exists has no page to open it on, so anything permanent whose history matters to you is worth
-dealing with before that upgrade rather than after.
+| Captured run | Replay behavior |
+|---|---|
+| Future schedule | Keeps its scheduled time. |
+| Overdue recurrence | Becomes eligible to run immediately and keeps its interval. Its timing shifts. |
+| Overdue one-shot schedule | Is skipped and reported for manual rescheduling. |
+| Pending run without a scheduled time | Becomes eligible to run immediately. |
+
+**Ownership**
+
+| Owner | Replay behavior |
+|---|---|
+| Owner still active and permitted to run the Script | Runs under that account. |
+| Owner lacks run permission | Remains outstanding. Grant permission and retry the reference pass. |
+| Recorded owner was deleted after capture, or is deactivated | Is skipped. Recreate it under an appropriate account. |
+| No owner recorded at capture | Remains ownerless. Migration does not assign a new owner. |
+
+Replay preserves the captured commit setting. **Pending runs and overdue
+recurrences can execute before cleanup and verification finish.** A worker busy
+with the reference pass must finish that Job first, but the maintenance window
+does not delay replayed runs until the end of migration.
+
+Runs recorded as already executing or executed are not automatically recreated.
+Review their outcome and arrange any required future schedule manually. A run
+recorded as cancelled that still executed is recreated as well, as the warning
+under [Worker arrangement](#worker-arrangement) explains.
+
+Each reference step records completion when no retryable work remains. A missing
+replacement Script can leave it open for another attempt. Completed steps
+return their recorded results rather than scanning for newly added references.
+
+**Permanently skipped** means migration will not retry the item. It does not
+mean there is no manual remedy. Examples include classes absent from the frozen
+map, module-level references, constrained permissions, overdue one-shot runs,
+invalid input and deleted or deactivated recorded owners. Read the warnings and
+resolve these separately. They do not all keep the migration open.
+
+Preserved built-in rows may lose their normal interface when NetBox removes the
+built-in feature. Export or otherwise reconcile history you need before that
+upgrade. The removal plan is not a guarantee that retained rows will remain
+accessible.
 
 ## Retiring the built-in rows
 
-Cleanup is the last pass and the only one that deletes anything. It refuses until every part of the
-repointing pass has finished, because deleting a built-in Custom Script deletes its Job rows with it and a
-captured schedule can only be recreated while the built-in rows are still there.
+**Clean up** removes built-in modules and their source files. It runs only after
+all four reference steps have completed. Deleting a built-in Script can also
+delete its attached Job history, so check the reference results first.
 
-It deletes only the modules this migration mapped, one at a time, and the stored source of each goes
-with it. That is safe only because staging copied every byte into this plugin's own storage first, so
-check that each migrated Project serves a revision before you run it. Any module the migration did not
-map is left alone.
+Cleanup considers mapped modules individually. It leaves unmapped modules
+alone and does not delete a mapped module while its replacement Project is
+present but serves no revision.
 
-**A module that something still refers to is left in place and named in the job log**, because every
-one of those references would be deleted along with it rather than orphaned. The log distinguishes
-two kinds, and the difference decides whether the migration can finish.
+The results distinguish two kinds of retained work.
 
-**Retained, which no action of yours clears.** These stay for good and do not hold the migration
-open:
+**Retained** modules do not keep migration open. These hold module-level Job
+history or history for classes no longer published by their source. The
+migration has no replacement identity for that history. Keep it unless you have
+made a separate retention decision.
 
-- The module holds Job rows of its own. Older NetBox versions recorded a run against the module
-  rather than against the Script, and a Script Project cannot hold jobs.
-- The module holds Job history for a class that has since left the file. NetBox keeps such a Script
-  row, not executable, purely for its history, and nothing in this plugin replaces it. This is
-  ordinary on a long-lived installation.
+**Blocked** modules keep migration open. Causes include unresolved or retired
+replacement Scripts, history that should have been moved, remaining Event Rule
+references, and replacement Projects that serve no revision. Follow the stated
+reason. Correct source, activate the required revision or resolve the reference,
+then retry.
 
-**Blocked, which you can clear.** These hold the migration open until you deal with them:
+A reference added after its step completed may need manual handling. Repeating
+a completed reference step does not necessarily move it. Do not delete history
+solely to clear a blocker.
 
-- A live Script under the module still holds Job rows the repointing pass did not move. Run that
-  pass again, then retry cleanup.
-- An Event Rule still names the module, which means the repointing pass has not run or did not
-  finish.
-- The module publishes a class no Script resolves to. Deleting it would leave a script that
-  used to run unable to run at all, so fix the source and stage it again first.
-- The Project replacing the module is not serving a revision. Activate it, then retry.
-
-The migration reaches the `migrated` state once nothing **blocked** is left. A retained module does
-not keep it open, because nothing would ever clear it and a run that cannot close is a run no
-replacement can be started for. **Verify** names every retained module on each run, so the residue
-stays visible rather than forgotten.
+The run reaches `migrated` when cleanup has no blocking work left. Retained
+modules are listed in the cleanup results and migration warnings. Verification
+is useful afterwards, but does not replace that detailed retention record.
 
 ## After the last pass
 
-Two more pieces of operator work, in this order.
+1. **Restart every web and worker process.** Processes can retain imported
+   built-in modules after their rows and files are removed.
+2. **Run Verify and review the results.** Check warnings, manually recreated
+   permissions, retained history and schedule outcomes before ending the
+   maintenance window.
+3. **Resume normal operation.** Re-enable submissions and restore your normal
+   worker arrangement when the handover has been checked.
 
-1. **Restart every web and worker process.** A process that imported a built-in script module still
-   holds it in memory, and deleting the row does not unload it. Until every process has restarted,
-   what an installation can execute is not what its rows say.
-2. **Close the maintenance window.** Runs can be requested again, now against the migrated
-   Projects.
-
-Then run **Verify**, and read what it reports before you call the migration done.
+Replayed automation may already have run by this point. Verification does not
+pause it or reverse its effects.
 
 ### Two guarantees, and what each one is worth
 
-**Disabling this plugin does not bring the built-in Custom Scripts back.** Every door the migration
-closed is a row in a NetBox table rather than a decision this plugin re-makes at runtime: a deleted
-script module, a disabled Object Permission, a deregistered synchronization record. Those rows read
-the same whether the plugin is installed, disabled or removed. The honest limit is that the same
-thing makes it reversible by hand. Anyone who can create an Object Permission can grant
-`extras.add_scriptmodule` again and upload a new built-in script, and nothing this plugin ships can
-refuse that. It is a fresh script rather than a returning one, because the old rows are gone.
+**Disabling the plugin does not reverse migration.** Permission changes,
+reference updates, synchronization deregistration and deleted modules persist
+in NetBox's database and storage. Some modules may have been retained for
+history. Removing the plugin does not restore the original installation.
 
-**Nothing the cutover can still reach is left able to execute, and it says so when something was out
-of reach.** Every waiting job it can reach is failed closed and its task dropped. A job a worker had
-already taken is not terminated underneath that worker, because killing a run mid-flight is worse
-than letting it finish. It is recorded instead, and a run recorded that way is withheld from the
-replay, so the migration never runs it a second time. The cutover step stays open while any such run
-is still executing, or while a built-in run was queued after the capture, and running the cutover
-again closes what has since settled. Recurring runs are recreated against the Script that replaced
-the built-in one, subject to the owner rules above, which is why the reference pass comes before
-cleanup rather than after.
+Someone who can manage Object Permissions can grant `extras.add_scriptmodule`
+again, allowing new built-in Custom Scripts to be uploaded. Migration does
+not permanently disable that feature.
 
-**That guarantee rests on one worker for the whole pass**, the arrangement described in
-[What the seven passes do](#what-the-seven-passes-do). The one worker is busy with the pass, so no
-built-in run can start while it works. If the pass is interrupted, a run can still fall due and
-execute before you enter the cutover again, and the pass then records it as executed rather than
-recreating it. With **Accept concurrent workers** ticked, the guarantee does not hold. A second
-worker can take a built-in run while the cutover is cancelling it. That run executes against the
-built-in Custom Script, and the cutover can still record it as cancelled. The repointing pass then
-recreates it, and it runs a second time. Neither the journal nor the Job row can always tell such a
-run apart from a real cancellation.
+**The single-worker arrangement prevents a second worker starting a built-in
+run while cutover executes.** It does not stop submissions or prevent a run
+starting between an interrupted pass and its retry. Check existing work before
+retrying. It also does not stop RQ's scheduler queueing a run again that fell
+due as cutover cancelled it, so that run can execute after the pass. The pass
+uses recorded cancellation intent and Job state to determine which captured
+runs should be replayed.
+
+With one worker or with **Accept concurrent workers**, a run can execute and
+also be recorded as cancelled. Its replacement can then execute too. Neither
+the journal nor the Job row provides an exactly-once guarantee in either mode.
+
+These limits are why the maintenance window and result review remain necessary,
+even when cutover reports completion.
 
 ## Recovery
 
-**Before the fence, recovery is abandonment.** Delete the Projects and revisions this migration
-created. **Staging can stage onto a Project you already had**, so deleting everything it names would
-take content that predates the migration. Its result records, per Project, whether the pass created
-the Project and whether it created the revision, which is what tells the two apart. The built-in
-feature has not been touched, so there is nothing to undo and no state to reconcile.
+### Before cutover
 
-**After the fence there is no rollback.**
+You can stop without closing the built-in feature. Remove only Projects and
+revisions created by your trial migration. Staging results record `created` and
+`revision_created` for each successful Project result.
 
-**A run reading `cutover` has not necessarily finished crossing**, so treat the backup as still
-required for any run in that state. The Migration page names it and keeps **Enter cutover**
-available, and that is the pass to run. The recorded crossing, shown on the run's own page, is what
-says the fence is fully closed.
+Staging can reuse a pre-existing Project and change its declarations or accepted
+source. Compare it with the pre-migration state rather than deleting everything
+the report names. Removing staged content is not the same as resetting the
+migration run's journal.
 
-That is a property of the design rather than a missing feature. The cutover deletes queue tasks,
-disables rows an operator may since have edited, and hands execution to Projects whose content is
-addressed by digest. Nothing reconstructs the state before it.
+### After cutover
 
-Going forward, a queued or recurring run is not lost: its input is recorded in the migration run's
-journal before the task is deleted, and the repointing pass recreates it. See
-[Two guarantees](#two-guarantees-and-what-each-one-is-worth).
+There is no automatic rollback. A run in `cutover` may still have an unfinished
+cutover step. Resolve the reported problem and use **Enter cutover** again to
+resume it. Do not restart staging merely because a pass failed.
 
-The supported reversal is restoring the backup from step 3 of
-[Before you start](#before-you-start): the database, the source storage, and the matching NetBox and
-plugin versions, together. Restoring one without the others gives an installation that disagrees with
-itself.
+Forward recovery uses the journal to retry supported unfinished work. It does
+not guarantee that every captured run can be recreated. Missing queue tasks,
+unsupported input, invalid forms, ownership changes and permanent skips require
+manual review.
 
-**That reversal does not restore the queue.** A queued run's input lives only on its RQ task, which
-the cutover deletes, so a database restored from before the cutover brings back the built-in Job
-rows with nothing left to execute them. The journal holding the captured copies was written during
-the cutover, so a backup taken before it does not contain them either. Record the pending scheduled
-runs you care about before you press **Enter cutover**, and recreate them by hand if you reverse.
-Restoring Redis from a backup is not a substitute, because it replays unrelated work.
+A Job still marked running after a worker disappears needs its own investigation.
+Check worker and queue state and any external changes the Script may have made.
+Do not delete or replay it merely because no worker is currently registered.
+The migration cannot establish from that fact alone that the Script never ran.
 
-Forward is the cheaper direction in every case the migration leaves unfinished. A Project serving no
-revision is activated, a permission left withdrawn is recreated by hand, a module cleanup skipped is
-retired once its Job history is dealt with. **Verify** names each of those every time it runs.
+To reverse the installation, restore a consistent pre-cutover database and both
+source stores with the matching software versions. **This does not restore the
+queue or undo changes to devices and other external systems.**
+
+Before restoring, prevent execution against the changing installation. Review
+both old built-in tasks and replacement plugin tasks before restarting workers.
+A database restore does not remove newer Redis tasks, and blindly restoring
+Redis can replay unrelated or already-executed work.
+
+A pre-cutover database backup lacks the journal captured later. Use the separate
+record of pending runs made before cutover to recreate required work after a
+reversal. Reconcile what actually executed before submitting replacements.
+
+If the run's state, journal and Job result disagree after an interruption,
+preserve them for investigation. Do not open another migration or manually
+advance the state just to make the page appear complete.
 
 ## Checking whether it landed
 
-**Verify** runs five checks and changes nothing. Each one reports `ready`, `warning` or `blocking`,
-the report takes the worst of them as its status, and the whole thing is recorded on the Job so it
-stays readable.
+**Verify** normally reports five checks. Each has a level, a message and the
+source of its evidence. The overall status is the highest level reported. If no
+migration run exists, it reports that there is nothing to verify.
 
-| Check | Passes when |
+| Check | What it examines |
 |---|---|
-| Modules | Every Project this migration activated exists and serves a revision |
-| Scripts | Every built-in Custom Script has a live Script that is not retired |
-| Event Rules | No Event Rule names the built-in feature, and every rule that was enabled before the cutover is enabled again |
-| Permissions | No permission names the built-in feature |
-| Jobs | No Job names the built-in feature, every captured schedule has a live counterpart, and one still waiting holds a task in the queue |
+| Modules | Recorded Projects, their active revisions and unmapped built-in modules. |
+| Scripts | Replacement identities and retirement state. After built-in modules are gone, it checks publication in the migrated Projects instead. |
+| Event Rules | Remaining built-in references and captured rules still disabled. |
+| Permissions | Remaining built-in grants, including those left for manual recreation. |
+| Jobs | Remaining built-in history, recorded recreations, failed replacement Jobs and task presence for recorded replacements still waiting. |
 
-**A check reports `warning` until the pass it verifies has run**, so a report taken before the
-cutover says that nothing has happened rather than that something is wrong. Only a pass that has run
-and left something behind reports `blocking`.
+A step not yet performed generally produces a warning. Warnings can also mean
+manual work remains, such as constrained permissions or retained history. Read
+the messages rather than treating every warning as harmless.
 
-**Every check names what it read.** That matters after cleanup, because the built-in rows are gone by
-then and the Scripts check has to fall back to what the migrated Projects publish. A report that says
-`the built-in rows` was checked against them directly, and one that says `the migration journal` was
-checked against what the migration recorded. Without that, a green report after cleanup would be
-indistinguishable from a check that had nothing left to look at.
+A recorded recreated Job that is still waiting but has no RQ task produces a
+**blocking** result. Repeating the reference pass does not repair its completed
+recreation record. Investigate the missing task and recreate the required run
+manually.
 
-**One Jobs result is `blocking` rather than a warning.** A schedule the journal records as migrated
-whose Job row is still waiting with no task in the queue will never fire, and no re-run of the
-reference pass fixes it, because the journal already claims it. Recreate that schedule by hand.
+An unreachable queue produces a warning, not a claim that tasks were lost.
+Verification also avoids inspecting tasks while the reference pass is still
+working. Run it again once the queue is reachable and repointing has finished.
 
-**A queue this pass cannot reach is reported as a warning, not as a loss.** The Jobs check then says
-so and names the journal alone as what it read, because an unread queue cannot tell a missing task
-from an unreachable one. Run **Verify** again once the queue is back.
-
-Two other `warning` results are ordinary rather than faults, and both are restated on every run
-because each is operator work that stays outstanding until somebody does it: a permission that
-carried constraints and was left withdrawn for you to recreate, and a Job that names a built-in
-script module rather than a Script, which no Script Project can hold.
+Recorded Job IDs may disappear after execution and retention cleanup. Their
+absence is not by itself proof of a missing recurrence. Verification does not
+trace every recurring successor, test every Script or establish whether its
+external actions succeeded. Use the Job history and your operational checks
+alongside the report.
 
 ## What is not part of this release
 
 | Area | Status |
 |---|---|
-| A complete write fence | Not in this release. The row-level half is buildable in a plugin and deliberately not shipped, and the rest needs NetBox. See [Crossing the fence](#crossing-the-fence). |
-| Choosing a different grouping | Not planned. Edit the staged Projects afterwards if you want a different shape. |
-| Reversing a cutover | Not planned. See [Recovery](#recovery). |
+| A complete write fence | Not provided. Keep a maintenance window and control submissions. See [Crossing the fence](#crossing-the-fence). |
+| Choosing a different grouping | No migration grouping selector is provided. Arrange the source layout before staging and cutover. |
+| Reversing a cutover automatically | Not provided. See [Recovery](#recovery). |

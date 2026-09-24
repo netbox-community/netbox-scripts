@@ -402,6 +402,9 @@ def _render(value):
 def _close(run):
     """Close every door available to a plugin, report how many of each, and what stayed open."""
     journal = run.journal
+    # Before the cancellations, whose terminate() sends the job_end a completion rule listens for.
+    permissions = _disable_permissions(journal['permissions'])
+    event_rules = _disable_event_rules(journal['event_rules'])
     unreadable = journal.get('schedules_unreadable', [])
     cancelled, outstanding, warnings = _cancel_schedules(run, journal['schedules'], unreadable)
     # The outcomes it resolved from a job's own state, which it does not record as it goes.
@@ -411,8 +414,8 @@ def _close(run):
     # queue lost would sit here for ever, which is what failing those closed above prevents.
     uncaptured = list(legacy_source.enqueued_script_jobs().exclude(pk__in=captured).values_list('pk', flat=True))
     counts = {
-        'permissions': _disable_permissions(journal['permissions']),
-        'event_rules': _disable_event_rules(journal['event_rules']),
+        'permissions': permissions,
+        'event_rules': event_rules,
         'schedules': cancelled,
         # Counted apart from 'schedules', which is the count that promises a replay.
         'unreadable': len(unreadable),

@@ -10,8 +10,9 @@ from django.utils import timezone
 from rq.job import Job as RQJob
 
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
-from core.events import OBJECT_UPDATED
+from core.events import JOB_COMPLETED, OBJECT_UPDATED
 from core.models import AutoSyncRecord, DataFile, DataSource, Job, ObjectType
+from core.signals import job_end
 from dcim.models import Site
 from extras.models import EventRule, Script, ScriptModule, Webhook
 from netbox_scripts import activation
@@ -342,6 +343,29 @@ class CutoverTestCase(TestCase):
         self.assertFalse(action_rule.enabled)
         self.assertFalse(source_rule.enabled)
         self.assertEqual(counts['event_rules'], 2)
+
+    def test_no_captured_rule_is_live_when_a_cancellation_ends_its_job(self):
+        # terminate() sends job_end, and core runs every enabled completion rule on it.
+        webhook = Webhook.objects.create(name='on completion', payload_url='http://localhost/done')
+        rule = EventRule.objects.create(
+            name='on script completion',
+            event_types=[JOB_COMPLETED],
+            action_type='webhook',
+            action_object_type=ObjectType.objects.get_for_model(Webhook),
+            action_object_id=webhook.pk,
+        )
+        rule.object_types.add(self.script_type)
+        self.legacy_job(task_kwargs={})
+        live = []
+
+        def observe(sender, **kwargs):
+            live.append(EventRule.objects.filter(pk=rule.pk, enabled=True).exists())
+
+        job_end.connect(observe)
+        self.addCleanup(job_end.disconnect, observe)
+        cutover.enter_cutover(self.migration)
+
+        self.assertEqual(live, [False])
 
     def test_a_job_still_waiting_at_the_fence_cannot_execute_after_it(self):
         # Security-relevant rather than tidy, which is why the queue is asserted on as well as the row.

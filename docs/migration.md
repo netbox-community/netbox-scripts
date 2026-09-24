@@ -285,16 +285,13 @@ Cutover affects four areas:
 | Queued runs | Deletes reachable waiting tasks and marks their Jobs failed. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
 | Synchronization | Removes synchronization registrations for the built-in Custom Script modules. |
 
-These changes do not block every way to submit or change built-in Scripts.
-Superusers, `DEFAULT_PERMISSIONS`, plain Django grants and already-authorized
-work can remain unaffected. Do not resume submissions yet.
-
-!!! warning "Completion events during cutover"
-
-    Waiting Jobs are cancelled before captured Event Rules are disabled.
-    Cancellation can trigger enabled Job-completion rules, even with one
-    worker. Review those rules and any resulting work during the maintenance
-    window. Cutover does not suppress all Event Rule actions.
+Captured permissions and Event Rules are closed before any waiting run is
+cancelled, so a cancellation triggers no captured Job-completion rule. A
+cancellation can still trigger a rule whose action runs a Report, since those
+rules are not captured. These changes do not block every way to submit or
+change built-in Scripts. Superusers, `DEFAULT_PERMISSIONS`, plain Django grants
+and already-authorized work can remain unaffected. Do not resume submissions
+yet.
 
 Cutover refuses if staging has not run, the migration state does not allow it,
 built-in Custom Script Jobs are running or the worker check fails. Every mapped

@@ -1,3 +1,4 @@
+import pickle
 import shutil
 import sys
 
@@ -28,6 +29,12 @@ def discard_tree(root):
             for name in directories:
                 (base / name).chmod(0o755)
     shutil.rmtree(root, ignore_errors=True)
+
+
+def pickle_queued_objects(events):
+    """Pickle each queued event's object, as a platform EVENTS_PIPELINE consumer may."""
+    for event in events:
+        pickle.loads(pickle.dumps(event['object']))
 
 
 class SecondSession:

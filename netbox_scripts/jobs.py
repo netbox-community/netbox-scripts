@@ -802,7 +802,7 @@ class NetBoxScriptJob(JobRunner):
     def _run_class(self, script_class, *, data, commit, request, revision, sanitize, event=None):
         """Run one resolved class, recording its log and output on the Job either way."""
         instance = script_class()
-        instance.request = request
+        instance.request = request  # cloud-compat: ok, the run's copy of the request, and a Script is never queued
         instance.event = event
         # Cleaned values win. A request file only fills a name the cleaned values do not carry.
         values = dict(data)

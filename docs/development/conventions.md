@@ -41,6 +41,13 @@ Use `SimpleLayout` for detail pages, with panels from `ui/panels.py`. Declare
 supported actions on list views, detail views and tables. Removing a route alone
 can leave a permission-driven button pointing to it.
 
+Keep the live request off model instances and anything else a queued event or
+job payload can carry. NetBox queues the instance itself in each object event,
+and an `EVENTS_PIPELINE` consumer may pickle it. Read
+`netbox.context.current_request` where a form needs the acting user.
+`scripts/check_cloud_compat.py` flags a stored request, and the test
+configuration pickles every queued object.
+
 ### URLs, filters and permissions
 
 URL segments should not repeat the plugin name. Use `projects/` and

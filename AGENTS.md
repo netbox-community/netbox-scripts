@@ -352,15 +352,21 @@ a statement that an alpha release is approved for either platform.
 - **No per-pod application caches.** Redis is the shared cache on both
   platforms. The runtime import cache is the one exception, because imports need
   a local directory tree.
+- **Keep the live request off objects.** Queued events and job payloads carry
+  model instances to consumers that may pickle them. Read
+  `netbox.context.current_request` instead. NetBox's token views can store
+  it safely only because tokens queue no events.
 
 Backend contract tests in `tests/storage/test_backend_contract.py` exercise
 storage without filesystem paths or directory semantics. The static checker
 `scripts/check_cloud_compat.py` checks filesystem calls, per-process state,
-threads, shell commands and management commands. Neither check replaces the other.
+threads, shell commands, management commands and stored requests. The test
+configuration's `EVENTS_PIPELINE` pickles every queued object. None of these
+checks replaces another.
 
 Keep justified `cloud-compat: ok` exemptions local to the exempt statement. Do not
-add one merely to silence a failure. Runtime cache operations and the additive
-management command have explicit exemptions.
+add one merely to silence a failure. Runtime cache operations, the additive
+management command and a Script run's request copy have explicit exemptions.
 
 ## Conventions and Patterns
 

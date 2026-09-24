@@ -37,6 +37,12 @@ STORAGES = {
     },
 }
 
+# Every test request pickles its queued objects, as a platform EVENTS_PIPELINE consumer may.
+EVENTS_PIPELINE = [
+    'extras.events.process_event_queue',
+    'netbox_scripts.tests.plugin_testing.pickle_queued_objects',
+]
+
 # Databases 14 and 15 rather than the 0 and 1 a running NetBox uses, because the suite really
 # enqueues. Django's test runner isolates the database but nothing isolates Redis, so a
 # TransactionTestCase commits, its on_commit callback enqueues a live RQ job, and any worker on this

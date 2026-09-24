@@ -2,12 +2,16 @@
 Enforce the platform contract that NetBox Cloud and NetBox Enterprise impose on this plugin.
 
 Both platforms run the plugin as immutable, horizontally scaled Kubernetes pods. Three
-consequences drive everything below. A pod's filesystem is private to that pod and is
+consequences drive most of the checks below. A pod's filesystem is private to that pod and is
 discarded when it restarts, so bytes written outside a Django storage backend are invisible
 to the next request and to every other pod. A pod can be replaced at any moment, so work
 held in a thread or an in-process timer is lost rather than finished. And no operator can
 reach into a pod to run something by hand, so anything that only a management command can
 do cannot be done at all.
+
+One more comes from what a platform installs beside the plugin. An event pipeline
+consumer may pickle every object NetBox queues for an event, and a live request cannot
+be pickled, so no object may carry one.
 
 The check walks each module's syntax tree rather than its text. That distinction earns its
 keep twice over: prose describing a forbidden call, which this file and the storage
@@ -47,6 +51,10 @@ LOST_ON_RESTART = (
     "Hand the work to NetBox's JobRunner instead."
 )
 NOT_SHARED = 'keeps state that one pod cannot share with the others. Use the platform Redis.'
+CARRIED_REQUEST = (
+    'stores the live request on another object, which a queued event or job payload can carry to a '
+    'consumer that pickles it. Read netbox.context.current_request where the acting user is needed.'
+)
 
 FORBIDDEN_CALLS = {
     'os.mkdir': EPHEMERAL_DISK,
@@ -175,7 +183,7 @@ class ContractVisitor(ast.NodeVisitor):
             self._record(node, f'import {module}', FORBIDDEN_IMPORTS[root])
 
     def visit_Call(self, node):
-        """Refuse a call that reaches the pod filesystem, a thread, or the shell."""
+        """Refuse a call that reaches the pod filesystem, a thread, or the shell, or stores the live request."""
         target = self._resolve(node.func)
         if target in FORBIDDEN_CALLS:
             self._record(node, f'{target}()', FORBIDDEN_CALLS[target])
@@ -183,6 +191,8 @@ class ContractVisitor(ast.NodeVisitor):
             self._check_os_open(node, target)
         elif target == 'open' and self._opens_for_writing(node):
             self._record(node, 'open() in a writing mode', EPHEMERAL_DISK)
+        elif target == 'setattr' and len(node.args) == 3:
+            self._check_request_store(node, node.args[0], node.args[2], ast.unparse(node))
         elif isinstance(node.func, ast.Attribute) and target is None:
             name = node.func.attr
             if name in FORBIDDEN_METHODS:
@@ -198,6 +208,29 @@ class ContractVisitor(ast.NodeVisitor):
         names.update(leaf.id for leaf in ast.walk(node) if isinstance(leaf, ast.Name))
         if any(flag in names for flag in flags):
             self._record(node, 'os.open() with a creating or writing flag', EPHEMERAL_DISK)
+
+    def visit_Assign(self, node):
+        """Refuse the live request stored on another object, where a queued event can carry it."""
+        for target in node.targets:
+            if isinstance(target, ast.Attribute):
+                subject = f'{ast.unparse(target)} = {ast.unparse(node.value)}'
+                self._check_request_store(node, target.value, node.value, subject)
+        self.generic_visit(node)
+
+    def _check_request_store(self, node, receiver, value, subject):
+        """Record the live request stored on anything but self."""
+        if self._is_request(value) and not (isinstance(receiver, ast.Name) and receiver.id == 'self'):
+            self._record(node, subject, CARRIED_REQUEST)
+
+    def _is_request(self, node):
+        """Return whether an expression is the live request itself."""
+        if isinstance(node, ast.Name):
+            return node.id == 'request'
+        if isinstance(node, ast.Attribute):
+            return node.attr == 'request' and isinstance(node.value, ast.Name) and node.value.id == 'self'
+        if isinstance(node, ast.Call):
+            return self._resolve(node.func) == 'netbox.context.current_request.get'
+        return False
 
     def visit_ClassDef(self, node):
         """Refuse a management command, which neither platform can invoke."""

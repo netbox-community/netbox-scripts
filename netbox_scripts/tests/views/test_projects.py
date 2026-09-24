@@ -1,3 +1,4 @@
+import pickle
 import uuid
 from unittest import mock
 
@@ -19,7 +20,7 @@ from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases
 from netbox_scripts.ui import ScriptProjectPanel, ScriptProjectStatePanel
 from users.models import ObjectPermission
-from utilities.testing import TestCase, create_tags, create_test_user
+from utilities.testing import TestCase, create_tags, create_test_user, post_data
 
 ACTIVATE_STORAGES = {
     'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
@@ -100,6 +101,18 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
     def test_edit_object_with_constrained_permission(self):
         self.form_data = self._form_data_without_identity_fields()
         super().test_edit_object_with_constrained_permission()
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_an_edit_hands_the_event_pipeline_picklable_objects(self):
+        project = ScriptProject.objects.get(key='project-1')
+        self.add_permissions('netbox_scripts.change_scriptproject')
+        url = reverse('plugins:netbox_scripts:scriptproject_edit', args=[project.pk])
+        with mock.patch('netbox.context_managers.flush_events') as flush:
+            response = self.client.post(url, post_data(self._form_data_without_identity_fields()))
+        self.assertHttpStatus(response, 302)
+        objects = [event['object'] for call in flush.call_args_list for event in call.args[0]]
+        self.assertIn(project, objects)
+        self.assertEqual([pickle.loads(pickle.dumps(obj)) for obj in objects], objects)
 
 
 class ScriptProjectScriptFilesViewTestCase(ObjectPermissionTestMixin, TestCase):

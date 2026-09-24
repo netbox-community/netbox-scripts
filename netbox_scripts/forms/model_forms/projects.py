@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from core.models import DataSource
+from netbox.context import current_request
 from netbox.forms import PrimaryModelForm
 from utilities.exceptions import AbortRequest
 from utilities.forms import get_field_value
@@ -62,7 +63,7 @@ class ScriptProjectEditForm(PrimaryModelForm):
         """Refuse a source-field move by a user who may not activate this Project."""
         super().clean()
         cleaned_data = self.cleaned_data
-        request = getattr(self.instance, '_request', None)
+        request = current_request.get()
         if self.instance.pk and request:
             for field in unpermitted_source_moves(request.user, self.instance, cleaned_data):
                 # Not a disabled widget: restrict_form_fields would fail an unviewable source first.
@@ -152,7 +153,7 @@ class ScriptProjectUploadForm(PrimaryModelForm):
         upload = self.cleaned_data['upload_file']
         filename, content = upload.name, upload.read()
         activate_once = self.cleaned_data.get('activate_this_revision', False)
-        _prepare_form_upload(self, project, filename, confirm_replace=False)
+        _prepare_form_upload(project, filename, confirm_replace=False)
         transaction.on_commit(
             lambda: ingest_upload(
                 project, filename=filename, content=content, declare=False, activate_once=activate_once
@@ -225,7 +226,7 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         project = self.instance
         upload = self.cleaned_data['upload_file']
         filename, content = upload.name, upload.read()
-        _prepare_form_upload(self, project, filename, confirm_replace=self.cleaned_data['confirm_replace'])
+        _prepare_form_upload(project, filename, confirm_replace=self.cleaned_data['confirm_replace'])
         transaction.on_commit(
             lambda: ingest_upload(project, filename=filename, content=content, declare=False),
             using=project._state.db,
@@ -329,7 +330,7 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
     def save(self, *args, **kwargs):
         """Reconcile the declarations onto the selection, apply it to the source, and return the project."""
         selection = self.cleaned_data['script_files']
-        request = getattr(self.instance, '_request', None)
+        request = current_request.get()
         try:
             changed = self.instance.select_script_files(selection, user=request.user if request else None)
         except ValidationError as error:
@@ -345,9 +346,9 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
         return self.instance
 
 
-def _prepare_form_upload(form, project, filename, *, confirm_replace):
+def _prepare_form_upload(project, filename, *, confirm_replace):
     """Authorize the declaration before registering any post-commit storage work."""
-    request = getattr(form.instance, '_request', None)
+    request = current_request.get()
     try:
         prepare_upload(
             project, filename=filename, confirm_replace=confirm_replace, user=request.user if request else None

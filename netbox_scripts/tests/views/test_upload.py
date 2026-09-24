@@ -1,4 +1,5 @@
 import hashlib
+import pickle
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -218,7 +219,7 @@ class ScriptProjectUploadViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertFalse(ScriptProject.objects.exists())
         self.enqueued.assert_not_called()
 
-    def test_a_successful_create_has_one_project_and_one_declaration_event(self):
+    def test_a_successful_create_queues_one_picklable_project_and_declaration_event(self):
         self.grant_both()
         with mock.patch('netbox.context_managers.flush_events') as flush:
             response = self.post()
@@ -226,6 +227,8 @@ class ScriptProjectUploadViewTestCase(ObjectPermissionTestMixin, TestCase):
         events = [event for call in flush.call_args_list for event in call.args[0]]
         self.assertEqual(sum(isinstance(event['object'], ScriptProject) for event in events), 1)
         self.assertEqual(sum(isinstance(event['object'], ScriptFile) for event in events), 1)
+        objects = [event['object'] for event in events]
+        self.assertEqual([pickle.loads(pickle.dumps(obj)) for obj in objects], objects)
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)

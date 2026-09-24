@@ -282,18 +282,8 @@ class ScriptProjectRevisionsView(generic.ObjectChildrenView):
         return parent.revisions.restrict(request.user, 'view')
 
 
-class ScriptFileWriteViewMixin:
-    """Provide the actor for declarations written through a project form."""
-
-    def alter_object(self, obj, request, args, kwargs):
-        """Attach the request to the object the form will save."""
-        obj = super().alter_object(obj, request, args, kwargs)
-        obj._request = request
-        return obj
-
-
 @register_model_view(ScriptProject, 'script_files', path='script-files')
-class ScriptProjectScriptFilesView(ScriptFileWriteViewMixin, generic.ObjectEditView):
+class ScriptProjectScriptFilesView(generic.ObjectEditView):
     """Select a Script Project's executable script files from its own source."""
 
     queryset = ScriptProject.objects.select_related('data_source')
@@ -365,15 +355,9 @@ class ScriptProjectEditView(generic.ObjectEditView):
     queryset = ScriptProject.objects.select_related('data_source')
     form = ScriptProjectEditForm
 
-    def alter_object(self, obj, request, args, kwargs):
-        """Carry the request onto the instance, which is where the form reads the user from."""
-        obj = super().alter_object(obj, request, args, kwargs)
-        obj._request = request
-        return obj
-
 
 @register_model_view(ScriptProject, 'upload', path='upload', detail=False)
-class ScriptProjectUploadView(ScriptFileWriteViewMixin, generic.ObjectEditView):
+class ScriptProjectUploadView(generic.ObjectEditView):
     """Create a Script Project from one uploaded script."""
 
     queryset = ScriptProject.objects.select_related('data_source')
@@ -384,7 +368,7 @@ class ScriptProjectUploadView(ScriptFileWriteViewMixin, generic.ObjectEditView):
 
 
 @register_model_view(ScriptProject, 'add_script', path='upload')
-class ScriptProjectAddScriptView(ScriptFileWriteViewMixin, generic.ObjectEditView):
+class ScriptProjectAddScriptView(generic.ObjectEditView):
     """
     Add one more script to an existing Script Project.
 

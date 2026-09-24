@@ -1,58 +1,51 @@
 # Script File
 
-A Script File declares one executable file within a Script
-Project: a Python file of the project's source tree that discovery
-imports and publishes Scripts from. Helper files need no Script File row,
-they stay importable by the script files without being one, so a script file list is
-the project's explicit statement of what runs rather than an inventory of every
-file.
+A Script File selects one Python module in a Project for discovery. Validation
+imports that module to find the Scripts it publishes. Helper modules remain
+importable without a declaration, so the Script File list is not an inventory
+of every source file.
 
-Enabled script file declarations are frozen into each revision at staging time as
-that revision's [script file snapshot](scriptprojectrevision.md). Editing,
-disabling, or deleting a script file therefore changes future revisions and never
-what an existing revision was validated against.
+Staging records the enabled declarations in each revision's
+[Script file snapshot](scriptprojectrevision.md#script-file-snapshot). Changing
+or disabling a declaration affects future snapshots, not revisions already
+staged.
 
 ## Fields
 
+FK means foreign key. Fields marked `system` are maintained by validation, not
+edited through forms or APIs.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | FK | yes | Owning Script Project |
-| `source_path` | string | yes | POSIX-style relative path of the script file, stored in canonical form |
-| `enabled` | boolean | yes | Whether staging includes this declaration in new revision snapshots, default true |
-| `discovery_status` | choice | system | `pending`, `discovered`, `no_scripts`, or `failed`, describing the most recent validation of the current declaration |
-| `discovery_error` | text | system | Why discovery failed, or why a script file published nothing, empty otherwise |
-| `last_discovered_revision` | FK | system | The revision whose validation last wrote these discovery fields |
+| `project` | FK | yes | Owning Script Project. Cannot change after creation |
+| `source_path` | string | yes | Canonical POSIX-style path relative to the Project root. Cannot change after creation |
+| `enabled` | boolean | yes | Whether staging includes the declaration in new revision snapshots. Defaults to `true` |
+| `discovery_status` | choice | system | `pending`, `discovered`, `no_scripts` or `failed`. Result of the most recent validation of the current declaration |
+| `discovery_error` | text | system | Why discovery failed or the file published no Scripts. Empty otherwise |
+| `last_discovered_revision` | FK | system | Revision whose validation last updated the discovery fields |
 
-The three discovery fields are system-managed. Project validation writes them,
-no form or serializer accepts them, and a save that names no fields restores them
-from the row, so an edit cannot write an older verdict back. They describe the
-current declaration.
+The discovery fields describe the current declaration, not an editable verdict.
+A full model save reloads their stored values to preserve validation updates.
 
-A script file has no name of its own. It is identified by its project and its source
-path, and both are frozen once the script file exists, so a declaration can never be
-repointed at a different file. That keeps the discovery fields honest: a
-repointed row would report a verdict for a file it no longer names.
+A Script File has no separate name. Its Project and canonical source path form
+its identity and cannot be changed. Use the selection workflow below when a
+source file moves or is renamed.
 
 ## Renaming or moving a script file
 
-There is no rename. When a file moves or is renamed in the project's source, the
-new path appears as a candidate on the Script Files tab and the old one is
-reported as missing. Move the new path into the selected list and the old one
-out of it:
+After a source file moves, its new path appears as a candidate on the Project's
+**Script Files** tab and the old path is reported as missing:
 
-1. Selecting the new path declares it, starting at `pending` until the next validation.
-2. Deselecting the old path clears its `enabled`, which is what selection means.
+1. Select the new path. A new declaration starts at `pending` until validation.
+2. Deselect the old path. This sets its `enabled` field to `false`.
 
-Deselecting disables rather than deletes, which keeps the old declaration's
-discovery history and keeps its path reserved, because
-`unique_project_source_path` does not consider `enabled`. Renaming the file back
-therefore re-enables the original row instead of colliding with it. Staging includes only enabled declarations, so
-a disabled one stops reaching new revisions immediately while the revisions it
-was already snapshotted into keep meaning what they meant.
+Deselecting keeps the old declaration and its discovery information. The
+`unique_project_source_path` constraint also reserves disabled paths. If a path
+returns, selecting it re-enables the original row.
 
-Deselecting is the only way to retire a declaration. There is no delete route on any
-surface, because a declaration is a Project setting rather than an object managed on
-its own.
+Only enabled declarations enter new revision snapshots. Disabling a declaration
+does not change existing snapshots. There is no standalone delete route for a
+Script File.
 
 ## Relationships
 
@@ -68,72 +61,69 @@ its own.
 | REST | `/api/plugins/netbox-scripts/script-files/` |
 | GraphQL | `netbox_script_file` / `netbox_script_file_list` |
 
-Script Files are selected on the owning Project's **Script Files** tab, which
-lists the importable modules of its source at any depth and never asks for a
-typed path. Candidates are grouped by the directory they sit in, with files at
-the top of the source under `(root)`, and each option carries its own file name
-rather than the whole path. The same operation is available over REST:
+Use the Project's **Script Files** tab to select from importable modules at any
+directory depth. Candidates are grouped by directory, with top-level files
+under `(root)`. Each option shows its filename, so you do not need to type a
+path. The Project selection is also available over REST:
 
 ```text
 GET  /api/plugins/netbox-scripts/projects/<id>/script-files/
 PUT  /api/plugins/netbox-scripts/projects/<id>/script-files/   {"paths": [...]}
 ```
 
-`GET` reports every candidate with `selected`, `available`, and its
-`discovery_status`. `PUT` replaces the selection, refusing any path the project
-has no source file at. `GET` needs the Project's view permission and nothing else.
-`PUT` needs the Project's change permission and the Script File `change` action, and
-creating declarations also needs `add` on those rows. Existing declarations it changes
-are checked against their `change` constraints before and after the update. See
-[Permissions](../permissions.md#two-privileges-with-no-codename-of-their-own).
+`GET` reports candidates with `selected`, `available` and `discovery_status`.
+It requires Project `view` permission. `PUT` replaces the selection and rejects
+paths that do not exist in the Project's source.
 
-Script Files keep surfaces of their own for triage across projects: list, detail,
-edit, filtering, global search, REST, and GraphQL. They carry no top-level navigation
-item and no create, delete, bulk delete, bulk import or UI bulk edit route, because a
-declaration is a Project setting. Over REST that is a method restriction, so POST and
-DELETE answer 405. Bulk update is inherited and stays available, so a bulk `PUT` or
-`PATCH` on the list route edits declarations.
+`PUT` requires Project `change` and Script File `change` permission to enter the
+route. Creating a declaration also requires `add` permission on the new row.
+Changes to existing declarations require `change` permission on each affected
+row before and after the change. Unchanged rows need no additional child write
+permission. See
+[Permissions](../permissions.md#two-privileges-with-no-codename-of-their-own)
+for the complete selection and upload rules.
 
-The three discovery fields are readable and filterable everywhere, and writable
-nowhere: no form, serializer, or GraphQL input accepts them, only project
-validation writes them. `last_discovered_revision` is a nested revision in REST
-and a revision relation in GraphQL. Revisions have read-only REST and GraphQL
-surfaces of their own.
+Script Files also have list, detail, edit, filtering and global-search views for
+troubleshooting across Projects, plus REST and GraphQL access. They have no
+top-level navigation item, create, delete, bulk delete, bulk import or UI bulk
+edit route. REST POST and DELETE return HTTP 405. Bulk PUT and PATCH remain
+available on the Script File list endpoint.
+
+Discovery fields are readable and filterable, but cannot be changed through
+these interfaces. `last_discovered_revision` is a nested revision in REST and a
+revision relationship in GraphQL. Revisions also have their own read-only REST
+and GraphQL endpoints.
 
 ## Validation rules
 
-A declaration is checked where it is made, so a path that could never run is
-rejected up front rather than at validation time:
+Declaration paths are checked before revision validation:
 
-- The path is canonicalized to the same form project storage uses, and must
-  satisfy the [source path policy](../configuration.md).
-- The path must name an importable Python module: it ends in `.py`, every
-  segment is a valid Python identifier and not a reserved keyword, and the
-  project root `__init__.py` is refused because it names the package itself.
-- Two script files of one project cannot collide when letter case is ignored, since
-  hosts such as macOS treat `Utils.py` and `utils.py` as one file. The check
-  covers every directory level, so `Lib/deploy.py` and `lib/audit.py` collide
-  too, which is what the source tree they name would do at upload.
-- Two script files of one project cannot import under one module name. `pkg.py` and
-  `pkg/__init__.py` both name `pkg`, the package wins, and the other file would
-  silently never execute.
+- Paths are canonicalized using the storage rules and must satisfy the
+  [source path policy](../configuration.md#source-path-policy).
+- The file must end in `.py`. Directory names and the module name without `.py`
+  must be Python identifiers, not reserved keywords. The Project root
+  `__init__.py` cannot be declared because it names the package itself.
+- Paths must not collide when letter case is ignored, at any directory level.
+  This rejects both `Utils.py` with `utils.py` and `Lib/deploy.py` with
+  `lib/audit.py`, avoiding conflicts on case-insensitive filesystems.
+- Paths must resolve to distinct module names. For example, `pkg.py` and
+  `pkg/__init__.py` both name `pkg`, and the package would shadow the module.
 
 ## Invariants
 
 | Invariant | Enforcement |
 |---|---|
-| One path is declared at most once per project | `unique_project_source_path` database constraint |
-| The project cannot be changed | `clean()` for a per-field error, `save()` as the backstop for ORM writes |
-| The source path cannot be changed | `clean()` and `save()`, compared after canonicalization so a re-spelling is not a change |
-| The stored path is canonical | `save()` canonicalizes, so snapshots built straight from rows are safe |
-| The stored path is importable | `save()` refuses an unimportable path, so it cannot freeze into a snapshot that activation could only reject |
-| Discovery fields are system-managed | `editable=False`, only project validation writes them, and `save()` restores them when no fields are named |
-| `last_discovered_revision` belongs to the same project | `clean()` check |
+| One path is declared at most once per Project | `unique_project_source_path` database constraint |
+| The Project cannot be changed | `clean()` reports the field error, and `save()` also checks ORM writes |
+| The source path cannot be changed | `clean()` and `save()` compare canonical paths, so equivalent spellings are not changes |
+| The stored path is canonical | `save()` normalizes the path before it can enter a snapshot |
+| The stored path is importable | `save()` rejects paths that cannot identify an importable module |
+| Discovery fields are system-managed | `editable=False`, only validation writes them, and a full `save()` reloads their stored values |
+| `last_discovered_revision` belongs to the same Project | `clean()` check |
 
-Script Files are installation-global, like projects and revisions. Under NetBox
-Branching they read and write the main schema from every branch, because a
-branch-local script file set for an installation-global revision would let one
-revision mean different things in different branches.
+Script Files are installation-global. Under NetBox Branching they read and
+write the main schema, like Projects and revisions. A revision's declarations
+do not vary by branch.
 
-Code paths that bypass validation (`QuerySet.update()`, raw SQL) must supply
-canonical paths themselves.
+Code that bypasses model validation, such as `QuerySet.update()` or raw SQL,
+must supply canonical paths itself.

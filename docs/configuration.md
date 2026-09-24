@@ -2,12 +2,12 @@
 
 ## Overview
 
-NetBox Scripts keeps project source in a Django storage backend, configured through
-NetBox's `STORAGES` setting, and reads its remaining settings from the
-`netbox_scripts` entry in NetBox's `PLUGINS_CONFIG`. A deployment that
-[uploads scripts](uploading.md) needs the storage entry, since that is where uploaded content
-is written. One that only manages project definitions can defer the decision, and the
-`netbox_scripts.W001` system check reports it until it is made.
+Configure Project source storage in NetBox's `STORAGES` setting. Optional plugin
+settings belong under `PLUGINS_CONFIG['netbox_scripts']`.
+
+You can create Project definitions before configuring storage. The
+`netbox_scripts.W001` system check reports the missing entry until it is set.
+Storage is required for operations such as [uploading scripts](uploading.md).
 
 ```python
 PLUGINS_CONFIG = {
@@ -19,28 +19,25 @@ PLUGINS_CONFIG = {
 
 ## Project storage
 
-Stored revisions go to the backend registered under the `netbox_scripts` key of
-NetBox's `STORAGES` setting. **This entry is required.** Everything the plugin writes sits
-under a single `netbox-scripts/` prefix, so it stays separate from whatever else
-that backend holds.
+Revisions use the backend registered as `STORAGES['netbox_scripts']`.
+**This entry is required.** The plugin stores its content under a
+`netbox-scripts/` prefix, separate from other content in the backend.
 
-**Treat write access to the backend you name here as equivalent to running code as the
-NetBox service account.** The plugin executes what it reads from here, checked against a
-manifest held in the database. Read
-[Storage trust boundary](#storage-trust-boundary) before choosing one.
+**Treat write access to this storage as equivalent to running code as the NetBox
+service account.** The plugin executes source from it after checking the content
+against a database-held manifest. Read
+[Storage trust boundary](#storage-trust-boundary) before choosing a backend.
 
-The entry is required rather than falling back to NetBox's `default` storage because a
-revision is executable source, and it deserves a backend chosen for it rather than
-inheriting the visibility, retention, and sharing policy of ordinary media. Pointing the
-entry at the same physical backend as `default` is a legitimate decision, and writing it
-out keeps that decision visible and lets the two diverge later. NetBox merges `STORAGES`
-with its built-in entries, so a block that defines only this key leaves `default` and the
-others intact.
+The plugin does not fall back to `default`. Its separate entry lets you choose
+access, retention and sharing settings for executable source independently of
+ordinary media. Both entries may use the same physical backend.
+
+NetBox merges `STORAGES` with its built-in entries. Defining only this key leaves
+`default` and the other built-in entries intact.
 
 ### Local files
 
-On a single node, Django's built-in `FileSystemStorage` stores revisions as ordinary
-files:
+On a single node, Django's `FileSystemStorage` stores revisions as ordinary files:
 
 ```python
 STORAGES = {
@@ -53,26 +50,27 @@ STORAGES = {
 }
 ```
 
-The directory has to exist before the first upload, writable by the web and worker
-processes and by nothing else. [Quickstart](quickstart.md#configuring-project-storage)
-shows one way to create it.
+Create the directory before the first upload. It must be writable by the web and
+worker accounts, but not by other users. See
+[Quickstart](quickstart.md#configuring-project-storage) for an example.
+
+Stored files follow this layout:
 
 ```text
 /var/lib/netbox-scripts/netbox-scripts/<storage_key>/revisions/<digest>/hello.py
 ```
 
-Deleting a Project or one of its revisions reclaims the files that revision recorded, not
-the directories holding them, so an empty `<storage_key>/revisions/<digest>/` can remain
-once a cleanup has completed. This is cosmetic, and specific to a filesystem backend: an
-object store has no directory to leave behind. Removing such a directory by hand is safe,
-and a revision that is later staged from identical content writes back into it.
+Deleting a Project or revision removes its recorded files, not their directories.
+An empty `<storage_key>/revisions/<digest>/` directory may remain. Empty directories
+can be removed manually. Staging identical content later recreates the needed path.
+Object stores do not have these directories.
 
-Nothing here requires the `django-storages` package. `FileSystemStorage` ships with
-Django, and `django-storages` is needed only for the object-store backends below.
+`FileSystemStorage` is included with Django. Install `django-storages` only when
+using an object-storage backend that requires it.
 
 ### Object storage
 
-A horizontally scaled deployment points the entry at an S3-compatible bucket:
+For a multi-node deployment, an S3-compatible backend can provide shared storage:
 
 ```python
 STORAGES = {
@@ -87,82 +85,82 @@ STORAGES = {
 }
 ```
 
-S3 bounds the complete object key at 1024 UTF-8 bytes including every prefix. The plugin's
-own key prefix uses 127 of them and an accepted source path uses at most 768, which leaves
-129 bytes for the `location` above.
+S3 limits complete object keys to 1024 UTF-8 bytes. The plugin's prefix uses
+127 bytes, and an accepted source path uses at most 768. This leaves 129 bytes
+for the backend's `location` prefix.
 
 ### The one requirement
 
-**Every NetBox web and worker process must reach the same content.** A revision staged by
-one process is executed by another. On a single node, a local directory satisfies that
-and is the normal choice. On a horizontally scaled deployment, such as NetBox Enterprise
-or NetBox Cloud, a per-pod local directory does not: a revision written by a web pod is
-absent for the worker pod that has to run it, so those deployments need an object store or
-a shared volume.
+**Every NetBox web and worker process must have access to the same stored content.**
+Source staged by one process can be executed by another.
+
+A local directory is suitable on a single node. On a multi-node deployment,
+including NetBox Enterprise or NetBox Cloud, use object storage or a shared volume.
+A directory local to one pod is not available to a worker in another pod.
 
 ### Database connection pooling
 
-**Script Projects need session-mode pooling, or a database alias that is not pooled.**
-Every operation that touches stored content serializes on a PostgreSQL session-level advisory
-lock, and such a lock belongs to the physical backend connection that took it. Under
-transaction-mode pooling, which pgbouncer offers and many deployments select, each transaction
-can land on a different backend, so the acquire, the protected writes and the release drift
-apart. Two callers can then both believe they hold one project's lock, or a lock can be left
-behind until the pool recycles that connection, which stalls every later operation on that
-Project.
+**Connect the `default` database directly or through a session-mode pooler.**
+Transaction-mode pooling is not supported for Script Project storage operations.
+
+These operations use PostgreSQL session-level advisory locks. Acquiring the lock,
+performing the protected work and releasing it must use the same database
+connection. Transaction-mode pooling can move transactions between connections,
+allowing overlapping operations or leaving locks behind that block later work.
 
 ### When the entry is missing or unusable
 
-NetBox still boots, and everything unrelated to project storage keeps working. The
-`netbox_scripts.W001` system check reports the missing entry, and revision staging,
-activation, and cleanup refuse with a configuration error until it is defined. A backend
-that cannot be constructed is reported the same way when the storage layer uses it, rather
-than at startup.
+NetBox can start without the storage entry. Features unrelated to source storage
+continue to work, but staging, activation and cleanup fail with a configuration
+error. The `netbox_scripts.W001` check reports the missing entry.
+
+If the configured backend cannot be constructed, the error is reported when the
+storage layer uses it rather than at startup.
 
 ### Changing the backend later
 
-The entry and its options are part of the deployment's persistent state: they say where
-every stored revision lives. Changing the target backend, bucket, or `location` therefore
-needs a coordinated move, not just a configuration edit. Stop staging and deletion activity,
-let queued cleanup jobs drain, copy everything under the `netbox-scripts/` prefix to
-the new backend, and only then switch the entry. A cleanup job resolves the backend when it
-runs, so a job enqueued before the switch would otherwise delete from the new backend while
-its objects still sit in the old one. Verification on the next staging or activation
-confirms the copied content arrived intact.
+Changing the backend, bucket or `location` requires moving the stored source,
+not just editing configuration:
+
+1. Stop staging and deletion activity, and let queued cleanup Jobs finish.
+2. Copy all content under the `netbox-scripts/` prefix to the new backend.
+3. Switch the storage entry to the new location.
+
+A cleanup Job resolves the backend when it runs. Switching too early could make
+it delete from the new backend while its original content remains in the old one.
+Verification during later staging or activation checks the copied content.
 
 ## Settings
 
 | Setting | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `max_file_size` | positive integer (bytes) | 10485760 (10 MiB) | Largest accepted size for a single source file. |
-| `max_project_size` | positive integer (bytes) | 104857600 (100 MiB) | Largest accepted total size of a project's source tree. |
-| `max_file_count` | positive integer | 1000 | Largest accepted number of files in a project's source tree. |
-| `runtime_cache_root` | path | system temporary directory | Directory the [runtime cache](#runtime-cache) materializes revision trees under. |
+|---|---|---|---|
+| `max_file_size` | positive integer (bytes) | 10485760 (10 MiB) | Largest accepted size of one source file. |
+| `max_project_size` | positive integer (bytes) | 104857600 (100 MiB) | Largest accepted total source-tree size. |
+| `max_file_count` | positive integer | 1000 | Largest accepted number of source files. |
+| `runtime_cache_root` | path | system temporary directory | Root used to materialize revision trees. See [Runtime cache](#runtime-cache). |
 
-**`max_project_size` bounds what is accepted, not what is held.** Staging assembles the
-whole candidate tree in memory as a mapping of path to bytes and sums it only once it is
-built, so an oversize tree is fully resident before it is rejected. Two things follow
-that are worth sizing for.
+**`max_project_size` limits accepted content, not peak memory use.** Staging builds
+the entire candidate tree in memory before checking its total size. An oversized
+tree therefore consumes memory before it is rejected.
 
-An upload holds the project's existing tree plus the new file, so one call can reach this
-limit plus `max_file_size` before the check fires. Both upload routes run in the web
-process: the create and Add Script forms defer to a commit hook, and the REST upload action
-stages inline in the request.
+An upload holds the existing tree plus the new file. One call can reach
+`max_project_size` plus `max_file_size` before the total-size check. Both upload
+surfaces perform this work in the web process. The create and Add Script forms
+use a commit hook, while REST stages within the request.
 
-A Data Source staging reads the paths on the source first and fetches bytes only for the
-files under the project's `data_path`, so a repository holding several projects does not put
-all of them in one worker. That runs in an RQ worker, as migration staging does.
+Data Source staging reads the path inventory first, then fetches content only
+under the Project's `data_path`. A repository containing several Projects does
+not load all their content for each Project. This staging, including migration
+staging, runs in an RQ worker.
 
-Verification and the script file refresh are not affected. Both read one file at a time.
-
-A limit set to a non-positive or non-integer value is rejected as a configuration error
-when it is read.
+Verification and Script File refresh read one file at a time rather than holding
+the entire tree. Non-positive or non-integer size/count settings raise a
+configuration error when read.
 
 ## Source path policy
 
-Source paths are also held to fixed limits, which are deliberately not configurable. They are
-portability floors rather than capacity settings: a path that clears them stays writable,
-walkable, and removable on every supported host, and importable by the package loader.
+Source paths have fixed portability limits. These are not configurable capacity
+settings.
 
 | Rule | Limit |
 |---|---|
@@ -170,194 +168,165 @@ walkable, and removable on every supported host, and importable by the package l
 | Bytes in the whole relative path, UTF-8 | 768 |
 | Directory levels | 64 |
 
-A source file breaking any of these is rejected as content, with the codes
-`path_component_too_long`, `path_too_long`, and `path_too_deep`, so the upload becomes an
-inspectable invalid revision. Left to the filesystem these would surface later as
-`ENAMETOOLONG` or descriptor exhaustion, recorded as an infrastructure failure that no retry
-of the same content could ever clear.
+A source path that exceeds a limit produces an invalid revision with
+`path_component_too_long`, `path_too_long` or `path_too_deep`. Rejecting it as content
+avoids a later filesystem or descriptor error that retrying the same source would
+not resolve.
 
-Two names that differ only in letter case are rejected together under
-`case_fold_conflict`, checked at every directory level rather than only in the full path, so
-a tree holding both `Lib/deploy.py` and `lib/audit.py` is refused. The comparison is simple
-case mapping, matching what APFS, NTFS, and HFS+ do, so names those hosts keep apart stay
-usable.
+Case-only name conflicts are rejected with `case_fold_conflict`. The comparison
+applies at every directory level, so `Lib/deploy.py` and `lib/audit.py` cannot share
+one tree. Simple case mapping follows APFS, NTFS and HFS+ behavior without rejecting
+names those filesystems distinguish.
 
-Compiled Python files and `__pycache__` directories are rejected under `compiled_artifact`.
-Compiled bytecode imports without the source anyone would review, so it is not project
-source.
+Compiled Python files and `__pycache__` directories are rejected with
+`compiled_artifact`. Project source must remain available for review rather than
+being supplied only as executable bytecode.
 
 ## Runtime cache
 
-Python imports need a real directory tree, so before a revision loads, its files are
-materialized from the storage backend into a local directory:
+Python imports require a directory tree. Before loading a revision, the plugin
+materializes its source from storage into a local cache:
 
 ```text
 <runtime_cache_root>/<storage_key>/<digest>/
 ```
 
-The default root sits under the system temporary directory
-(`<tempdir>/netbox-scripts/runtime-cache`), which is per-process-host, writable,
-and disposable. Set `runtime_cache_root` to place it elsewhere, for example on a larger
-or faster volume. Whatever the location, the cache is scratch state: losing it costs a
-rebuild from the backend, never data, so nothing about it needs to be backed up or
-shared between nodes. Per-pod scratch space is exactly right on a horizontally scaled
-deployment.
+The default root is `<tempdir>/netbox-scripts/runtime-cache` on each host.
+Set `runtime_cache_root` to use another location, such as a larger or faster volume.
+The cache can be rebuilt from Project storage. It does not need backups or sharing
+between nodes. Per-pod temporary storage is suitable for multi-node deployments.
 
-Every directory level the plugin creates is created private to the account NetBox runs as, and
-materialization refuses a root whose ancestors another account could rename. An ancestor
-writable by other users is accepted only when it is sticky, which is what keeps the shared
-temporary directory usable. Verification proves what a tree held when it was checked, and it
-cannot prove that no one swapped the directory afterwards, which is why placement is checked at
-all.
+The plugin creates private cache directories and checks their parent directories.
+A parent writable by other users is accepted only when its sticky bit prevents
+those users from renaming the cache directory. This permits use of the shared
+system temporary directory without relying on content verification alone.
 
-A directory created outside the plugin does not get that treatment, so a `runtime_cache_root`
-prepared by hand under a permissive umask is the common way to hit this. Validation then fails
-as an environment error naming the offending directory, and the fix is to restrict it:
+A directory created manually does not automatically receive those permissions.
+An unsafe root or parent makes validation fail with an environment error naming
+the directory. Restrict its access:
 
 ```bash
 chmod 700 /path/to/runtime-cache
 ```
 
-Every ancestor is checked, so a private cache directory inside a group-writable parent is still
-refused. Point `runtime_cache_root` somewhere already private, or restrict the parent too.
+Every parent is checked, so a private cache directory inside a group-writable,
+non-sticky parent is still rejected. Restrict the parent or choose a safe location.
 
-A cached tree is never trusted because it exists. Every use re-verifies it against the
-revision manifest, and the protocol is built so nothing unverified can execute:
+Existing cache content is verified on every use:
 
-- Compiled Python files are removed before any verification, because a planted one can
-  be flagged to skip its own source check. Verification then requires exactly the
-  manifest's files and nothing else, symbolic links included.
-- A tree that fails verification is set aside next to its slot rather than repaired in
-  place, and a fresh tree is rebuilt from the backend through the same size-preflighted,
-  bounded, checksummed reads the storage layer uses everywhere.
-- A rebuilt tree is staged as a sibling of its final location, verified as a whole,
-  published with one rename, and write-protected before it is served, so a reader only
-  ever sees a complete, just-verified, read-only tree. A tree left unprotected by an
-  interrupted build is protected again the next time it is served. Concurrent builders
-  of one revision serialize on a per-slot file lock that the operating system releases
-  if the process dies.
+- Compiled files are removed before verification. The remaining tree must contain
+  exactly the manifest's files, with no unexpected files or symbolic links.
+- A failed tree is set aside rather than repaired in place. Its replacement is
+  fetched using size-checked, bounded reads and checksum verification.
+- The replacement is built beside its final location, verified, published with
+  one rename and write-protected before use. Interrupted protection is restored
+  on the next use. Concurrent builds of one revision use a per-slot file lock
+  that the operating system releases if the process dies.
 
-The root must offer enough space for the revisions in active use, and staging happens
-beside the final location, so the root must be one filesystem. There is no automatic
-eviction, and nothing reclaims stale slots or set-aside failures, so the directory is
-cleared out of band while NetBox is stopped.
+Provide space for active revisions and their temporary sibling trees on one
+filesystem. There is no automatic eviction or cleanup of stale and failed slots.
+Remove them outside the plugin while NetBox is stopped.
 
 ## Storage trust boundary
 
-The project storage backend and the runtime cache directory are trusted inputs to code
-execution.
-Treat write access to either as equivalent to running code as the NetBox service account,
-and size the backend and filesystem permissions accordingly.
+**Only the NetBox service identity or a trusted deployment identity should be
+able to write Project storage or the runtime cache.** Treat that access as code
+execution under the NetBox service account.
 
-- **Only the NetBox service identity, or a trusted deployment identity, may write to the
-  storage backend or to the runtime cache directory.** Anything else with write access can
-  place code where NetBox will later import it.
-- **Content is trusted because it matches its manifest, not because of where it sits.**
-  Every stored file is checked against its recorded size and SHA-256 on every path that
-  returns a revision, including immediately after it is written. Verification asks the
-  backend for an object's reported size before opening it, so an object replaced with
-  something larger is rejected without a download, and a backend that reports no sizes
-  falls back to a read bounded at one byte past the recorded size. Only the keys the
-  manifest names are ever read, materialized, or executed, so an unexpected key under a
-  revision is inert rather than importable.
-- **A manifest is verified immediately before import, not once at write time.** Content
-  that changed after it was staged does not match its recorded checksum and is rejected
-  then.
-- **A cache entry is not trusted merely because it exists.** The runtime cache is
-  rebuildable state, so an entry that fails verification is discarded and repopulated from
-  the backend.
-- **Give the backend its own bucket, container, or directory** where the deployment allows
-  it. The plugin confines itself to one prefix, but a backend shared with unrelated writers
-  widens who can put content where NetBox will look for it.
+The plugin verifies content against the database-held manifest, not its location.
+Each file's recorded size and SHA-256 are checked, including after a write and
+immediately before import. When a backend reports sizes, an oversized object is
+rejected before download. Otherwise, reads are bounded to one byte beyond the
+recorded size.
 
-Script Project and Revision rows, and the cleanup jobs that reclaim their stored
-content, live on the default database, and the whole storage lifecycle is bound to it.
-The core job API records a cleanup Job and its queue handoff on the default connection,
-so staging, activation, and deletion arriving on any other database alias are refused up
-front, rather than allowed to create content whose deletion could never record its
-cleanup. The cleanup job also repeats the branching routing check when it runs, because
-it may execute much later or on another pod, and it fails while leaving content in place
-rather than trust an answer that is no longer safe. NetBox Branching's schema routing on
-the default connection is fully supported, arbitrary secondary databases are not.
+Only manifest keys are read, materialized and executed. Unexpected storage keys
+are not imported. A cache entry that fails verification is rebuilt from storage.
+These checks do not replace restricting write access to the backend and cache.
+
+Use a dedicated bucket, container or directory where possible. The plugin keeps
+its own prefix, but sharing a backend with unrelated writers expands access to
+the location holding executable source.
+
+The storage lifecycle uses the default database. Project and revision rows, as
+well as their cleanup Jobs, must remain on that connection. Staging, activation
+and deletion on another database alias are rejected because cleanup cannot be
+recorded consistently there.
+
+Cleanup repeats the branching-routing check when it runs, even if it was queued
+on another pod or much earlier. Unsafe routing leaves content in place and fails
+the Job. NetBox Branching's schema routing on the default connection is supported.
+Arbitrary secondary databases are not.
 
 ## What the backend does and does not guarantee
 
-Moving the authoritative store to a Django storage backend is what makes it work on a
-horizontally scaled deployment, and it changes what the plugin can promise about tampering.
+Checksums detect changed content, but the storage backend still controls how its
+keys resolve. The plugin does not prevent every change to a backend's directory
+structure.
 
-Writing cannot go through a symbolic link planted at a key, because a filesystem backend
-creates files with `O_CREAT` and `O_EXCL` and the plugin refuses a key the backend renames.
-Removal unlinks the name it is given rather than following it. Both statements hold at the
-final key only: on a filesystem backend, a directory component under the storage root that
-is replaced with a symbolic link redirects everything below it, writes included. The plugin
-does not defend against mutation of the backend's own tree, which is what the trust
-boundary above is for. Whoever can restructure the storage root can already place code, so
-write access to it stays confined to the trusted identities. Reading is where the
-difference lies: a backend resolves a key however it chooses, and the plugin does not
-control that resolution, so a redirected read is caught by the checksum rather than
-prevented. Content that does not hash to what the manifest recorded is rejected, which
-means a redirect can deny service but cannot substitute code.
+At the final key, filesystem creation with `O_CREAT` and `O_EXCL` avoids following
+a planted symbolic link. The plugin rejects a renamed save result. Removal unlinks
+the final name rather than following it.
 
-This is the only guarantee available once the store may be an object store, and it applies
-uniformly to every backend rather than only to a local filesystem.
+These protections do not cover a parent directory replaced by a symbolic link.
+That can redirect reads and writes below it. Restrict who can modify the storage
+root, as described in [Storage trust boundary](#storage-trust-boundary).
+
+A redirected read is checked against the manifest. Different content is rejected,
+so redirection can make source unavailable but cannot substitute content that
+fails its recorded checksum. Content checks apply across both local and remote
+backends.
 
 ## Reclaiming stored content
 
-Deleting a Project or a revision records a cleanup Job carrying the exact keys to remove, in the
-same transaction that deletes the row, so the intent to reclaim survives even if the queue never
-picks the job up. Deletion is by exact key and tolerates content that is already gone, which is
-what makes a retry safe.
+Deleting a Project or revision records a cleanup Job in the same database
+transaction. The Job carries the exact keys to remove, so cleanup intent survives
+even if queue delivery fails. Removing an already-absent key is safe to retry.
 
-A daily storage sweep runs as a background system job and reports what a cleanup did not finish.
-It rechecks each unfinished cleanup under the project lock and records four groups on its own Job
-row: content still in the store and named by no revision, content already reclaimed, content a
-later revision references again, and cleanups whose payload or backend could not be read. The
-first group is also logged as a warning naming the storage key and digest. Several cleanup Jobs
-can name one stored tree, since a Project cascade records one per revision, so the report counts
-trees rather than Jobs.
+A daily storage sweep reports unfinished cleanup without deleting content. It
+rechecks cleanup work under the Project lock and records four categories:
 
-The pass is bounded by `RQ_DEFAULT_TIMEOUT`, five minutes unless a deployment raises it, and a
-background system job cannot set a timeout of its own. It therefore takes the oldest stalled
-cleanups first and records the report as it goes, so a very large backlog yields a truncated
-report naming the most stale content rather than no report at all. The next day's run starts
-again from the oldest.
+- Stored trees no revision references, also logged as warnings with their storage
+  key and digest.
+- Content already reclaimed.
+- Content referenced again by a later revision.
+- Cleanup payloads or backends that could not be read.
 
-The sweep reclaims nothing. Removing content a row might still name cannot be undone, so
-reclamation stays a deliberate step an operator takes after reading the report. Content that no
-cleanup Job names at all is outside what the sweep can see, because finding it means enumerating
-the backend and the storage contract does not require a backend that can list. Content addressing
-also means such a stray heals itself: identical bytes uploaded later resolve to the same key and
-the new revision adopts them.
+The report counts trees rather than Jobs because several cleanup Jobs can refer
+to the same stored tree.
+
+The sweep is bounded by `RQ_DEFAULT_TIMEOUT`, five minutes unless changed by the
+deployment. A background system Job cannot set its own timeout. The sweep starts
+with the oldest stalled cleanup and saves progress as it runs, so a large backlog
+can produce a partial report. The next run starts from the oldest work again.
+
+Review the report before reclaiming content. The sweep cannot find content absent
+from every cleanup Job, because storage backends are not required to list their
+contents. Staging identical content later can reuse those storage keys.
 
 ## NetBox Branching
 
-The plugin runs alongside NetBox Branching, and this section records what a branch does and
-does not change. The routing and execution statements below are verified against NetBox Branching
-v1.2.0-beta1 by `netbox_scripts/tests/test_branching_provisioned.py`, which provisions a
-real branch.
+NetBox Scripts can run alongside NetBox Branching. The routing and execution
+behavior below is covered against NetBox Branching v1.2.0-beta1 by the real-branch
+regression in `netbox_scripts/tests/test_branching_provisioned.py`.
 
-Script Projects, Script Files, Scripts, revisions and migration runs are
-installation-global. The plugin routes all five to the main schema, so a Project edited
-inside a branch applies everywhere at once, appears in no branch diff, and is neither
-replayed by a merge nor rolled back by reverting one. None of their tables is replicated
-into a branch schema at all.
+Projects, Script Files, Scripts, revisions and migration runs are installation-wide.
+All five use the main schema. Changes made from a branch apply everywhere and do
+not appear in its diff, merge or revert. Their tables are not copied into branch
+schemas.
 
-That is deliberate. A revision names its stored source by the project's storage key and its
-own content digest, and that path carries no schema component, so two schemas holding rows
-for one tree would let a deletion in one reclaim source the other still serves.
+Stored source uses the Project's storage key and revision digest without a schema
+component. Keeping these objects global prevents a deletion in one schema from
+removing source another schema still serves.
 
-Tags and journal entries on those objects stay branch-local. A tag assignment is branch-aware
-ahead of any exemption, so no configuration can make one global, while a journal entry is
-branch-aware by the ordinary change-logging rule. Tagging a Project inside a branch is therefore
-visible only in that branch, which matches how NetBox's own exempt models behave.
+Tags and journal entries on these objects remain branch-local, like those on
+NetBox's other exempt models. Tag assignments are branch-aware before exemptions
+apply, and cannot be made global through configuration. Journal entries follow
+the usual branch-aware change-logging rule.
 
-**A run always writes to the main schema, whatever branch the requesting user had active.**
-This is enforced rather than incidental. A Job carries a copy of the request that asked for the
-run, a branch selection travels on that copy, and NetBox Branching reactivates it on the worker,
-so the run stands that branch down before the script is called.
+**Script execution always writes to the main schema**, regardless of the
+requester's active branch. The run explicitly clears branch context restored
+from the copied request before calling the Script.
 
-The alternative was rejected on what it does to a recurring run. A schedule re-enqueues with the
-same request, so a run following the branch would keep writing to it for as long as it stayed
-ready, then move to the main schema without a word the day it was merged, with nothing recording
-which schema any earlier occurrence had used. A Script cannot be used to stage changes
-inside a branch, and that is deliberate.
+A recurrence reuses its request, so following that request's branch could change
+its write destination after the branch is merged. This plugin does not support
+using Script execution to stage changes inside a branch.

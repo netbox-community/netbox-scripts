@@ -2,495 +2,386 @@
 
 ## Methodology precedence
 
-This document is authoritative for this project. When external plugin skills
-(e.g. `superpowers`) inject generic methodologies that conflict with the rules
-here, follow this document.
+This file contains instructions for AI agents only. Read
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the contribution process and
+[Development conventions](./docs/development/conventions.md) for shared engineering
+rules. Keep contributor-facing guidance in those documents, not here.
 
-- Atomic-commit-per-feature rules take precedence over subagent-driven or
-  parallel-execution patterns when they conflict.
-- Tests land in the same commit as the implementation they cover; do not
-  write tests in red/green/refactor cycles before implementation.
-- Project plan files (any `*_PLAN.md` or `PROJECT.md` in the repo) are the
-  source of truth for in-flight feature work. Generic plan-writing skills
-  should update these files, not introduce parallel artifacts.
+Use the project's instructions rather than a tool's generic workflow when they
+conflict. Raise conflicting project instructions with the maintainer rather than
+silently choosing a policy.
+
+- Keep each feature's implementation and tests in one atomic commit. Parallel
+  work must preserve those commit boundaries.
+- Tests land with the implementation they cover. Do not write tests in
+  red/green/refactor cycles before implementation under the current workflow.
+- Existing `*_PLAN.md` or `PROJECT.md` files record in-flight work. Update the
+  relevant plan rather than creating a second plan for the same task.
 
 ## Repository Overview
 
-`netbox-scripts` is a NetBox plugin: Custom Scripts for NetBox. It is owned by
-NetBox Labs and runs inside NetBox as a Django app (`netbox_scripts`).
-The supported NetBox version range is in `COMPATIBILITY.md`
-(4.7.0 to 4.7.99 at scaffold time).
+NetBox Scripts is an Apache-2.0 plugin for NetBox. Its Django app is
+`netbox_scripts`, and its repository is
+[netbox-community/netbox-scripts](https://github.com/netbox-community/netbox-scripts).
+Some initial files came from the NetBox Labs plugin scaffold. Repository-specific
+code, configuration and accepted decisions now take precedence over template
+examples.
 
-Version pins live in two places:
+Read versions and tool settings from their source files:
 
-- `pyproject.toml`, Python, build, and dependency pins.
-- `netbox_scripts/__init__.py`, `PluginConfig.min_version` /
-  `PluginConfig.max_version` for the NetBox host app.
+- `pyproject.toml`: package version, Python requirement, dependencies and tools.
+- `netbox_scripts/__init__.py`: plugin version and NetBox `min_version` /
+  `max_version`.
+- `COMPATIBILITY.md`: the documented release matrix.
+- `.github/workflows/test.yml`: the test matrix and required checks.
 
-Defer all version pins to those files; do not duplicate them elsewhere.
+Keep these aligned when changing support. Do not infer compatibility from a
+moving local checkout or an old example in documentation.
 
 ## Tech Stack
 
-- Python 3.12+ (defer to `pyproject.toml` for the exact pin).
-- NetBox (host app, min/max in `netbox_scripts/__init__.py`).
-- Django + Django REST Framework (NetBox's foundations).
-- Django's built-in test runner (this plugin does **not** use pytest, the
-  suite is `django.test.TestCase`-based and runs via `manage.py test`).
-- ruff for lint + format (config in `pyproject.toml` under `[tool.ruff*]`;
-  no separate `ruff.toml` file).
-- pre-commit for local quality gates (config in `.pre-commit-config.yaml`).
-- mkdocs + mkdocs-material for user-facing docs.
-- NetBox's `manage.py` for running the plugin during local dev.
+- Python, Django and Django REST Framework, using the selected NetBox runtime.
+- Django's test runner with `TestCase` and `TransactionTestCase`, not pytest.
+- Ruff through pre-commit, configured in `pyproject.toml` and
+  `.pre-commit-config.yaml`.
+- Zensical for documentation, with `mkdocs.yml` and the pinned `docs` extra.
+- NetBox's `manage.py` for application and test commands.
 
 ## Repository Map
 
-**This map says what each file holds. The why lives in `docs/`** and is not repeated here:
-[migration.md](./docs/migration.md), [permissions.md](./docs/permissions.md),
-[execution.md](./docs/execution.md), [runtime.md](./docs/runtime.md),
-[authoring.md](./docs/authoring.md), [configuration.md](./docs/configuration.md),
-[data-sources.md](./docs/data-sources.md), [uploading.md](./docs/uploading.md),
-[event-rules.md](./docs/event-rules.md), the four [models/](./docs/models/) pages and
-[development/netbox-internals.md](./docs/development/netbox-internals.md).
+This map locates responsibilities. Behavioral explanations belong in `docs/`.
+Read the relevant guide before changing its implementation.
 
 ```text
-.
-├── netbox_scripts/
-│   ├── __init__.py                , PluginConfig, and AppConfig.ready() imports signals, branching and compat.
-│   ├── urls.py                    , UI routes via get_model_urls, plus eight explicit 'migration/' paths.
-│   ├── navigation.py              , PluginMenu 'Scripts': a Projects group and a Scripts group.
-│   ├── api/
-│   │   ├── urls.py                , NetBoxRouter registrations for the four endpoints.
-│   │   ├── views.py               , Four viewsets, the run / upload / script-files actions, the lock-order mixin, two permission classes.
-│   │   ├── schemas.py             , Schema-only payload declarations for the actions that assemble their own responses.
-│   │   └── serializers/           , One module per topic: projects, revisions (read-only), scripts, upload, run.
-│   ├── filtersets/                , One FilterSet per model, by topic module.
-│   ├── forms/                     , By type then topic: model_forms, bulk_edit, bulk_import, filtersets, confirmations.
-│   ├── migrations/                , 0001_initial.py. Regenerate on schema change, then re-pin the deps.
-│   ├── models/
-│   │   ├── projects.py            , ScriptProject + ScriptProjectRevision. Identity invariants, the source markers.
-│   │   ├── scripts.py             , NetBoxScript + ScriptFile. Derived rows, execution overrides, discovery fields.
-│   │   └── migration.py           , MigrationRun. State machine, one open run, the journal writers.
-│   ├── tables/                    , One table per model, plus the four fed dictionaries rather than querysets.
-│   ├── tests/                     , Mirrors the module layout. plugin_testing.py holds the shared composites.
-│   ├── views/                     , projects, scripts, revisions, migration. Object views via
-│   │                                @register_model_view, the Migration pages by explicit path.
-│   ├── ui/panels.py               , Detail-view panels for every model.
-│   ├── search.py                  , Three SearchIndex registrations.
-│   ├── graphql/                   , schema, types, filters, enums.
-│   ├── storage/                   , config, paths, manifest, script_files, store, locks, service, exceptions.
-│   ├── runtime/                   , cache, loader, naming, discovery, introspection, resolution, exceptions.
-│   ├── scripts/                   , Authoring API: base, variables, forms, logging, exceptions.
-│   ├── compat/                    , The legacy `extras` import seam and its Report marker.
-│   ├── migration/                 , source (the ONLY reader of the built-in feature), dialects, plan, mapping,
-│   │                                staging, cutover, references, cleanup, verification, locking.
-│   ├── branching.py               , GLOBAL_MODELS main-schema routing for all five models, safety checks.
-│   ├── execution.py               , run_script() and script_class_context(): the context one run happens inside.
-│   ├── permissions.py             , The two object-level rechecks: Script File rows, and the gated source fields.
-│   ├── validation.py              , validate_revision(): lease, verdict, classifier, sanitizer.
-│   ├── activation.py              , activate_revision / deactivate_revision + synchronize_scripts().
-│   ├── ingestion.py               , The one entry point from supplied files to a revision awaiting a verdict.
-│   ├── jobs.py                    , Five project jobs, NetBoxScriptJob, and the seven migration passes.
-│   ├── signals.py                 , Revision deletion enqueues cleanup, a completed sync enqueues
-│   │                                reconciliation, a declaration delete serializes on the write lock.
-│   ├── event_rules.py             , RunNetBoxScriptAction and the `event_rule_actions` list PluginConfig loads.
-│   ├── choices.py                 , Five ChoiceSets.
-│   ├── validators.py              , normalize_data_path().
-│   ├── utils.py                   , source_path_to_dotted_name(), data_source_relative_path().
-│   ├── constants.py               , Storage limits, status groupings, lease bounds, field bounds, the gated source fields.
-│   ├── management/commands/runcustomscript.py , The shell route to one run. Additive, carries a cloud-compat waiver.
-│   ├── object_actions.py          , Five ObjectAction subclasses with templates under templates/.../buttons/.
-│   ├── template_content.py        , [add as needed] PluginTemplateExtension classes.
-│   └── templates/netbox_scripts/  , Per-model detail templates, the Migration page, eight confirmations.
-├── docs/                          , mkdocs site (zensical primary). The home for all rationale.
-├── scripts/
-│   ├── check_cloud_compat.py      , AST checker for the Cloud / Enterprise contract (pre-commit hook).
-│   └── check_netbox_internals.py  , Resolves every crossing netbox-internals.md lists. One blocking CI job.
-├── testing/configuration.py       , The test config. Owns the Redis isolation (see Traps).
-├── .github/workflows/             , test.yml, release.yml.
-├── COMPATIBILITY.md               , Plugin to NetBox version matrix.
-└── pyproject.toml                 , Metadata and dependency pins.
+netbox_scripts/
+  __init__.py              PluginConfig and startup registration
+  api/                    Routes, viewsets, action schemas and serializers
+  filtersets/             Model filters, grouped by topic
+  forms/                  Forms grouped by type, then topic
+  migrations/             Django schema history
+  models/
+    projects.py           ScriptProject and ScriptProjectRevision
+    scripts.py            NetBoxScript and ScriptFile
+    migration.py          MigrationRun state and journal
+  tables/                 Model and dictionary-backed tables
+  tests/                  Tests mirroring the package layout
+    plugin_testing.py     Shared test composites
+  views/                  Project, Script, Revision and migration views
+  ui/panels.py            Detail-view panels
+  templates/              Model pages, action buttons and confirmations
+  urls.py                 Registered model routes and migration routes
+  navigation.py           Plugin menu
+  search.py               Search registrations
+  graphql/                Schema, types, filters and enums
+  storage/                Backends, manifests, paths, snapshots, locks and promotion
+  runtime/                Verified cache, imports, discovery and class resolution
+  scripts/                Public authoring API, variables, forms and logging
+  compat/                 Legacy authoring imports and Report detection
+  migration/              Inventory, staging, cutover, references and cleanup
+    source.py             Built-in feature reads
+  branching.py            Global-model routing and safety checks
+  execution.py            Per-run transaction, request and event context
+  permissions.py          Object-scoped declaration and source-field checks
+  validation.py           Validation lease, verdicts and error classification
+  activation.py           Activation, deactivation and Script synchronization
+  ingestion.py            Source acceptance and processing handoff
+  jobs.py                 NetBox JobRunner entry points
+  signals.py              Cross-model synchronization and cleanup handoffs
+  event_rules.py          Script action registration and dispatch
+  choices.py              Choice sets
+  validators.py           Data path normalization
+  utils.py                Shared source-path conversions
+  constants.py            Limits, status groups and protected-field definitions
+  management/commands/
+    runcustomscript.py    Additional synchronous execution route
+  object_actions.py       Object actions paired with button templates
+
+docs/                     User, administrator and developer documentation
+scripts/
+  check_cloud_compat.py    Static deployment-compatibility checks
+  check_netbox_internals.py  NetBox integration canary
+testing/                  Test and branching configurations
+.github/workflows/        Tests, docs, security analysis, publishing and maintenance
+COMPATIBILITY.md           Release compatibility matrix
+CONTRIBUTING.md            Human contribution and development guide
+pyproject.toml            Package metadata, dependencies and tool configuration
 ```
 
 ## Traps
 
-Each of these has cost someone an hour. They are here because no docs page owns them.
+Check these integration details when changing the affected paths:
 
-- **An action filters by permission, never by route.** `ActionsMixin` and `ActionsColumn` render a
-  button for any action the viewer holds the permission for, whether or not the URL exists. Declare
-  `actions` explicitly on the list view, the detail view AND the table. `tests/views/test_actions.py`
-  derives its inventories from the packages for that reason.
-- **An inert button's title needs a wrapping span.** Tabler sets `pointer-events:none` on both
-  `.btn:disabled` and `.btn.disabled`, so a `title` on the control never surfaces.
-- **`_nullify` is the branch core takes instead of `changed_data`** (`bulk_views.py`). It arrives on
-  the request, so a bulk-edit form never sees a "Set null" tick. Gate in the view.
-- **`restrict_form_fields` narrows `data_source` to what the user may VIEW.** A disabled field
-  holding an unviewable source fails validation before any gate is reached.
-- **`PermissionsViolation.message` is a class attribute.** A constructor argument never reaches a
-  reader of `e.message`. Set it on the instance.
-- **`ValidatedModelSerializer.validate()` assigns the submitted values onto the instance** before
-  `full_clean()`, so comparing against `self.instance` never fires. Re-read the stored row.
-- **The two advisory locks share one keyspace.** Session-level `project_lock` and transaction-level
-  `project_write_lock` conflict across sessions, so read protected state INSIDE the lock.
-- **Redis is isolated in `testing/configuration.py`** at databases 15 and 14. Nothing else isolates
-  it, and a committing test otherwise enqueues live jobs carrying test primary keys.
-- **Never clear the RQ queue with `RQQueueTestMixin`**, which issues a server-wide `flushall()`.
-- **`ManagedFile.storage` is a fresh instance while the loader reads the cached one**, so a migration
-  fixture needs a real temporary directory, never in-memory storage.
-- **`has_perm(perm)` without an object answers for SOME object.** Core grants it whenever the user holds the
-  permission on any row, so a constrained grant passes. Pass `obj=` for one object, `restrict()` for a queryset.
-- **Migration dependencies stay pinned at the v4.6.0 heads.** `makemigrations` names whatever the
-  local checkout has. See Conventions.
-
+- **Actions are permission-driven, not route-driven.** A button renders for any
+  action the viewer holds, whether or not its route exists. Declare supported
+  actions on list views, detail views and tables. `tests/views/test_actions.py`
+  discovers every exported view and table itself, and fails on any action
+  without a route.
+- **Disabled buttons need a wrapping span for tooltips.** A `title` on a control
+  with `pointer-events: none` is not enough.
+- **Bulk edit uses `_nullify` separately from `changed_data`.** The view must
+  account for requested null values when checking protected fields.
+- **`restrict_form_fields` can reject a stored Data Source.** It narrows
+  `data_source` to sources the user may view, so a disabled field holding an
+  unviewable source fails validation before any permission gate runs.
+- **`PermissionsViolation.message` is an attribute.** Set it on the exception
+  instance when a custom message is required. Passing a constructor argument
+  does not supply the message read by the view.
+- **Serializer validation mutates its instance.** Re-read stored values when
+  comparing a proposed change with the original. Do not treat `self.instance`
+  as an unchanged copy after `ValidatedModelSerializer.validate()`.
+- **Project advisory locks share a keyspace.** Session-level `project_lock`
+  and transaction-level `project_write_lock` conflict across connections.
+  Read protected state after taking the lock.
+- **Redis needs separate test queues.** `testing/configuration.py` uses databases
+  15 and 14, and nothing else isolates it. A committing test otherwise enqueues
+  jobs that a live worker would run with test primary keys. Logical database
+  numbers do not make a shared server safe from `FLUSHALL`.
+- **Do not use `RQQueueTestMixin` to clear queues.** It calls server-wide
+  `flushall()`.
+- **Migration fixtures need real temporary source storage.** `ManagedFile.storage`
+  and the built-in loader do not necessarily use the same backend instance.
+- **`has_perm(perm)` without an object is not a target-object check.** It
+  returns true when the user holds the permission on any object, so a
+  constrained grant passes. Use `obj=` for one object or `restrict()` for a
+  queryset.
+- **Migration dependencies are deliberately pinned.** Preserve the
+  [documented heads](./docs/development/conventions.md#netbox-dependency-pins), even
+  when the development checkout generates newer dependencies.
 
 ## Architecture
 
-Five models, all installation-global. **`ScriptProject`**: one source tree, either uploaded or a
-Data Source directory, never both, with `key`, `source_type` and `storage_key` frozen after
-creation. **`ScriptProjectRevision`**: one immutable snapshot of that tree plus the script file
-configuration it was staged under, identified by project + source digest + script file digest.
-**`ScriptFile`**: one declared script file, author-editable declaration fields and system-managed
-discovery fields. **`NetBoxScript`**: one published Script class, derived from an activated revision
-and never authored, parented on the Project rather than the Script File because `script_order` lets
-a helper-defined class publish. **`MigrationRun`**: one attempt at moving off the built-in feature,
-infrastructure rather than domain content, so no REST, GraphQL or list view.
+The five models are installation-global:
 
-Four rules the code will not let you break, each documented where it is enforced:
+| Model | Responsibility |
+|---|---|
+| `ScriptProject` | Source configuration and accepted/active revision state. `key`, `source_type` and `storage_key` are immutable after creation. |
+| `ScriptProjectRevision` | Source and Script File snapshots, identified by Project plus source and selection digests. |
+| `ScriptFile` | Editable declaration settings and system-managed discovery results. |
+| `NetBoxScript` | A class published from a revision, with separate operator settings. Its parent is the Project because `script_order` can publish a helper-defined class. |
+| `MigrationRun` | Migration state and journal. It has no general-purpose REST, GraphQL or list interface. |
 
-- **`ingestion.py` is the only entry point** from supplied files to a revision awaiting a verdict.
-  Ordering is load bearing: declarations are committed before staging, because staging freezes the
-  enabled ones into the revision's snapshot. See [uploading.md](./docs/uploading.md) and
-  [data-sources.md](./docs/data-sources.md).
-- **Activation is the domain operation, promotion is the storage primitive**, and the primitive
-  cannot be called without a synchronizer: `promote_revision()` takes a required `on_promote`
-  callback. See [models/scriptprojectrevision.md](./docs/models/scriptprojectrevision.md).
-- **Every operation touching stored content holds `project_lock()`**, keyed on the immutable
-  `storage_key`. Database-only changes hold `project_write_lock()` on the same key. See
-  [development/netbox-internals.md](./docs/development/netbox-internals.md) and Traps.
-- **`migration/source.py` is the only module that reads the built-in feature**, so the export
-  service this needs from NetBox Community is a change to one file. The tier reads and never
-  imports: classification parses stored source with `ast`, because an inventory must not execute an
-  operator's code. See [migration.md](./docs/migration.md).
+Preserve these four contracts:
 
-Compatibility with the built-in authoring API is one seam: revision modules execute with their own
-builtins mapping whose `__import__` resolves the name `extras` through a plugin-owned stand-in.
-Scoping is by module name, not by time, so nothing process-wide is rebound. See
-[runtime.md](./docs/runtime.md).
+1. **Source enters through `ingestion.py`.** Declaration changes commit before
+   staging freezes the enabled selection. Preserve the preconditions and
+   permission checks that precede those writes. See [Uploading](./docs/uploading.md)
+   and [Data Sources](./docs/data-sources.md).
+2. **Activation and promotion remain separate.** `activation.py` owns the domain
+   operation. `storage/service.py` owns the promotion primitive, whose required
+   `on_promote` callback synchronizes Script rows inside the promotion transaction.
+   Do not make it optional or merge the layers as a wording or cleanup change.
+   See [Revisions](./docs/models/scriptprojectrevision.md).
+3. **Coordinate the stored-source lifecycle.** Staging, refresh, promotion and
+   reclamation hold `project_lock()` on the immutable
+   `storage_key`. Database-only Project and declaration writes use
+   `project_write_lock()` on that key. Validation uses its lease and conditional
+   verdict writes, not a Project lock around user code. Preserve each operation's
+   actual lock order. See [NetBox internals](./docs/development/netbox-internals.md).
+4. **Built-in feature reads are isolated in `migration/source.py`.** Inventory
+   classifies stored Python with `ast` and must not execute it. Migration writers
+   operate on the records supplied by that layer. See [Migration](./docs/migration.md).
+
+The legacy import adapter gives revision modules their own builtins mapping.
+Its `__import__` resolves `extras` through a plugin-owned adapter, without replacing
+NetBox's package process-wide. See [Runtime](./docs/runtime.md).
 
 ### Integration points with NetBox
 
-The standard plugin hooks: `PluginConfig` in `__init__.py`, a `PluginMenu` in `navigation.py`,
-`@register_model_view` plus `get_model_urls()` for UI routes, a `NetBoxRouter` in `api/urls.py`,
-`SearchIndex` registrations in `search.py`, cross-model side effects in `signals.py` wired from
-`AppConfig.ready()`, and `PluginTemplateExtension` in `template_content.py`. Permissions are
-namespaced `netbox_scripts.<perm>`.
+Use `PluginConfig`, `PluginMenu`, `@register_model_view`, `get_model_urls()`,
+`NetBoxRouter` and `SearchIndex` for their intended integration points.
+Cross-model signal handlers are registered during startup. Use
+`PluginTemplateExtension` when adding cross-model UI content.
+
+Permissions are namespaced under `netbox_scripts`. Refer to the
+[permission guide](./docs/permissions.md) before changing an action or write path.
 
 ## Commands
 
-There is no Justfile / Makefile in this repo; commands are raw. Run them
-inside a NetBox checkout that has this plugin installed with
-`NETBOX_CONFIGURATION=configuration` exported and `$PWD/testing` on
-`PYTHONPATH` (see the `## Development` section for setup).
+Run commands from the plugin repository root with its development environment
+active. The examples assume a sibling NetBox checkout at `../netbox`. Use the
+[contribution guide](./CONTRIBUTING.md#development-environment) to install the
+requirements and isolate PostgreSQL, Redis and source storage first.
 
-| Command | What it does |
+For tests and schema checks, select the shipped test configuration in that shell:
+
+```bash
+export PYTHONPATH="$PWD/testing${PYTHONPATH:+:$PYTHONPATH}"
+export NETBOX_CONFIGURATION=configuration
+```
+
+| Command | Purpose |
 |---|---|
-| `pip install -e '.[dev,test]'` (from this repo) | Install the plugin in editable mode with dev + test extras |
-| `python netbox/manage.py test netbox_scripts.tests -v 2` | Run the plugin's test suite |
-| `ruff check .` | Lint |
-| `ruff format .` | Format |
-| `pre-commit install` | Install the pre-commit hook into `.git/hooks` |
-| `pre-commit run --all-files` | Run every default-stage hook against the whole tree |
-| `pre-commit run --hook-stage manual check-manifest` | Run `check-manifest` (manual stage). The CI lint job runs it on every push |
-| `python scripts/check_netbox_internals.py --netbox <netbox>/netbox` | Resolve every NetBox internal the plugin depends on against that checkout, no database needed |
-| `python netbox/manage.py makemigrations netbox_scripts` | Generate Django migrations after model changes |
-| `python netbox/manage.py migrate` | Apply migrations |
-| `python netbox/manage.py runserver` | Start NetBox locally with the plugin loaded |
-| `mkdocs serve` | Preview the user docs |
-| `python -m build` | Build sdist + wheel (matches the release workflow) |
+| `python -m pip install -e '.[dev,test]'` | Install editable development and test dependencies |
+| `python ../netbox/netbox/manage.py test netbox_scripts.tests -v 2` | Run the plugin suite |
+| `pre-commit install` | Install commit hooks |
+| `pre-commit run --all-files` | Run default-stage hooks over tracked files |
+| `pre-commit run --hook-stage manual check-manifest` | Check source-distribution contents |
+| `python scripts/check_netbox_internals.py --netbox ../netbox/netbox` | Check the NetBox integration ledger without a database |
+| `python ../netbox/netbox/manage.py makemigrations netbox_scripts` | Generate a schema change for review |
+| `python ../netbox/netbox/manage.py makemigrations --check --dry-run` | Check for unrecorded model changes |
+| `python ../netbox/netbox/manage.py migrate` | Apply migrations to the selected development database |
+| `python -m pip install -e '.[docs]'` | Install the pinned documentation tools |
+| `zensical serve` | Preview documentation |
+| `zensical build --clean --strict` | Run the documentation build gate |
+| `python -m build` | Build a wheel and source distribution |
+
+Ruff runs through pre-commit with the repository's pinned hook configuration.
+Standalone `ruff check .` and `ruff format .` require a matching local installation.
+Hooks using `--all-files` do not include untracked additions.
 
 ## Development
 
-NetBox plugins must run inside a NetBox checkout. The reproducible setup
-mirrors what CI does (see `.github/workflows/test.yml`):
+Use [CONTRIBUTING.md](./CONTRIBUTING.md#development-environment) as the development
+recipe. Do not create a second setup based on local paths or scaffold defaults.
 
-1. Clone NetBox alongside this repo
-   (`git clone https://github.com/netbox-community/netbox.git`).
-2. Point NetBox at the shipped `testing/configuration.py` via env vars:
+The shipped test configuration contains development-only credentials,
+`DEVELOPER = True` and in-memory source storage. It is not a production or shared
+web/worker configuration. Switch to a separate development configuration before
+starting `runserver` or an RQ worker, and keep those workers away from test queues.
 
-   ```bash
-   export PYTHONPATH="$PWD/testing:$PYTHONPATH"
-   export NETBOX_CONFIGURATION=configuration
-   ```
-
-   The shipped config sets `PLUGINS = ['netbox_scripts']` and points
-   at a local Postgres (netbox / netbox / netbox) plus Redis on default
-   ports. NetBox's `manage.py` reads `NETBOX_CONFIGURATION` as a Python
-   dotted module path and imports it against `sys.path`, so no symlink
-   into the NetBox checkout is needed.
-3. Install NetBox's requirements (`pip install -r netbox/requirements.txt`)
-   and this plugin in editable mode (`pip install -e '.[dev,test]'`).
-4. Provision Postgres (`netbox` / `netbox` / `netbox`) and Redis on
-   localhost; the test config expects them on default ports.
-5. Run migrations and start the dev server.
-
-After model changes, generate a migration with NetBox's
-`manage.py makemigrations netbox_scripts`, `related_name` changes are
-no-op SQL but still need a migration for Django's state graph. Squash
-periodically.
+Follow the [database migration conventions](./docs/development/conventions.md#database-migrations)
+before generating, regenerating or consolidating migrations.
 
 ## Testing
 
-- Tests use Django's `unittest.TestCase` (`django.test.TestCase`), **not**
-  pytest. Suites live in `netbox_scripts/tests/`.
-- Run via NetBox's test runner:
-
-  ```bash
-  python netbox/manage.py test netbox_scripts.tests -v 2
-  ```
-
-  The runner uses NetBox's settings and creates a real test database, so any
-  code that touches the ORM, views, or APIs is exercised end-to-end.
-- **Do not mock the database.** Use NetBox's test client and real fixtures;
-  model-layer tests cover validators, constraints, and computed properties.
-- **Query-count baselines.** NetBox 4.6+ view and REST API list tests assert
-  each model's SQL query count against a baseline in
-  `netbox_scripts/tests/query_counts.json`. The scaffold ships a baseline
-  for the worked example, so a fresh render passes. After you add or change a
-  model with a list view, regenerate it by running the suite once with
-  `UPDATE_QUERY_COUNTS=1` serially (the recorder rejects `--parallel`), then
-  commit the updated file:
-
-  ```bash
-  UPDATE_QUERY_COUNTS=1 python netbox/manage.py test netbox_scripts.tests
-  ```
-
-  **The baseline is a single file, but the CI matrix spans four NetBox refs, and a
-  core change to query behaviour lands on them at different times.** The file tracks
-  the newest pinned release in `.github/workflows/test.yml`, and two rules follow:
-
-  - **Regenerate against a checkout at that ref, never against `main` or
-    `feature`.** `UPDATE_QUERY_COUNTS=1` rewrites every key it observes, so a run
-    on a moving ref silently records counts the pinned legs will reject. The local
-    development checkout floats across branches, so check which line it is on
-    first.
-  - **A count that changes only on `main` or `feature` is core's, not a
-    regression.** `feature` is `continue-on-error` for exactly this reason.
-    `main` is not, so a query change landing there turns a blocking leg red for a
-    change that is not ours: read it, then decide whether the baseline moves or the
-    plugin does. The baseline moves when a pinned release moves, not before. Confirm
-    the cause by running the same test against a pristine tree (`git archive
-    HEAD` into a scratch directory, then point `PYTHONPATH` at it) before
-    touching the file.
+Follow the [testing conventions](./docs/development/conventions.md#testing),
+including the [query-count baseline rules](./docs/development/conventions.md#query-count-baselines).
+Use [CONTRIBUTING.md](./CONTRIBUTING.md#running-tests) for setup and service isolation.
 
 ### Reporting test results
 
-When reporting test results to a human reviewer, include:
+Give the exact command, working directory, NetBox ref and test configuration.
+Report passed, failed and skipped tests, plus the failure output needed to
+understand any error. Keep secrets out of shared output.
 
-- The exact command run.
-- The working directory.
-- Pass/fail count.
-- The full failure output for any failing test.
-
-Do not claim a test passed without running it.
+Do not claim a test passed without running it. Distinguish source inspection,
+controlled diagnostics and integration tests, and list checks not run.
 
 ## CI/CD
 
-Two GitHub Actions workflows ship pre-wired under `.github/workflows/`:
+Read `.github/workflows/` for current triggers, version matrices and job gates.
+Do not infer them from scaffold defaults or a fixed count of workflows here.
 
-- **`test.yml`**, PR / branch validation. Four jobs, three of them gated on
-  a fast `lint` job running `pre-commit run --all-files`: a `test` matrix
-  (Python versions x `[v4.7.0, v4.7.1, main, feature]`, twelve legs, coverage
-  collected once on py3.14 / `main`), `test-branching` (one leg
-  with NetBox Branching installed, the two branching test modules only), and
-  `internals`, which resolves every symbol `docs/development/netbox-internals.md`
-  lists against the `feature` ref. Only the `feature` test leg and the branching
-  job report without blocking (`continue-on-error`), so `main` breaking is ours to
-  answer. `internals` is the one blocking check against `feature`: with no database,
-  services or fixtures, a failure there is a crossing, the plugin skipped outside its
-  version range, or a settings or setup change. Postgres and Redis service containers for
-  the two test jobs. Triggers on pull requests and pushes to `main`.
-- **`release.yml`**, Build + `twine check` + publish to PyPI through Trusted
-  Publishing (`pypa/gh-action-pypi-publish`, `id-token: write`, environment
-  `pypi`). Triggers on published GitHub releases. The Trusted Publisher
-  registered on the PyPI project is the only credential.
+- `test.yml` defines lint, test, branching and internals checks. Preserve the
+  distinction between blocking checks and advisory jobs.
+- `docs.yml` builds the site with Zensical and controls Pages deployment.
+- `codeql.yml` runs security analysis.
+- `release.yml` validates packages and publishes through PyPI Trusted Publishing.
+  Do not introduce a stored PyPI token as a replacement for that setup.
+- Issue and thread maintenance workflows must preserve their intended issue or
+  pull-request scope, including contributions from forks.
 
 ## Common Tasks
 
-This repo uses topic subpackages for every area, and by-type-then-topic for forms. The layout is
-settled, so there is one way to do each of these.
+Use the existing topic packages. Group forms by type, then topic. Do not create a
+new layer or move settled module boundaries merely to implement a small change.
 
 ### Add a new model
 
-1. Add the class to its topic module `models/<topic>.py` and re-export from `models/__init__.py`,
-   `__all__` alphabetised. Extend `PrimaryModel` for tags, custom fields and comments, or
-   `BaseModel` for a line item. Add `ContactsMixin` if contacts apply.
-2. Add a `ChoiceSet` to `choices.py` for any new enum.
-3. `makemigrations netbox_scripts`, then re-pin the deps to the v4.6.0 heads.
-4. Add the filterset, table and serializer to their topic modules and re-export each. Forms need no
-   re-export edit, `forms/__init__.py` star-imports each by-type module. Then update `api/urls.py`,
-   `urls.py`, `navigation.py` and the per-model template.
-5. Register a `SearchIndex` in `search.py` if it should be globally searchable.
-6. Add a test class per surface in `tests/<area>/test_<topic>.py`, mirroring `ScriptProject`'s.
-   **Tests land in the same commit as the implementation.**
+1. Add the class to `models/<topic>.py` and its alphabetized export to
+   `models/__init__.py`. Use `PrimaryModel` or `BaseModel` as appropriate, and
+   `ContactsMixin` only when contacts apply.
+2. Add any new `ChoiceSet` to `choices.py`.
+3. Generate and review the migration using the
+   [migration conventions](./docs/development/conventions.md#database-migrations).
+4. Add its filterset, table, serializer, forms and template in the existing
+   topic modules. Update exports and routes as required.
+5. Register search and navigation only for the surfaces the model should expose.
+6. Add tests for those surfaces alongside the implementation.
 
 ### Add a REST API endpoint
 
-1. Add the serializer to `api/serializers/<topic>.py` and re-export it. `NetBoxModelSerializer` for
-   a `PrimaryModel`, `ValidatedModelSerializer` for a `BaseModel`.
-2. Add the viewset to `api/views.py`, extending `NetBoxModelViewSet`.
-3. Register the route in `api/urls.py` via the `NetBoxRouter`.
-4. Make sure a `FilterSet` exists, with an explicit
-   `<field>_id = ModelMultipleChoiceFilter(field_name='<field>', ...)` for every FK.
-5. Add the endpoint's test class to `tests/api/test_<topic>.py`.
+1. Add and export its serializer from `api/serializers/<topic>.py`. Use
+   `NetBoxModelSerializer` for a `PrimaryModel` or `ValidatedModelSerializer`
+   for a `BaseModel`.
+2. Add the viewset in `api/views.py` and register it with `NetBoxRouter` in
+   `api/urls.py`.
+3. Add explicit FK filters such as
+   `<field>_id = ModelMultipleChoiceFilter(field_name='<field>', ...)`.
+4. Cover the endpoint in `tests/api/test_<topic>.py`, including its permissions
+   and allowed methods.
 
 ### Add a UI view
 
-1. Add the view to `views/<topic>.py`, re-export it, and decorate with `@register_model_view`. Use
-   the `netbox.views.generic` bases. Do not add explicit URL patterns for object views.
-2. Add the table to `tables/<topic>.py` and re-export it.
-3. Add the template under `templates/netbox_scripts/`, using `SimpleLayout` with panels from
+1. Add and export the view in `views/<topic>.py`. Use NetBox's generic bases and
+   `@register_model_view` for model views.
+2. Add its table and template. Detail layouts use `SimpleLayout` and panels from
    `ui/panels.py`.
-4. Wire the prefix in `urls.py` via `get_model_urls(APP_LABEL, '<model>')`.
-5. Add the menu entry to `navigation.py`, declaring **every** permission the route enforces.
-6. For an object button, add an `ObjectAction` to `object_actions.py` and a template under
-   `templates/netbox_scripts/buttons/`. See Traps: declare `actions` on all three surfaces.
+3. Use `get_model_urls(APP_LABEL, '<model>')` for model routes. Migration's
+   workflow views use explicit routes.
+4. Add navigation with every required route permission.
+5. Pair object actions with templates under `templates/netbox_scripts/buttons/`.
+   Declare the supported actions on the view and table surfaces.
 
 ### Bump the supported NetBox version
 
-1. `min_version` / `max_version` in `netbox_scripts/__init__.py`.
-2. `COMPATIBILITY.md`, then the pinned refs in `.github/workflows/test.yml`.
-3. Run the suite against the new version and drop any shims for the dropped releases.
-4. Note breaking changes in `docs/releases.md`.
+Update `min_version` / `max_version`, `COMPATIBILITY.md` and the CI refs together.
+Review the Python requirement when needed. Run the relevant suite and internals
+checks against the new target. Remove a compatibility adapter only after its
+supported use has ended, and document breaking changes in the release notes.
 
 ### Cut a release
 
-Bump `version` in `pyproject.toml` and `netbox_scripts/__init__.py`, update `docs/releases.md`, then
-tag and publish a GitHub release. `release.yml` builds and publishes to PyPI.
-
+Follow [Releasing](./docs/development/releasing.md). Maintainers own version
+updates, release notes, tags and publication. Changing documentation does not
+by itself authorize a release.
 
 ## Cloud and Enterprise compatibility (hard contract)
 
-NetBox Cloud and NetBox Enterprise run this plugin as immutable, horizontally
-scaled Kubernetes pods. Anything written outside a Django storage backend lands
-on one pod and is gone from the next request, so a revision staged by a web pod
-would be missing for the worker pod that has to execute it.
+Keep the plugin usable on deployments with multiple web and worker processes,
+including NetBox Cloud and NetBox Enterprise. These are design constraints, not
+a statement that an alpha release is approved for either platform.
 
-- **Persist bytes through a Django storage backend, never the local filesystem.**
-  Project storage resolves its backend in `storage/config.py`, through the required
-  `netbox_scripts` entry of `STORAGES`.
-- **No authoritative per-pod state.** A disposable, manifest-verified runtime
-  cache is supported, and it is the only layer that writes local executable
-  files. Cache content is regenerated from the authoritative store and verified
-  before import, never trusted because it exists.
-- **No capability that only a management command can reach.** Neither platform can
-  run one on demand, so anything a command is the sole route to does not exist for a
-  Cloud or Enterprise operator. Put the work in a data migration or a `JobRunner` job.
-  An *additive* command that duplicates a route already available to every platform is
-  allowed, carries a `cloud-compat: ok` marker saying so, and must never become the
-  only way to reach a capability. Its own arguments may still differ, so
-  `runcustomscript --user` attributes a run to another account where REST always runs as
-  the token's user. `management/commands/runcustomscript.py` is the one
-  such command and the pattern to follow.
-- **No in-process schedulers or background threads.** A pod is killed without
-  warning, so long-running work belongs in a job. Remote storage I/O stays out
-  of the committing process for the same reason, which is why deletion cleanup
-  is enqueued as a job. The cleanup Job commits inside the deleting transaction,
-  which binds these models to the default database, enforced across staging,
-  activation, and the deletion signal, and the Job repeats the routing safety
-  check when it runs.
+- **Write authoritative source through Django storage.** Resolve
+  `STORAGES['netbox_scripts']` in `storage/config.py`. A `FileSystemStorage`
+  backend is valid when every process can reach the same content. Do not bypass
+  the backend with direct writes or rely on a private pod directory for source.
+- **Keep runtime files disposable.** The manifest-verified runtime cache is the
+  local executable-file layer. Rebuild it from storage and verify it before use.
+  No authoritative application state may live only in a process or pod.
+- **Do not make management commands the only route to a capability.** Managed
+  deployments need an accessible UI/API operation, a migration or a JobRunner
+  workflow as appropriate. `runcustomscript` is additive and carries an explicit
+  `cloud-compat: ok` exemption. Its `--user` attribution differs from REST's
+  token-user attribution.
+- **Use NetBox jobs, not private schedulers or background threads.** Deletion
+  records cleanup intent in its transaction and leaves storage reclamation to a
+  job. Preserve the default-database and branching checks on both handoff and
+  execution. This does not prohibit the synchronous storage operations used by
+  upload and manual activation.
 - **No per-pod application caches.** Redis is the shared cache on both
-  platforms. The runtime cache above is the deliberate exception, because
-  Python imports need a real directory tree.
+  platforms. The runtime import cache is the one exception, because imports need
+  a local directory tree.
 
-The contract is enforced twice. The backend contract tests in
-`netbox_scripts/tests/storage/test_backend_contract.py` drive the
-storage lifecycle against backends without filesystem paths or directory
-semantics, proving the behavior. The AST checker `scripts/check_cloud_compat.py`
-(a pre-commit hook, so the CI lint job runs it) polices where local writes live:
-it flags filesystem calls, per-pod state, threads, shell-outs, and management
-commands anywhere in the package, and only a statement carrying the
-`cloud-compat: ok` marker with a reason is exempt. The runtime cache tier is the
-one place those markers belong.
+Backend contract tests in `tests/storage/test_backend_contract.py` exercise
+storage without filesystem paths or directory semantics. The static checker
+`scripts/check_cloud_compat.py` checks filesystem calls, per-process state,
+threads, shell commands and management commands. Neither check replaces the other.
 
-Check this before designing anything that persists bytes.
+Keep justified `cloud-compat: ok` exemptions local to the exempt statement. Do not
+add one merely to silence a failure. Runtime cache operations and the additive
+management command have explicit exemptions.
 
 ## Conventions and Patterns
 
-- **Plugin code stays in the plugin package.** Do not monkey-patch NetBox.
-- **Use NetBox's mixins** where they exist (`PrimaryModel`, `BaseModel`,
-  `ContactsMixin`, `NetBoxModelSerializer`, `NetBoxModelFilterSet`,
-  `BaseFilterSet`) rather than re-implementing the same behaviour.
-- **All UI views use `@register_model_view`** from `utilities.views`.
-- **URL segments never repeat the plugin name.** `PluginConfig.base_url` already
-  scopes every route, so a model's segment is its own plural noun: `projects/`,
-  `script-files/`, giving `/api/plugins/netbox-scripts/script-files/`, never
-  `netbox-script-files/`. Segments are the only thing this affects, since
-  reverse names come from the model (DRF derives the router basename from
-  `queryset.model`, and `register_model_view` / `get_model_urls` name UI routes),
-  so renaming a segment changes no `reverse()` call, table, or menu item.
-- **Detail layouts** use `netbox.ui.layout.SimpleLayout` with panel lists
-  from `ui/panels.py`.
-- **Object-level buttons** are `ObjectAction` subclasses in
-  `object_actions.py`, paired with templates in
-  `templates/netbox_scripts/buttons/`.
-- **FK filters** must declare an explicit
-  `<field>_id = ModelMultipleChoiceFilter(field_name='<field>', ...)` in the
-  filterset; do not rely on `Meta.fields` to generate `_id` variants. Filter
-  form `model` attribute must match the filterset's model, not the parent
-  model.
-- **`db_collation="natural_sort"`** on code / identifier fields for
-  human-friendly ordering.
-- **Cross-model side-effects** live in `signals.py` and are wired in
-  `AppConfig.ready()`.
-- **Search registration** lives in `search.py`; cross-model UI extensions
-  live in `template_content.py`.
-- **Permissions namespaced** under `netbox_scripts.<perm>`. Used by
-  `navigation.py` menu items and view base classes.
-- **`Meta.permissions` declares the BARE action**, `('run', ...)` not `('run_netboxscript', ...)`,
-  matching `core.DataSource`'s `('sync', ...)`. The backend composes
-  `f'{app_label}.{action}_{model_name}'` from whatever was ticked, so a codename carrying the model
-  name grants something nothing checks. Consequence: the bare codename also produces a bare Django
-  permission row that `RemoteUserBackend` reads, so a plain Django grant of one of these five does
-  not reach the view. Object Permissions are the route, per
-  [permissions.md](./docs/permissions.md).
-- **Migrations.** One squashed `0001_initial.py` until the schema settles. Data migrations use
-  `RunPython` with `apps.get_model()` and `get_or_create`, since `ContentType` rows may not exist yet.
-- **Migration dependencies stay at the v4.6.0 heads**, even though the floor is 4.7.0:
-  `('core', '0024_job_notifications')`, `('extras', '0138_customfieldchoiceset_choice_colors')`,
-  `('users', '0016_default_ordering_indexes')`. `makemigrations` pins whatever the local checkout
-  has, so re-pin after every run. Graphs are append-only, so these still resolve. Do not "correct"
-  them. The same floor rule covers inherited fields: reconcile rather than tolerate a standing
-  `makemigrations --check` diff.
-- **Project identity invariants.** `key` and `source_type` immutable after creation, `storage_key`
-  never changes, `data_path` canonical via `validators.normalize_data_path()`. `QuerySet.update()`
-  bypasses all of it and must supply canonical values itself.
-- **GraphQL choice fields:** typed enums on filter inputs only, object types expose raw strings.
-- **Docstrings carry the contract, not the reasoning.** One line by default. More lines only for
-  behaviour a caller branches on: what it returns, what it raises, that it does not raise on bad
-  input. If a sentence explains *why*, it goes elsewhere: rationale about one line is an inline
-  comment at that line, cross-cutting rationale goes in `docs/`. A docstring that only rewords its
-  own identifier states nothing, so improve it rather than deleting it. No section-banner comments,
-  split the module instead. The `cloud-compat: ok` markers are exempt, the checker needs their form.
-- **Linting.** ruff config lives under `[tool.ruff*]` in `pyproject.toml`;
-  no separate `ruff.toml`. Line length 120, single quotes, LF line endings,
-  `preview = true`. See `pyproject.toml` for the full rule set.
-- **Pre-commit.** Hook wiring lives in `.pre-commit-config.yaml`; tool
-  configuration lives in `pyproject.toml` where the hook supports it
-  (yamllint is the documented exception).
-- **Backwards compatibility for one minor.** Breaking API changes get at
-  least one minor's worth of deprecation warning before removal.
+Follow [Development conventions](./docs/development/conventions.md). That page
+owns code organization, NetBox integration patterns, migrations, testing, style
+and compatibility rules for contributors and agents alike.
+
+Update the relevant public documentation when an approved convention changes.
+Do not introduce a contributor requirement solely in this file or direct human
+readers here for development guidance.
 
 ## Troubleshooting
 
-- **Tests fail with "ContentType matching query does not exist".** Data
-  migrations must `get_or_create` `ContentType` rows; the `post_migrate`
-  signal that populates them has not fired yet during a fresh `migrate`.
+For missing ContentTypes during a migration, follow the
+[data-migration guidance](./docs/development/conventions.md#data-migrations).
 
 ## References
 
-- Plugin README: [`README.md`](./README.md).
-- Compatibility matrix: [`COMPATIBILITY.md`](./COMPATIBILITY.md).
-- Security policy: [`SECURITY.md`](./SECURITY.md).
-- License: [`LICENSE`](./LICENSE).
-- User docs (mkdocs): [`docs/`](./docs/).
-- NetBox plugin docs: <https://netboxlabs.com/docs/netbox/plugins/>.
-- Repository: <https://github.com/netbox-community/netbox-scripts>.
+- [README](./README.md), [contribution guide](./CONTRIBUTING.md) and
+  [compatibility matrix](./COMPATIBILITY.md).
+- [Security policy](./SECURITY.md) and [license](./LICENSE).
+- [Documentation](./docs/), built with Zensical.
+- [NetBox plugin development](https://docs.netbox.dev/en/stable/plugins/development/).
+- [Repository](https://github.com/netbox-community/netbox-scripts).

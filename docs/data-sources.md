@@ -1,142 +1,122 @@
 # Data Source Projects
 
-A Script Project whose source type is `data_source` mirrors one directory of a NetBox
-Core Data Source. Each synchronization rebuilds the Project's source from that directory, so
-the Data Source owns the files and the Project decides which of them publish. This page covers
-pointing a Project at a directory, what a synchronization does, and why a Python file appearing
-in a repository publishes nothing on its own.
+Connect a Project to one directory in a NetBox Data Source. Synchronization
+copies that directory into revisions. You choose which Python files are selected
+for Script discovery.
 
 ## Pointing a Project at a directory
 
-*Scripts > Projects*, then **Add**. Choose `Data source` as the source
-type, which reveals the two fields it needs.
+Open *Scripts > Projects*, choose **Add**, and select `Data source` as the source
+type. This reveals the source and path fields.
 
 | Field | Meaning |
 |---|---|
-| Data source | The Core Data Source holding the files. |
-| Data path | The directory within it whose contents are this Project's source. |
-| Activation policy | Whether a revision that validates goes live by itself or waits for an operator. |
+| Data source | The NetBox Data Source holding the files. |
+| Data path | The directory whose contents form the Project's source. |
+| Activation policy | Whether valid revisions activate automatically or wait for an operator. |
 
-The data path is a directory relative to the Data Source root, with no leading slash.
-Traversal segments are refused. It is compared segment by segment, so a Project at
-`automation/netbox` does not claim `automation/netbox-old`. The path cannot be empty: name
-the directory that holds the scripts rather than the Data Source root.
+Use a non-empty directory path relative to the Data Source root, without a leading
+slash or traversal segments. The Data Source root itself cannot be used. Paths are
+matched by segment, so `automation/netbox` does not include `automation/netbox-old`.
 
-Two Projects on one Data Source cannot overlap. Neither may be the same directory as the
-other, and neither may sit inside the other, because a file would then belong to two Python
-package boundaries at once.
+Projects on the same Data Source must have separate, non-overlapping directories.
+They cannot use the same directory or contain one another's directories.
 
-Before the first synchronization the Project has no source and its page says so. The
-Script Files tab is usable straight away, because the candidate list is read from the Data
-Source's file inventory rather than from a revision.
+Before its first synchronization, a new Project has no source. Its Script Files
+tab is still available because candidates come from the Data Source's file inventory.
 
 ## What a synchronization does
 
-Each time the Data Source finishes synchronizing, every Project on it reconciles: the whole
-directory as it stands becomes a new revision, which is validated and then activated if the
-Project's policy allows. Reconciliation is a background Job, one per Project, so it needs a
-running RQ worker, and one Project's failure leaves its siblings and the Data Source itself
-untouched.
+After a Data Source synchronizes, each Project reconciles its whole directory
+in a background Job. This requires an RQ worker. A failure in one Project does not
+affect the other Projects or the Data Source.
 
-The complete directory is staged every time rather than a set of changes, so a file deleted
-from the source is simply absent from the next revision. Every file is stored, not only Python
-modules, because a script legitimately reads templates and data sitting next to it.
+Reconciliation stages the complete directory, not just changed files. Deleted
+files are absent from the next snapshot. Templates, data and other non-Python
+files are included alongside source modules.
 
-An unchanged directory and Script File selection reuse the revision that already holds them,
-because a revision is addressed by its content together with its script file configuration. The
-plugin may still validate or activate that revision, depending on its status and the Project's
-activation settings.
+When the directory and Script File selection are unchanged, the existing revision
+is reused. It may still be validated or activated, depending on its status and the
+Project's activation settings.
 
-Compiled Python files and `__pycache__` directories are skipped wherever they sit, because
-bytecode is not source and cannot be reviewed as source. Every other path the
-[source path policy](configuration.md#source-path-policy) refuses is recorded instead: the new
-revision is `invalid` and names the offending paths, and the Project keeps serving whatever it
-served before.
+Compiled Python files and `__pycache__` directories are skipped. Other violations
+of the [source path policy](configuration.md#source-path-policy) produce an
+`invalid` revision naming the affected paths. The active revision stays in service.
 
 ## A new file is a candidate, not a script file
 
-A Python file that appears in the directory becomes a **candidate**. Nothing imports or
-publishes it until the Project's Script Files tab is saved with it selected. That is what makes
-synchronization safe to leave running: adding a file to a repository cannot publish a Script by
-itself, and the selection an administrator made is not overwritten by whatever the
-repository happens to contain.
+A new Python file becomes a **candidate**. Select it and save the Script Files
+tab to declare it as a file used for discovery. Synchronization does not change
+your selection. Selected files can still import undeclared helpers, as described
+in [Authoring](authoring.md#publishing-scripts-from-a-project).
 
-A Project whose source holds exactly one importable module starts with that module selected, so
-the ordinary first synchronization is a confirmation rather than a choice. It is only a default:
-nothing is declared, imported or published until the tab is saved. Deselecting it and saving
-writes no declaration, so the same default is offered the next time the tab is opened.
+When the source contains exactly one importable module, the tab selects it by
+default. The default alone creates no declaration and publishes no Script. Save
+the tab to confirm it. Clearing that selection and saving writes no declaration,
+so the default appears again the next time you open the tab.
 
-The selection is stored on the Project, and each revision freezes the enabled declarations at
-the moment it is staged. Saving the Script Files tab therefore applies the change to the source
-the Project already holds: the same content staged under the new script file configuration is a
-new revision, which is validated and activated like any other. That runs as a background job,
-so the tab reports it is under way rather than showing the result.
+Each revision freezes the enabled Script File declarations. Saving a changed
+selection applies it to the source the Project already holds, creating or reusing
+a revision for that content and selection. Validation and any policy-driven
+activation run in the background. The tab reports that work is in progress.
 
-Saving a selection that did not move stages nothing, because a revision is identified by its
-content together with its script file configuration, so the unchanged pair resolves to the
-revision that already exists.
+An unchanged selection stages and queues nothing.
 
-**Reconcile Source** does the same thing against the directory as it stands now, so use it
-when the source has changed as well as the selection.
+Use **Reconcile Source** when you also need to stage the directory from the
+Data Source's current inventory.
 
 ## Reconciling on demand
 
-**Reconcile Source** on a Data Source-backed Project's page rebuilds its source from the
-directory as it stands right now. It is the answer to two situations: a Project created between
-synchronizations, which would otherwise have no source for hours, and a script file selection
-that should take effect without waiting.
+Choose **Reconcile Source** to rebuild a Project without waiting for another
+synchronization. Use it after creating a Project between synchronizations, or when
+you need its selection applied to the current source inventory.
 
-It does not synchronize the Data Source itself. The file inventory NetBox already holds is what
-a Project's source is built from, and refreshing that inventory is the Data Source's own
-operation, on its own page.
+Reconciliation does not synchronize the Data Source. To fetch newer files,
+synchronize the Data Source from its own page first.
 
-The action needs the Project's `reconcile` permission, granted separately from `change`, because
-what it changes is what the Project serves. See [Permissions](permissions.md).
+This action requires the Project's `reconcile` permission, separately from
+`change`. See [Permissions](permissions.md).
 
 ## When a selected script file disappears
 
-Deleting a file that is a selected script file is the one case where a synchronization produces
-a revision that cannot work. The new revision holds the tree without that file while its
-script file snapshot still names it, so validation cannot import it and records an `invalid`
-verdict naming the path.
+Deleting a selected Script File from the source makes the next revision invalid.
+The revision's selection still names that path, so validation cannot import it
+and reports the missing file.
 
-That is the intended outcome, and the important part is what does not happen: the previous
-revision keeps serving. Activation only ever follows a `valid` verdict, so a repository change
-that breaks the source cannot take a working Project out of service. The Project's page reports
-that its newest source failed validation, and the Revisions tab and the Script Files tab carry
-the detail.
+The previous active revision stays in service. Check **Source state**, the
+**Revisions** tab and the **Script Files** tab for the failure details.
 
-Deselect the script file if the file is gone for good, then reconcile.
+If the file was removed intentionally, deselect it and reconcile again.
 
 ## Putting a revision in service
 
-The Project's activation policy decides what happens after a `valid` verdict, exactly as it
-does for uploaded source.
+The activation policy applies after validation, just as it does for uploaded source.
 
 | Policy | Behaviour |
 |---|---|
-| Automatic if valid | Reconciliation activates the revision itself once the verdict is `valid`. |
-| Manual | The revision stops at `valid` and waits for an operator to press **Activate**. |
+| Automatic if valid | Reconciliation activates the revision after a `valid` verdict. |
+| Manual | The revision remains `valid` until an operator chooses **Activate**. |
 
-Activation re-verifies the stored tree before moving the pointer, and retires the previous
-revision in the same step.
+Activation verifies stored content again before changing the active revision.
+The previous active revision is retired in the same step.
 
 ## Reverting the source
 
-Returning the directory to a state the Project has held before, by reverting a commit for
-example, resolves to the revision that already holds that content. It carries a verdict
-already, so there is nothing to validate, and an automatically activated Project puts that
-revision back into service. A manually activated one offers it on the Revisions tab, where it
-is one of the retired revisions that can be activated again.
+Returning to previous source with the same Script File selection reuses its
+revision. If it already holds a successful validation result, it can be activated
+without repeating validation. An automatic policy can put it back into service.
+Under Manual policy, choose the eligible revision from the **Revisions** tab
+and activate it.
 
-This is why revisions are retired rather than deleted: going back to a known-good tree is a
-matter of choosing it, not of rebuilding it.
+Retired revisions keep their content, so you can return to a known-good version
+without rebuilding it. Other reused revisions may still need processing, as
+described in [What a synchronization does](#what-a-synchronization-does).
 
 ## What is not supported
 
 | Area | Status |
 |---|---|
-| A manifest in the repository declaring its own script files | Script file selection is a Project setting, made in NetBox |
-| Declared pip requirements | A revision's requirements are not read or installed |
-| Reconciling one file at a time | Not planned. A revision is a whole tree by design |
-| Driving a Data Source's synchronization from a Project | Not planned. Synchronize the Data Source itself |
+| A manifest in the repository declaring its own script files | Script File selection is configured on the Project in NetBox. |
+| Declared pip requirements | Revision requirements are not read or installed. |
+| Reconciling one file at a time | Not planned. A revision holds the whole source tree. |
+| Driving a Data Source's synchronization from a Project | Not planned. Synchronize the Data Source itself. |

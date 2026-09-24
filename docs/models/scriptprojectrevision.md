@@ -1,46 +1,47 @@
 # Script Project Revision
 
-A Script Project Revision is one immutable snapshot of a Script
-Project's complete source tree together with the script file configuration it
-was staged under. A revision records what was staged, not how it is served, so
-a job can be replayed against exactly the tree it ran on.
+A Script Project Revision records an immutable snapshot of a Project's complete
+source tree and the Script File configuration used when staging it. It
+identifies the source and declarations used for validation and execution.
 
-Revision identity is the project, the source digest, and the script file
-digest. The same source tree staged under a changed set of enabled
-[Script Files](scriptfile.md) is a new, separately validatable
-revision that reuses the stored content, which is what keeps a validation
-verdict meaningful: fixing a script file declaration produces a fresh revision to
-validate instead of silently changing what an existing verdict was about.
+Its identity combines the Project, the source digest and the Script File
+digest. Changing the enabled [Script Files](scriptfile.md) gives the same source
+a different revision identity while reusing its stored content. Existing
+validation verdicts still refer to their original snapshots.
 
-Revisions are created and moved through their lifecycle by the plugin's storage
-and validation services. They are not edited directly.
+Storage and validation services create revisions and manage their lifecycle.
+Revisions are not edited directly.
 
 ## Fields
 
+FK means foreign key. These fields describe stored model data, not client input.
+All are managed by the plugin, including those not marked `system`.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `project` | FK | yes | Owning Script Project, frozen after creation |
-| `digest` | string | no | 64-character lowercase hexadecimal content address, set as soon as the manifest is accepted. Required once the tree is stored, absent when content was rejected |
-| `status` | choice | yes | `staging`, `materialized`, `storage_failed`, `validating`, `valid`, `invalid`, `active`, or `retired` |
-| `manifest` | JSON | no | Sorted list of accepted source files, each with its `path`, `size`, and `sha256` |
+| `project` | FK | yes | Owning Script Project. Cannot change after creation |
+| `digest` | string | no | 64-character lowercase hexadecimal content address, assigned when the manifest is accepted. Required for stored source, absent for rejected content |
+| `status` | choice | yes | `staging`, `materialized`, `storage_failed`, `validating`, `valid`, `invalid`, `active` or `retired` |
+| `manifest` | JSON | no | Accepted source files, sorted by path. Each entry has `path`, `size` and `sha256` |
 | `file_count` | integer | yes | Number of accepted source files |
-| `total_size` | integer | yes | Combined size in bytes of every accepted source file |
-| `validation_errors` | JSON | no | Records from the most recent storage or validation step. An empty list does not by itself mean the revision is valid, because a revision that has not been validated yet also has none |
-| `discovered_scripts` | JSON | no | Scripts the most recent successful validation published, in publication order. May be empty |
-| `last_validation_failure` | string | system | Why the last attempt reached no verdict at all, distinct from `validation_errors`, which records what a verdict found wrong with the source. Empty once a verdict is reached |
-| `script_file_snapshot` | JSON | yes | Enabled script file declarations frozen at staging time, each with its `script_file` primary key and canonical `source_path`, sorted by path. May be empty |
-| `script_file_digest` | string | yes | 64-character lowercase hexadecimal address of the snapshot, part of the revision identity |
-| `validation_job` | FK | system | Owner of the current validation lease, kept on the verdict as its provenance |
-| `validation_started` | datetime | system | When the owning validation claimed the revision |
-| `activated` | datetime | no | When the revision last became the project's active revision |
+| `total_size` | integer | yes | Combined size of accepted source files, in bytes |
+| `validation_errors` | JSON | no | Records from the latest storage or validation step. An empty list is not proof of validity because an unvalidated revision can also have none |
+| `discovered_scripts` | JSON | no | Classes recorded by successful validation, in publication order. Activation uses them to publish Script rows. May be empty |
+| `last_validation_failure` | string | system | Why the last validation attempt reached no verdict, rather than errors in a completed verdict. Cleared when a verdict is reached |
+| `script_file_snapshot` | JSON | yes | Enabled declarations frozen at staging, sorted by path. Each entry has a `script_file` primary key and canonical `source_path`. May be empty |
+| `script_file_digest` | string | yes | 64-character lowercase hexadecimal address of the declaration snapshot. Part of revision identity |
+| `validation_job` | FK | system | Job owning the current validation lease, retained as provenance when it records a verdict |
+| `validation_started` | datetime | system | Time the owning validation claimed the revision |
+| `activated` | datetime | no | Most recent time the revision became active |
 
-Each storage-time `validation_errors` record carries a `path`, a fixed `code`,
-and a human-readable `message`. The `path` is null for a project-wide limit
-such as `too_many_files` or `project_too_large`. Validation-time records
-carry a `source_path`, a fixed `code`, a `message`, and where an exception was
-involved its `exception_type` and a `traceback`. All of them are sanitized:
-runtime namespaces, storage identities, and cache paths never appear, module
-references read project-relative.
+Storage-time `validation_errors` entries contain `path`, a fixed `code` and a
+human-readable `message`. The path is null for Project-wide limits such as
+`too_many_files` or `project_too_large`.
+
+Validation-time entries contain `source_path`, `code` and `message`, plus
+`exception_type` and `traceback` when an exception was involved. Recorded errors
+are sanitized to remove runtime namespaces, storage identities and cache paths.
+Module references use Project-relative paths.
 
 ## Relationships
 
@@ -48,13 +49,11 @@ references read project-relative.
 |---|---|---|---|
 | `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `revisions` |
 
-The owning project also points back at one of its revisions through
-`ScriptProject.active_revision`, an `on_delete=SET_NULL` reference with the
-reverse name `active_revision_for`. Deleting the revision a project is serving
-clears the pointer and leaves the project serving nothing, which is the state it
-starts life in. The pointer cannot be `PROTECT`: a project's revisions cascade
-when it is deleted, so protecting one of them would have the project protect
-itself, and no project with an active revision could ever be deleted.
+The Project points to its active revision through
+`ScriptProject.active_revision`, with `on_delete=SET_NULL` and reverse name
+`active_revision_for`. Removing that revision clears the pointer and leaves the
+Project with no active source. `SET_NULL` also allows Project deletion to
+cascade through its own revisions without a protected-reference cycle.
 
 ## API
 
@@ -63,37 +62,31 @@ itself, and no project with an active revision could ever be deleted.
 | REST | `/api/plugins/netbox-scripts/project-revisions/` |
 | GraphQL | `netbox_script_project_revision` / `netbox_script_project_revision_list` |
 
-Both surfaces are read-only. A revision is produced by ingestion and moved
-through its lifecycle by the storage and validation services, so every write
-method is refused at the router and activation stays an action rather than a
-writable status field. Filter the list by `project_id`, `project` (the project
-key), `status`, `digest`, or `script_file_digest`.
+REST and GraphQL are read-only. Use source and activation actions to change a
+revision's lifecycle, not writes to its status field. Filter revisions by
+`project_id`, `project` (the Project key), `status`, `digest` or
+`script_file_digest`.
 
-Two fields are deliberately absent from both surfaces. The `manifest` and the
-`script_file_snapshot` are stored documents rather than lookup keys, large enough
-to dominate a list response and internal to how content is addressed. The
-validation lease fields are absent for the same reason: they are a fencing
-mechanism, not user-facing state. An advanced diagnostic surface is the right
-owner for all four.
+Neither interface exposes `manifest` or `script_file_snapshot`. These are full
+stored documents, not lookup fields. The validation lease fields,
+`validation_job` and `validation_started`, are also omitted. They record
+internal ownership rather than editable configuration.
 
-Revisions carry no list page, edit route, delete route, or global-search
-surface. A revision has a detail page, reached from the project's **Revisions**
-tab, which also renders two actions per row:
+Revisions have a detail page, reached from the Project's **Revisions** tab, but
+no standalone list, edit, delete or global-search view. The tab also offers:
 
-- **Activate** on any revision whose status is `valid` or `retired`, which puts
-  it into service and publishes its [Scripts](netboxscript.md).
-- **Deactivate** on the revision in force, which retires it, leaves the project
-  serving nothing, and retires its Scripts.
+- **Activate** for a `valid` or `retired` revision. It becomes active and
+  publishes its [Scripts](netboxscript.md).
+- **Deactivate** for the active revision. It retires the revision and its
+  Scripts, leaving the Project with no active source.
 
-Both need the owning project's activate permission, because what they change is
-what the project serves. Reaching them also needs the revision view permission,
-since the Revisions tab is the only route. Each opens a confirmation page that
-posts back, rather than acting straight from the table, because the table sits
-inside the bulk-action form and a nested form would not survive the browser.
-Deactivation is the only way to stand a project down to serving nothing once it
-has served something. Retiring the scripts rather than deleting them is what lets
-a later activation return the same rows, with their Job history and with whatever
-`enabled` an administrator left them at.
+Both actions require the owning Project's `activate` permission. Access through
+the Revisions tab also requires revision view permission. Each action opens a
+confirmation page, keeping its form separate from the table's bulk-action form.
+
+Use **Deactivate** to stop serving a revision without deleting the Project.
+Retired Script rows retain their Job history and administrator-owned `enabled`
+settings, which are reused if the same classes are published again.
 
 Under **Automatic if valid**, deactivation lasts only until the same source is
 accepted again. The next reconciliation, Script File refresh or upload that
@@ -101,238 +94,223 @@ resolves to this revision activates it again, and so can a validation queued
 before the deactivation. To keep it inactive, switch the Project to **Manual**
 before deactivating.
 
-One more path reaches the serializer. Event serialization resolves a serializer
-by model name, and it runs on any request that deletes a revision, which a
-project delete does by cascade.
+Event serialization also uses the revision serializer when a request deletes
+revisions, including a Project deletion that cascades to them.
 
-The model is change-logged. Activating through the Project's **Activate** button
-is a request-bound path, so it records entries. Automatic activation happens
-inside a job, where NetBox records no change-log entries at all, so a project
-whose policy activates automatically leaves none.
+The model supports change logging. Request-driven activation records changes.
+Automatic activation in the validation Job does not use that change-logging
+context. See [Event Rules](../event-rules.md#scripts-as-event-sources) for the
+separate event-delivery rules.
 
 ## Recorded Scripts
 
-`discovered_scripts` is what project validation learned by importing the tree:
-one record per published class, in publication order, each carrying the defining
-module path and class name, the script file that published it, and the display
-name, description, and execution defaults read from the class. It is written once,
-in the same statement as the verdict, so no reader ever sees a valid revision
-without it. An invalid verdict records an empty list.
+`discovered_scripts` records what validation found when importing the source.
+Each entry identifies the defining module and class, the Script File that
+published it, and the class's display name, description and execution defaults.
+Entries retain publication order.
 
-[Activation](../runtime.md) derives [Script](netboxscript.md) rows from
-it, which is why a revision from before this field existed publishes nothing when
-re-activated: it has no record to derive from, and only re-validation writes one.
+The list is written in the same statement as the verdict, so a valid revision
+has its discovery result recorded. An invalid verdict records an empty list.
+[Activation](../runtime.md) builds [Script](netboxscript.md) rows from these
+records rather than importing the source again.
 
-Unlike the manifest and the script file snapshot, it carries no digest. Those two
-are inputs execution trusts, so they are bound to an address that proves they are
-unchanged. This one is derived data that activation rebuilds rows from rather than
-content it executes, so a shape validator on the return trip is the whole
-requirement. Validation is its only writer, so a value that fails that check
-means the row was changed outside that path.
+A revision created before this field existed has no records to publish on
+reactivation. Only validation writes the discovery list.
+
+Unlike the manifest and declaration snapshot, this derived data has no digest.
+Activation validates its shape before using it to rebuild Script rows. The
+manifest and snapshot remain digest-bound inputs to execution. Validation is
+the only supported writer of the discovery records.
 
 ## Script file snapshot
 
-The snapshot freezes the project's enabled script file declarations at staging time,
-so a verdict is always about a fixed set of script files. Editing or disabling a
-Script File never changes an existing revision. To validate
-stored content under the declarations as they are now, the storage service
-offers a refresh operation that creates or returns the revision row for the
-same source digest and the current script file digest, without the content being
-uploaded again.
+The snapshot freezes enabled Script File declarations when a revision is staged.
+Later edits or disabling a declaration do not change that revision's verdict.
 
-Like the manifest, the snapshot is persisted data that later becomes
-authoritative input, so it is never trusted on the return trip. A canonical
-builder writes it and a validator checks its shape, paths, ordering, uniqueness
-including letter-case collisions and paths that would import under one module
-name, and digest binding everywhere it becomes
-authoritative: the refresh operation, project validation, and activation. A
-snapshot that fails is revision corruption and never a content verdict, so
-tampering fails closed.
+To use the current declarations with stored source, the storage service offers
+a refresh operation. It creates or returns the revision for the same source
+digest and the current Script File digest, without another upload.
 
-The snapshot is the immutable contract rather than a live reference, so a valid
-revision stays activatable however the project's declarations move afterwards,
-including one disabled after staging. A Script File row is only ever removed by the
-project cascade, which takes the revisions with it.
+A canonical builder creates the snapshot. Refresh, validation and activation
+check it before use, including its shape, paths, ordering, uniqueness and digest.
+Uniqueness checks include case collisions and paths that resolve to the same
+module name. A failed check is revision corruption, not an invalid-content
+verdict, and the operation is refused.
+
+Explicit activation can still use a valid revision's frozen selection after
+current declarations change, including when a declaration was disabled after
+staging. Automatic activation additionally checks the Project's accepted source
+and current selection. See [Script Project](scriptproject.md#limitations).
+Script File rows are removed only by Project deletion, which also removes the
+revisions.
 
 ## Status lifecycle
 
-Storing a source tree and judging it fit to execute are separate steps, owned by
-separate services.
+Storage, validation and activation are separate stages:
 
-- **The storage service** takes a revision as far as `materialized`, meaning the
-  tree is stored and matches its manifest.
-- **Project validation** promotes a materialized revision to `valid` or
-  `invalid` by importing every script file in the snapshot and running Script
-  discovery on it. See [Runtime and Loading](../runtime.md) for what
-  makes a revision invalid and what counts as environment trouble instead.
-- **The activation service** accepts only `valid` or `retired` revisions.
+- **Storage** reaches `materialized` once the source is stored and verified
+  against its manifest.
+- **Validation** imports the snapshot's Script Files and runs discovery to
+  reach `valid` or `invalid`. See [Runtime and Loading](../runtime.md) for the
+  distinction between content errors and environment failures.
+- **Activation** accepts only `valid` or `retired` revisions.
 
 | From | To | Cause |
 |---|---|---|
-| (new) | `staging` | The manifest was accepted and the write begins |
-| `staging` | `materialized` | The source tree was written and verified against its manifest |
-| `staging` | `storage_failed` | The storage write failed, which is retryable |
+| (new) | `staging` | The manifest was accepted and storage writing begins |
+| `staging` | `materialized` | Source was written and verified against its manifest |
+| `staging` | `storage_failed` | A retryable storage write failed |
 | `storage_failed` | `staging` | Re-staging identical content resumes the write |
-| (new) | `invalid` | The submitted content was rejected, so nothing was written |
-| `materialized` | `validating` | Project validation claimed the revision |
-| `validating` | `valid` or `invalid` | Project validation reached a verdict |
-| `validating` | `materialized` | Environment trouble rolled the claim back, retryable |
-| `validating` | `validating` | An expired lease was reclaimed by a newer validation run |
+| (new) | `invalid` | Content was rejected before anything was stored |
+| `materialized` | `validating` | Validation claimed the revision |
+| `validating` | `valid` or `invalid` | Validation reached a verdict |
+| `validating` | `materialized` | An environment failure released the claim for retry |
+| `validating` | `validating` | A newer validation reclaimed an expired lease |
 | `valid` or `retired` | `active` | The revision was activated |
-| `active` | `retired` | Another revision of the same project was activated, or this one was deactivated |
+| `active` | `retired` | Another revision was activated, or this revision was deactivated |
 
-`staging` covers the whole storage write, including a retry, and `validating` belongs to
-project validation. Keeping them apart is what stops a concurrent re-stage from rewriting a
-revision the validator is holding and pushing it back to `materialized`.
+`staging` covers storage writes and their retries. `validating` belongs to the
+validation worker, so re-staging must not reset a revision that worker owns.
+Stored content alone is not enough to activate a `materialized` revision.
 
-`materialized` is deliberately not activatable: stored bytes are not evidence
-that a project imports, so a tree that was merely written can never be served.
+Re-staging identical content can resume an interrupted or failed write. It does
+not reopen a validation verdict. A revision marked `invalid` by validation
+keeps that verdict and its errors. Changed source or a different Script File
+selection gives it a different revision identity to validate.
 
-Re-staging identical content resumes an interrupted or failed write, but never
-reopens a verdict. A revision that project validation marked `invalid` keeps its
-errors and stays `invalid`, because only the validator may move it. Fixing the
-content or the declarations produces a new revision identity to validate
-instead.
-
-A retired revision can be activated again, since its source tree is still in
-the store and is verified before it is served.
+A retired revision can be activated again after its stored source passes
+verification.
 
 ### The validation lease
 
-A validation claims its revision by moving it to `validating` while recording
-the owning background job and the claim time. The claim is reclaimable purely
-by age: a worker killed without warning leaves its job row running forever, so
-after the lease expires a newer run may take the claim over regardless of what
-the old job row says. The job timeout is deliberately shorter than the lease,
-so a run is stopped before its claim can be handed on.
+Validation claims a revision by setting `validating` and recording the owning
+Job and claim time. An expired lease can be reclaimed by a newer validation Job,
+regardless of the old Job's status. This handles workers that disappear without
+updating their Job row. The configured Job timeout is shorter than the lease.
 
-Every final transition, to `valid`, to `invalid`, and the roll-back to
-`materialized`, is fenced on the owning job: a stale worker resuming after its
-lease was reclaimed matches nothing and commits nothing, neither revision
-fields nor script file discovery results. The verdict keeps `validation_job` and
-`validation_started` as its provenance, only the roll-back clears them.
+Lease expiry permits a new claim. It does not itself submit another validation
+Job.
+
+Transitions to `valid`, `invalid` or back to `materialized` check both
+`validating` status and the owning Job. A worker whose lease was reclaimed
+cannot write revision results or Script File discovery fields. A completed
+verdict retains `validation_job` and `validation_started` as provenance. A
+return to `materialized` clears them.
 
 ## Invariants
 
 | Invariant | Enforcement |
 |---|---|
-| `project`, `digest`, `manifest`, `file_count`, `total_size`, `script_file_snapshot`, and `script_file_digest` cannot change after creation | `save()` guard, no form or serializer exposes them |
-| A project cannot hold two revisions with the same digest and script file digest | Partial `unique_project_digest_script_files` database constraint, applied only when a digest is set |
+| `project`, `digest`, `manifest`, `file_count`, `total_size`, `script_file_snapshot` and `script_file_digest` cannot change after creation | `save()` guard, no form or serializer permits writes to them |
+| A Project has at most one revision for each source and Script File digest pair | Partial `unique_project_digest_script_files` database constraint, applied when a digest is set |
 | Every revision except an invalid one carries a digest | `revision_requires_digest_unless_invalid` database check constraint |
-| An invalid revision from rejected content carries no digest and is never content-deduplicated | The staging service stores a null digest, which the partial constraint ignores |
-| Only `valid` or `retired` revisions may be activated | The activation service raises `ActivationError` otherwise |
-| A project has at most one active revision | `unique_active_revision_per_project` database constraint, plus the activation service retiring the previous one inside a locked transaction |
-| A stored tree still matches its manifest before it is reused or activated | `store.verify_revision_tree()`, which raises `RevisionCorruptError` |
-| A persisted snapshot is still the one its digest addresses before it becomes authoritative | `validate_script_file_snapshot()`, which raises `RevisionCorruptError` |
-| A persisted list of published Scripts still has a shape a build could produce | `validate_discovered_scripts()`, checked before the project lock and again on the locked row. Covers the shape of every entry and its recorded run defaults, a positive timeout in seconds and a Job notification choice |
-| Neither the tree nor what it publishes changed while the tree was being verified | The locked row is compared against the verified one, digests, manifest, snapshot, and published scripts alike |
-| Only the owning validation run may record a verdict | Every final transition filters on `validating` and the owning job |
+| Rejected content has no digest and is not deduplicated | Staging stores a null digest, excluded from the partial uniqueness constraint |
+| Only `valid` or `retired` revisions can be activated | The activation service raises `ActivationError` otherwise |
+| A Project has at most one active revision | `unique_active_revision_per_project`, plus retirement of the previous revision in the locked activation transaction |
+| Stored source matches its manifest before reuse or activation | `store.verify_revision_tree()` raises `RevisionCorruptError` on a mismatch |
+| A stored declaration snapshot matches its digest before use | `validate_script_file_snapshot()` raises `RevisionCorruptError` on a mismatch |
+| Recorded Scripts have a valid shape and execution defaults | `validate_discovered_scripts()` checks before the Project lock and again on the locked row, including a positive timeout in seconds and a valid Job notification choice |
+| Revision inputs and discovery records did not change during storage verification | The locked row is compared with the verified digests, manifest, snapshot and recorded Scripts |
+| Only the owning validation Job records a verdict | Final transitions filter on `validating` and the owning Job |
 
-`status`, `validation_errors`, `last_validation_failure`, `discovered_scripts`,
-`activated`, and the lease fields stay mutable, because they are the lifecycle
-fields the storage and validation services move.
+Lifecycle fields remain mutable: `status`, `validation_errors`,
+`last_validation_failure`, `discovered_scripts`, `activated` and the lease
+fields. Only the responsible services should update them.
 
-Two different rejected trees can share the same accepted subset of files. Storing
-them with a null digest is what keeps them from colliding on one content address.
+Different rejected submissions can have the same accepted subset of files.
+Leaving their digests null prevents those failed attempts from sharing a content
+identity.
 
-Code paths that bypass validation (`QuerySet.update()`, raw SQL) must uphold
-these invariants themselves. The database constraint enforces digest uniqueness
-but not immutability.
+Code that bypasses validation, such as `QuerySet.update()` or raw SQL, must
+preserve these invariants. Database constraints enforce digest uniqueness, not
+immutability.
 
 ## Serialization
 
-Revision rows and stored content are two systems, and the database cannot see the second one.
-Every operation that touches a project's stored content therefore holds a lock scoped to that
-project while it does: staging, restaging under a new script file configuration, activation, and
-the cleanup that reclaims content. The lock is keyed on the project's immutable storage key, so
-it names the content itself and cannot be moved by anything an author edits.
+Staging, refreshing source under a different Script File selection, activation
+and storage cleanup share a Project-scoped lock. It is keyed by the immutable
+`storage_key` so changes to editable fields cannot change the lock identity.
+These operations coordinate revision rows with stored content, which the
+database cannot manage as part of its own transactions.
 
-It is a session-level advisory lock rather than a row lock, so a database transaction is not
-held open while an operation talks to the storage backend, and a worker that dies frees its own
-claim. See [Configuration](../configuration.md#database-connection-pooling) for what that
-requires of a connection pooler.
+The lock is a session-level advisory lock. Storage I/O does not require a
+long-running database transaction, and closing the owning database session
+releases the lock. See
+[Database connection pooling](../configuration.md#database-connection-pooling)
+for deployment requirements.
 
-Two operations use other mechanisms:
+**Deletion and cleanup use different boundaries.** Deleting a revision row does
+not remove stored content synchronously. The cleanup Job takes the Project lock
+and then checks whether any revision still references that content before
+removing it. A reference check made only before acquiring the lock is not
+sufficient.
 
-- **Deleting a revision takes no project lock.** The cleanup job it enqueues decides whether
-  stored content is still claimed, and rechecks for a referencing row *under* the lock before
-  removing anything, because a bare check before the lock would lose to a revision staged in
-  between. A Project deleted over REST takes the project lock before its row, one deleted in
-  the browser does not, and in both each cascaded script file serializes its own removal
-  through the write lock, which shares this keyspace.
-- **Validation never takes it.** Importing a revision's script files runs arbitrary project code
-  and can take minutes, so a validation claims its revision through the
-  [validation lease](#the-validation-lease), and every transition it makes is a conditional
-  update tied to the owning job.
+REST Project deletion takes the Project lock before delegating to NetBox's
+delete hook. Deleting a Project in the browser does not take it. In both cases,
+each cascaded Script File deletion takes the Project write lock, which shares
+the lock keyspace.
 
-One consequence a caller has to handle: a project deleted while a staging call is inside its
-write window cascades that revision away, and staging reports the vanished row rather than
-returning one that no longer exists. Its content is reclaimed by the cleanup the delete
-recorded, so nothing leaks.
+**Validation does not take the Project lock.** Claims and final transitions use
+conditional updates tied to the owning Job. Imports run under the
+[validation lease](#the-validation-lease) rather than holding the Project lock
+while arbitrary source code executes.
+
+If a concurrent deletion removes a revision during staging, staging reports the
+vanished row instead of returning it. The deletion records cleanup intent for
+the stored content. Cleanup failures still need attention as described below.
 
 ## Storage layout
 
-A revision's files live in the storage backend the plugin is configured to use,
-one key per file, under
-`netbox-scripts/<storage_key>/revisions/<digest>/`, where `storage_key`
-belongs to the owning project. The key is a pure function of those values, with
-no request, branch, or schema context, so a stored file resolves identically on
-every node and in every pod. See [Configuration](../configuration.md) for the
-backend and the trust boundary that applies to it.
+Files use the configured storage backend, with one key per file beneath
+`netbox-scripts/<storage_key>/revisions/<digest>/`. The Project owns
+`storage_key`. No request, branch or schema changes the key, so every node
+addresses the same content. See [Configuration](../configuration.md) for backend
+setup and the storage trust boundary.
 
-Nothing about a key existing is taken as proof that its content is intact. A
-stored tree is verified against its manifest as soon as it is written, before a
-staging call reuses it, and before a revision is activated, and a mismatch is
-reported rather than repaired, so tampering cannot pass silently. The manifest
-is the whole boundary: only the keys it names are ever read, materialized, or
-executed, so a key it does not describe is inert rather than importable.
-Nothing reclaims such strays.
+**Verification checks content, not just presence.** Stored source is checked
+against its manifest after writing, before reuse and before activation.
+Verification of a completed tree reports mismatches rather than repairing them.
+Only manifest-listed keys are read, materialized or executed. Unlisted keys are
+not imported or automatically reclaimed.
 
-No backend can make a whole tree appear at once, so a revision being written is
-visible under its prefix while it is still incomplete. The status is what says
-whether the content is finished, and verification is what confirms it. That also
-makes a write safe to repeat: a key already holding the recorded size and
-checksum is left alone, and one holding anything else is replaced, so an
-interrupted write is completed by the next attempt rather than blocking it.
+**Storage writes can be incomplete.** The plugin writes individual files, so a
+revision prefix can exist before the whole tree is ready. Status records the
+write's progress, and verification checks its result. When an interrupted write
+is resumed, files matching their recorded size and checksum are kept. Missing
+or mismatched files are written again.
 
-Two revisions that share one source digest under different script file digests
-share one stored content tree. Deletion accounts for that: the deletion signal
-skips enqueueing cleanup while another revision of the project still references
-the digest, and the cleanup job repeats that check when it runs, leaving shared
-content in place.
+**Different selections can share content.** Revisions with the same Project
+and source digest but different Script File digests share one stored tree. The
+deletion signal skips cleanup while another revision references that digest.
+The cleanup Job repeats the reference check before removing content.
 
-Deleting a revision reclaims its stored content through a background cleanup
-job. The exact keys to remove are captured from the revision's manifest while
-its row still exists, and the cleanup job carrying that payload is written in
-the same database transaction that deletes the row, so deletion and cleanup
-intent commit or roll back together and a rolled-back delete leaves the content
-in place with no orphaned job behind. Only the handoff to the queue waits for
-the commit, which keeps remote storage I/O out of the deleting process. That
-coupling holds on the default database, which is where these models live.
-Staging, activation, and deletion refuse any other database alias, so no
-revision can exist whose deletion could not record its cleanup. Deleting a
-project works the same way, because the cascade deletes each of its revisions
-and every one records its own cleanup. Bulk `QuerySet.delete()` reclaims
-storage too, because registering the cleanup receivers rules out Django's
-signal-free fast-delete path.
+Deleting a revision captures the manifest's exact file keys before removing the
+row. The cleanup Job and the deletion are recorded in the same database
+transaction. Both commit or both roll back. Queue submission waits until commit,
+and the deleting process performs no remote storage removal.
 
-Cleanup is idempotent and observable. A key that is already gone counts as
-removed, so a cleanup that failed partway can be run again and finishes the
-remainder. A failure surfaces as a failed background job whose log names the
-keys it left behind, and the job keeps its full cleanup payload, the storage
-key, digest, and file paths, so the work can be reconstructed and run again
-once the backend is reachable. The job also repeats the branching routing
-check before it removes anything, and a run that finds routing unsafe fails
-while leaving the content in place. Anything the jobs miss stays where it is. On
-a backend that keeps real directories, such as a local filesystem, removing every
-key can leave the empty directories behind, since the Django storage API has no
-way to remove one. They hold no content.
+This transaction coupling uses the default database. Staging, activation and
+deletion refuse other database aliases. Project deletion uses the same cleanup
+path for its cascaded revisions. Bulk `QuerySet.delete()` also triggers it,
+because registered deletion receivers prevent Django's signal-free fast-delete
+path.
+
+**Cleanup can be retried.** Missing keys count as already removed. A failed Job
+logs the keys left behind and retains its full payload: storage key, digest and
+file paths. Use that record to reconstruct the cleanup after resolving the
+backend failure. The Job also rechecks branching routing. Unsafe routing fails
+the Job without deleting content.
+
+Content missed by cleanup remains in storage. On filesystem backends, empty
+directories can remain after every file is removed because the Django storage
+API has no directory-removal operation. Those empty directories contain no
+source.
 
 ## Limitations
 
 | Limitation | Impact |
 |---|---|
-| No list page and no global search | A revision is reached through its project, on the Revisions tab or by filtering the REST and GraphQL surfaces by project |
-| The manifest and the script file snapshot are absent from both API surfaces | Reading a revision's file list or its frozen declarations needs the database until a diagnostic surface exists. The project's Revision Files tab lists the current revision's files in the UI |
-| A revision cannot be deleted through any user-facing surface | It has no delete route of its own. Revisions go away when their project does |
-| Only the revision a project is serving can be deactivated | `deactivate_revision()` compares against the locked project row and refuses otherwise |
+| No standalone list page or global search | Use the Project's Revisions tab, or filter REST and GraphQL results by Project |
+| Complete manifest and Script File snapshot documents are absent from REST and GraphQL | Reading those stored JSON documents requires database access. The Project's Revision Files tab displays the current revision's files |
+| No user-facing revision-delete route | Revisions are removed when their Project is deleted |
+| Only the active revision can be deactivated | `deactivate_revision()` checks the locked Project row and refuses other revisions |

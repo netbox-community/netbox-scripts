@@ -1,214 +1,188 @@
 # Runtime and Loading
 
-This page describes how a stored revision becomes importable Python and how
-project validation judges it. It is background for operators and script
-authors, none of it requires configuration beyond the
-[runtime cache](configuration.md#runtime-cache).
+This reference explains how revisions load, how validation reports problems
+and what activation changes. It is intended for administrators troubleshooting
+Projects and authors working with imports or discovery. Configure the
+[runtime cache](configuration.md#runtime-cache) on the Configuration page.
 
-Script code loads during validation, while a run form is prepared, and during
-execution. Depending on the operation that is an RQ worker, a NetBox web
-process, or the process running `runcustomscript`. Whichever it is, importing a
-revision executes its module-level code with that process's permissions, which
-is why content is verified first and why the
-[storage trust boundary](configuration.md#storage-trust-boundary) treats write
-access to the store as equivalent to code execution.
+Script code can load during validation, run-form preparation and execution.
+Depending on the operation, it runs in an RQ worker, a NetBox web process or
+the process running `runcustomscript`. Imported code has that process's
+permissions. Treat write access to source storage accordingly. See the
+[storage trust boundary](configuration.md#storage-trust-boundary).
 
-Keep module imports, constructors and form-building code free of side effects,
-because all three can run inside a web request.
+**Keep imports, constructors and form-building code free of side effects.**
+All three can run during a web request, before the Script is executed.
 
 ## The private namespace
 
-Revision code never imports under a name an author chose. Every loaded module
-sits below one private root, with one container per project and one package per
-revision:
+Each Project and revision has a private Python namespace:
 
 ```text
 _netbox_scripts_runtime.p_<project>.r_<revision>.<dotted path>
 ```
 
-The project and revision components come from internal storage identities that
-never change. The consequences:
+The Project and revision components use immutable internal storage identities.
+This keeps module names separate:
 
-- Two projects can ship modules with identical names and never collide.
-- Two revisions of one project coexist in one process, which is what lets a new
-  revision be validated while the active one keeps serving.
-- A revision module can never shadow an installed distribution. A project file
-  named `requests.py` is importable as a relative module, while
-  `import requests` inside project code still resolves the real package.
-- Loading never touches `sys.path` or the working directory. The plugin registers one import
-  finder at startup, which answers only for names inside its private revision namespace, so
-  imports elsewhere in the host process resolve as they would without it.
+- Different Projects can contain modules with the same name.
+- Revisions of one Project can coexist in a process, allowing validation while
+  another revision remains active.
+- Project modules do not shadow installed packages. A local `requests.py` is
+  available through a relative import, while `import requests` resolves the
+  installed package.
+- The loader does not modify `sys.path` or the working directory. One import
+  finder, registered at startup, handles imports within the private revision
+  namespace.
 
-These generated names are internal. Everything user-facing, from logger names
-to stored validation errors, uses the project key and project-relative module
-paths instead.
+User-facing names, including logger names and stored validation errors, use the
+Project key and Project-relative module paths rather than these generated names.
 
 ## How a script file loads
 
-Loading follows four steps, each gated on the one before it:
+Loading follows four steps:
 
-1. **Check the path.** The manifest is validated, then the script file must map
-   to an importable dotted name and must be part of that manifest. All three
-   checks run before any I/O.
-2. **Materialize a verified tree.** The [runtime
-   cache](configuration.md#runtime-cache) produces a local directory that
-   provably holds exactly the manifest's files. Nothing imports from a tree
-   that has not just been verified. Materialization holds the revision's import
-   lock, because setting a damaged tree aside renames the directory a
-   concurrent import is reading from.
-3. **Register the containers.** The namespace root and the project container
-   are synthetic packages holding no project code, so this step cannot fail on
-   revision content.
-4. **Import inside the failure boundary.** The revision package is built on the
-   verified tree, its root `__init__.py` executes if the tree ships one, and
-   the script file imports as a normal submodule. Relative imports between
-   project files work exactly as they would in an installed package.
+1. **Check the path.** Validate the manifest, check that the Script File has an
+   importable dotted name and confirm that it belongs to the manifest. These
+   checks happen before I/O.
+2. **Prepare a verified tree.** The [runtime cache](configuration.md#runtime-cache)
+   supplies a local directory matching the manifest. Verification happens
+   before import. The revision's import lock prevents another import from
+   reading a damaged tree while the cache moves it aside.
+3. **Register the containers.** Create the namespace root and Project container
+   as packages without Project code. Their creation does not execute source.
+4. **Import the module.** Load the revision package from the verified tree,
+   execute its root `__init__.py` if present, then import the Script File.
+   Project files can use normal relative imports.
 
-A failed import sweeps every module it managed to register, including helpers a
-root `__init__.py` pulled in before failing, so a broken revision leaves
-nothing behind and a sibling revision is unaffected. The original exception is
-preserved for classification.
+If an import fails, the loader removes the revision modules it registered,
+including helpers imported by `__init__.py`. Other revisions are unaffected.
+The original exception is preserved so validation can classify the failure.
 
 ## How legacy imports resolve
 
-A revision module executes with its own copy of the builtins mapping, whose
-import hook resolves the name `extras` through a stand-in this plugin owns. The
-stand-in serves the two legacy authoring modules itself and passes every other
-attribute through to the real package, which is what lets a script written for
-the built-in runner publish unmodified. See [legacy
-scripts](authoring.md#legacy-scripts) for the author-facing view.
+Inside a revision, an import hook redirects supported legacy authoring imports
+under `extras` to the plugin's compatibility layer. Other `extras` attributes
+still reach NetBox. The hook uses a separate builtins mapping for each module
+and applies only within the private namespace.
 
-The mapping is installed by the loader that executes each module, and those
-loaders are reached through a finder that can only match names inside the
-private namespace. Two consequences matter operationally. Nothing outside a
-revision is affected, so NetBox's own `extras.scripts` is never replaced and its
-built-in scripts keep running alongside this plugin's. And nothing is rebound
-for a window of time, so two workers importing two revisions at once need no
-coordination.
+NetBox's own `extras.scripts` is not replaced, so built-in Scripts can run
+alongside plugin Scripts. The hook does not temporarily rebind a shared module,
+so concurrent revision imports need no coordination for that redirect.
 
-Whether the redirect serves or refuses is decided by asking the host whether it
-still provides a module under the legacy name, never by comparing versions. Once
-NetBox removes `extras.scripts`, the redirect raises an import error naming the
-migration rather than standing aside, because an absent module would classify as
-an environment fault and leave the revision with no verdict recorded at all.
+Compatibility depends on whether the host still provides the legacy module,
+not on a version comparison. When NetBox removes `extras.scripts`, the hook
+raises an import error directing authors to migrate their imports rather than
+leaving the revision waiting on an environment repair.
+
+See [legacy scripts](authoring.md#legacy-scripts) for supported import forms
+and the changes authors need to make.
 
 ## What discovery publishes
 
-After a script file imports, discovery decides which classes it offers:
+After importing a Script File, discovery selects its classes:
 
-- Every `Script` subclass the script file's own body defines is
-  published, ordered alphabetically by bound name.
-- A `script_order` list in the script file pins presentation order, and it is
-  also the one way to publish a Script class defined in another module of the
-  revision. Entries must be Script subclasses defined in this revision, listed
-  at most once.
-- Classes imported from installed packages are never published, and shared
-  building blocks that subclass `BaseScript` without `Script` are not
-  published either.
-- One class publishes once however many names it is bound to.
+- `Script` subclasses defined in that file are published alphabetically by
+  their bound name.
+- `script_order` sets presentation order and can include Script classes from
+  other modules in the same revision. Each entry must be a `Script` subclass
+  defined in that revision and appear only once.
+- Classes from installed packages are not published. Shared classes that
+  extend `BaseScript` without also extending `Script` stay unpublished.
+- A class is published once, even when bound to several names.
 
-Each published class is stamped with its identity: the logical module path
-(project-relative, such as `tools.deploy`) and a logger name of the form
+Each published class has a Project-relative module path, such as `tools.deploy`,
+and a logger named
 `netbox.plugins.netbox_scripts.scripts.<project key>.<logical module>.<Class>`.
-The logger carries the stable project key and never a revision digest, so two
-projects publishing the same class name log apart and log routing survives new
-revisions.
+The Project key separates logs from different Projects. Logger names do not
+contain a revision digest, so logging configuration survives new revisions.
 
 ## Import-safe module-level code
 
-Validation imports script files to judge them, so module-level code runs at
-validation time, not only when a script is executed. Keep module bodies to
-imports and definitions:
+Keep module bodies to imports and definitions. Validation executes that code
+before anyone requests a run.
 
-- Do not talk to the network, the database, or the filesystem at import time.
-- Do not spawn threads or processes at import time.
-- Raising at import time makes the revision invalid, including `SystemExit`.
+- Do not access the network, database or filesystem at import time.
+- Do not start threads or processes at import time.
+- Exceptions raised by Project code during import, including `SystemExit`,
+  make the revision invalid. See the classification rules below.
 
-Work belongs in `run()`, which executes only when a user runs the script.
+Put operational work in `run()` so it happens during Script execution, not
+while a form is prepared or source is validated.
 
 ## How validation reaches a verdict
 
-Project validation drives a revision from `materialized` to `valid` or
-`invalid` by importing every script file in the revision's snapshot and running
-discovery on it. The verdict rules:
+Validation imports every Script File in the revision's snapshot and runs
+discovery. It takes a `materialized` revision to `valid` or `invalid`, unless
+an environment failure prevents a verdict.
 
-- A verdict is a statement about revision content. Bad syntax, a reference to a
-  revision module that does not exist, project code raising at import time, an
-  unimportable declared path, a publication conflict, or a script file missing
-  from the manifest all make the revision `invalid`, terminally.
-- Environment trouble never produces a verdict. An unreachable backend, cache
-  failure, host I/O failure, or an import failure a repaired host could answer
-  differently rolls the revision back to `materialized` and fails the job, so a
-  retry gets a fair attempt. The test is whether a later run could reach a
-  different answer, so a name this interpreter cannot resolve at all is content:
-  a distribution the host does not have, and `import helpers` where the tree
-  holds `helpers.py`, both report as authoring mistakes naming the module rather
-  than leaving the revision unjudged forever.
-- **An `invalid` verdict does not clear itself when the host changes.** Content
-  addressing means identical bytes resolve to the revision that already holds
-  the verdict, and a rejected revision comes back untouched rather than
-  revalidated, so installing a missing distribution and uploading the same file
-  again returns the same `invalid` revision. What does get a fresh verdict is a
-  new revision identity: any change to the source, or ending on a different
-  script file selection, which restages the stored tree under a new script file
-  digest.
-- An empty script file set is valid. A project whose revision declares no
-  script files validates and can be activated, it simply offers no scripts.
-- A revision whose script files all import cleanly and publish nothing is
-  `invalid`. Each such script file is reported under the code
-  `no_scripts_published`, and its Script File row reads `no_scripts` with the reason,
-  which names the base class when the script file subclassed one of NetBox's own.
-  One script file publishing nothing beside a working one leaves the verdict
-  alone and is reported on its own row. A project whose only enabled script file
-  publishes nothing does stop activating, so declare a helper file as a
-  script file only alongside one that publishes.
-- Stored validation errors are sanitized. Runtime namespaces, storage
-  identities, and cache paths never appear in them or in job logs, module
-  references read project-relative.
+**Content errors produce an `invalid` verdict.** These include syntax errors,
+missing revision modules, exceptions raised by Project code during import,
+unimportable declared paths, publication conflicts and declared files absent
+from the manifest.
 
-Validation also proves each published class is usable, not merely importable. It
-builds the class's run form and resolves its fieldsets, so a variable Django
-cannot turn into a field, a variable whose name the run form reserves, a fieldset
-naming something that is not a variable, and a display name too long to record all
-make the revision `invalid` instead of failing at the first attempt to run it.
-What it learns is recorded on the revision as its [published
-Scripts](models/scriptprojectrevision.md).
+**Environment failures leave the revision retryable.** Storage, cache, host
+I/O and recoverable import failures return it to `materialized` and fail the
+validation Job without recording a verdict. Not every import failure is an
+environment failure: a module name the interpreter cannot resolve is treated
+as a content error. This includes an uninstalled distribution and
+`import helpers` when the intended file is the Project's own `helpers.py`.
+Use a relative import for Project-local modules.
 
-Ownership, the validation lease, and why a crashed validation recovers by
-itself are described on the [revision page](models/scriptprojectrevision.md).
+**An `invalid` verdict does not clear when the host changes.** Identical source
+and Script File selection reuse the revision and its existing verdict.
+Installing a missing distribution and uploading the same content therefore
+does not revalidate it. A fresh verdict requires a new revision identity from
+changed source or a different final Script File selection.
+
+An empty Script File selection is valid and can be activated, but publishes
+no Scripts. This differs from selecting files that all import successfully
+but publish nothing. That revision is `invalid`, with
+`no_scripts_published` errors. Its Script File rows show `no_scripts` and a
+reason, including the base class when a file extends NetBox's own Script class.
+A file that publishes nothing does not invalidate a revision when another
+selected file publishes a Script. It still reports its own discovery result.
+Do not select a helper as the only Script File.
+
+Validation also builds each class's run form and resolves its fieldsets. A
+variable that cannot become a form field, a reserved variable name, an unknown
+variable in a fieldset or an overlong display name makes the revision invalid.
+The results are recorded on the revision as its
+[published Scripts](models/scriptprojectrevision.md).
+
+Stored validation errors and validation Job logs use Project-relative paths
+instead of internal runtime names, storage identities and cache paths. See the
+[revision page](models/scriptprojectrevision.md) for validation ownership and
+lease details.
 
 ## What activation does
 
-Activation makes one validated revision the project's active revision and
-publishes its [Scripts](models/netboxscript.md) as rows. Both happen in a
-single database transaction, so a reader sees either the old revision with its old
-scripts or the new revision with its new ones, never a mix.
+Activation sets the Project's active revision and publishes its
+[Scripts](models/netboxscript.md) in one database transaction. The revision
+switch and Script publication commit together.
 
-Activation performs **no import**. It works entirely from what validation already
-recorded, because re-importing could reach a different answer than the verdict the
-revision carries, and a revision's meaning is fixed at its verdict.
+**Activation does not import source.** It uses the discovery results already
+recorded by validation.
 
-Verifying the stored tree happens first and outside the transaction, since reading
-and hashing every stored file can hold a conversation with a remote backend for a
-while and the transaction that moves the pointer stays short. The project's
-advisory lock covers both halves, so nothing restages or reclaims the tree between
-proving it present and promoting it.
+Before that transaction, activation verifies the stored tree. Reading and
+hashing files can take time, especially with remote storage. Keeping that work
+outside the transaction limits how long database rows are locked. The Project's
+advisory lock covers both verification and publication, preventing restaging
+or reclamation between them.
 
-Re-activating the revision already in force is not a no-op. It synchronizes again,
-which repairs rows that went missing, and because synchronization skips any row
-that already matches, the repair writes nothing and logs nothing when nothing is
-wrong. **Repair Scripts** on the Project's page is the operator's route to it,
-and it reports how many rows moved so a repair does not read like a no-op.
-Neither Activate route reaches it: both refuse the revision already in force,
-at the route and not only by withholding the button. Where something is wrong,
-each repaired row is a real row change: in a request it is recorded in the change
-log and queues an update event attributed to whoever asked for it, and in a
-background job it records neither, because a job applies no request processor.
-That trail is what a recovery action most needs, so it is kept rather than
-suppressed.
+Use **Repair Scripts** on the Project page to synchronize its published rows
+with the active revision. It restores missing or changed rows and reports the
+number changed. Matching rows are left alone, with no write or change log.
+The Project-level and revision-level **Activate** routes refuse a revision
+that is already active, so use **Repair Scripts** for this operation.
 
-Deactivation is the reverse: it retires the revision, clears the project's
-pointer, and retires every Script, because a project serving no revision
-publishes nothing. It reads no storage and imports nothing, for the same reason.
-Both operations lock the project row and then the revision row, in that order, so
-a concurrent activation settles on one side or the other rather than interleaving.
+Repairs made through a request are recorded in the change log and queue update
+events attributed to the requesting user. Background activation and repair do
+not provide that change log or object-change event delivery. This distinction
+concerns publication, not events from a committed Script run. See
+[Event Rules](event-rules.md#scripts-as-event-sources).
+
+Deactivation retires the active revision, clears the Project's active pointer
+and retires its Scripts. It reads no storage and imports no source. Activation
+and deactivation lock the Project row before the revision row to serialize
+concurrent changes.

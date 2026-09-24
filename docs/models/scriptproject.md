@@ -1,37 +1,43 @@
 # Script Project
 
-A Script Project represents one complete and internally consistent
-source tree. It is the ownership boundary for source files and the Python
-package boundary used when loading and executing scripts.
+A Script Project owns one complete source tree and the settings for its Scripts.
+The tree also forms the Python package boundary used when loading and executing
+those Scripts.
 
 ## Fields
 
+FK means foreign key. Fields marked `auto` are assigned or maintained by the
+plugin rather than supplied as editable configuration.
+
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `name` | string | yes | Human-readable, mutable display name |
-| `key` | slug | yes | Stable user-facing project key, unique |
-| `storage_key` | UUID | auto | Immutable storage and runtime identity, assigned on creation |
-| `source_type` | choice | yes | `upload` (default) or `data_source` |
-| `data_source` | FK | conditional | Required for `data_source` projects, not allowed for uploads |
-| `data_path` | string | conditional | Required for `data_source` projects, not allowed for uploads. Names a directory within the source, never its root |
+| `name` | string | yes | Display name. Can be changed |
+| `key` | slug | yes | Unique public identifier. Cannot change after creation |
+| `storage_key` | UUID | auto | Internal storage and runtime identity, assigned on creation and immutable |
+| `source_type` | choice | yes | `upload` (default) or `data_source`. Cannot change after creation |
+| `data_source` | FK | conditional | Required for a Data Source Project. Not allowed for uploads |
+| `data_path` | string | conditional | Required for a Data Source Project. Names a directory within the Data Source, not its root. Not allowed for uploads |
 | `activation_policy` | choice | yes | `manual` (default) or `automatic_if_valid` |
-| `active_revision` | FK | auto | Currently active revision, set only by the storage activation service |
-| `enabled` | boolean | yes | Whether the Project's Scripts may run, defaults to `true`. Disabling it leaves the active revision in place |
-| `description` | string | no | Free-form description |
-| `comments` | text | no | Free-form operational notes |
+| `active_revision` | FK | auto | Revision currently served by the Project. Managed by activation and deactivation |
+| `enabled` | boolean | yes | Whether Scripts in this Project may run. Defaults to `true` |
+| `description` | string | no | Short description of the Project |
+| `comments` | text | no | Operational notes |
+
+Use `enabled` to control execution. Use activation and deactivation to choose
+which revision the Project serves. These are separate controls.
 
 ## Relationships
 
 | Relationship | Target | Required | Notes |
 |---|---|---|---|
-| `data_source` | `core.DataSource` | conditional | `on_delete=PROTECT`, no reverse relation, set only when `source_type` is `data_source` |
-| `revisions` | `ScriptProjectRevision` | no | Reverse of the revision's `project`, `on_delete=CASCADE`. Every snapshot ever staged for this project |
-| `active_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, reverse name `active_revision_for`. Set only by the storage activation service |
+| `data_source` | `core.DataSource` | conditional | `on_delete=PROTECT`, no reverse relation. Set only for `source_type=data_source` |
+| `revisions` | `ScriptProjectRevision` | no | Reverse of the revision's `project`, with `on_delete=CASCADE`. Revisions recorded for this Project |
+| `active_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, reverse name `active_revision_for`. Managed by activation and deactivation |
 
-Each project owns a history of immutable source snapshots, documented on the
-[Script Project Revision](scriptprojectrevision.md) page. Its
-declared script files are [Script Files](scriptfile.md) and the
-classes an activated revision publishes are [Scripts](netboxscript.md).
+A Project's immutable source snapshots are
+[Script Project Revisions](scriptprojectrevision.md). Its declared source
+modules are [Script Files](scriptfile.md), and the classes published by
+activation are [Scripts](netboxscript.md).
 
 ## API
 
@@ -40,88 +46,92 @@ classes an activated revision publishes are [Scripts](netboxscript.md).
 | REST | `/api/plugins/netbox-scripts/projects/` |
 | GraphQL | `netbox_script_project` / `netbox_script_project_list` |
 
-A project's **Script Files** tab selects which of its source modules discovery
-imports, and its detail page lists the [Script
-Files](scriptfile.md) it has declared. The selection is also a REST
-operation at `projects/<id>/script-files/`.
+The **Script Files** tab selects the source modules used for discovery. The
+Project's detail page lists its declarations. REST provides the same selection
+operation at `projects/<id>/script-files/`. See [Script File](scriptfile.md#api)
+for its request format and permissions.
 
-A project's **Revision Files** tab lists the files of its current revision, one
-row per manifest entry with its size and short checksum, and marks which paths
-are enabled script files. It names the revision it is listing and links the
-Script Files tab, where the declarations are set. A declared path the revision
-does not hold is annotated, and the annotation distinguishes one that is gone
-from the source from one a newer revision holds that is not being served yet.
-The tab is empty until a revision holds content.
+The **Revision Files** tab lists each file in the current revision, with its
+size, short checksum and enabled Script File status. It identifies the revision
+being displayed and links to the selection tab. A missing declared path is
+labelled to distinguish a file absent from the source from one waiting in a
+newer, inactive revision. The tab is empty until a revision contains stored
+source.
 
 ## Activation policy
 
-`activation_policy` decides whether a revision that passes validation goes into service on its
-own:
+`activation_policy` controls whether a validated revision activates
+automatically or waits for an operator:
 
 | Value | Behaviour |
 |---|---|
-| `manual` | The revision stops at `valid`. An operator activates it from the project's page. |
-| `automatic_if_valid` | The validation job activates the revision itself on a `valid` verdict. |
+| `manual` | The revision remains `valid` until an operator activates it. A one-off upload activation request is separate |
+| `automatic_if_valid` | An eligible revision activates automatically once it has a `valid` verdict |
 
-The [upload form](../uploading.md) asks for this separately from its **Activate this upload**
-tick, because the two are different decisions: the tick puts that one revision into service,
-while this field decides what later revisions do. The form leaves this on `manual`. An
-automatic activation that is refused, for
-example because the stored tree no longer matches its manifest, fails the validation job and
-leaves both the verdict and the previously active revision alone.
+On the [upload form](../uploading.md), **Activate this upload** requests
+activation for that upload without changing the policy for later revisions.
+When the checkbox is clear, the activation policy still applies. The form
+defaults to `manual`.
 
-For a Data Source-backed project the policy is what decides whether a synchronization changes
-what the project serves, so it is the field to reach for when a repository should be tracked
-but not trusted unattended. See [Data Source Projects](../data-sources.md).
+If automatic activation is refused, for example because stored content no
+longer matches its manifest, the validation Job fails. The validation verdict
+and the previously active revision remain unchanged.
 
-Activating is always a choice between validated revisions, never a promotion of unvalidated
-content. Retired revisions remain eligible, so returning to an earlier one is a matter of
-selecting it.
+For a Data Source Project, choose `manual` to review synchronized changes before
+serving them. Choose `automatic_if_valid` to activate eligible validated changes
+automatically. See [Data Source Projects](../data-sources.md).
+
+Only validated revisions can be activated. A `retired` revision remains
+eligible for explicit activation, allowing an operator to return to earlier
+source. Automatic activation also checks the accepted source and selection, as
+[described below](#limitations).
 
 ## Invariants
 
 | Invariant | Enforcement |
 |---|---|
-| `key` cannot change after creation | `clean()`, the edit form disables the field, REST returns 400 |
-| `source_type` cannot change after creation, pending a dedicated source-transition workflow | `clean()`, the edit form disables the field, REST returns 400 |
-| `storage_key` never changes | `save()` guard, the field is excluded from forms and read-only in REST |
-| `data_path` is stored canonically: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize. Absolute paths, `..` traversal, and backslashes are rejected |
-| `data_source` projects require a `data_source` and a non-empty `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
-| `upload` projects carry no `data_source` and no `data_path` | `clean()` plus the `enforce_source_ownership` database constraint |
-| Moving `activation_policy`, `data_source` or `data_path` needs the `activate` permission as well as `change` | The serializer's `validate()`, the edit form's `clean()`, and the two bulk views' save hooks, each checking `activate` against the stored row so a constraint scopes it. Submitting a stored value is not a move, and a create is not gated. `save()` then refuses, under its lock, any move that gate did not authorize, so a row that changed in between is not overwritten from a stale instance |
-| `active_revision` must belong to this project | `clean()` |
-| `active_revision` is written only by activation and deactivation | `save()` restores the stored pointer on a full save, so a stale copy cannot move it. The services name it in `update_fields` |
-| A project whose active revision is deleted keeps serving nothing rather than blocking the delete | `SET_NULL` on `active_revision`, which is also what lets a project be deleted at all, since its revisions cascade |
+| `key` cannot change after creation | `clean()`, disabled edit-form field, HTTP 400 on REST changes |
+| `source_type` cannot change after creation | `clean()`, disabled edit-form field, HTTP 400 on REST changes. No source-transition workflow is provided |
+| `storage_key` never changes | `save()` guard, excluded from forms and read-only in REST |
+| `data_path` is canonical: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize it. Absolute paths, `..` traversal and backslashes are rejected |
+| `data_source` Projects require a `data_source` and non-empty `data_path` | `clean()` and the `enforce_source_ownership` database constraint |
+| `upload` Projects have no `data_source` or `data_path` | `clean()` and the `enforce_source_ownership` database constraint |
+| Changing `activation_policy`, `data_source` or `data_path` requires both `activate` and `change` | Object-scoped authorization against the stored Project, followed by the locked `save()` guard. See the write rules below |
+| `active_revision` belongs to this Project | `clean()` |
+| Only activation and deactivation write `active_revision` | A full `save()` restores the stored pointer. The services include it explicitly in `update_fields` |
+| Removing the active revision clears the Project's pointer | `SET_NULL` on `active_revision` allows the Project's revision cascade to complete |
 
-Code paths that bypass validation (`QuerySet.update()`, raw SQL) must supply
-canonical values themselves. The database constraint enforces the ownership
-rules but not path spelling.
+**Source-setting writes.** The serializer's `validate()`, the edit form's
+`clean()` and both bulk views' save hooks check activation permission against
+the stored Project. Project creation and unchanged submitted values are exempt
+from this additional check. The locked `save()` guard rejects unauthorized or
+intervening source-setting changes rather than overwriting them from a stale
+instance. See [Permissions](../permissions.md#script-project).
 
-Deleting a project cascades to its revisions and clears `active_revision`, which
-is `SET_NULL` so that a project cannot protect itself against its own deletion.
-Each revision's stored identity is captured while its row still exists, and its
-content is reclaimed by a cleanup job the delete enqueues, so the committing
-process performs no storage I/O. A revision whose captured manifest cannot be
-trusted refuses the delete instead, keeping the row and the only inventory that
-names what there was to reclaim.
+Code that bypasses validation, such as `QuerySet.update()` or raw SQL, must
+supply canonical values. The database constraint enforces source ownership, not
+path spelling.
+
+Deleting a Project cascades to its revisions. Their stored identities and
+manifests are captured before deletion so background cleanup can reclaim their
+source. The deleting process queues cleanup rather than removing stored files
+itself. An untrusted manifest refuses the deletion, preserving the row and its
+cleanup inventory.
 
 ## Identity notes
 
-`storage_key` is the project's internal storage and runtime identity: it will
-name physical storage, runtime packages, and cache paths. It is exposed
-read-only for troubleshooting, but it is not the public identity of a project
-or its scripts. Integrations must reference projects by `key` (or object ID),
-never by `storage_key`.
+Use `key` or the object ID when integrating with a Project. `storage_key` is
+read-only and exposed for troubleshooting, not as a public identifier. It names
+stored content, runtime packages and cache paths and never changes.
 
 ## NetBox Branching
 
-All five of the plugin's models are **installation-global**, because each
-describes content the whole installation shares. A revision's on-disk location
-is a pure function of the project's `storage_key` and the revision's `digest`,
-with no branch or schema context, so one project names exactly one source tree
-no matter which branch is active.
+All five plugin models are **installation-global**. A revision's storage path
+uses its Project's `storage_key` and its own `digest`, with no branch or schema
+component. The same revision therefore names the same stored content in every
+branch.
 
-NetBox Branching's own `exempt_models` setting is the supported way to say so:
+NetBox Branching's `exempt_models` setting declares that scope:
 
 ```python
 PLUGINS_CONFIG = {
@@ -137,80 +147,64 @@ PLUGINS_CONFIG = {
 }
 ```
 
-List the models individually rather than using a `netbox_scripts.*`
-wildcard. The wildcard is accurate today, because every model in this plugin is
-installation-global, but it would also sweep in a model added later that is meant
-to keep NetBox Branching's ordinary behaviour.
+List the models explicitly rather than using `netbox_scripts.*`. A wildcard
+would also exempt future models that may need ordinary branching behavior.
 
-You do not have to configure this to be safe. The plugin also registers a
-branching resolver so that a fresh installation already routes all five to the
-main schema, which is the same treatment NetBox gives `core` objects. The
-resolver is best effort, and the setting above is what an operator uses when it is
-unavailable, so the two work together rather than competing.
+The plugin also attempts to register a resolver that routes these models to the
+main schema. The explicit settings provide a fallback when that resolver is
+unavailable. Neither mechanism replaces the routing check before storage work.
 
-What the plugin does not do is assume either one worked. Before it stages a
-revision, activates one, or removes stored source, it asks NetBox Branching
-through its public API whether these models are still routed to the main schema:
+Before staging, activation or stored-source removal, the plugin checks routing
+through NetBox Branching's public API:
 
-- If they are, the operation proceeds.
-- If they are not, or the answer cannot be determined, **the storage operation is
-  refused** and a system check reports the reason. The hint names both remedies,
-  because the configuration above cannot resolve every case: where the routing
-  cannot be inspected at all, the exemption is unverifiable too, and the fix is a
-  NetBox Branching release that exposes the inspection API.
-- **Deleting a project or a revision never removes source under an unresolved
-  answer.** The rows go, the directory stays, and the skip is logged at error
-  level. A leaked directory is recoverable by an operator, whereas source deleted
-  out from under a schema that still serves it is not.
+- Confirmed main-schema routing allows the operation.
+- Unsafe or unverifiable routing refuses the storage operation, and a system
+  check explains why. Configure exemptions when needed. If routing cannot be
+  inspected, use a NetBox Branching release that provides the inspection API.
+  Exemptions alone cannot make an unavailable check succeed.
+- When a Project or revision row is deleted but cleanup cannot confirm safe
+  routing, source is retained and the refusal is logged at error level.
 
-NetBox itself keeps running throughout. An optional peer plugin whose routing
-cannot be confirmed disables this plugin's storage operations, not the
-installation.
+NetBox remains available. These refusals affect the plugin's storage operations,
+not the rest of the installation.
 
-Three consequences worth knowing before you rely on this:
+**Changes to Project and revision rows apply globally**, even when made inside
+a branch. They do not enter the branch diff and are not replayed on merge or
+undone on revert.
 
-- A project or revision created, changed, or deleted while a branch is active
-  applies **immediately and globally**. It is not part of the branch's diff and
-  is not replayed on merge or undone on revert.
-- **Tags and journal entries on a project are branch-local.** A tag added or
-  removed inside a branch, and a journal entry written inside a branch, belong
-  to that branch and reach the main schema only when it merges. That is NetBox
-  Branching's ordinary behaviour for tag assignments and journal entries, and
-  it is what installation-global NetBox objects such as Data Sources already do.
-  The project row itself, its revisions, and its source tree stay global
-  throughout.
-- Without this, a branch would hold its own rows pointing at the same bytes as
-  main, and deleting a revision inside the branch would remove source that main
-  still serves.
+**Tags and journal entries remain branch-local.** Changes to them inside a
+branch reach the main schema only on merge. The Project row, its revisions and
+stored source stay global throughout.
 
-Only the five models above are installation-global. A model added to this plugin
-later keeps NetBox Branching's ordinary behaviour, which is the right default
-unless it describes content the whole installation shares. Two questions are
-worth asking when adding one: whether it describes such content, in which case
-it belongs alongside the five above, and whether it holds a concrete relation to
-a branch-aware model, which would leave a row in the main schema pointing at a
-row that exists only inside a branch.
+**For developers adding models:** retain ordinary NetBox Branching behavior
+unless the model represents installation-wide content. Check both its scope
+and its relationships. A main-schema row must not depend on a related row that
+exists only in a branch. Global source identities also must not be duplicated
+as branch-local rows, where deletion could remove content still served by main.
 
-Script execution is not branch-aware. A run always writes to the main schema,
-whatever branch the requesting user had active, which is enforced rather than
-incidental. See
-[Configuration](../configuration.md#netbox-branching) for what a branch does and
-does not change.
+Script execution always writes to the main schema, regardless of the branch
+selected by the requesting user. See
+[Configuration](../configuration.md#netbox-branching) for the complete execution
+and routing policy.
 
 ## Limitations
 
 | Limitation | Impact |
 |---|---|
-| A project owns one source, never both kinds | `source_type` is immutable, so moving a project from uploads to a Data Source means creating a new one |
-| Revisions cannot be edited directly | Read-only REST and GraphQL expose revision history. Source actions stage revisions, and activation remains a Project action |
+| A Project uses one source type | `source_type` is immutable. Moving between uploads and a Data Source requires a new Project |
+| Revisions cannot be edited directly | REST and GraphQL expose read-only history. Source actions stage revisions, and activation remains a Project action |
 
 Saving a changed Script File selection queues a refresh of the accepted stored
-source. Selecting the single preselected candidate for the first time also counts
-as a change. A Data Source with no stored revision still needs its first reconciliation.
+source. Saving the single preselected candidate for the first time also counts
+as a change. A Data Source Project with no stored revision still needs its first
+reconciliation.
 
-Accepted source and active source are separate. A repeated upload or selection can
-reuse an older immutable revision and make it the accepted source again. Subsequent
-uploads build on that accepted source, not on whichever row was created last.
-Automatic activation checks that the validated revision is still the accepted source
-and that its declaration snapshot still matches. Explicit historical activation does
-not change the source base for later uploads.
+**Accepted source and active source are separate.** A repeated upload or
+selection can reuse an older immutable revision and make it the accepted source
+again. Later uploads build on that accepted source, not the newest row by
+creation time.
+
+Automatic activation checks that the validated revision is still the accepted
+source and that its declaration snapshot matches the current selection.
+Explicit historical activation does not change the source base for later
+uploads.

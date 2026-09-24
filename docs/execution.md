@@ -1,51 +1,39 @@
 # Running Scripts
 
-A Script is run from the Scripts list or from its own page. The
-plugin builds the run form out of the source the project is currently serving,
-queues a background Job against a fixed revision of that source, and records the
-run's log and output on the Job.
+Run a Script from the Scripts list or its detail page. The plugin builds the
+form from the source the Project currently serves, queues a background Job,
+and records its log and output.
 
 ## Requesting a run
 
-Choose **Run**, either from the row on the Scripts list or from the
-script's own page. The form is whatever the class declares: one field per
-variable, grouped by the class's own fieldsets, plus the execution parameters.
-Submitting queues a Job and takes you to its result page.
+Choose **Run**, fill in the Script's variables and execution settings, and
+submit the form. The variables use the Script's fieldsets when defined.
+Submitting opens the queued Job's result page.
 
-The button is present but inert when the script cannot be run, in both places.
-That happens when the script is disabled or retired, when its project is
-disabled, or when the project is not serving a revision at all.
+The **Run** button is disabled when the Script is disabled or retired, its
+Project is disabled, or the Project has no active revision.
 
-A script's page also shows its execution settings: whether commit starts on,
-the run timeout, who is notified, and whether the script may be scheduled. The
-author's class declares them, and an operator can override the first three, as
-[Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults)
-describes.
+The Script's page shows its effective commit default, timeout, notification
+policy and scheduling setting. Operators can override the first three. See
+[Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults).
 
-Running is its own permission, `run`, granted separately from `change`. Someone
-who may edit a script's administrative fields cannot necessarily run it, and the
-reverse holds too. Scheduling is a second permission again, `schedule`. See
-[Permissions](permissions.md) for the full set.
+Running requires `run` permission, separately from `change`. Permission to edit
+a Script does not grant permission to run it, or vice versa. Scheduling also
+requires `schedule`. See [Permissions](permissions.md).
 
 ### Reaching a script you run often
 
-An operator who runs the same two or three Scripts repeatedly can bookmark
-them, using NetBox's own bookmarks rather than anything this plugin adds. A
-bookmarked Script appears on your dashboard, one click from any page.
-Script Projects and Script Files can be bookmarked the same way.
-Revisions cannot, since they are history rather than something you return to.
+Bookmark frequently used Scripts to find them on your NetBox dashboard. You
+can also bookmark Projects and Script Files, but not revisions.
 
-Bookmarks are per user. Each person curates their own, and nothing an
-administrator sets changes what another operator sees. A bookmark names the
-Script row, and a script that stops being published is retired rather
-than deleted, so a bookmark survives a retirement and works again the moment the
-script is republished.
+Bookmarks are personal to your account. They reference the Script row, so
+retirement does not remove them. If a later activation republishes the class,
+you can use the same bookmark to run it again.
 
 ## Running over REST
 
-`POST /api/plugins/netbox-scripts/scripts/<id>/run/` requests a run without a
-browser. The body is the same shape the built-in script endpoint accepts, so a
-caller moving over changes the URL and nothing else.
+Request a run with `POST /api/plugins/netbox-scripts/scripts/<id>/run/`.
+The endpoint uses the built-in Script endpoint's request-body structure:
 
 ```json
 {
@@ -55,21 +43,36 @@ caller moving over changes the URL and nothing else.
 }
 ```
 
-Every field is optional. The variable values go in `data`, which keeps a
-variable named `commit` or `interval` from colliding with an execution
-parameter. An omitted `commit` or `notifications` takes the Script's effective
-default, which is the operator's override where one is set and the value the
-class declared otherwise. See
+The top-level fields are optional. Put the Script's variable values in `data`,
+where its form requirements still apply. This separates variables named
+`commit` or `interval` from execution parameters.
+
+A Script with a `FileVar` needs a multipart request, because a file
+cannot travel inside JSON. Send `data` as a JSON string and each file
+as a part named after its variable:
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Token $NETBOX_TOKEN" \
+  -F 'data={"site": 3}' \
+  -F inventory=@devices.csv \
+  https://netbox.example.com/api/plugins/netbox-scripts/scripts/12/run/
+```
+
+Other top-level fields, such as `commit`, go in their own parts.
+
+Omitting `commit` or `notifications` uses the Script's effective default: an
+operator override when set, otherwise the class default. See
 [Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults).
 
-To schedule instead of running now, add `schedule_at` with a future timestamp,
-and `interval` only when the run should repeat. A time already past is refused.
-Give the timestamp an explicit timezone: a naive one is read in NetBox's
-configured timezone rather than rejected. See [Scheduling a run](#scheduling-a-run).
+To schedule a run, add a future `schedule_at` timestamp and an `interval` when
+it should repeat. Past timestamps are rejected. Include an explicit timezone.
+A timestamp without one is interpreted in NetBox's configured timezone.
+See [Scheduling a run](#scheduling-a-run).
 
-The values in `data` are validated by the same form the run page renders, so a
-bad value comes back as a 400 naming the variable that was wrong. The reply to
-an accepted run is the Job itself, at 201:
+The endpoint validates `data` through the same form as the run page. Invalid
+values return HTTP 400 with the affected variable named. An accepted request
+returns the Job with HTTP 201:
 
 ```json
 {
@@ -79,225 +82,182 @@ an accepted run is the Job itself, at 201:
 }
 ```
 
-Poll that URL for the outcome. The `run` permission is what this route
-requires, not `add` or `change`.
+Poll the returned URL for the result. This route requires `run` permission,
+not `add` or `change`.
 
-Three refusals are worth knowing about. A run is refused with 503 when no worker
-is running, because a queued run nothing can pick up gives no signal that it will
-never start. A script whose author set `scheduling_enabled = False` refuses
-`schedule_at` and `interval` with a 400. And a caller without the `schedule`
-permission is refused them with a 403. Neither is ignored, because there is no
-form here to leave the fields out of.
+The request returns HTTP 503 when no worker is running. Supplying `schedule_at`
+or `interval` returns HTTP 400 when the Script has `scheduling_enabled = False`,
+or HTTP 403 when you lack `schedule` permission. Unsupported scheduling
+parameters are rejected rather than ignored.
 
 ## Replacing `runscript`
 
-NetBox removes the `runscript` management command along with the rest of the
-built-in implementation. There are two successors, and which one you want
-depends on where the caller runs.
+NetBox removes the built-in `runscript` command along with its Custom Scripts
+implementation. Use `runcustomscript` from the NetBox host, or the REST endpoint
+from other callers.
 
 ### From a shell
 
-`manage.py runcustomscript` runs one script in the calling process and waits for
-it, which is what a cron entry or a CI step wants:
+`manage.py runcustomscript` runs a Script in the calling process and waits for
+it to finish. Use it for a cron entry or a CI step with access to the NetBox host:
 
 ```bash
 python netbox/manage.py runcustomscript deploy.MakeTag \
     --commit --data '{"site": 3}' --loglevel warning
 ```
 
-It is named `runcustomscript` rather than `runscript` because NetBox still ships
-`runscript` of its own, and the built-in one wins the name while both exist. The
-argument set is otherwise the built-in command's:
+The command has a separate name because NetBox's own `runscript` takes precedence
+while both are installed. Its arguments correspond to the built-in command's:
 
 | `runscript` | Here |
 |---|---|
-| `script`, as `module.ClassName` | The same, as `project:module.ClassName`. The project may be left off when the name matches only one Script, and an ambiguous name is refused with the candidates listed |
-| `--commit` | The same |
-| `--data '<json>'` | The same. Values are validated by the script's own form, so a bad one is named rather than reaching the script |
-| `--user <name>` | The same, but a name that matches no user is refused. The built-in command silently ran as the first superuser instead. Left off, the first superuser is used |
-| `--loglevel <level>` | Applied to the log the run writes. The levels are this plugin's own, so `debug`, `info`, `success`, `warning` and `failure`, where the command it replaces took `error` and `critical` |
+| `script`, as `module.ClassName` | Use `project:module.ClassName`. Omit the Project when the name identifies one Script. Ambiguous names are rejected with the candidates listed. |
+| `--commit` | Same option. |
+| `--data '<json>'` | Same option. Values are validated through the Script's form, with invalid variables named in the error. |
+| `--user <name>` | Unknown names are rejected instead of falling back to the first superuser. Omitting the option still uses the first superuser. |
+| `--loglevel <level>` | Uses the plugin's levels: `debug`, `info`, `success`, `warning` and `failure`, rather than the built-in command's `error` and `critical`. |
 
-It also takes `--notifications`, which the built-in command had no flag for.
+The command also accepts `--notifications`, which has no built-in equivalent.
 
-**It exits non-zero unless the Job reaches a completed status**, which the
-built-in command never did, so a CI step fails on a script that raised instead
-of passing silently. A script that only calls `log_failure()` and returns
-normally still completes, so use `AbortScript` when a run should count as
-failed. When a run fails before the script itself is reached, the reason comes
-from the Job's own log and is printed to standard error.
+**The command exits non-zero unless the Job completes.** A Script that raises
+therefore fails a CI step rather than returning success. Calling `log_failure()`
+and returning normally still completes the Job. Raise `AbortScript` when the run
+should fail. Failures before Script execution are read from the Job log and
+written to standard error.
 
-One thing behaves differently from a queued run. A script's declared
-`job_timeout` is not enforced here, because execution happens in the calling
-process rather than an RQ worker, so a runaway script runs until you stop it. The
-Job row itself is committed before the script starts, exactly as a queued run's
-is, so it is visible for the whole run and an interrupted run leaves the row in
-the state it reached.
+**`job_timeout` is not enforced by this command.** It runs without an RQ worker,
+so a runaway Script must be stopped separately. The Job row is committed before
+execution, making the run visible and leaving a record if it is interrupted.
 
-This command is a convenience for a self-hosted installation. NetBox Cloud and
-NetBox Enterprise cannot invoke a management command, which is why it is an
-addition to the REST route below rather than the only way in.
+This command is for self-hosted deployments. NetBox Cloud and NetBox Enterprise
+cannot invoke management commands. Use REST there.
 
 ### From anything else
 
-The REST route above is the general answer, and the only one available on Cloud
-and Enterprise. It hands the run to a worker and answers 201 with the Job, so
-the outcome is read by polling `/api/core/jobs/<id>/` until its status reaches a
-terminal value. Reach for it whenever the caller is not a shell on the NetBox
-host itself.
+Use the REST endpoint when the caller cannot run a command on the NetBox host,
+including on NetBox Cloud and Enterprise. It queues the run and returns HTTP 201
+with the Job. Poll `/api/core/jobs/<id>/` until the Job reaches a terminal status.
 
 ## Scheduling a run
 
-Four execution parameters sit below the script's own fields.
+The run form places execution settings below the Script's variables.
 
 | Field | What it does |
 |---|---|
-| **Commit changes** | Whether the run's database changes are kept. Default is the script's effective `commit_default`. |
-| **Schedule at** | Run once, at a time in the future. Leave empty to run now. |
-| **Recurs every** | Run repeatedly, in minutes. The picker offers the usual intervals and any whole number is accepted. |
-| **Notifications** | When to notify you about the Job. Leave it on "Follow the Script", which names the script's effective `notifications_default`, or pick a policy for this run. |
+| **Commit changes** | Keep the run's database changes. Starts with the Script's effective `commit_default`. |
+| **Schedule at** | Run at a future time. Leave empty to run now. |
+| **Recurs every** | Repeat at an interval in minutes. Choose a listed interval or enter a whole number. |
+| **Notifications** | Choose **Follow the Script** to use its effective `notifications_default`, or select a policy for this run. |
 
-A time in the past is refused, and so is a recurrence that carries an uploaded file. See
-[Variables](authoring.md#variables). Setting a recurrence with no start time begins it
-now. Notifications stay available either way, since they describe the run rather
-than the schedule.
+A past time is rejected. Recurring runs cannot carry uploaded files. See
+[Variables](authoring.md#variables). A recurrence without a start time begins
+now. Notifications are available for both immediate and scheduled runs.
 
-Following the Script is not the same as picking the policy it currently names. A
-recurrence that follows the Script reads the Script's policy each time it queues
-the next occurrence, so a changed default reaches that one without the schedule
-being recreated. The occurrence already queued keeps the policy its own Job
-carries. One that names a policy keeps it until the schedule is recreated.
+**Follow the Script** preserves inheritance, not just the policy shown in its
+label. Each new recurring Job uses the policy in effect when that occurrence
+is queued. Jobs already queued keep their policy. Selecting a specific policy
+keeps it for the recurrence until the schedule is recreated.
 
-"Effective" above means an override may be in play. See [Overriding a script's
-execution defaults](#overriding-a-scripts-execution-defaults).
+Effective defaults include operator overrides. See
+[Overriding a script's execution defaults](#overriding-a-scripts-execution-defaults).
 
-Both scheduling fields are absent unless two things hold: the author left
-`scheduling_enabled` on, and you hold the `schedule` permission. Either one
-missing withholds the fields rather than refusing them once submitted.
+The scheduling fields appear only when the author permits scheduling and you
+have `schedule` permission.
 
 ## Overriding a script's execution defaults
 
-A script author declares execution defaults in the class `Meta`, and on a shared
-installation the author and the operator are rarely the same person. A timeout
-tuned on a developer laptop is the wrong number in production, and who gets told
-about a run is local policy. Three of the four defaults therefore carry an
-operator override, editable on the Script itself, singly or in bulk, and
-over REST.
+You can override a Script's commit default, timeout and notification policy on
+its edit page, through bulk edit, or over REST. These settings take precedence
+over the defaults declared in the Script's `Meta` class.
 
 | Setting | Overridable | Resolved as |
 |---|---|---|
-| Commit by default | Yes | The override, else the class `commit_default`, else on |
-| Run timeout | Yes | The override, else the class `job_timeout`, else the system setting |
-| Notifications | Yes | The override, else the class `notifications_default`, else Always |
-| Scheduling allowed | No | The class `scheduling_enabled` alone |
+| Commit by default | Yes | Override, then class `commit_default`, then on. |
+| Run timeout | Yes | Override, then class `job_timeout`, then system setting. |
+| Notifications | Yes | Override, then class `notifications_default`, then Always. |
+| Scheduling allowed | No | Class `scheduling_enabled` only. |
 
-A recorded or overridden value outside these ranges refuses the run on every
-surface, with a message naming the setting, before any Job is created. A
-recurrence whose Script carries such a value stops rescheduling, and NetBox
-records why on its last Job.
+Invalid recorded defaults or overrides reject the run before a Job is created,
+with an error naming the setting. If this affects a recurring Script, later
+occurrences are not queued and NetBox records the reason on the last Job.
 
-Scheduling is not overridable on purpose. `scheduling_enabled` is the author's
-statement that the script is safe to run unattended, and an operator override
-would be an override of a safety claim rather than of a preference.
+Scheduling remains the author's decision. `scheduling_enabled` cannot be
+overridden by an operator.
 
-An override survives activation. Activation refreshes what comes from the
-class, its display name, description and metadata, along with whether the
-script is retired. It never writes `enabled`, the overrides or any other field
-an operator maintains, which is why an override is stored apart from the values
-validation records.
+Overrides survive activation. Activation refreshes the class-derived display
+name, description and metadata, along with retirement status. It preserves
+`enabled`, execution overrides and other operator-maintained fields.
 
-Leaving an override empty means "follow the class", so it is also how you undo one.
-One consequence is worth knowing: because empty already means inherit, there is no
-way to override a class-declared timeout back to *the system default*. Set the
-number you want instead.
+Clear an override to inherit the class value again. An empty timeout override
+also means inheritance, so it cannot bypass a class timeout and select the system
+default instead. Set an explicit timeout when you need a different value.
 
 ## Revision pinning
 
-The revision is fixed at the moment the run is requested, not at the moment a
-worker picks the Job up.
+A one-shot run is pinned to the revision active when it is requested. If newer
+source activates while the Job waits, the queued run still uses its pinned
+revision. The Job and result page identify that revision.
 
-That matters because a project's source can change between the two. If someone
-uploads new source, or a Data Source sync activates a newer revision while your
-Job is still queued, your run still executes the source you were looking at when
-you filled the form in. The Job records which revision it used, and the result
-page names it.
-
-A run is not cancelled by deactivating the project's revision afterwards, for the
-same reason. It is stopped by disabling the script or its project, because
-`enabled` is an administrative control and it is rechecked when the worker starts.
+Deactivating the revision does not cancel a pinned run. Disabling the Script or
+its Project prevents execution because the worker checks `enabled` when it starts.
 
 ### A recurring run is not pinned
 
-A recurrence resolves the project's active revision at **each** occurrence, and
-records on the Job which one it used.
+Each recurring occurrence resolves the Project's active revision and records
+which revision it used. A schedule therefore follows source updates rather than
+remaining tied to the revision active when the schedule was created.
 
-That is the opposite of a one-shot run, and deliberately so. A one-shot run is
-pinned because there was a moment when somebody read the source and asked for it.
-A recurrence has no such moment after the first, so pinning would mean a nightly
-job still executing the source that was active the day it was created, silently,
-however many times the project was updated since.
-
-The consequence to know about: an occurrence whose project is serving no revision
-fails rather than falling back to what ran last. Reactivating a revision makes the
-next occurrence work again, with no need to recreate the schedule.
+An occurrence fails if the Project has no active revision. It does not fall back
+to the last source it ran. Reactivating a revision allows the next occurrence
+to run without recreating the schedule.
 
 ## Commit and dry run
 
-The commit toggle decides whether the run's database changes are kept.
+The commit setting controls whether the run's database changes are kept.
 
-With commit **on**, changes are written normally. Change logging records them
-against the user who requested the run, and Event Rules and webhooks fire as they
-would for any other change.
+With commit enabled, changes are kept, attributed to the requesting user, and
+processed through NetBox's change logging and object-change events.
 
-With commit **off**, the run's database changes are rolled back when it finishes.
-The script still receives `commit=False`, so it can behave differently if the
-author wrote it that way, and the run still records its full log and its output.
-No events are queued, so a dry run cannot trigger a webhook by accident.
+With commit disabled, database changes are rolled back when the run finishes.
+The Script receives `commit=False` and can use it to adjust its behavior. Its
+log and output are still recorded. The run's queued object-change events are
+not published. Job start and completion events are separate. See
+[Event Rules](event-rules.md#scripts-as-event-sources).
 
 **A dry run does not undo external actions.** Device configuration, HTTP requests
-and file writes a script performs still take effect. Check `commit` before
-performing them.
+and file writes still take effect. Check `commit` before performing them.
 
-A script that raises is treated the same way as a dry run as far as the database
-is concerned: its database changes are rolled back, and pending events are
-discarded. The difference is that the run is recorded as failed and the log
-carries the exception and its traceback. A script that calls `AbortScript` stops
-cleanly, and its message is recorded without a traceback, because the author
-already said what went wrong.
+If a Script raises an exception, its database changes are rolled back and pending
+object-change events are discarded. The Job fails and records the exception
+and traceback. Raise `AbortScript` to fail with an explanatory message without
+a traceback.
 
 ## Reading a result
 
-The result page shows the Job's status, who requested it, the revision it ran,
-the run log, and whatever the script returned.
+The result page shows the Job's status, requesting user, revision, log and output.
+The log shows info and higher levels by default. Add `?log_threshold=debug` to
+include debug records, or `?log_threshold=warning` to show warning and failure
+records.
 
-The log is filtered to info and above by default. Add `?log_threshold=debug` to
-the URL to see debug records as well, or `?log_threshold=warning` to see only
-problems.
-
-A script's **Jobs** tab lists its runs for as long as NetBox keeps their Job
-records, which retention and deletion can remove. Because a script that stops
-being published is retired rather than deleted, that history survives a
-revision that drops the class and comes back if a later revision publishes it
-again.
+The Script's **Jobs** tab shows its history for as long as NetBox retains those
+Job records. Retiring a Script does not delete it or its history. A later
+activation can republish the same Script.
 
 ## What a run does not see
 
-Each run imports the revision fresh and unloads it afterwards, so module-level
-state does not carry from one run into the next. A script that caches something in
-a module global will find it gone on the next run, whichever worker picks it up.
+Each run imports its revision afresh and unloads it afterwards. Module-level
+state does not persist between runs, regardless of which worker executes them.
 
-Source is verified against the revision's manifest before any of it is imported,
-every time. A cached copy is never trusted because it exists.
+Source is checked against the revision manifest before every import. An existing
+cache entry is verified too.
 
-Storage keys, content digests and local cache paths are stripped out of each log
-message and out of string output before the record is saved, including out of a
-traceback, which names the file it was raised in. The record keeps the revision
-digest, which is what says the run's own provenance.
+The plugin removes its storage keys, content digests and cache paths from log
+messages, tracebacks and string output before saving them. The Job retains its
+revision digest to identify the source that ran.
 
 ## What is not in this release
 
-These are gaps rather than design decisions.
-
 | Gap | Notes |
 |---|---|
-| Declared pip requirements | A script's declared external dependencies are not checked before it runs |
-| Recorded input values | The Job records which script and revision ran, and the result, but not the values that were submitted |
+| Declared pip requirements | A Script's declared external dependencies are not checked before execution. |
+| Recorded input values | The Job records the Script, revision and result, but not the submitted values. |

@@ -1,82 +1,72 @@
 # Script
 
-A Script is one Script class a validated revision publishes. It is the
-object a run is requested against and the object a Job history belongs to, so it
-outlives any single revision of the project's source.
+A Script represents one Python Script class published from an activated Project
+revision. Runs and their Job history belong to this object, so its identity
+continues across revisions of the source.
 
-Rows are derived rather than authored. Nothing creates one by hand: project
-validation records the classes a revision publishes, and
-[activation](../runtime.md) turns that record into rows in the same transaction
-that moves the project's active pointer. A reader therefore sees either the old
-revision with its old scripts or the new revision with its new ones.
+You do not create Script rows manually. Validation records the discovered
+classes, and [activation](../runtime.md) creates or updates their rows. Script
+publication and the Project's active-revision update commit in one transaction.
 
 ## Identity
 
-A Script is identified by its project and by the dotted module path and
-class name of the module that **defines** it.
+A Script's identity combines its Project, the dotted path of the module that
+**defines** the class, and the class name.
 
-The parent is the Project rather than the [Script
-File](scriptfile.md), which may look surprising, because a script file is
-what discovery imports. The reason is `script_order`: a class defined in a
-helper file can be published by a script file that re-exports it, and helper
-files have no Script File row, because Script File rows are declarations only.
-Deriving identity from the defining module keeps one class one script no matter
-how many script files re-export it, and there would be no Script File row to point at
-in the helper case. Which script file published a class is recorded as provenance
-inside the [revision's](scriptprojectrevision.md) snapshot, not as a
-relational parent.
+Scripts belong to a Project rather than a [Script File](scriptfile.md). A Script
+File can use `script_order` to publish a class from a helper module that has no
+Script File declaration. Re-exporting that class from several files still
+produces one Script identity. The [revision](scriptprojectrevision.md) records
+which Script File published it as provenance, not as its parent relationship.
 
-A class that moves to a different file becomes a new identity, and the row for
-its old location is retired.
+Moving a class to another module creates a new identity. The row for its old
+location is retired.
 
 ## Fields
+
+FK means foreign key. Fields marked `system` are managed by the plugin. See
+[API](#api) for the fields you can edit.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `project` | FK | yes | Owning Script Project |
-| `module_path` | string | yes | Dotted path of the project module that defines the Script class |
+| `module_path` | string | yes | Dotted path of the Project module that defines the class |
 | `class_name` | string | yes | Name of the Script class |
-| `display_name` | string | system | `Meta.name`, defaulting to the class name |
-| `description` | text | system | `Meta.description`, empty when the class declares none |
-| `enabled` | boolean | yes | Whether this Script may be executed. Default is true |
+| `display_name` | string | system | `Meta.name`, or the class name when unset |
+| `description` | text | system | `Meta.description`, or empty when unset |
+| `enabled` | boolean | yes | Whether this Script may run. Defaults to `true` |
 | `commit_default_override` | boolean | no | Overrides the class commit default. Empty follows the class |
-| `job_timeout_override` | integer | no | Overrides the class run timeout in seconds, minimum 1. Empty follows the class |
+| `job_timeout_override` | integer | no | Overrides the class timeout in seconds. Minimum 1. Empty follows the class |
 | `notifications_default_override` | choice | no | Overrides the class notification policy. Empty follows the class |
-| `is_retired` | boolean | system | Set when the active revision no longer publishes this Script |
-| `last_seen_revision` | FK | system | The revision whose activation last published this Script |
-| `metadata` | JSON | system | Execution defaults the most recent validation read from the class |
+| `is_retired` | boolean | system | Whether the active revision has stopped publishing this Script |
+| `last_seen_revision` | FK | system | Revision whose activation most recently published this Script |
+| `metadata` | JSON | system | Class execution defaults copied from the revision during activation |
 
-Everything marked system is owned by synchronization. No form, serializer, or
-GraphQL input accepts those fields, and a save that names no fields restores them
-from the row, so an edit that began before an activation cannot write the older
-values back.
+Use `comments` for operational notes. Unlike `description`, it is yours to edit
+and is not replaced by metadata from the class.
 
-Operational notes belong in `comments`, which is yours.
+Synchronization maintains the system-managed fields. Forms and API inputs do
+not accept changes to them. A full model save reloads their stored values so an
+edit started before activation does not restore older metadata.
 
 ## Enabled versus retired
 
-Two separate booleans, and the distinction is the point.
+**`enabled` is an administrator setting.** Use it to allow or prevent execution.
+Synchronization never changes it, including when the Project is revalidated or
+the Script is retired and published again.
 
-`enabled` is the administrator's. It answers "should this be allowed to run",
-and **synchronization never touches it**. A script you disable stays disabled
-when its project is re-validated, re-activated, retired, and published again.
+**`is_retired` is a publication status.** The plugin sets it when the active
+revision stops publishing the class. Retirement keeps the row, its primary key
+and its Job history. Publishing the same class again reuses the row and retains
+its `enabled` setting.
 
-`is_retired` is synchronization's. It answers "does the active revision still
-publish this", and you never set it. A script the active revision stops
-publishing is retired rather than deleted, which preserves the row's primary key
-and with it the Job history it has accumulated. Publish the class again and the
-same row returns, with its history and with whatever `enabled` you had left it
-at.
+A Script is available for a new run when it is enabled, is not retired, its
+Project is enabled and the Project has an active revision. Deactivation retires
+the Project's Scripts in the same transaction that clears its active revision.
+For the behavior of already queued runs, see [Running Scripts](../execution.md).
 
-A script is executable when it is enabled, not retired, its project is enabled,
-and its project is serving a revision. That last condition is normally implied by
-the others, because standing a project down retires every script it publishes in
-the same transaction, but it is checked in its own right so a run always resolves
-its class out of source that is actually being served.
-
-Set `enabled` from the Script edit form, in bulk from the list view, or
-with a REST PATCH. Because synchronization never writes it, an activation cannot
-undo an administrator's decision.
+Change `enabled` through the Script edit form, bulk edit on the list page or a
+REST PATCH.
 
 ## Relationships
 
@@ -85,11 +75,9 @@ undo an administrator's decision.
 | `project` | `ScriptProject` | yes | `on_delete=CASCADE`, reverse name `scripts` |
 | `last_seen_revision` | `ScriptProjectRevision` | no | `on_delete=SET_NULL`, no reverse accessor |
 
-Scripts hang off the project, never off a Script File: the publishing file is
-recorded as provenance in the revision snapshot. Deleting the project takes its
-scripts, script files and revisions together. Pruning an old revision never takes
-scripts with it, so
-`last_seen_revision` simply becomes empty.
+Deleting a Project removes its Scripts, Script Files and revisions. If a
+referenced revision is removed, `last_seen_revision` is cleared without deleting
+the Script.
 
 ## API
 
@@ -99,49 +87,43 @@ scripts with it, so
 | GraphQL | `netbox_script`, `netbox_script_list` |
 | UI | Scripts > Scripts |
 
-Update only. Rows are derived from a validated revision, so the API offers list,
-detail, and update, and refuses to create or delete. A PATCH may set `enabled`, the
-three execution overrides, `comments`, `owner`, tags, and custom fields. Every derived
-field is read only, and a value supplied for one is ignored rather than rejected. See
+REST supports list, detail and update, but not creation or deletion. A PATCH can
+set `enabled`, the three execution overrides, `comments`, `owner`, tags and
+custom fields. See
 [Overriding a script's execution defaults](../execution.md#overriding-a-scripts-execution-defaults)
-for how each override resolves.
+for how the overrides resolve.
 
-The intent is to reject a write a client could reasonably believe took effect
-and to ignore one to a field the client never authored, but the split the API
-actually makes is by **value, not by key**. A bad value on a writable field is a
-400. Any other key is dropped in silence, whether it is a derived field like
-`module_path` or a plain misspelling, because DRF reads the request by iterating
-the writable fields and never looks at a key that is not one of them.
+Invalid values on writable fields return HTTP 400. Read-only fields and unknown
+keys, including misspellings, are ignored rather than rejected. Check the
+response to confirm the intended fields changed.
 
-The UI has the same shape: list, detail, edit, and bulk edit, with no add, no
-delete, and no bulk import. Retirement replaces deletion, so a script that stops
-being published keeps its primary key and the Job history attached to it.
-
-A project's detail page carries a Scripts panel listing everything that
-project has published, retired scripts included.
+The UI offers list, detail, edit and bulk edit, with no add, delete or bulk
+import. A Project's detail page lists all Scripts it has published, including
+retired ones.
 
 ## Running
 
-A Script is run from its own page, against the revision its project is
-serving when the run is requested. Running is its own permission, `run`, granted
-separately from `change`, and every run is recorded as a Job attached to the row.
-See [Running Scripts](../execution.md).
+Request a run from the Script's page. Running requires the `run` permission,
+separately from `change`, and each occurrence is recorded as a Job on the Script.
+
+A one-shot run pins the revision active when it is requested. A recurring run
+resolves the active revision when each occurrence starts. See
+[Running Scripts](../execution.md) for scheduling, permissions and results.
 
 ## Invariants
 
 | Invariant | Enforcement |
 |---|---|
-| One class is published at most once per project | `unique_project_module_class` database constraint |
+| One class is published at most once per Project | `unique_project_module_class` database constraint |
 | Derived fields are system-managed | `editable=False`, only synchronization writes them |
-| A retired script keeps its primary key | Synchronization never deletes a row |
-| An administrator's `enabled` survives synchronization | The field is absent from everything synchronization writes |
-| An unchanged script emits no change-log entry | Synchronization compares before saving and skips a row that already matches |
+| A retired Script keeps its primary key | Synchronization never deletes a row |
+| An administrator's `enabled` survives synchronization | Synchronization excludes this field from its writes |
+| An unchanged Script emits no change-log entry | Synchronization compares values and skips rows that already match |
 
-That last one is load bearing rather than an optimization. Activation
-synchronizes every time it runs, including when it re-activates the revision
-already in force, so an unconditional save would log a change and queue an event
-for every script on every activation.
+Synchronization also runs when the same revision is activated again. Skipping
+matching rows avoids redundant change-log entries and, on paths that deliver
+events, unnecessary update events.
 
-Scripts are installation-global, like projects, revisions, and script files.
-Under NetBox Branching they read and write the main schema from every branch,
-because the scripts an installation offers cannot differ per branch.
+Scripts are installation-global. Under NetBox Branching they read and write the
+main schema, regardless of the active branch. See
+[Script Project](scriptproject.md#netbox-branching) for the shared model policy.

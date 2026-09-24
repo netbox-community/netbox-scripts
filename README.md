@@ -24,9 +24,8 @@ activation and lets each Project serve one active revision at a time.
   revision details.
 - **Bring your existing scripts.** Keep using `extras.scripts` imports or adopt
   the plugin's authoring API. A migration workflow helps you move from NetBox's
-  built-in Custom Scripts. Two boundaries to know up front: the
-  `extras.scripts` layer is transitional and stops working at NetBox v5.0, and
-  legacy Reports are refused rather than emulated.
+  built-in Custom Scripts. The `extras.scripts` compatibility layer is
+  transitional and stops working at NetBox v5.0. Legacy Reports are not supported.
 
 See the [Features guide](https://netbox-community.github.io/netbox-scripts/features/)
 for supported functionality and current limitations.
@@ -79,6 +78,11 @@ Keep any existing custom storage entries when adding this configuration.
 NetBox merges it with its built-in storage entries. The plugin requires its
 own storage entry and does not fall back to `default`.
 
+Create the directory and allow the NetBox web and worker processes to read and
+write it. Only trusted service or deployment accounts should have write access.
+The [Quickstart](https://netbox-community.github.io/netbox-scripts/quickstart/)
+covers directory setup, static files and restarting the services.
+
 Apply database migrations from the NetBox directory containing `manage.py`:
 
 ```bash
@@ -97,7 +101,17 @@ Found a bug or something that is hard to use? Please
 [open an issue](https://github.com/netbox-community/netbox-scripts/issues).
 Include your NetBox and plugin versions, what you expected and what happened.
 Feedback on installation, migration and documentation is especially helpful
-during the alpha.
+during the alpha. Remove credentials and private data from reports and logs.
+
+**Report suspected vulnerabilities privately.** Follow
+[SECURITY.md](https://github.com/netbox-community/netbox-scripts/blob/main/SECURITY.md)
+rather than opening a public issue.
+
+## Contributing
+
+Code, documentation, bug reports and feature proposals are welcome. Read
+[CONTRIBUTING.md](https://github.com/netbox-community/netbox-scripts/blob/main/CONTRIBUTING.md)
+for the issue and assignment process, development setup and checks.
 
 ## License
 

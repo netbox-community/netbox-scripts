@@ -61,5 +61,6 @@ nav:
   - Releases: releases.md
   - Development:
       - Contributing: development/contributing.md
+      - Conventions: development/conventions.md
       - Releasing: development/releasing.md
       - NetBox Internals: development/netbox-internals.md

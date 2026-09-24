@@ -2,75 +2,76 @@
 
 ## Overview
 
-NetBox Scripts manages Script source trees as first-class NetBox
-objects. Administrators define projects that either own uploaded content or
-mirror a directory of a NetBox Data Source, and get the standard NetBox object
-experience: list and detail views, filtering, tags, custom fields, change
-logging, global search, REST, and GraphQL.
+NetBox Scripts manages Python scripts and their source in NetBox. Create Projects
+from uploads or Data Source directories, then validate and activate their source.
+
+The plugin integrates with NetBox's lists, filtering, tags, custom fields, change
+logging, search, REST and GraphQL. The model references describe the interfaces
+available for each object.
 
 ## Core concepts
 
 | Concept | Definition | More detail |
 |---|---|---|
-| Script Project | One complete script source tree, the ownership and Python package boundary. | [Script Project](models/scriptproject.md) |
-| Key | Stable user-facing project identifier (slug), immutable after creation. | [Script Project](models/scriptproject.md) |
-| Storage key | Immutable internal storage and runtime identity (UUID), not a public identifier. | [Script Project](models/scriptproject.md) |
-| Source type | Where project content comes from: `upload` or `data_source`, never mixed. | [Script Project](models/scriptproject.md) |
-| Activation policy | Whether future synchronized revisions activate manually or automatically when valid. | [Script Project](models/scriptproject.md) |
-| Project revision | One immutable snapshot of a project's source tree and script file configuration, addressed by a content digest and a script file digest. | [Script Project Revision](models/scriptprojectrevision.md) |
-| Active revision | The single revision of a project that is currently active. Activating another retires it. | [Script Project Revision](models/scriptprojectrevision.md) |
-| Script File | One declared file that discovery imports and publishes Scripts from. | [Script File](models/scriptfile.md) |
-| Script file snapshot | The enabled script file declarations frozen into a revision at staging time. | [Script Project Revision](models/scriptprojectrevision.md) |
-| Script | One published Script class, derived from an activated revision and retired rather than deleted. | [Script](models/netboxscript.md) |
-| Run | One execution of a Script, recorded as a Job. A one-shot run is pinned to the revision being served when it was requested, a recurring run is pinned to nothing and resolves the active revision as each occurrence starts. | [Running Scripts](execution.md) |
-| Commit and dry run | Whether a run's database changes are kept or rolled back when it finishes. | [Running Scripts](execution.md) |
-| Revision validation | The leased background step that imports a revision's script files and records a `valid` or `invalid` verdict. | [Runtime and Loading](runtime.md) |
-| Source state | The plain-language summary of whether a Project is serving its newest source, and what it is waiting on if not. | [Uploading Scripts](uploading.md) |
-| Reconciliation | Rebuilding a Data Source-backed project's source from the whole directory as it stands, after a synchronization or on demand. | [Data Source Projects](data-sources.md) |
-| Script file candidate | A Python file in a project's source that could be declared a script file, and publishes nothing until it is. | [Data Source Projects](data-sources.md) |
-| Private runtime namespace | The generated package names revision code imports under, so projects, revisions and installed packages cannot collide by **name**. It is not a sandbox: a revision runs with the permissions of whichever process loaded it. | [Runtime and Loading](runtime.md) |
+| Script Project | A complete source tree and its settings, forming one Python package boundary. | [Script Project](models/scriptproject.md) |
+| Key | A stable user-facing Project slug, fixed after creation. | [Script Project](models/scriptproject.md) |
+| Storage key | An internal UUID identifying storage and runtime content, fixed after creation. | [Script Project](models/scriptproject.md) |
+| Source type | Either `upload` or `data_source`. A Project cannot mix them. | [Script Project](models/scriptproject.md) |
+| Activation policy | Whether valid synchronized revisions activate automatically or manually. | [Script Project](models/scriptproject.md) |
+| Project revision | A source snapshot and Script File configuration, identified by both digests. | [Script Project Revision](models/scriptprojectrevision.md) |
+| Active revision | The revision currently in service. Activating another retires it. | [Script Project Revision](models/scriptprojectrevision.md) |
+| Script File | A declared file imported for Script discovery and publication. | [Script File](models/scriptfile.md) |
+| Script file snapshot | The enabled declarations captured when staging a revision. | [Script Project Revision](models/scriptprojectrevision.md) |
+| Script | A published class from an activated revision. It is retired rather than deleted when no longer published. | [Script](models/netboxscript.md) |
+| Run | A Script execution recorded as a Job. One-shot runs pin the revision active when they are requested. Recurring occurrences use the active revision when they start. | [Running Scripts](execution.md) |
+| Commit and dry run | Whether database changes are kept or rolled back. | [Running Scripts](execution.md) |
+| Revision validation | A background operation with a time-limited claim that imports selected files and records a `valid` or `invalid` result. | [Runtime and Loading](runtime.md) |
+| Source state | A summary of whether the Project serves its newest source and what it is waiting for. | [Uploading Scripts](uploading.md) |
+| Reconciliation | Rebuilding a Data Source Project from its directory, after synchronization or on demand. | [Data Source Projects](data-sources.md) |
+| Script file candidate | A Python file available for selection as a Script File. | [Data Source Projects](data-sources.md) |
+| Private runtime namespace | Separate import names prevent naming conflicts. This is not a sandbox. Code runs with the permissions of the process loading it. | [Runtime and Loading](runtime.md) |
 
 ## Supported workflows
 
 | Workflow | User | Outcome |
 |---|---|---|
-| Manage projects | Administrator | Create, edit, delete, bulk-import, and tag Script Projects. |
-| Upload a script | Administrator | Create a Project from one `.py` file, or add another to an existing one, without naming a path. See [Uploading Scripts](uploading.md). |
-| Activate a revision | Operator | Put a validated revision into service, automatically on a valid verdict or by hand for a manually activated Project. |
-| Follow a Project's source | Operator | Read the current revision and a plain-language source state on the Project's page, and its full history on the Revisions tab. |
-| Repair published scripts | Operator | Republish a serving Project's Scripts from the revision it already serves, for rows that drifted from their snapshot. The Project reports how many moved. |
-| List a Project's files | Operator | Read the current revision's files with size, checksum and script file state on the Revision Files tab, with a declared path the served revision does not hold annotated as gone or as waiting on a newer revision. |
-| Query revision history | Operator | Read a Project's revisions and their validation outcomes over REST or GraphQL, filtered by project, status, or digest. |
-| Select script files | Administrator | Choose which of a Project's source modules discovery imports, on its Script Files tab or over REST, without typing a path. |
-| Configure a Data Source-backed project | Administrator | Point a project at a Core Data Source and a directory within it. See [Data Source Projects](data-sources.md). |
-| Track a Data Source directory | Operator | Every synchronization of the Data Source rebuilds the project's source from the whole directory, validates it, and activates it when the policy allows. |
-| Reconcile a project on demand | Administrator | Rebuild a Data Source-backed project's source from the current file inventory without waiting for the next synchronization. |
-| Migrate off the built-in feature | Administrator | Report what moving off NetBox's built-in Custom Scripts would do, stage that content as inactive Projects, then cut over. See [Migration](migration.md). |
-| Browse published scripts | Operator | List, search, and filter every published Script, or read a Project's own on its detail page. |
-| Enable or disable a script | Administrator | Toggle `enabled` on a published Script, one at a time or in bulk, without affecting what synchronization owns. |
-| Run a script | Operator | Fill in the form the script declares and queue a run, committing its changes or reverting them as a dry run. See [Running Scripts](execution.md). |
-| Read a run | Operator | Follow one run's status, log and output on its result page, and the runs NetBox still keeps on its Jobs tab. |
-| Run a script from an Event Rule | Administrator | Have a rule run a Script when something happens, passing its own data as the script's input. See [Event Rules](event-rules.md). |
-| React to object changes | Administrator | Use Event Rules or webhooks for supported changes to the plugin's objects. See [Event Rules](event-rules.md#scripts-as-event-sources) for when events are delivered. |
-| Query projects | Automation | Filter projects via REST and GraphQL, including typed choice enums in GraphQL filters. |
-| Author Scripts | Developer | Write scripts against the plugin's [authoring API](authoring.md): Script base classes, variables, logging, and form generation. |
-| Publish scripts from a project | Developer | Declare script files and control what a revision offers through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
-| Validate revisions | Operator | Run the validation job to drive a materialized revision to a `valid` or `invalid` verdict with sanitized, inspectable errors. |
+| Manage projects | Administrator | Create, edit, delete, bulk-import and tag Projects. |
+| Upload a script | Administrator | Create a Project from one `.py` file or add a file to an upload-based Project. See [Uploading Scripts](uploading.md). |
+| Activate a revision | Operator | Put a validated revision into service automatically under its policy or through manual activation. |
+| Follow a Project's source | Operator | Check Source state, the current revision and the Revisions tab. |
+| Repair published scripts | Operator | Restore Script rows from the serving revision and see how many changed. |
+| List a Project's files | Operator | Read sizes, checksums and Script File status on Revision Files. Missing declared paths are marked as removed or awaiting newer source. |
+| Query revision history | Operator | Filter revision history and validation results through REST or GraphQL by Project, status or digest. |
+| Select script files | Administrator | Choose which files discovery imports, from the Script Files tab or over REST. |
+| Configure a Data Source-backed project | Administrator | Select a Data Source directory. See [Data Source Projects](data-sources.md). |
+| Track a Data Source directory | Operator | Reconcile after synchronization, with validation and activation according to revision state and Project policy. |
+| Reconcile a project on demand | Administrator | Rebuild from the current Data Source inventory without waiting for synchronization. |
+| Migrate off the built-in feature | Administrator | Inventory existing Custom Scripts, stage their source without activation, then cut over. See [Migration](migration.md). |
+| Browse published scripts | Operator | List, search and filter Scripts, or browse a Project's Scripts. |
+| Enable or disable a script | Administrator | Change `enabled` individually or in bulk without changing source-derived metadata. |
+| Run a script | Operator | Complete its form and queue a committed run or dry run. See [Running Scripts](execution.md). |
+| Read a run | Operator | Check status, logs and output on the result page, and available history on the Jobs tab. |
+| Run a script from an Event Rule | Administrator | Trigger a run using a rule's action data. See [Event Rules](event-rules.md). |
+| React to object changes | Administrator | Use Event Rules or webhooks for supported changes. See [Event Rules](event-rules.md#scripts-as-event-sources) for delivery conditions. |
+| Query projects | Automation | Filter through REST and GraphQL, including GraphQL choice enums. |
+| Author Scripts | Developer | Use Script classes, variables, logging and form generation. See [Authoring](authoring.md). |
+| Publish scripts from a project | Developer | Select Script Files and control publication through the [discovery rules](authoring.md#publishing-scripts-from-a-project). |
+| Validate revisions | Operator | Validate a materialized revision and inspect its `valid` or `invalid` result and sanitized errors. |
 
 ## Execution defaults
 
-Each Script supports administrator overrides for its timeout, notification policy,
-and commit default through the UI and REST. Unset values follow the class defaults.
-Recurring successors resolve the timeout from the current Script configuration.
+Administrators can override a Script's timeout, notification policy and commit
+default through the UI and REST. Unset overrides follow class defaults. Each
+recurring successor resolves its timeout from the current Script configuration.
 
 ## What is not in this release
 
 | Area | What that means |
 |---|---|
-| Uploading helper modules, archives, and other resources | Uploads are one script file at a time. A Project needing helpers is managed through a Data Source |
-| A repository manifest declaring its own script files | Script file selection is a Project setting made in NetBox |
-| Declared pip requirements | A revision's external dependencies are neither read nor installed |
-| Recorded input values | A run records which script and revision ran and the result, but not the values submitted |
-| Recurring runs carrying an upload | A recurring run cannot carry an uploaded file. Run the Script once per upload instead |
-| Legacy Reports | A class declaring `test_*` methods and no `run()` is refused at validation rather than emulated. Convert it by giving the class a `run()` method |
-| A permanent `extras.scripts` layer | Those imports work today as a transitional layer and stop working at NetBox v5.0. Moving to the plugin's authoring API is the work to do before that upgrade |
+| Uploading helper modules, archives, and other resources | Uploads accept one Script File at a time. Use a Data Source for helper files and resources. |
+| A repository manifest declaring its own script files | Select Script Files on the Project in NetBox. |
+| Declared pip requirements | Revision dependencies are not read or installed. |
+| Recorded input values | Jobs record the Script, revision and result, but not submitted inputs. |
+| Recurring runs carrying an upload | An uploaded file can be used for a one-shot run, not a recurrence. |
+| Legacy Reports | Classes with `test_*` methods and no `run()` are rejected. Rewrite them as Scripts with a `run()` method. |
+| A permanent `extras.scripts` layer | Legacy imports are transitional and are expected to stop working with NetBox v5.0. Move to the plugin's authoring API before that upgrade. |

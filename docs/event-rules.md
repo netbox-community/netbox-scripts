@@ -1,94 +1,87 @@
 # Event Rules
 
-Scripts connect to NetBox's Event Rules in both directions. A rule can run a Script when
-something happens, and the plugin's own objects can be what a rule reacts to.
+Use Event Rules to run a Script in response to an event, or to react to changes
+to the plugin's objects.
 
 ## Running a Script from an Event Rule
 
-Choose **Run Script** as the rule's action type, then pick the script it should run.
-The picker lists every published Script, including ones currently disabled, so an
-administrator can build a rule before the script is ready to serve.
-
-The rule needs the NetBox release that supports plugin-provided Event Rule actions. On an
-earlier release the plugin registers nothing and the action type simply does not appear.
-Nothing else about the plugin changes.
+Choose **Run Script** as the action type and select a published Script. The
+picker includes disabled Scripts so you can prepare a rule before enabling them.
 
 ### What the script receives
 
 | Input | Value |
 |---|---|
-| `data` | The rule's **Data** field, merged with the event payload and passed to `run()` unchanged. It is not validated through the Script's form, so no default is applied and an object's key stays a plain value. Check the fields and types your script requires. |
-| `self.event` | The event context, in the JSON-safe form described below. |
-| `self.request` | The request behind the change that triggered the rule, as a stripped copy carrying no uploaded files. Nothing when the event carried no request. |
+| `data` | The rule's **Data** field merged with the event payload. |
+| `self.event` | The JSON-safe event context described below. |
+| `self.request` | A stripped copy of the triggering request, without uploaded files. `None` when the event has no request. |
 
-An event-driven run always commits. A dry run would make the rule a no-op with no way to
-report that it did nothing, so the choice is not offered.
+Event Rule input is passed directly to `run()` without validation through the
+Script's form. Form defaults are not applied, and object identifiers remain
+plain values. Check the fields and types your Script requires.
 
-Runs are queued, not immediate, and each one is a Job like any other. Read it under
-*Scripts > Scripts*, on the script's Jobs tab, the same place a run somebody
-requested by hand appears.
+Event-driven runs always commit. A dry-run option is not available.
+
+Each run is queued as a Job. Open the Script's **Jobs** tab under
+*Scripts > Scripts* to follow its status and results.
 
 ### What `self.event` carries
 
-An author reads the context off the instance. It is `None` for a run a person requested, so
-guard before using it. See [Authoring](authoring.md#what-a-run-knows-about-its-own-context).
+Read the event context from `self.event`. It is `None` for a manually requested
+run, so check it before use. See
+[Authoring](authoring.md#what-a-run-knows-about-its-own-context).
 
 | Key | Value |
 |---|---|
-| `event_type` | The event that fired, such as `object_created` or `job_completed`. |
-| `event_rule` | The name of the rule that ran the script. |
+| `event_type` | The event type, such as `object_created` or `job_completed`. |
+| `event_rule` | The rule's name. |
 | `event_rule_id` | The rule's numeric ID. |
-| `object_type` | The changed object's type as `app_label.model`, or nothing for an event with no object. |
-| `object_id` | The changed object's numeric ID, or nothing. |
-| `snapshots` | The before and after representations NetBox captured, when the event has them. |
+| `object_type` | The object's type as `app_label.model`, or `None` when the event has no object. |
+| `object_id` | The object's numeric ID, or `None`. |
+| `snapshots` | The before and after representations captured by NetBox, when available. |
 
-The requesting user and the HTTP request are deliberately absent from this payload. Neither
-survives being written to a Job row, and both already reach the script by their own route.
+The user and HTTP request are not included in this stored payload. They reach
+the Script separately through its request context.
 
 ### What is refused, and when
 
-A Script has several states that stop it running, and they are reported at two
-different moments on purpose.
+Some Script states are checked when saving the rule, and others when it fires.
 
 | State | When it is reported |
 |---|---|
-| Retired | When the rule is saved. The active revision has stopped publishing the class, so a rule naming one is misconfigured rather than idle. Retirement lifts if a later activation publishes the class again. |
-| Disabled | When the rule fires. The reason is written to the pass's log and nothing is queued. |
-| Its Project is disabled, or serves no revision | When the rule fires, the same way. |
+| Retired | When saving the rule. A later activation can republish the class and lift its retirement. |
+| Disabled | When the rule fires. The reason is logged and no run is queued. |
+| Its Project is disabled, or serves no revision | When the rule fires. The reason is logged and no run is queued. |
 
-The second group is temporary state an administrator turns back on, so a rule is allowed to
-name a script in that state and start working again once it is fixed. A rule that cannot run
-its script never stops the other rules responding to the same event.
+Rules may reference temporarily disabled Scripts or Projects and start working
+when those conditions are resolved. One rule's inability to run its Script does
+not stop the other rules responding to that event.
 
 ### Permissions
 
-Starting a run this way is not checked against the permissions of whoever triggered the
-event. The rule itself is the authorization: an administrator who can create an Event Rule
-has already chosen what it runs. Restrict who may manage Event Rules accordingly. See
-[Permissions](permissions.md) for what the plugin's own actions require.
+The Event Rule authorizes the run, not the permissions of the user who triggered
+the event. Restrict who can create or edit Event Rules, because those rules choose
+which Scripts run. See [Permissions](permissions.md) for plugin action permissions.
 
 ## Scripts as event sources
 
-All four of the plugin's object types can drive an Event Rule, so a rule can react to them
-exactly as it would to a Device or an IP address.
+The plugin's four object types can be Event Rule sources, like Devices or IP
+addresses.
 
 | Object | A rule can react to |
 |---|---|
-| Script Project | A project created, changed, or deleted |
-| Script Project Revision | A revision appearing |
-| Script File | A script file declaration added, changed, or removed |
-| Script | A script appearing, retiring, or being enabled or disabled |
+| Script Project | A Project being created, changed or deleted. |
+| Script Project Revision | A revision appearing. |
+| Script File | A declaration being added, changed or removed. |
+| Script | A Script appearing, retiring, or being enabled or disabled. |
 
-A webhook fired by one of these carries the same body the REST API returns for that object,
-so the receiver reads the fields it already knows. A revision's stored documents are not part
-of it: the manifest and the script file snapshot stay in NetBox.
+Webhooks use the object's REST representation. A revision's stored manifest and
+Script File snapshot are not included.
 
-A change made while handling a UI or REST request can trigger matching rules. A Script run also
-publishes the object-change events it queued when it finishes successfully with commit enabled,
-even without a request. A dry run, or a run that fails, publishes none of them.
+Changes made through UI or REST requests can trigger matching rules. A successful
+committed Script run also publishes its queued object-change events, even without
+a request. Dry runs and failed runs do not publish those events.
 
-Staging, validation and migration jobs, and an activation a job performs, deliver no
-object-change events, so a revision staged by a Data Source synchronization, a validation
-verdict and the rows the migration passes create reach no rule. Follow those through the
-revision's status and the migration Job results. Job start and completion events are separate
-from these.
+Background staging, validation, migration and job-driven activation do not deliver
+object-change events. Follow their outcomes through revision status and migration
+Job results. Job start and completion events are separate.

@@ -20,10 +20,12 @@ Then [upload your scripts](uploading.md) or
 [connect a Data Source directory](data-sources.md).
 
 Already using NetBox's built-in Custom Scripts? Read the
-[migration guide](migration.md) before moving your scripts. Two boundaries
-to know before you start: legacy Reports are refused rather than emulated,
-and `extras.scripts` imports work as a transitional layer that stops working
-at NetBox v5.0. Both are covered in [Authoring](authoring.md).
+[migration guide](migration.md) before moving your scripts.
+
+Legacy Reports are not supported. Imports from `extras.scripts` are a
+transitional option and stop working at NetBox v5.0. See
+[Authoring](authoring.md) for supported imports and the changes to make before
+upgrading.
 
 ## Main concepts
 

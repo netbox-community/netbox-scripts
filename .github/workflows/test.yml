@@ -14,7 +14,7 @@
 #   The plugin's testing/configuration.py, or configuration_branching.py
 #   for the branching job, is loaded via NETBOX_CONFIGURATION +
 #   PYTHONPATH, per the convention documented in
-#   AGENTS.md Development section. The plugin is installed editable into
+#   AGENTS.md Commands section. The plugin is installed editable into
 #   NetBox's checkout so its source path is on sys.path.
 #
 # Coverage:

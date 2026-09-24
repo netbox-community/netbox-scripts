@@ -1,69 +1,81 @@
 # Releasing
 
-We follow [Semantic Versioning](https://semver.org/) and keep a Change Log in `docs/releases.md`.
+Releases follow [Semantic Versioning](https://semver.org/). Record changes in
+`docs/releases.md` and use the checklist below to publish them.
 
 ## Checklist
 
-1. **Finish code and docs.** Confirm CI is green on the default branch, all
-   relevant documentation updates have landed, and `docs/releases.md`
-   reflects the changes in this release.
+Run commands from the repository root. Replace `X.Y.Z` with the version being
+released throughout the checklist.
 
-2. **Change log.** Add a new `## vX.Y.Z` section at the top of
-   `docs/releases.md`, above the previous release and separated from it by a
-   `---` rule. Group entries under `### Enhancements` and `### Bug Fixes`
-   subsections, each bullet `* [#<issue>](<url>) - <summary>`. The very first
-   release is a bare `* Initial release` with no subsections.
+1. **Check readiness.** Confirm CI passes on the default branch and the release's
+    code and documentation changes are complete.
 
-3. **Version bump.** Update `version = "X.Y.Z"` in `pyproject.toml` and
-   `__version__ = "X.Y.Z"` in `netbox_scripts/__init__.py`. The release
-   workflow compares the tag against both pins and refuses to publish if
-   any of the three disagree. Commit with a message of the form
-   `chore: release X.Y.Z`.
+2. **Update the change log.** Add a `## vX.Y.Z` section above the previous release
+    in `docs/releases.md`, separated by `---`. Group entries under
+    `### Enhancements` and `### Bug Fixes`, using
+    `* [#<issue>](<url>) - <summary>`. The first release uses only
+    `* Initial release`, without subsections.
 
-4. **Packaging.** Run `pre-commit run --hook-stage manual check-manifest`.
-   It compares what git tracks against what the sdist would carry, so a
-   file missing from the distribution, or one that does not belong in it,
-   is caught before the tag exists.
+3. **Set the version.** Update `version = "X.Y.Z"` in `pyproject.toml` and
+    `__version__ = "X.Y.Z"` in `netbox_scripts/__init__.py`. Both must match the
+    version in the release tag. The workflow refuses to publish if they differ.
+    Commit the release changes as `chore: release X.Y.Z`.
 
-5. **Tag.** Create an annotated tag matching the version and push it
-   together with the release commit:
+4. **Check the package contents.** Run:
 
-   ```bash
-   git tag -a vX.Y.Z -m "Release X.Y.Z"
-   git push origin main vX.Y.Z
-   ```
+    ```bash
+    pre-commit run --hook-stage manual check-manifest
+    ```
 
-6. **Publish release.** Draft a GitHub release from the new tag, review
-   the auto-generated notes against `docs/releases.md`, edit as needed,
-   and publish.
+    This compares tracked files with the source distribution and reports missing
+    or unexpected files.
 
-7. **CI.** Publishing the release fires `.github/workflows/release.yml`,
-   which builds the wheel and sdist, validates them with `twine check`,
-   and publishes to PyPI through the Trusted Publisher registered for
-   this repository. Watch the run for failures, especially `twine check`
-   and the OIDC token exchange.
+5. **Tag the release commit.** Create an annotated tag and push it with the
+    release commit:
 
-8. **Post-release.** Verify the release on
-   <https://pypi.org/project/netbox-scripts/> and that a fresh
-   `pip install netbox-scripts` resolves the new version.
+    ```bash
+    git tag -a vX.Y.Z -m "Release X.Y.Z"
+    git push origin main vX.Y.Z
+    ```
+
+6. **Publish the GitHub release.** Draft it from the new tag, compare the
+    generated notes with `docs/releases.md`, make any corrections and publish.
+
+7. **Check the publishing workflow.** Publishing the release triggers
+    `.github/workflows/release.yml`. It builds the wheel and source distribution,
+    runs `twine check` and publishes to PyPI using this repository's Trusted
+    Publisher. Check that the run succeeds, including package validation and the
+    OIDC token exchange.
+
+8. **Verify the published package.** Check the version on
+    <https://pypi.org/project/netbox-scripts/> and confirm that a fresh
+    `pip install netbox-scripts` selects the new version.
 
 ## Hotfix process
 
-For an urgent fix on a published version, branch from the release tag,
-apply the fix, and follow the same checklist with the patched version
-number. Substitute the real version numbers:
+For an urgent fix to a published version, branch from its release tag and follow
+the same preparation, packaging and publishing checks. Push the hotfix branch
+and tag instead of using the checklist's `main` push command.
+
+This example releases `1.2.4` from `v1.2.3`. Replace both versions with the actual
+release numbers.
 
 ```bash
-# Example: release a 0.0.2 fix for 0.0.1.
-git switch -c hotfix/0.0.2 v0.0.1
-# Apply the fix, update the changelog and bump both version declarations.
-git tag -a v0.0.2 -m "Release 0.0.2"
-git push origin hotfix/0.0.2 v0.0.2
+git switch -c hotfix/1.2.4 v1.2.3
 ```
 
-Merge the hotfix branch back into the default branch after the release
-goes out.
+Apply the fix, update the change log and both version declarations, and commit
+the changes. After the checks pass, tag and push the hotfix:
+
+```bash
+git tag -a v1.2.4 -m "Release 1.2.4"
+git push origin hotfix/1.2.4 v1.2.4
+```
+
+Continue with the GitHub release and package-verification steps. Merge the
+hotfix branch into the default branch after publication.
 
 ## See also
 
-- [Contributing](contributing.md) for the pre-release development flow.
+- [Contributing](contributing.md) for the development workflow and review requirements.

@@ -6,23 +6,23 @@
 |---|---|
 | NetBox | 4.7.0 to 4.7.99 |
 | Python | 3.12 or newer |
-| Extra services | None beyond a standard NetBox deployment, but its RQ worker has to be running. See [Background work](#background-work) |
-| Project storage | A `STORAGES` entry, required before a Project can hold source. See [Configuring project storage](#configuring-project-storage) |
+| Extra services | None beyond a standard NetBox deployment. Keep its RQ worker running. See [Background work](#background-work). |
+| Project storage | A `STORAGES` entry is required before a Project can hold source. See [Configuring project storage](#configuring-project-storage). |
 
 ## Installing the plugin
 
-Once the release is published on PyPI, install it into the NetBox virtualenv:
+With your NetBox virtual environment active, install the plugin once its release
+is available on PyPI:
 
 ```sh
 pip install netbox-scripts
 ```
 
-For a source checkout, run `pip install -e .` from the repository root
-instead.
+For a source checkout, run `pip install -e .` from the repository root instead.
 
 ## Enabling the plugin
 
-Add `netbox_scripts` to `PLUGINS` in NetBox's `configuration.py`, keeping any
+Add `netbox_scripts` to `PLUGINS` in NetBox's `configuration.py`, keeping your
 existing plugins:
 
 ```python
@@ -32,18 +32,17 @@ PLUGINS = [
 ]
 ```
 
-Everything in `PLUGINS_CONFIG` is optional and has a working default. See
-[Configuration](configuration.md) for the full list. The storage backend below is
-configured separately and is not optional.
+All `PLUGINS_CONFIG` settings are optional and have defaults. See
+[Configuration](configuration.md). Project storage is configured separately
+and is required.
 
 ## Configuring project storage
 
-Project source is written to the backend registered under the `netbox_scripts`
-key of NetBox's `STORAGES` setting. Without it the plugin loads and its pages work, but
-anything that stores source refuses, and the `netbox_scripts.W001` system check
-reports it until the entry exists.
+Add `netbox_scripts` to NetBox's `STORAGES` setting. Without it, the plugin loads,
+but source-storage operations fail and the `netbox_scripts.W001` system check
+reports the missing configuration.
 
-On a single node, Django's own `FileSystemStorage` is enough:
+For a single-node installation, use Django's `FileSystemStorage`:
 
 ```python
 STORAGES = {
@@ -56,27 +55,26 @@ STORAGES = {
 }
 ```
 
-NetBox merges this with its built-in entries, so defining only this key leaves `default`
-and the others intact. A horizontally scaled deployment points it at object storage
-instead. See [Configuration](configuration.md) for that and for why the entry does not
-fall back to NetBox's `default` storage. Where your configuration already defines
-`STORAGES`, add this key to that dictionary instead of assigning a second one.
+NetBox merges this with its built-in entries, preserving `default` and the others.
+If you already define `STORAGES`, add the key to that dictionary instead of
+replacing it. For a multi-node deployment, see the shared-storage options in
+[Configuration](configuration.md), which also explains why the plugin does not
+fall back to `default`.
 
-Create that directory before the first upload. The NetBox web and worker processes both read
-and write it, and nothing else should be able to write to it. For a standard installation where
-both run as `netbox`:
+Create the directory before the first upload. Only the NetBox web and worker
+accounts should be able to write to it. When both services run as `netbox`:
 
 ```sh
 sudo install -d -m 0700 -o netbox -g netbox /var/lib/netbox-scripts
 ```
 
-Where they run as different users, give both of them read and write access instead.
+If they use different accounts, give both read and write access instead.
 
 ## Applying the configuration
 
-With both settings in place, run migrations and collect static files from the directory holding
-NetBox's `manage.py`, with NetBox's virtual environment active, then restart NetBox so every
-process loads them. In a standard installation:
+After configuring the plugin and storage, run migrations and collect static
+files from the directory containing NetBox's `manage.py`. Use NetBox's virtual
+environment, then restart the web and worker processes. For a standard installation:
 
 ```sh
 source /opt/netbox/venv/bin/activate
@@ -86,28 +84,28 @@ python manage.py collectstatic --no-input
 sudo systemctl restart netbox netbox-rq
 ```
 
-Use your deployment's own restart procedure where those service names do not
-apply. A process that has not restarted is still running without the storage
-entry.
+Use your deployment's restart procedure if these service names do not apply.
+Processes must restart to load the new configuration.
 
 ## Background work
 
-Validating a revision, reconciling a Data Source project, a queued script run and
-every migration pass are background jobs, so NetBox's RQ worker has to be running.
-Uploading a revision and activating one by hand also do work in the web process,
-and `runcustomscript` executes in the process that invoked it.
+Keep NetBox's RQ worker running for validation, Data Source reconciliation,
+queued Script runs and migration passes.
 
-With no worker, an uploaded revision stops at `materialized` and never reaches a verdict,
-and a run requested over REST is refused with a 503 rather than queued for nobody.
+Uploads and manual activation also perform work in the web process.
+`runcustomscript` executes in the process that invokes it.
+
+Without a worker, an uploaded revision remains `materialized` and cannot finish
+validation. REST run requests return HTTP 503.
 
 ## Verifying the install
 
 | Check | Expected result |
 |---|---|
-| Visit `/plugins/` in NetBox | NetBox Scripts is listed |
-| Open the navigation menu | A "Scripts" menu appears, with a Projects group and a Scripts group |
-| `GET /api/plugins/netbox-scripts/` | Plugin API root responds |
-| `python manage.py check` | No `netbox_scripts.W001`, meaning project storage is configured |
-| Upload a script from *Scripts > Projects > Upload Script* | The revision reaches `active`, since **Activate this upload** is ticked by default, which proves storage and the worker are both working. Clearing that tick leaves it at `valid` for manual activation |
+| Visit `/plugins/` in NetBox | NetBox Scripts is listed. |
+| Open the navigation menu | A **Scripts** menu contains Projects and Scripts groups. |
+| `GET /api/plugins/netbox-scripts/` | The plugin API root responds. |
+| `python manage.py check` | No `netbox_scripts.W001` warning. Project storage is configured. |
+| Upload a script from *Scripts > Projects > Upload Script* | Successful validation leads to `active` with **Activate this upload** selected, or `valid` when it is cleared under the default Manual policy. |
 
-See [Uploading Scripts](uploading.md) for that last step in full.
+See [Uploading Scripts](uploading.md) for the upload steps and results.

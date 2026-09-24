@@ -1,245 +1,240 @@
 # Contributing to NetBox Scripts
 
-First off, thanks for taking the time to contribute to **NetBox Scripts**.
-Contributions of all kinds are welcome. Please be kind, constructive, and
-respectful in issues, PRs, and discussions.
+Thank you for helping improve NetBox Scripts. Bug reports, feature proposals,
+code and documentation are all welcome. Please keep issues, pull requests and
+discussions kind, constructive and respectful.
 
----
+For suspected vulnerabilities, follow the
+[security policy](https://github.com/netbox-community/netbox-scripts/blob/main/SECURITY.md)
+instead of opening a public issue.
 
 ## General tips for working on GitHub
 
-- Register for a free [GitHub account](https://github.com/signup) if you
-  haven't already.
-- You can use [GitHub Markdown](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
-  for formatting text and adding images.
-- To help mitigate notification spam, please avoid "bumping" issues with
-  no activity. To vote an issue up or down, use thumbs-up / thumbs-down
-  reactions.
-- Please avoid pinging members with `@` unless they have previously
-  expressed interest or involvement with that particular issue.
-- Familiarize yourself with this list of
-  [discussion anti-patterns](https://github.com/bradfitz/issue-tracker-behaviors)
-  and make every effort to avoid them.
+Search existing issues before opening one. Add useful details to an existing
+report, and use reactions rather than comments that only ask for an update.
+Avoid mentioning people with `@` unless they are already involved in the work.
 
----
+A [GitHub account](https://github.com/signup) is needed to open issues and pull
+requests. Use
+[Markdown](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
+to format examples, logs and screenshots.
 
 ## How we work: issue-first, then assignment, then PR
 
-To avoid wasted effort and keep the project coherent, we follow an
-**issue-first** workflow:
+Open an issue using the appropriate template, or look for an existing issue
+marked **status: needs owner**.
 
-1. **Open an issue** (bug report or feature request) first.
-2. A maintainer **triages** it. If it is viable, we mark it as
-   **status: accepted** and (optionally) **status: needs owner**.
-3. The issue's author or another volunteer can **offer to own it** by
-   commenting.
-4. A maintainer **assigns** the issue to the owner.
-5. The owner opens a **pull request** that resolves the issue.
+1. A maintainer triages the issue and reviews its scope.
+2. When the work is ready for a contributor, the maintainer marks it
+   **status: needs owner**.
+3. Comment on the issue to let us know you would like to work on it.
+4. A maintainer assigns the issue to you and changes its status to
+   **status: accepted**.
+5. Open a pull request linked to the assigned issue.
 
-**Please do not open PRs without an accepted, assigned issue.** Unassigned
-PRs may be closed to keep the queue focused. Draft PRs are welcome **after**
-an issue is accepted and assigned.
+If you already plan to submit a pull request when opening an issue, mention
+that in the description. After triage, a maintainer can assign it directly
+to you and mark it **status: accepted**, without the **status: needs owner**
+stage.
 
-> For background, see the NetBox contributing guide:
-> <https://github.com/netbox-community/netbox/blob/main/CONTRIBUTING.md>
-
----
+Please wait until the issue is assigned to you and marked **status: accepted**
+before opening a pull request, including a draft.
 
 ## Types of contributions
 
-- **Report bugs.** See [Reporting bugs](#reporting-bugs).
-- **Implement features.** See [Requesting features](#requesting-features).
-  For issues tagged `help wanted`, comment to volunteer; a maintainer must
-  assign the issue before work begins.
-- **Fix bugs.** Look for issues tagged `type: bug` and `help wanted` (same
-  assignment note as above).
-- **Write documentation.** Improve the docs site, README, in-code
-  docstrings, or tutorials.
-- **Submit feedback.** See [Requesting features](#requesting-features) for
-  the suggested structure.
-
----
+You can report or fix bugs, propose features, improve examples and documentation,
+or help clarify an existing issue. Look for **status: needs owner** to find work
+awaiting a contributor. The assignment process above applies to documentation
+changes as well as code.
 
 ## Reporting bugs
 
-Open an issue and pick the **Bug report** template. Please include:
+Use the **Bug report** template and include the NetBox and plugin versions,
+reproduction steps, and expected and actual behavior. Add relevant logs or
+screenshots, removing credentials and private data first. For an unreleased
+checkout, include the commit and describe any local changes.
 
-- **NetBox version** and **plugin version**.
-- **Steps to reproduce** (clear and minimal).
-- **Expected vs. actual behavior**.
-- Any **stack traces, logs, or screenshots**.
-
-Bug reports are for unintended behavior only; new functionality belongs in
-a **feature request**.
-
----
+A bug report describes unintended behavior. Use a feature request for new
+functionality. Report suspected security problems privately as described above.
 
 ## Requesting features
 
-When proposing features, please provide:
-
-- **Problem / use case** (why this matters for plugin users).
-- **Proposed behavior** (what changes, at a high level).
-- Any anticipated **models / UI / API** impacts.
-- **Alternatives** you considered.
-
-We may ask questions to refine the scope before acceptance.
-
----
+Describe the problem you need to solve, your proposed behavior and alternatives
+you considered. Mention likely model, UI or API changes when relevant. Maintainers
+may ask questions to agree on scope before accepting the proposal.
 
 ## Development environment
 
-This plugin targets the NetBox ecosystem (Django). You will need a working
-NetBox development environment.
+The plugin runs inside NetBox, not as a standalone Django application. Start with
+NetBox's [development setup](https://docs.netbox.dev/en/stable/development/getting-started/)
+and a release within the plugin's
+[compatibility range](https://github.com/netbox-community/netbox-scripts/blob/main/COMPATIBILITY.md).
+Use a Python version supported by both.
 
-**Prerequisites:**
+The examples below assume these sibling checkouts:
 
-- Python 3.12 or newer.
-- PostgreSQL and Redis (NetBox runtime requirements).
-- A local NetBox checkout. Clone
-  <https://github.com/netbox-community/netbox> next to this plugin so the
-  layout looks like:
+```text
+workspace/
+  netbox/          # NetBox checkout at the intended ref
+  netbox-scripts/  # Your clone or fork of this plugin
+```
 
-  ```text
-  workspace/
-    netbox/                        # NetBox checkout
-    netbox-scripts/                # this plugin
-  ```
+**Run commands from `netbox-scripts/` with the NetBox development virtual
+environment active.** Install NetBox's requirements and the plugin in that
+same environment:
 
-- [`uv`](https://docs.astral.sh/uv/) for managing tool installs, optional
-  but recommended. The scaffold uses `uv` for `pre-commit` and `ruff`.
+```bash
+python -m pip install -r ../netbox/requirements.txt
+python -m pip install -e '.[dev,test]'
+python -m pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
 
-**Setup:**
+### Running tests
 
-1. **Clone this repository** and create or activate a virtual environment.
+The plugin uses Django's test runner. It does not use pytest. Review
+`testing/configuration.py` before running tests and provide PostgreSQL and Redis
+services matching that configuration. The database account must be able to create
+the test database.
 
-2. **Install the plugin in editable mode** from the repo root, including
-   the `test` extra so test dependencies are available:
+**Use isolated development services, never production.** The test configuration
+uses Redis databases 15 for tasks and 14 for caching. No worker serving a different
+NetBox database may consume those test queues. Redis database numbers do not
+protect against commands that clear the whole server.
 
-   ```bash
-   pip install -e '.[test]'
-   ```
+These exports apply only inside the subshell:
 
-3. **Install pre-commit hooks** so lint runs locally on every commit:
+```bash
+(
+    export NETBOX_CONFIGURATION=configuration
+    export PYTHONPATH="$PWD/testing${PYTHONPATH:+:$PYTHONPATH}"
+    python ../netbox/netbox/manage.py test netbox_scripts.tests -v 2
+)
+```
 
-   ```bash
-   pip install pre-commit
-   pre-commit install
-   pre-commit run --all-files
-   ```
+Record the NetBox ref, test command and result in your pull request. State which
+checks you could not run. Do not report a check as passing unless you ran it.
 
-4. **Run the test suite.** This plugin ships a `testing/configuration.py`
-   for NetBox to load when running tests. Loading happens via the
-   `NETBOX_CONFIGURATION` environment variable plus a prepended
-   `PYTHONPATH`, never via a symlink into NetBox:
+### Checking the UI and workers
 
-   ```bash
-   export NETBOX_CONFIGURATION=configuration
-   export PYTHONPATH=$PWD/testing:$PYTHONPATH
-   python ../netbox/netbox/manage.py test netbox_scripts -v 2
-   ```
+Use a separate development configuration for interactive testing. Enable
+`netbox_scripts`, configure persistent source storage accessible to the web and
+worker processes, and follow NetBox's development startup instructions. The
+plugin's [Quickstart](https://netbox-community.github.io/netbox-scripts/quickstart/)
+covers its storage and activation requirements.
 
-5. **Run NetBox** and verify the plugin loads and behaves as expected.
-
-See `AGENTS.md` for the full development recipe, including migration
-handling and the `DEVELOPER = True` flag in `testing/configuration.py`.
+Do not use the unit-test configuration as a shared web/worker environment. Its
+in-memory source storage is for tests, not for passing revisions between
+processes. Keep independently started development workers off the unit-test queues
+while running the suite.
 
 ### Database migrations (Django)
 
-- Include **one logical migration per PR** for model changes.
-- Prefer **backward-compatible** changes; avoid destructive operations in
-  the same release (deprecate first when possible).
-- Use `RunPython` or `RunSQL` for **data migrations**; keep them
-  idempotent and fast.
-- Avoid surprising nullability or index changes on large tables without
-  discussion.
+Include one logical migration per pull request that changes models, keeping the
+schema change with the implementation and tests. Django also needs migrations
+for model-state changes that produce no SQL.
+
+See [Database migrations](https://netbox-community.github.io/netbox-scripts/development/conventions/#database-migrations)
+for the initial-migration policy and pinned NetBox dependencies. Coordinate
+consolidation with a maintainer and agree how to handle affected development
+databases.
+
+Prefer backward-compatible changes. Discuss destructive operations, nullability
+changes and large-table indexes before implementing them. Data migrations should
+be fast and safe to retry, using historical models rather than importing current
+model classes.
 
 ### API and UI compatibility
 
-- Avoid breaking API fields, choices, or slugs without prior deprecation.
-- Keep UI patterns consistent with NetBox (tables, filtersets, views).
-
----
+Use NetBox's existing views, tables, filtersets and serializers where they fit.
+Discuss breaking changes to API fields, choices or URL paths before starting,
+and preserve the project's deprecation policy.
 
 ## Style, linting, and versions
 
-- **Python style:** PEP 8 where practical; readability over rigid line
-  limits. Ruff handles enforcement.
-- **Linters and formatters:** We use **Ruff** via **pre-commit**. Run
-  `pre-commit run --all-files` locally before pushing.
-- **Supported Python:** Keep changes compatible with the versions tested
-  in CI (currently 3.12, 3.13, 3.14).
-- **Supported NetBox:** 4.7.0 to 4.7.99
-  (matches the `PluginConfig` declaration in
-  `netbox_scripts/__init__.py`).
-- **Django:** 6.1 (matches the supported NetBox runtime).
-- **Typing:** Prefer adding or improving type hints where it increases
-  clarity.
+Write readable Python and use Ruff through pre-commit for formatting and linting.
+The rules live in `pyproject.toml`. See the
+[development conventions](https://netbox-community.github.io/netbox-scripts/development/conventions/)
+for code organization, NetBox integration, testing and documentation style.
+Do not introduce a second formatter configuration.
 
----
+Use the compatibility matrix and CI configuration for supported versions. Install
+Django and other host dependencies from the chosen NetBox checkout's requirements
+rather than selecting their versions independently.
 
 ## Pull request guidelines
 
-A PR is reviewed only if:
+A pull request should link its accepted, assigned issue using `Fixes #NNN` and
+explain the change and how it was tested. Include relevant tests and update the
+documentation when behavior changes. Run `pre-commit run --all-files` before
+submitting.
 
-- It **links to an accepted, assigned issue** with `Fixes: #NNN` in the
-  PR description.
-- It **adds tests** where applicable.
-- It **updates docs** for user-facing changes.
-- **pre-commit** passes locally.
-- It **does not** bump versions or edit the changelog. Maintainers
-  handle release bookkeeping (see
-  [`docs/development/releasing.md`](https://github.com/netbox-community/netbox-scripts/blob/main/docs/development/releasing.md)).
-- **PR title and commits follow Conventional Commits.**
+Keep changes focused. Discuss large refactors in the issue first. Tests and the
+implementation they cover belong in the same commit. Maintainers handle version
+bumps and release notes, so do not include those in an ordinary contribution.
 
 ### Branching and commits
 
-- Use clear, focused branches like `fix-<short-description>` or
-  `feat-<short-description>`.
-- **Conventional Commits are mandatory.** Examples:
-  - `feat(models): add new model for X`
-  - `fix(filters): correct filter coercion for Y`
-  - `docs: add quickstart for enabling the plugin`
-  - `refactor: split utils into modules`
-  - Include a body when necessary; use a `BREAKING CHANGE:` footer if the
-    change is not backward-compatible.
-- Keep PRs small and focused. Large refactors should be discussed first
-  in an issue.
+Use a descriptive branch name such as `fix-upload-validation` or
+`feat-script-filter`. Pull request titles and commits must follow
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), for example:
+
+```text
+fix(api): Preserve validated Script inputs
+docs: Clarify source storage setup
+feat(filters): Add a Script status filter
+```
+
+Add a commit body when it helps explain the change. Use a `BREAKING CHANGE:`
+footer for an approved incompatible change.
 
 ### Target branch
 
-- Open PRs against the default branch unless a maintainer specifies
-  otherwise.
-
----
+Target the repository's default branch unless a maintainer requests another one.
 
 ## Documentation
 
-- Update README or in-repo docs when behavior changes.
-- Include short examples or screenshots for UI-adjacent changes.
-- Keep docstrings current for public methods, models, and utilities.
-- Build the docs locally with `zensical build --clean --strict`, the command CI runs, after
-  `pip install -e '.[docs]'` installs the pinned docs dependencies.
+Write for the page's audience: users need tasks and outcomes, administrators need
+configuration and recovery guidance, and developers need contracts and examples.
+Keep safety warnings explicit and link to shared explanations instead of repeating
+them. Update relevant docstrings along with behavior changes.
 
----
+From the plugin repository root:
+
+```bash
+python -m pip install -e '.[docs]'
+zensical build --clean --strict
+```
+
+Use `zensical serve` to preview the site. Check the rendered pages, examples and
+links as well as the build result. The contribution page includes this file, so
+keep links usable both on GitHub and in the documentation site.
+
+## Contribution licensing
+
+NetBox Scripts is licensed under the
+[Apache License 2.0](https://github.com/netbox-community/netbox-scripts/blob/main/LICENSE).
+Contributions submitted for inclusion follow Section 5 of that license, including
+its treatment of separate agreements.
+
+Submit work you have the right to contribute. Identify any third-party material
+and preserve the applicable license and attribution notices. Do not include
+confidential code or data without permission to publish it.
 
 ## Security
 
-Please do **not** open a public issue for security problems. Follow our
-[`SECURITY.md`](https://github.com/netbox-community/netbox-scripts/blob/main/SECURITY.md). If in doubt, contact a maintainer privately
-and we will coordinate a fix and disclosure.
-
----
+Send suspected vulnerability reports to **security@netboxlabs.com**, following
+[SECURITY.md](https://github.com/netbox-community/netbox-scripts/blob/main/SECURITY.md).
+Do not put vulnerability details or a proposed security fix in a public issue or
+pull request before coordinating privately.
 
 ## Releasing (maintainers)
 
-See [`docs/development/releasing.md`](https://github.com/netbox-community/netbox-scripts/blob/main/docs/development/releasing.md) for
-the full release checklist.
-
----
+Follow the [release checklist](https://netbox-community.github.io/netbox-scripts/development/releasing/)
+for version updates, packaging, tagging and publishing.
 
 ## Thanks!
 
-Whether you are filing a precise bug report, improving docs, or
-implementing new functionality, thank you. Your time and effort are
-appreciated.
+Your reports, reviews, code and documentation help make the plugin better for
+everyone who uses it. Thank you for contributing.

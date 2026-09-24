@@ -1,14 +1,17 @@
 """Moving the references an installation holds off the built-in Custom Scripts onto plugin rows."""
 
+import django_rq
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
+from rq.job import Job as RQJob
 
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from . import cutover, mapping
+from . import source as legacy_source
 from .locking import serialized_migration_step
 
 __all__ = (
@@ -274,6 +277,21 @@ def recreate_schedules(run):
                 ).format(name=entry['name'])
             )
             continue
+        if entry.get('cancellation') == 'cancelled':
+            job = legacy_source.script_jobs().filter(pk=entry['job_pk']).first()
+            if job is not None:
+                connection = django_rq.get_queue(job.queue_name).connection
+                # A worker's start saves started, and a claim or a scheduler's re-queue writes the task back.
+                if job.started is not None or RQJob.exists(str(job.job_id), connection=connection):
+                    counts['skipped'] += 1
+                    warnings.append(
+                        _(
+                            'Schedule "{name}" started or was queued again on the built-in side after the '
+                            'cutover cancelled it, so it has not been recreated. Check whether it ran and '
+                            'schedule it again by hand if it should keep running.'
+                        ).format(name=entry['name'])
+                    )
+                    continue
         # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
         if entry.get('legacy_object_type') != 'extras.script':
             counts['skipped'] += 1

@@ -58,15 +58,16 @@ might restart automatically.
 
     One worker prevents a second worker from running built-in Custom Scripts
     alongside cutover. It does not stop RQ's scheduler from queueing a task it
-    fetched just before cancellation. That task can execute after cutover and
-    also be recreated by the plugin, even when **Accept concurrent workers**
-    is clear.
+    fetched just before cancellation, so that task can still execute after
+    cutover. The reference pass then holds back its replacement, because the
+    run has started or its task is queued again.
 
     **Accept concurrent workers** bypasses the check and records the worker
     names. It also allows another worker to take a run during cancellation.
-    The Job row and migration journal cannot reliably identify every outcome.
-    Do not rely on worker count or cancellation status to prevent duplicate
-    execution.
+    Cancellation never overwrites a run a worker has started, and the reference
+    pass holds back the replacement of one that starts later. A run whose Job
+    row is deleted before the reference pass leaves nothing to check, so it is
+    recreated.
 
     One worker does not prevent users, integrations or Event Rules from
     submitting new work. The maintenance window is still required.
@@ -282,16 +283,14 @@ Cutover affects four areas:
 |---|---|
 | Permissions | Disables captured Object Permissions. Shared Report coverage is affected too. |
 | Event Rules | Disables captured rules. Rules whose action runs a Report are excluded. |
-| Queued runs | Deletes reachable waiting tasks and marks their Jobs failed. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
+| Queued runs | Deletes reachable waiting tasks and marks their Jobs failed, unless a worker has already started one. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
 | Synchronization | Removes synchronization registrations for the built-in Custom Script modules. |
 
 Captured permissions and Event Rules are closed before any waiting run is
-cancelled, so a cancellation triggers no captured Job-completion rule. A
-cancellation can still trigger a rule whose action runs a Report, since those
-rules are not captured. These changes do not block every way to submit or
-change built-in Scripts. Superusers, `DEFAULT_PERMISSIONS`, plain Django grants
-and already-authorized work can remain unaffected. Do not resume submissions
-yet.
+cancelled, and cancelling a run sends no Job-completion event. These changes do
+not block every way to submit or change built-in Scripts. Superusers,
+`DEFAULT_PERMISSIONS`, plain Django grants and already-authorized work can
+remain unaffected. Do not resume submissions yet.
 
 Cutover refuses if staging has not run, the migration state does not allow it,
 built-in Custom Script Jobs are running or the worker check fails. Every mapped
@@ -377,8 +376,9 @@ wait for the maintenance window to end.
 
 Runs recorded as already executing or executed are not automatically recreated.
 Review their outcome and arrange any required future schedule manually. A run
-recorded as cancelled that still executed is recreated as well, as the warning
-under [Worker arrangement](#worker-arrangement) explains.
+recorded as cancelled that later started, or was queued again, on the built-in
+side is held back rather than recreated, as the warning under
+[Worker arrangement](#worker-arrangement) explains.
 
 A reference step completes when no retryable work remains. A missing
 replacement Script can leave it open. Once complete, the step returns its
@@ -454,10 +454,12 @@ all duplicate execution.** The scheduler can still queue a cancelled task,
 and runs can start between an interrupted pass and its retry. Check existing
 work before retrying. See [Worker arrangement](#worker-arrangement).
 
-Replay uses recorded cancellation intent and Job state. Neither provides an
-exactly-once guarantee, with or without **Accept concurrent workers**. A run
-recorded as cancelled can execute, followed by its replacement. Keep the
-maintenance window and review results even when cutover reports completion.
+Replay uses recorded cancellation outcomes and each Job's current state. A run
+recorded as cancelled that started, or was queued again, on the built-in side
+is held back rather than recreated. That is not an exactly-once guarantee: a
+run whose Job row is deleted before the reference pass leaves nothing to check.
+Keep the maintenance window and review results even when cutover reports
+completion.
 
 ## Recovery
 

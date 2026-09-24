@@ -415,6 +415,30 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         self.assertEqual(counts['recreated'], 1)
 
+    def test_a_cancelled_run_that_started_on_the_built_in_side_is_not_recreated(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('started or was queued again' in warning for warning in warnings))
+
+    def test_a_cancelled_run_queued_again_on_the_built_in_side_is_not_recreated(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        RQJob.create(
+            func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
+        ).save()
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertFalse(self.new_jobs().exists())
+
     def test_an_entry_recorded_before_outcomes_were_kept_is_still_recreated(self):
         # A journal written by an earlier build carries no outcome at all, and a gate written as
         # "not cancelled" would silently drop every schedule such a run had captured.

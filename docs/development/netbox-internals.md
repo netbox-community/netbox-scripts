@@ -47,8 +47,8 @@ not a list of unsupported APIs alone.
 | `extras.models.ScriptModule.jobs` and `.event_rules` | `migration/source.py` | Identifies history and Event Rules that module deletion would also remove. Both are `GenericRelation`s, so Django's deletion collector cascades to those rows. |
 | `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Disables captured Object Permission grants on the built-in feature. This is not an installation-wide write fence. |
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Disables captured rules during handover and restores eligible rules after repointing their action and source types. |
-| `core.models.Job.terminate` | `migration/cutover.py` | Marks waiting Jobs failed and notifies their owners. Used instead of `update()` because there is no cancelled status and owners need notification. A failed status is not an execution fence. |
-| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. |
+| `core.models.Job.terminate` | `migration/cutover.py` | Mirrored rather than called. Cancellation fails a waiting Job with a conditional update, because `terminate()` saves the whole row and would overwrite a start by a worker that took the task first. The Notification `terminate()` sends the owner of a failed Job is created the same way instead. |
+| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` / `.exists` | `migration/cutover.py`, `migration/references.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. Replay checks whether the task exists again, which a claim or a scheduler's re-queue writes back. |
 | `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | Handles a missing RQ task. Capture marks its input unrecoverable, and cancellation treats the task as already deleted. |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Removes built-in synchronization registrations. These use the **concrete** `ManagedFile` content type, unlike Job and Event Rule references to the proxy. |
 | `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repoints actions and source types to replacement Scripts. Calls `full_clean()` first because a rule may already be invalid. |
@@ -230,9 +230,11 @@ Permission withdrawal does not restrict superusers, permissions supplied through
 through `ModelBackend`. A privileged user can also grant
 `extras.add_scriptmodule` again and upload new built-in Custom Scripts.
 
-Task deletion and failed Job status do not guarantee that a cancelled run cannot
-execute. The scheduler can enqueue a task fetched before deletion, even with one
-worker. The migration journal does not provide exactly-once execution. Keep the
+Task deletion and failed Job status do not guarantee that a cancelled run
+cannot execute. The scheduler can enqueue a task fetched before deletion, even
+with one worker. The reference pass then holds back its replacement, because
+the run has started or its task is queued again. The migration journal does not
+provide exactly-once execution. Keep the
 [worker and scheduler precautions](../migration.md#worker-arrangement) in the
 migration guide as the operational reference.
 

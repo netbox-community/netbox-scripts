@@ -5,6 +5,7 @@ import uuid
 from unittest import mock
 
 import django_rq
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rq.job import Job as RQJob
@@ -12,9 +13,8 @@ from rq.job import Job as RQJob
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.events import JOB_COMPLETED, OBJECT_UPDATED
 from core.models import AutoSyncRecord, DataFile, DataSource, Job, ObjectType
-from core.signals import job_end
 from dcim.models import Site
-from extras.models import EventRule, Script, ScriptModule, Webhook
+from extras.models import EventRule, Notification, Script, ScriptModule, Webhook
 from netbox_scripts import activation
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.migration import cutover, mapping, plan, staging
@@ -344,8 +344,7 @@ class CutoverTestCase(TestCase):
         self.assertFalse(source_rule.enabled)
         self.assertEqual(counts['event_rules'], 2)
 
-    def test_no_captured_rule_is_live_when_a_cancellation_ends_its_job(self):
-        # terminate() sends job_end, and core runs every enabled completion rule on it.
+    def test_no_captured_rule_is_live_when_a_run_is_cancelled(self):
         webhook = Webhook.objects.create(name='on completion', payload_url='http://localhost/done')
         rule = EventRule.objects.create(
             name='on script completion',
@@ -357,13 +356,14 @@ class CutoverTestCase(TestCase):
         rule.object_types.add(self.script_type)
         self.legacy_job(task_kwargs={})
         live = []
+        original = cutover._fail_closed
 
-        def observe(sender, **kwargs):
+        def observe(job, error):
             live.append(EventRule.objects.filter(pk=rule.pk, enabled=True).exists())
+            return original(job, error)
 
-        job_end.connect(observe)
-        self.addCleanup(job_end.disconnect, observe)
-        cutover.enter_cutover(self.migration)
+        with mock.patch.object(cutover, '_fail_closed', observe):
+            cutover.enter_cutover(self.migration)
 
         self.assertEqual(live, [False])
 
@@ -471,6 +471,35 @@ class CutoverTestCase(TestCase):
         self.assertEqual(len(outstanding), 1)
         self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'executed')
         self.assertIn('taken by a worker', ' '.join(str(warning) for warning in warnings))
+
+    def test_a_run_a_worker_starts_while_it_is_cancelled_is_left_to_run(self):
+        # In the cancellation, RQJob.fetch runs after the row is read and before it is failed.
+        job = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        carried = Job.objects.get(pk=job.pk)
+        fetch = RQJob.fetch
+
+        def start_in_the_gap(*args, **kwargs):
+            carried.start()
+            return fetch(*args, **kwargs)
+
+        with mock.patch.object(RQJob, 'fetch', side_effect=start_in_the_gap):
+            counts, outstanding, _warnings = cutover._close(self.migration)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
+        self.assertEqual(counts['schedules'], 0)
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
+        self.assertEqual(outstanding, self.migration.journal['schedules'])
+
+    def test_the_owner_of_a_cancelled_run_is_notified(self):
+        owner = get_user_model().objects.create_user(username='owner')
+        job = self.legacy_job(task_kwargs={})
+        Job.objects.filter(pk=job.pk).update(user=owner)
+
+        cutover.enter_cutover(self.migration)
+
+        self.assertTrue(Notification.objects.filter(user=owner, object_id=job.pk).exists())
 
     def test_a_capture_replayed_before_any_close_records_nothing_twice(self):
         # A crash before the closures leaves every job enqueued, so a second capture sees them all.

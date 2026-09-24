@@ -5,13 +5,15 @@ import datetime
 
 import django_rq
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rq.exceptions import NoSuchJobError
 from rq.job import Job as RQJob
 
-from core.choices import JobStatusChoices
+from core.choices import JobNotificationChoices, JobStatusChoices
+from core.events import JOB_FAILED
 from core.models import Job
-from extras.models import EventRule
+from extras.models import EventRule, Notification
 from users.models import ObjectPermission
 from utilities.rqworker import get_all_workers
 
@@ -402,7 +404,7 @@ def _render(value):
 def _close(run):
     """Close every door available to a plugin, report how many of each, and what stayed open."""
     journal = run.journal
-    # Before the cancellations, whose terminate() sends the job_end a completion rule listens for.
+    # First, so a run that slips past the cancellations below meets no captured grant or rule.
     permissions = _disable_permissions(journal['permissions'])
     event_rules = _disable_event_rules(journal['event_rules'])
     unreadable = journal.get('schedules_unreadable', [])
@@ -468,9 +470,7 @@ def _cancel_schedules(run, captured, unreadable=()):
             entry['cancellation'] = 'vanished'
             continue
         if entry.get('cancellation') == 'cancelling' and job.status not in legacy_source.cancellable_statuses():
-            # An earlier pass failed this row and stopped before recording that it had. Its own
-            # terminal status cannot say which of the two happened, so started decides. Only a worker
-            # assigns it, but terminate() saves the whole row, so a start by a second worker can be lost.
+            # Only a worker sets started, so it separates this cutover's own failure from a run that went ahead.
             if job.started is None:
                 entry['cancellation'] = 'cancelled'
                 cancelled += 1
@@ -486,34 +486,38 @@ def _cancel_schedules(run, captured, unreadable=()):
                 outstanding.append(entry)
             run.record_journal(schedules=captured)
             continue
-        if job.status not in legacy_source.cancellable_statuses():
-            # Never terminated underneath the worker that owns it, so the outcome is recorded instead.
-            if job.status == JobStatusChoices.STATUS_RUNNING:
-                entry['cancellation'] = 'running'
-                warnings.append(
-                    _(
-                        'Job {pk} ("{name}") started before the cutover could cancel it, so it was left '
-                        'to finish rather than terminated. Wait for it, then enter the cutover again.'
-                    ).format(pk=entry['job_pk'], name=entry['name'])
-                )
-            else:
-                entry['cancellation'] = 'executed'
-                warnings.append(
-                    _(
-                        'Job {pk} ("{name}") had already run by the time the cutover reached it, so it '
-                        'was not cancelled and will not be recreated. Schedule it again by hand against '
-                        'the Script that replaced it if it should keep running.'
-                    ).format(pk=entry['job_pk'], name=entry['name'])
-                )
-            outstanding.append(entry)
-            continue
-        # Without this, an interruption leaves a failed row a retry reads as one a worker ran.
-        entry['cancellation'] = 'cancelling'
-        run.record_journal(schedules=captured)
-        _fail_closed(job, _('Cancelled by the Custom Scripts migration cutover. The plugin recreates this run.'))
-        entry['cancellation'] = 'cancelled'
-        run.record_journal(schedules=captured)
-        cancelled += 1
+        if job.status in legacy_source.cancellable_statuses():
+            # Without this, an interruption leaves a failed row a retry reads as one a worker ran.
+            entry['cancellation'] = 'cancelling'
+            run.record_journal(schedules=captured)
+            if _fail_closed(
+                job, _('Cancelled by the Custom Scripts migration cutover. The plugin recreates this run.')
+            ):
+                entry['cancellation'] = 'cancelled'
+                run.record_journal(schedules=captured)
+                cancelled += 1
+                continue
+            # A worker started it after the read above.
+            job.refresh_from_db()
+        # Never terminated underneath the worker that owns it, so the outcome is recorded instead.
+        if job.status == JobStatusChoices.STATUS_RUNNING:
+            entry['cancellation'] = 'running'
+            warnings.append(
+                _(
+                    'Job {pk} ("{name}") started before the cutover could cancel it, so it was left '
+                    'to finish rather than terminated. Wait for it, then enter the cutover again.'
+                ).format(pk=entry['job_pk'], name=entry['name'])
+            )
+        else:
+            entry['cancellation'] = 'executed'
+            warnings.append(
+                _(
+                    'Job {pk} ("{name}") had already run by the time the cutover reached it, so it '
+                    'was not cancelled and will not be recreated. Schedule it again by hand against '
+                    'the Script that replaced it if it should keep running.'
+                ).format(pk=entry['job_pk'], name=entry['name'])
+            )
+        outstanding.append(entry)
     for key in unreadable:
         # Still waiting, and no capture could read it, so closing is all that is left to do.
         # Also what keeps it out of the uncaptured count, which would otherwise never reach zero.
@@ -530,13 +534,18 @@ def _cancel_schedules(run, captured, unreadable=()):
 
 
 def _fail_closed(job, error):
-    """Drop one job's queued task and fail its row."""
+    """Drop one job's queued task and fail its row unless a worker has started it, returning whether it did."""
     queue = django_rq.get_queue(job.queue_name)
     with contextlib.suppress(NoSuchJobError):
         RQJob.fetch(str(job.job_id), connection=queue.connection).delete()
-    # terminate() rather than an update, so the owner of a scheduled run is notified that it was
-    # cancelled. There is no cancelled status, so this fails closed.
-    job.terminate(JobStatusChoices.STATUS_FAILED, error=str(error))
+    # An update, since terminate()'s full save would overwrite a start by a worker that took the task first.
+    failed = Job.objects.filter(
+        pk=job.pk, status__in=legacy_source.cancellable_statuses(), started__isnull=True
+    ).update(status=JobStatusChoices.STATUS_FAILED, error=str(error), completed=timezone.now())
+    if failed and job.user_id and job.notifications != JobNotificationChoices.NOTIFICATION_NEVER:
+        # The owner notice terminate() would have sent for a failed job.
+        Notification(user_id=job.user_id, object=job, event_type=JOB_FAILED).save()
+    return bool(failed)
 
 
 def _drop_auto_sync(run):

@@ -94,10 +94,11 @@ ROWS = (
     ('extras.models.EventRule.enabled', 'extras.models:EventRule.enabled'),
     ('core.models.Job.terminate', 'core.models:Job.terminate'),
     (
-        'django_rq.get_queue and rq.job.Job.fetch / .delete',
+        'django_rq.get_queue and rq.job.Job.fetch / .delete / .exists',
         'django_rq:get_queue',
         'rq.job:Job.fetch',
         'rq.job:Job.delete',
+        'rq.job:Job.exists',
     ),
     ('rq.exceptions.NoSuchJobError', 'rq.exceptions:NoSuchJobError'),
     ('core.models.AutoSyncRecord', 'core.models:AutoSyncRecord'),

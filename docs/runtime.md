@@ -151,9 +151,10 @@ The results are recorded on the revision as its
 [published Scripts](models/scriptprojectrevision.md).
 
 Stored validation errors and validation Job logs use Project-relative paths
-instead of internal runtime names, storage identities and cache paths. See the
-[revision page](models/scriptprojectrevision.md) for validation ownership and
-lease details.
+instead of internal runtime names, storage identities and cache paths.
+Ownership and the validation lease are described on the
+[revision page](models/scriptprojectrevision.md#the-validation-lease),
+including how a validation whose worker stopped is taken over.
 
 ## What activation does
 

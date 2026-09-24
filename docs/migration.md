@@ -296,7 +296,9 @@ Cutover refuses if staging has not run, the migration state does not allow it,
 built-in Custom Script Jobs are running or the worker check fails. Every mapped
 Project must exist and either serve a revision or have a `valid` revision
 available. A pending or invalid newest revision does not block a Project that
-already has a usable one.
+already has a usable one. A revision left `validating` by a worker that stopped
+is validated again by the next staging pass once its 30-minute lease has
+expired.
 
 This check reads revision state, not source storage. Missing files can still
 make activation fail. Review activation results before repointing.

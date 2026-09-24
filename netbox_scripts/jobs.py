@@ -938,8 +938,7 @@ class MigrationStagingJob(JobRunner):
                 )
                 continue
             status = result['revision_status']
-            # Ingestion queues validation for a materialized revision and nothing else, so any
-            # other status is one the revision already held when content addressing found it.
+            # Any status but materialized is one the revision already held when content addressing found it.
             # Whole sentences per branch: a translator cannot reorder a substituted fragment.
             if status == RevisionStatusChoices.MATERIALIZED:
                 template = (
@@ -950,9 +949,9 @@ class MigrationStagingJob(JobRunner):
                 message = template.format(key=result['key'], revision_pk=result['revision_pk'])
             else:
                 template = (
-                    _('Created project {key}, revision {revision_pk} is {label}, so no validation was queued.')
+                    _('Created project {key}, revision {revision_pk} is {label}.')
                     if result['created']
-                    else _('Reused project {key}, revision {revision_pk} is {label}, so no validation was queued.')
+                    else _('Reused project {key}, revision {revision_pk} is {label}.')
                 )
                 message = template.format(key=result['key'], revision_pk=result['revision_pk'], label=labels[status])
             self.logger.info(message)

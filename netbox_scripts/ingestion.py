@@ -22,13 +22,17 @@ record its cleanup, so a failed write is recorded on the revision as STORAGE_FAI
 where it stays inspectable and retryable.
 """
 
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from . import branching
-from .choices import ProjectSourceTypeChoices, RevisionStatusChoices
+from .choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_LEASE_SECONDS
 from .jobs import RevisionValidationJob
-from .models import ScriptFile
+from .models import ScriptFile, ScriptProject
 from .permissions import validate_script_file_permissions
 from .storage import config, service, store
 from .storage.exceptions import UnsafePathError
@@ -191,11 +195,11 @@ def ingest_data_source(project):
 
 def queue_revision_processing(revision):
     """Queue validation for a revision that needs it. Returns the Job, or None when nothing is owed."""
-    from .choices import ActivationPolicyChoices
-    from .constants import ACTIVATABLE_REVISION_STATUSES
-    from .models import ScriptProject
-
     if revision.status == RevisionStatusChoices.MATERIALIZED:
+        return RevisionValidationJob.enqueue_validation(revision)
+    lease_horizon = timezone.now() - timedelta(seconds=VALIDATION_LEASE_SECONDS)
+    if revision.status == RevisionStatusChoices.VALIDATING and revision.validation_started < lease_horizon:
+        # Its worker stopped after claiming it, and only a new run can take the expired claim over.
         return RevisionValidationJob.enqueue_validation(revision)
     if revision.status in ACTIVATABLE_REVISION_STATUSES:
         project = ScriptProject.objects.get(pk=revision.project_id)

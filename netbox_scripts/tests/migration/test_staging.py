@@ -250,7 +250,7 @@ class StageTestCase(LegacySourceMixin, TestCase):
         job = MigrationStagingJob.enqueue(immediate=True)
 
         messages = ' '.join(entry['message'] for entry in job.log_entries)
-        self.assertIn('is Valid, so no validation was queued', messages)
+        self.assertIn('is Valid.', messages)
         self.assertIn('0 awaiting a verdict', messages)
 
     def test_the_job_opens_its_run_under_the_lock(self):

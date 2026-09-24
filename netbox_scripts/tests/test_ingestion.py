@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +20,7 @@ from netbox_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
+from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
 from netbox_scripts.ingestion import (
     _data_source_tree,
     check_upload_conflicts,
@@ -237,6 +239,30 @@ class IngestUploadTestCase(TestCase):
         second = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
         self.assertEqual(second.revision.status, RevisionStatusChoices.MATERIALIZED)
         self.enqueued.assert_called_once_with(first.revision)
+
+    def test_a_validation_whose_lease_expired_is_queued_again(self):
+        first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING,
+            validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
+        )
+        self.enqueued.reset_mock()
+
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+
+        self.enqueued.assert_called_once()
+        self.assertEqual(self.enqueued.call_args.args[0].pk, first.revision.pk)
+
+    def test_a_validation_inside_its_lease_is_left_to_its_owner(self):
+        first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        ScriptProjectRevision.objects.filter(pk=first.revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING, validation_started=timezone.now()
+        )
+        self.enqueued.reset_mock()
+
+        ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+
+        self.enqueued.assert_not_called()
 
     def test_a_nested_path_is_preserved_at_this_layer(self):
         # Flattening to a basename happens in Django's uploaded-file handling, so it binds the

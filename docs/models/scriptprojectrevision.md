@@ -189,7 +189,9 @@ regardless of the old Job's status. This handles workers that disappear without
 updating their Job row. The configured Job timeout is shorter than the lease.
 
 Lease expiry permits a new claim. It does not itself submit another validation
-Job.
+Job. Once the lease has expired, the next reconciliation, upload or script file
+refresh of the project that resolves to the revision queues a new validation,
+which claims it.
 
 Transitions to `valid`, `invalid` or back to `materialized` check both
 `validating` status and the owning Job. A worker whose lease was reclaimed

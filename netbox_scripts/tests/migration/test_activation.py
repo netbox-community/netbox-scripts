@@ -1,3 +1,4 @@
+from datetime import timedelta
 from unittest import mock
 
 from django.test import TestCase
@@ -9,6 +10,7 @@ from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoic
 from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.storage import service
 from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
@@ -27,6 +29,21 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         """Stage and validate, then pin that this suite starts from nothing activated."""
         super().stage_and_validate()
         self.assertFalse(ScriptProject.objects.filter(active_revision__isnull=False).exists())
+
+    def serving_project(self):
+        """Stage, validate and activate, returning the first Project by key that now serves."""
+        self.stage_and_validate()
+        cutover.activate_staged(self.migration)
+        return ScriptProject.objects.filter(active_revision__isnull=False).order_by('key').first()
+
+    def staged(self, project, files, status):
+        """Stage a tree as the project's latest source and force its verdict."""
+        revision = service.stage_revision(project, files).revision
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=status)
+        return ScriptProjectRevision.objects.get(pk=revision.pk)
+
+    def outcome(self, results, project):
+        return next(result['outcome'] for result in results if result['project_key'] == project.key)
 
     def test_it_refuses_before_the_fence_has_been_recorded(self):
         # Only one run may be open, so the fenced one goes before the fresh one is created.
@@ -135,6 +152,31 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(dict(ScriptProject.objects.values_list('key', 'active_revision_id')), serving)
         # Synchronization skips a row that already matches, so the same rows survive untouched.
         self.assertEqual(set(NetBoxScript.objects.values_list('pk', flat=True)), script_pks)
+
+    def test_a_serving_project_is_never_moved_back_to_an_older_valid_revision(self):
+        project = self.serving_project()
+        serving = project.active_revision
+        older = self.staged(project, {'older.py': b'VALUE = 1\n'}, RevisionStatusChoices.VALID)
+        ScriptProjectRevision.objects.filter(pk=older.pk).update(created=serving.created - timedelta(days=1))
+        self.staged(project, {'latest.py': b'VALUE = 2\n'}, RevisionStatusChoices.INVALID)
+
+        results = cutover.activate_staged(self.migration)
+
+        project.refresh_from_db()
+        self.assertEqual(project.active_revision_id, serving.pk)
+        self.assertEqual(
+            self.outcome(results, project), 'kept serving its active revision, its latest source is invalid'
+        )
+
+    def test_a_serving_project_moves_to_a_newer_valid_source(self):
+        project = self.serving_project()
+        latest = self.staged(project, {'latest.py': b'VALUE = 2\n'}, RevisionStatusChoices.VALID)
+
+        results = cutover.activate_staged(self.migration)
+
+        project.refresh_from_db()
+        self.assertEqual(project.active_revision_id, latest.pk)
+        self.assertEqual(self.outcome(results, project), 'activated')
 
     def test_a_second_run_over_fewer_modules_keeps_the_whole_record(self):
         # record_step assigns, so replacing the list would shrink what verification then checks.

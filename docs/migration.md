@@ -313,15 +313,10 @@ without it. Recreate it by hand.
 for repointing. It records an outcome for each Project. One activation failure
 does not stop the remaining Projects.
 
-The pass selects the newest `valid` revision unless the Project already serves
-its newest revision. In that case, it synchronizes the published rows to
-repair any differences. It does not select `retired` revisions.
-
-!!! warning "Review Projects that already serve a revision"
-
-    This selection can choose an older `valid` revision even when a newer
-    revision is active. Do not assume the pass preserves the current active
-    revision. Review Projects with multiple revisions before running it.
+The pass activates each Project's latest accepted source when it is `valid`. A
+Project already serving a revision keeps it when that source is not `valid`,
+with its published rows repaired, and a Project serving nothing gets its newest
+`valid` revision instead. It does not select `retired` revisions.
 
 Check each outcome and active revision before repointing. Repeating activation
 checks the Projects again and can make further changes.

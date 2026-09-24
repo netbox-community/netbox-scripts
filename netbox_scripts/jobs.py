@@ -1034,8 +1034,8 @@ class MigrationActivationJob(JobRunner):
     """
     Put the staged Projects into service, so the plugin serves and its Script rows exist.
 
-    Runs after the fence and before the references move. Safe to run again: a project already
-    serving its newest revision has its rows repaired.
+    Runs after the fence and before the references move. Safe to run again: a serving project
+    whose accepted source is not `valid` keeps what it serves, with its rows repaired.
     """
 
     class Meta:

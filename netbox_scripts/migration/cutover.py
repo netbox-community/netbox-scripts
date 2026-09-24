@@ -201,8 +201,8 @@ def activate_staged(run):
     """
     Put every Project this migration staged into service, and return one outcome each.
 
-    Safe to run again: a project already serving its newest revision has its rows repaired, and
-    nothing is written where nothing is wrong. Raises CutoverRefused before the fence.
+    Safe to run again: a serving project whose accepted source is not `valid` keeps what it serves, with its rows
+    repaired, and nothing is written where nothing is wrong. Raises CutoverRefused before the fence.
     """
     require_staged(run)
     keys = mapping.project_keys(mapping.recorded(run))
@@ -228,12 +228,26 @@ def _activate_project(project):
     newest = project.revisions.order_by('-created').first()
     if newest is None:
         return _outcome(project, None, 'holds no revision')
+    # Accepted order, not creation order: staging identical content reuses an older revision.
+    source = project.latest_stored_revision()
+    accepted = source if source is not None and source.status == RevisionStatusChoices.VALID else None
     # The pointer field, not the current_revision property, which falls back to the newest attempt
     # and would report an unactivated project as though it were serving.
-    if project.active_revision_id == newest.pk:
-        revision, outcome = newest, 'was already serving this revision'
+    if project.active_revision_id is not None:
+        if accepted is not None:
+            revision, outcome = accepted, 'activated'
+        else:
+            # Never back to an older valid revision: the one serving stays, with its rows repaired.
+            revision = project.active_revision
+            if source is None or source.pk == project.active_revision_id:
+                outcome = 'was already serving this revision'
+            else:
+                outcome = f'kept serving its active revision, its latest source is {source.status}'
     else:
-        candidate = project.revisions.filter(status=RevisionStatusChoices.VALID).order_by('-created').first()
+        # Serving nothing, any valid revision beats none, the accepted source first.
+        candidate = (
+            accepted or project.revisions.filter(status=RevisionStatusChoices.VALID).order_by('-created').first()
+        )
         if candidate is None:
             # Retired is deliberately not accepted here: preferring it over an older valid revision
             # would serve a revision the project had already stood down from.

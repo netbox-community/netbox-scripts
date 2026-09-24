@@ -1,8 +1,10 @@
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 import django_rq
+import netaddr
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
@@ -28,6 +30,21 @@ class Retire(Script):
 
     def run(self, data, commit):
         return data['site'].name
+"""
+
+# Two are optional, so a value lost in the journal would replay blank rather than fail validation.
+TYPED_SCRIPT = b"""from extras.scripts import DecimalVar, IPAddressVar, IPNetworkVar, Script
+
+
+class Allocate(Script):
+    amount = DecimalVar()
+    address = IPAddressVar()
+    network = IPNetworkVar()
+    spare_amount = DecimalVar(required=False)
+    spare_address = IPAddressVar(required=False)
+
+    def run(self, data, commit):
+        pass
 """
 
 
@@ -212,6 +229,34 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(task.kwargs['data'], {'site': self.site})
         self.assertFalse(task.kwargs['commit'])
         self.assertEqual(task.timeout, 600)
+
+    def test_decimal_and_ip_input_comes_back_as_the_run_was_queued_with_it(self):
+        module = self.legacy_synced_module('automation/allocate.py', TYPED_SCRIPT)
+        data = {
+            'amount': Decimal('1.25'),
+            'address': netaddr.IPAddress('192.0.2.1'),
+            'network': netaddr.IPNetwork('192.0.2.0/24'),
+            'spare_amount': Decimal('0.50'),
+            'spare_address': netaddr.IPAddress('192.0.2.7'),
+        }
+        self.legacy_schedule(script=Script.objects.get(module=module, name='Allocate'), data=data)
+        self.cross_over()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(self.queue.jobs[0].kwargs['data'], data)
+
+    def test_a_schedule_with_input_the_cutover_could_not_record_is_held(self):
+        self.legacy_schedule(script=self.variable_script, data={'site': self.site, 'upload': object()})
+        self.cross_over()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts, {'recreated': 0, 'skipped': 1, 'shifted': 0, 'outstanding': 0})
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('upload' in warning for warning in warnings))
 
     def test_a_future_schedule_keeps_its_time_and_pins_the_active_revision(self):
         due = self.future()

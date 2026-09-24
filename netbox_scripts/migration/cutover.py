@@ -2,8 +2,10 @@
 
 import contextlib
 import datetime
+import decimal
 
 import django_rq
+import netaddr
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -337,8 +339,8 @@ def _capture_schedules(exclude=()):
         if dropped:
             warnings.append(
                 _(
-                    'Job {pk} ("{name}") has input that cannot be recorded ({dropped}), '
-                    'so it will not be recreated with those values.'
+                    'Job {pk} ("{name}") has input that cannot be recorded ({dropped}), so it will not '
+                    'be recreated. Schedule it again by hand after the migration.'
                 ).format(pk=job.pk, name=job.name, dropped=', '.join(dropped))
             )
         captured.append(entry)
@@ -362,6 +364,7 @@ def _capture_schedule(job):
         'legacy_object_type': _label(job.object_type),
         'name': job.name,
         'data': data,
+        'dropped': dropped,
         'commit': bool(kwargs.get('commit', True)),
         'scheduled': job.scheduled.isoformat() if job.scheduled else None,
         'interval': job.interval,
@@ -391,6 +394,9 @@ def _render(value):
         return value
     if isinstance(value, datetime.datetime | datetime.date):
         return value.isoformat()
+    if isinstance(value, decimal.Decimal | netaddr.IPAddress | netaddr.IPNetwork):
+        # The form field each comes from parses this text straight back.
+        return str(value)
     if isinstance(value, models.Model):
         # A form rebuilt from the key resolves it back to this instance, which is what ObjectVar does.
         return value.pk

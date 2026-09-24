@@ -2,9 +2,11 @@ import hashlib
 import shutil
 import tempfile
 import uuid
+from decimal import Decimal
 from unittest import mock
 
 import django_rq
+import netaddr
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -289,6 +291,29 @@ class CutoverTestCase(TestCase):
         self.assertEqual(data['site'], site.pk)
         self.assertEqual(data['others'], [site.pk])
 
+    def test_decimal_and_ip_input_is_captured_as_text_its_form_field_reads_back(self):
+        self.legacy_job(
+            task_kwargs={
+                'data': {
+                    'amount': Decimal('1.25'),
+                    'address': netaddr.IPAddress('192.0.2.1'),
+                    'network': netaddr.IPNetwork('192.0.2.0/24'),
+                    'interface': netaddr.IPNetwork('192.0.2.1/24'),
+                },
+                'commit': True,
+            }
+        )
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        entry = self.migration.journal['schedules'][0]
+        self.assertEqual(
+            entry['data'],
+            {'amount': '1.25', 'address': '192.0.2.1', 'network': '192.0.2.0/24', 'interface': '192.0.2.1/24'},
+        )
+        self.assertEqual(entry['dropped'], [])
+
     def test_input_that_cannot_be_recorded_is_reported_and_left_out(self):
         # An uploaded file is gone once the request ended, so it can never be replayed.
         self.legacy_job(task_kwargs={'data': {'name': 'core', 'upload': object()}, 'commit': True})
@@ -297,6 +322,7 @@ class CutoverTestCase(TestCase):
 
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.journal['schedules'][0]['data'], {'name': 'core'})
+        self.assertEqual(self.migration.journal['schedules'][0]['dropped'], ['upload'])
         self.assertTrue(any('upload' in warning for warning in self.migration.warnings))
 
     def test_a_schedule_whose_task_the_queue_lost_is_reported_rather_than_raised(self):

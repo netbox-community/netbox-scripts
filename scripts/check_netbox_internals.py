@@ -101,6 +101,7 @@ ROWS = (
         'rq.job:Job.exists',
     ),
     ('rq.exceptions.NoSuchJobError', 'rq.exceptions:NoSuchJobError'),
+    ('netaddr.IPAddress and .IPNetwork', 'netaddr:IPAddress', 'netaddr:IPNetwork'),
     ('core.models.AutoSyncRecord', 'core.models:AutoSyncRecord'),
     (
         'extras.models.EventRule.action_type, .action_object_type, .action_object_id, .object_types',

@@ -302,10 +302,10 @@ This check reads revision state, not source storage. Missing files can still
 make activation fail. Review activation results before repointing.
 
 A missing queue task leaves no input to capture, so the run requires manual
-recreation. Uploaded files and other unsupported input values are omitted from
-the journal with a warning. Replay validates the remaining input: it can be
-refused, or an optional omitted value can use its default. **Do not assume that
-a run with dropped input is an equivalent replacement.**
+recreation. Decimal and IP address values are recorded as text their form
+fields read back. An uploaded file, or any other value the journal cannot hold,
+is left out with a warning, and that run is not recreated rather than replayed
+without it. Recreate it by hand.
 
 ## Activating the staged Projects
 
@@ -387,8 +387,9 @@ recorded result rather than scanning for new references.
 **Permanently skipped** means migration will not retry the item, not that you
 cannot resolve it manually. Examples include classes absent from the captured
 map, module-level references, constrained permissions, overdue one-shot runs,
-invalid input and deleted or deactivated recorded owners. Review the warnings
-separately. These items do not all keep migration open.
+invalid input, input the cutover could not record and deleted or deactivated
+recorded owners. Review the warnings separately. These items do not all keep
+migration open.
 
 Retained built-in rows may lose their pages when NetBox removes the feature.
 Export or reconcile history you need before that upgrade. Retaining rows does

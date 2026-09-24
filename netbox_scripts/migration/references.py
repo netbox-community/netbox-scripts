@@ -302,6 +302,15 @@ def recreate_schedules(run):
                 ).format(name=entry['name'])
             )
             continue
+        if entry.get('dropped'):
+            counts['skipped'] += 1
+            warnings.append(
+                _(
+                    'Schedule "{name}" had input the cutover could not record ({dropped}), so it was not '
+                    'recreated rather than run without it. Schedule it again by hand.'
+                ).format(name=entry['name'], dropped=', '.join(entry['dropped']))
+            )
+            continue
         script = resolved.get(entry['legacy_script_pk'])
         if script is None:
             counts['skipped'] += 1

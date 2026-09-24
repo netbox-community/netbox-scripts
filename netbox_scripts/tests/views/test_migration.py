@@ -12,6 +12,7 @@ from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.models import Job
@@ -74,6 +75,10 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def record(self, job_class, status=JobStatusChoices.STATUS_COMPLETED):
         return Job.objects.create(name=job_class.name, job_id=uuid.uuid4(), status=status)
+
+    def closed_run(self):
+        """A run the cleanup pass closed, whatever its Job went on to record."""
+        return MigrationRun.objects.create(state=MigrationStateChoices.MIGRATED, completed=timezone.now())
 
     def test_the_page_needs_the_project_add_permission(self):
         self.assertHttpStatus(self.client.get(self.url('migration')), 403)
@@ -897,21 +902,21 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         # No open run, which is what a completed cleanup leaves behind.
         self.grant('add', 'migrate')
         self.record_early_passes()
-        self.record(MigrationCleanupJob)
+        self.closed_run()
         self.assertEqual(self.next_action(), 'verify')
 
     def test_a_verification_run_before_the_cleanup_leaves_it_outstanding(self):
         self.grant('add', 'migrate')
         self.record_early_passes()
         self.record(MigrationVerificationJob)
-        self.record(MigrationCleanupJob)
+        self.closed_run()
 
         self.assertEqual(self.next_action(), 'verify')
 
     def test_a_failed_verification_leaves_it_outstanding(self):
         self.grant('add', 'migrate')
         self.record_early_passes()
-        self.record(MigrationCleanupJob)
+        self.closed_run()
         self.record(MigrationVerificationJob, status=JobStatusChoices.STATUS_FAILED)
 
         self.assertEqual(self.next_action(), 'verify')
@@ -919,9 +924,17 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_nothing_is_next_once_the_verification_has_run(self):
         self.grant('add', 'migrate')
         self.record_early_passes()
-        self.record(MigrationCleanupJob)
+        self.closed_run()
         self.record(MigrationVerificationJob)
         self.assertIsNone(self.next_action())
+
+    def test_a_closed_run_is_migrated_even_when_its_cleanup_job_never_finished(self):
+        self.grant('add')
+        self.record_early_passes()
+        self.record(MigrationCleanupJob, status=JobStatusChoices.STATUS_RUNNING)
+        self.closed_run()
+
+        self.assertEqual(self.next_action(), 'verify')
 
     def test_the_next_step_renders_filled_and_the_rest_as_outlines(self):
         self.grant('add', 'migrate')

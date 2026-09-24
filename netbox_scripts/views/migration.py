@@ -145,6 +145,7 @@ class MigrationView(BaseMigrationView):
         cleanup_job = _latest(MigrationCleanupJob)
         verification_job = _latest(MigrationVerificationJob)
         run = MigrationRun.current()
+        closed = MigrationRun.objects.filter(state=MigrationStateChoices.MIGRATED).order_by('-created').first()
         # Mirrors what enter_cutover accepts. Keying this off the state alone would withhold the
         # one button that finishes a crossing a crash left half done.
         crossable = bool(
@@ -170,12 +171,10 @@ class MigrationView(BaseMigrationView):
         can_clean_up = references_done and not not_serving
         # Crossing with nothing to serve is not recoverable, so the page withholds it.
         can_cut_over = crossable and not unservable
-        # Recording the cleanup step closes the run and current() excludes a closed one, so a
-        # finished migration reads as a completed cleanup Job with no run left to see.
-        migrated = run is None and _completed(cleanup_job)
-        # A verification is offered at every state, so one that ran before the cleanup answered a
-        # different question and leaves this step outstanding.
-        verified = _completed(verification_job) and bool(cleanup_job) and verification_job.created > cleanup_job.created
+        # Read from the run, since a worker can stop before core marks the cleanup Job completed.
+        migrated = run is None and closed is not None
+        # Offered at every state, so a verification from before the run closed leaves this step outstanding.
+        verified = migrated and _completed(verification_job) and verification_job.created > closed.completed
         # The passes in the order they run, each paired with the button's own render condition and
         # with what would make that pass complete. Two of the refusals the page reports need a
         # clause: a blocking finding withholds staging, and a Project that stopped serving reopens

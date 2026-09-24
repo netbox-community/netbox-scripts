@@ -1,4 +1,5 @@
 import uuid
+from unittest import mock
 
 from django.core.files.storage import storages
 from django.test import TestCase
@@ -143,6 +144,24 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
         self.assertIsNotNone(run.completed)
         self.assertTrue(run.step_done(cleanup.STEP))
+
+    def test_an_interrupted_completion_leaves_the_run_open_for_a_retry(self):
+        run = self.repointed()
+        with (
+            mock.patch.object(MigrationRun, 'complete_step', side_effect=RuntimeError('stopped')),
+            self.assertRaises(RuntimeError),
+        ):
+            cleanup.retire_legacy(run)
+
+        retry = MigrationRun.current()
+        self.assertEqual(retry.pk, run.pk)
+        self.assertEqual(retry.state, MigrationStateChoices.CUTOVER)
+
+        cleanup.retire_legacy(retry)
+
+        retry.refresh_from_db()
+        self.assertEqual(retry.state, MigrationStateChoices.MIGRATED)
+        self.assertTrue(retry.step_done(cleanup.STEP))
 
     def test_a_second_pass_changes_nothing_and_returns_what_the_first_recorded(self):
         run = self.repointed()

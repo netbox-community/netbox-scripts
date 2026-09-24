@@ -502,7 +502,10 @@ A pre-cutover database backup does not include the journal captured later.
 After a restore, use your separate record of pending runs to recreate required
 work. Check what actually executed before submitting replacements.
 
-If the run's state, journal and Job result disagree after an interruption,
+Cleanup closes the run and records its step in one commit, and the page reads
+completion from the run rather than from the cleanup Job, so a worker that
+stops after that commit still leaves **Verify** as the next action. If the
+run's state, journal and Job result disagree after any other interruption,
 preserve them for investigation. Do not open another migration or manually
 advance the state just to make the page appear complete.
 

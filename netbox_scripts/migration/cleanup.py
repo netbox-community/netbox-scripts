@@ -1,5 +1,6 @@
 """The last step: deleting the built-in rows once nothing an installation holds refers to them."""
 
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from ..choices import MigrationStateChoices
@@ -62,8 +63,10 @@ def retire_legacy(run):
         # Left open on purpose: the operator clears what each warning names and runs this again.
         return counts, warnings
     # Retained does not hold the run open, because nothing an operator does would ever clear it.
-    run.advance(MigrationStateChoices.MIGRATED)
-    run.complete_step(STEP, counts, warnings)
+    # Together, so a crash cannot leave a closed run without the record that closed it.
+    with transaction.atomic():
+        run.advance(MigrationStateChoices.MIGRATED)
+        run.complete_step(STEP, counts, warnings)
     return counts, warnings
 
 

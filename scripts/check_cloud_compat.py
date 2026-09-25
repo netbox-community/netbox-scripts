@@ -373,7 +373,7 @@ def report(findings):
     print('cloud-compat: FAIL.')
     print('NetBox Cloud and NetBox Enterprise run this plugin as immutable, horizontally scaled')
     print('Kubernetes pods. Each line below behaves differently there than on a single VM.')
-    print('See AGENTS.md, section "Cloud and Enterprise compatibility".')
+    print('See docs/development/conventions.md, section "NetBox integration".')
     current = None
     for finding in sorted(findings, key=Finding.sort_key):
         if finding.module != current:

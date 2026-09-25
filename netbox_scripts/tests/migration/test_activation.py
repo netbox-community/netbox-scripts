@@ -153,7 +153,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         # Synchronization skips a row that already matches, so the same rows survive untouched.
         self.assertEqual(set(NetBoxScript.objects.values_list('pk', flat=True)), script_pks)
 
-    def test_a_serving_project_is_never_moved_back_to_an_older_valid_revision(self):
+    def test_a_serving_project_keeps_its_revision_when_the_accepted_source_is_invalid(self):
         project = self.serving_project()
         serving = project.active_revision
         older = self.staged(project, {'older.py': b'VALUE = 1\n'}, RevisionStatusChoices.VALID)

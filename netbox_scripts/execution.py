@@ -100,10 +100,7 @@ def run_script(instance, *, data, commit, request=None):
     the caller decides what a failed run does to its Job. A dry run reverts the database changes
     this covers and is not a failure. request may be None, for a run with no request behind it.
     """
-    # Entering event tracking makes this run's request the current one, and leaving it puts
-    # back None rather than what was there before, and only on the way out of a clean exit. A
-    # run can fail, and can be nested inside a request, so the previous value is restored here.
-    # Without this a worker keeps attributing later changes to an abandoned run's user.
+    # Preserve the caller's request context across all processors and exit paths.
     outer_request = current_request.get()
     try:
         with ExitStack() as stack:

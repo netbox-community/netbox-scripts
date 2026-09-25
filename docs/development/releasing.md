@@ -1,7 +1,10 @@
 # Releasing
 
 Releases follow [Semantic Versioning](https://semver.org/). Record changes in
-`docs/releases.md` and use the checklist below to publish them.
+`docs/releases.md` and use the checklist below to publish them. Publishing uses
+PyPI Trusted Publishing, which needs a one-time publisher on the PyPI project:
+owner `netbox-community`, repository `netbox-scripts`, workflow `release.yml`,
+environment `pypi`.
 
 ## Checklist
 

@@ -46,7 +46,7 @@ job payload can carry. NetBox queues the instance itself in each object event,
 and an `EVENTS_PIPELINE` consumer may pickle it. Read
 `netbox.context.current_request` where a form needs the acting user.
 `scripts/check_cloud_compat.py` flags a stored request, and the test
-configuration pickles every queued object.
+configuration pickles each queued event's object.
 
 ### URLs, filters and permissions
 

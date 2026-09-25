@@ -196,6 +196,11 @@ Set `runtime_cache_root` to use another location, such as a larger or faster vol
 The cache can be rebuilt from Project storage. It does not need backups or sharing
 between nodes. Per-pod temporary storage is suitable for multi-node deployments.
 
+Web and worker processes that run as different accounts on one host and share a
+temporary directory each need their own private `runtime_cache_root`. NetBox's
+shipped systemd units already give each service a private `/tmp`. Do not make
+the cache group-writable to share it.
+
 The plugin creates private cache directories and checks their parent directories.
 A parent writable by other users is accepted only when its sticky bit prevents
 those users from renaming the cache directory. This permits use of the shared

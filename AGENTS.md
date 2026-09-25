@@ -361,8 +361,8 @@ Backend contract tests in `tests/storage/test_backend_contract.py` exercise
 storage without filesystem paths or directory semantics. The static checker
 `scripts/check_cloud_compat.py` checks filesystem calls, per-process state,
 threads, shell commands, management commands and stored requests. The test
-configuration's `EVENTS_PIPELINE` pickles every queued object. None of these
-checks replaces another.
+configuration's `EVENTS_PIPELINE` pickles each queued event's object. None of
+these checks replaces another.
 
 Keep justified `cloud-compat: ok` exemptions local to the exempt statement. Do not
 add one merely to silence a failure. Runtime cache operations, the additive

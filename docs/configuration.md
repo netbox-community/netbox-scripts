@@ -310,9 +310,8 @@ contents. Staging identical content later can reuse those storage keys.
 
 ## NetBox Branching
 
-NetBox Scripts can run alongside NetBox Branching. The routing and execution
-behavior below is covered against NetBox Branching v1.2.0-beta1 by the real-branch
-regression in `netbox_scripts/tests/test_branching_provisioned.py`.
+NetBox Scripts can run alongside NetBox Branching. The following rules apply
+when using both plugins.
 
 Projects, Script Files, Scripts, revisions and migration runs are installation-wide.
 All five use the main schema. Changes made from a branch apply everywhere and do

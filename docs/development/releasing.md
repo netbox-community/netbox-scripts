@@ -14,8 +14,8 @@ released throughout the checklist.
 1. **Check readiness.** Confirm CI passes on the default branch and the release's
     code and documentation changes are complete.
 
-2. **Update the change log.** Add a `## vX.Y.Z` section above the previous release
-    in `docs/releases.md`, separated by `---`. Group entries under
+2. **Update the change log.** Add a `## vX.Y.Z (YYYY-MM-DD)` section above the
+    previous release in `docs/releases.md`, separated by `---`. Group entries under
     `### Enhancements` and `### Bug Fixes`, using
     `* [#<issue>](<url>) - <summary>`. The first release lists only
     `* Initial release`, without subsections. An alpha release adds a warning
@@ -24,7 +24,7 @@ released throughout the checklist.
 3. **Set the version.** Update `version = "X.Y.Z"` in `pyproject.toml` and
     `__version__ = "X.Y.Z"` in `netbox_scripts/__init__.py`. Both must match the
     version in the release tag. The workflow refuses to publish if they differ.
-    Commit the release changes as `chore: release X.Y.Z`.
+    Commit the release changes as `chore(release): Release vX.Y.Z`.
 
 4. **Check the package contents.** Run:
 
@@ -39,7 +39,7 @@ released throughout the checklist.
     release commit:
 
     ```bash
-    git tag -a vX.Y.Z -m "Release X.Y.Z"
+    git tag -a vX.Y.Z -m "Release vX.Y.Z"
     git push origin main vX.Y.Z
     ```
 

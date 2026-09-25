@@ -70,15 +70,17 @@ might restart automatically.
     Cancellation never overwrites a run a worker has started, and the reference
     pass holds back the replacement of one that has started by the time the pass
     runs. A run whose Job row is deleted before the reference pass leaves
-    nothing to check, so it is recreated.
+    nothing to check, so its replacement is not held back.
 
     A recurring run that executes queues its next run. One queued while the
-    cutover step is open is captured when you enter the cutover again, and is
-    recreated with the others, so it needs no manual schedule. One queued after
-    the step completed is not captured and still runs the built-in Custom
-    Script, even if the reference pass has since moved its Job to the
-    replacement Script. It keeps the owner and interval of the run that queued
-    it. Delete it on the Jobs page before scheduling the Script again.
+    cutover step is open is captured when you enter the cutover again, and the
+    reference pass considers it for replay with the others. Check the reference
+    pass results before scheduling it by hand, so you do not duplicate a
+    replacement it already created. One queued after the step completed is not
+    captured and still runs the built-in Custom Script, even if the reference
+    pass has since moved its Job to the replacement Script. It keeps the owner
+    and interval of the run that queued it. Delete it on the Jobs page before
+    scheduling the Script again.
 
     One worker does not prevent users, integrations or Event Rules from
     submitting new work. The maintenance window is still required.

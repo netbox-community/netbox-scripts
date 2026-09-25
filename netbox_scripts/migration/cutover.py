@@ -511,7 +511,11 @@ def _cancel_schedules(run, captured, unreadable=()):
             entry['cancellation'] = 'cancelling'
             run.record_journal(schedules=captured)
             if _fail_closed(
-                job, _('Cancelled by the Custom Scripts migration cutover. The plugin recreates this run.')
+                job,
+                _(
+                    'Cancelled by the Custom Scripts migration cutover. The reference pass reports '
+                    'whether this run is recreated.'
+                ),
             ):
                 entry['cancellation'] = 'cancelled'
                 run.record_journal(schedules=captured)

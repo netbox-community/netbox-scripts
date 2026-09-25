@@ -14,6 +14,7 @@ from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from dcim.models import Site
 from extras.models import Script, ScriptModule
+from netbox_scripts.jobs import MigrationReferencesJob
 from netbox_scripts.migration import cutover, references
 from netbox_scripts.models import NetBoxScript
 from netbox_scripts.runtime.exceptions import ScriptFileImportError
@@ -211,6 +212,11 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
     def new_jobs(self):
         """Return the plugin's own Jobs, which are the ones a recreation produced."""
         return Job.objects.filter(object_type=ObjectType.objects.get_for_model(NetBoxScript))
+
+    def log_messages(self, reference_job, level):
+        """Return the messages a completed MigrationReferencesJob logged at one level, joined into one string."""
+        reference_job.refresh_from_db()
+        return ' '.join(entry['message'] for entry in reference_job.log_entries if entry['level'] == level)
 
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
@@ -483,6 +489,68 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         self.assertEqual(counts['recreated'], 0)
         self.assertFalse(self.new_jobs().exists())
+
+    def test_a_cancelled_run_that_started_is_held_back_once_history_has_moved(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+
+        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
+        self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+
+    def test_a_cancelled_run_queued_again_is_held_back_once_history_has_moved(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        RQJob.create(
+            func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
+        ).save()
+
+        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
+        self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+
+    def test_a_resumed_pass_still_holds_back_a_schedule_queued_again(self):
+        user = self.owned_schedule()
+        job = Job.objects.get(user=user)
+        self.cross_over()
+        MigrationReferencesJob.enqueue(immediate=True)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.HISTORY_STEP))
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+        # The first pass moved this row, so swapping the two passes would not rescue a lookup by type.
+        RQJob.create(
+            func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
+        ).save()
+        self.grant_run(user)
+        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
+        self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+
+    def test_a_cancelled_unstarted_schedule_is_recreated_exactly_once(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+
+        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(len(self.migration.journal['recreated_schedules']), 1)
+        self.assertEqual(self.new_jobs().exclude(pk=job.pk).count(), 1)
+        self.assertIn('Recreated 1 schedule(s)', self.log_messages(reference_job, 'info'))
 
     def test_an_entry_recorded_before_outcomes_were_kept_is_still_recreated(self):
         # A journal written by an earlier build carries no outcome at all, and a gate written as

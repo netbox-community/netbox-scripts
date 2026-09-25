@@ -48,7 +48,7 @@ not a list of unsupported APIs alone.
 | `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Disables captured Object Permission grants on the built-in feature. This is not an installation-wide write fence. |
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Disables captured rules during handover and restores eligible rules after repointing their action and source types. |
 | `core.models.Job.terminate` | `migration/cutover.py` | Mirrored rather than called. Cancellation fails a waiting Job with a conditional update, because `terminate()` saves the whole row and would overwrite a start by a worker that took the task first. The Notification `terminate()` sends the owner of a failed Job is created the same way instead. |
-| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` / `.exists` | `migration/cutover.py`, `migration/references.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. Replay checks whether the task exists again, which a claim or a scheduler's re-queue writes back. |
+| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` / `.exists` | `migration/cutover.py`, `migration/references.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. The reference pass checks whether the task exists again, which a claim or a scheduler's re-queue writes back. |
 | `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | Handles a missing RQ task. Capture marks its input unrecoverable, and cancellation treats the task as already deleted. |
 | `netaddr.IPAddress` and `.IPNetwork` | `migration/cutover.py` | The values an IP address or network variable cleans to, recorded as text the replacement's form field parses back. `netaddr` arrives with NetBox, which the plugin relies on without declaring. |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Removes built-in synchronization registrations. These use the **concrete** `ManagedFile` content type, unlike Job and Event Rule references to the proxy. |
@@ -233,9 +233,9 @@ through `ModelBackend`. A privileged user can also grant
 
 Task deletion and failed Job status do not guarantee that a cancelled run
 cannot execute. The scheduler can enqueue a task fetched before deletion, even
-with one worker. The reference pass then holds back its replacement, because
-the run has started or its task is queued again. The migration journal does not
-provide exactly-once execution. Keep the
+with one worker. The reference pass holds back its replacement when the run
+has started, or its task is queued again, by the time the pass runs. The
+migration journal does not provide exactly-once execution. Keep the
 [worker and scheduler precautions](../migration.md#worker-arrangement) in the
 migration guide as the operational reference.
 

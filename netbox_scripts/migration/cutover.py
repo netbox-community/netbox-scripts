@@ -499,8 +499,8 @@ def _cancel_schedules(run, captured, unreadable=()):
                 warnings.append(
                     _(
                         'Job {pk} ("{name}") was taken by a worker while the cutover was cancelling it, '
-                        'so it ran and will not be recreated. Schedule it again by hand against the '
-                        'Script that replaced it if it should keep running.'
+                        'so it ran and will not be recreated. If it recurs, see "Worker arrangement" in '
+                        'the migration guide before scheduling it again, since its next run may already exist.'
                     ).format(pk=entry['job_pk'], name=entry['name'])
                 )
                 outstanding.append(entry)
@@ -533,8 +533,8 @@ def _cancel_schedules(run, captured, unreadable=()):
             warnings.append(
                 _(
                     'Job {pk} ("{name}") had already run by the time the cutover reached it, so it '
-                    'was not cancelled and will not be recreated. Schedule it again by hand against '
-                    'the Script that replaced it if it should keep running.'
+                    'was not cancelled and will not be recreated. If it recurs, see "Worker arrangement" '
+                    'in the migration guide before scheduling it again, since its next run may already exist.'
                 ).format(pk=entry['job_pk'], name=entry['name'])
             )
         outstanding.append(entry)

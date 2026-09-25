@@ -9,9 +9,10 @@ from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
 from rq.job import Job as RQJob
 
+from core.models import Job
+
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from . import cutover, mapping
-from . import source as legacy_source
 from .locking import serialized_migration_step
 
 __all__ = (
@@ -185,8 +186,6 @@ def repoint_job_history(run):
     file, has no counterpart at all and does not. Raises CutoverRefused until every migrated
     Project is serving a revision.
     """
-    from core.models import Job
-
     _require_serving(run)
     if run.step_done(HISTORY_STEP):
         return run.recorded_counts(HISTORY_STEP), []
@@ -271,14 +270,16 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" was not cancelled by the cutover, because a worker had already '
-                    'taken it, so it has not been recreated. Check whether it ran and schedule it '
-                    'again by hand if it did not.'
-                ).format(name=entry['name'])
+                    'Schedule "{name}" (Job {pk}) was not cancelled by the cutover, because a worker had '
+                    'already taken it, so it has not been recreated. Check whether it ran, and run it again '
+                    'by hand if it did not. If it recurs, see "Worker arrangement" in the migration guide '
+                    'before scheduling it again, since its next run may already exist.'
+                ).format(pk=entry['job_pk'], name=entry['name'])
             )
             continue
         if entry.get('cancellation') == 'cancelled':
-            job = legacy_source.script_jobs().filter(pk=entry['job_pk']).first()
+            # By key alone: the history pass may already have moved this row to the Script.
+            job = Job.objects.filter(pk=entry['job_pk']).first()
             if job is not None:
                 connection = django_rq.get_queue(job.queue_name).connection
                 # A worker's start saves started, and a claim or a scheduler's re-queue writes the task back.
@@ -286,10 +287,11 @@ def recreate_schedules(run):
                     counts['skipped'] += 1
                     warnings.append(
                         _(
-                            'Schedule "{name}" started or was queued again on the built-in side after the '
-                            'cutover cancelled it, so it has not been recreated. Check whether it ran and '
-                            'schedule it again by hand if it should keep running.'
-                        ).format(name=entry['name'])
+                            'Schedule "{name}" (Job {pk}) started or was queued again on the built-in side '
+                            'after the cutover cancelled it, so it has not been recreated. Check whether it '
+                            'ran. If it recurs, see "Worker arrangement" in the migration guide before '
+                            'scheduling it again, since its next run may already exist.'
+                        ).format(pk=entry['job_pk'], name=entry['name'])
                     )
                     continue
         # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
@@ -297,18 +299,18 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" ran a built-in script module rather than a Custom Script, which no '
+                    'Schedule "{name}" (Job {pk}) ran a built-in script module rather than a Custom Script, which no '
                     'Script corresponds to, so it was not recreated.'
-                ).format(name=entry['name'])
+                ).format(pk=entry['job_pk'], name=entry['name'])
             )
             continue
         if entry.get('dropped'):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" had input the cutover could not record ({dropped}), so it was not '
+                    'Schedule "{name}" (Job {pk}) had input the cutover could not record ({dropped}), so it was not '
                     'recreated rather than run without it. Schedule it again by hand.'
-                ).format(name=entry['name'], dropped=', '.join(entry['dropped']))
+                ).format(pk=entry['job_pk'], name=entry['name'], dropped=', '.join(entry['dropped']))
             )
             continue
         script = resolved.get(entry['legacy_script_pk'])
@@ -318,17 +320,17 @@ def recreate_schedules(run):
                 counts['outstanding'] += 1
                 warnings.append(
                     _(
-                        'Schedule "{name}" ran built-in Custom Script {key}, which no Script '
+                        'Schedule "{name}" (Job {pk}) ran built-in Custom Script {key}, which no Script '
                         'resolves to, so it was not recreated.'
-                    ).format(name=entry['name'], key=entry['legacy_script_pk'])
+                    ).format(pk=entry['job_pk'], name=entry['name'], key=entry['legacy_script_pk'])
                 )
                 continue
             warnings.append(
                 _(
-                    'Schedule "{name}" ran built-in Custom Script {key}, whose class left its file, so no '
+                    'Schedule "{name}" (Job {pk}) ran built-in Custom Script {key}, whose class left its file, so no '
                     'Script will ever replace it and it was not recreated. Schedule it again by '
                     'hand against whatever replaces it.'
-                ).format(name=entry['name'], key=entry['legacy_script_pk'])
+                ).format(pk=entry['job_pk'], name=entry['name'], key=entry['legacy_script_pk'])
             )
             continue
         schedule_at, shifted = _replay_schedule(entry)
@@ -336,9 +338,9 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" was due at {due}, which has passed, so it was not recreated rather '
+                    'Schedule "{name}" (Job {pk}) was due at {due}, which has passed, so it was not recreated rather '
                     'than run at once. Schedule it again by hand.'
-                ).format(name=entry['name'], due=entry['scheduled'])
+                ).format(pk=entry['job_pk'], name=entry['name'], due=entry['scheduled'])
             )
             continue
         user = get_user_model().objects.filter(pk=entry['user_pk']).first() if entry['user_pk'] else None
@@ -346,9 +348,9 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" belonged to a user who no longer exists, so it was not recreated. '
+                    'Schedule "{name}" (Job {pk}) belonged to a user who no longer exists, so it was not recreated. '
                     'Schedule it again by hand against {script} under an account that should own it.'
-                ).format(name=entry['name'], script=script)
+                ).format(pk=entry['job_pk'], name=entry['name'], script=script)
             )
             continue
         # Deactivated is treated like deleted: no grant lets this account run anything, and
@@ -357,9 +359,9 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" belonged to {user}, whose account is deactivated, so it was not '
+                    'Schedule "{name}" (Job {pk}) belonged to {user}, whose account is deactivated, so it was not '
                     'recreated. Schedule it again by hand against {script} under an account that should own it.'
-                ).format(name=entry['name'], user=user, script=script)
+                ).format(pk=entry['job_pk'], name=entry['name'], user=user, script=script)
             )
             continue
         # Against the script, because a grant can name particular ones and the run view honours
@@ -369,9 +371,9 @@ def recreate_schedules(run):
             counts['outstanding'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" belonged to {user}, who can no longer run {script}, so it was not '
+                    'Schedule "{name}" (Job {pk}) belonged to {user}, who can no longer run {script}, so it was not '
                     'recreated. Grant them the permission to run it and run this pass again.'
-                ).format(name=entry['name'], user=user, script=script)
+                ).format(pk=entry['job_pk'], name=entry['name'], user=user, script=script)
             )
             continue
         try:
@@ -380,8 +382,8 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             counts['outstanding'] += 1
             warnings.append(
-                _('Schedule "{name}" could not be recreated against {script}: {error}').format(
-                    name=entry['name'], script=script, error=error
+                _('Schedule "{name}" (Job {pk}) could not be recreated against {script}: {error}').format(
+                    pk=entry['job_pk'], name=entry['name'], script=script, error=error
                 )
             )
             continue
@@ -389,25 +391,26 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" no longer supplies valid input for {script}, so it was not recreated: {errors}'
-                ).format(name=entry['name'], script=script, errors=invalid.messages)
+                    'Schedule "{name}" (Job {pk}) no longer supplies valid input for {script}, so it was not '
+                    'recreated: {errors}'
+                ).format(pk=entry['job_pk'], name=entry['name'], script=script, errors=invalid.messages)
             )
             continue
         counts['recreated'] += 1
         if entry['scheduled'] is None:
             warnings.append(
                 _(
-                    'Schedule "{name}" was queued rather than scheduled, so it was recreated to run at once '
+                    'Schedule "{name}" (Job {pk}) was queued rather than scheduled, so it was recreated to run at once '
                     'against {script}, with the commit setting it was queued with.'
-                ).format(name=entry['name'], script=script)
+                ).format(pk=entry['job_pk'], name=entry['name'], script=script)
             )
         if shifted:
             counts['shifted'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" was due at {due}, which has passed, so its recurrence starts now '
+                    'Schedule "{name}" (Job {pk}) was due at {due}, which has passed, so its recurrence starts now '
                     'and keeps its {interval} minute interval.'
-                ).format(name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
+                ).format(pk=entry['job_pk'], name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
             )
     if counts['outstanding']:
         run.record_warnings(warnings)

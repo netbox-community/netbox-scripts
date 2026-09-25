@@ -59,15 +59,26 @@ might restart automatically.
     One worker prevents a second worker from running built-in Custom Scripts
     alongside cutover. It does not stop RQ's scheduler from queueing a task it
     fetched just before cancellation, so that task can still execute after
-    cutover. The reference pass then holds back its replacement, because the
-    run has started or its task is queued again.
+    cutover. The reference pass holds back its replacement when the pass runs
+    and finds it started or queued again, but a worker or the scheduler acting
+    after that check is not prevented. A cancelled run that still executes can
+    end as Errored, with a duplicate key error on a notification, although the
+    built-in Custom Script ran, because the cutover already notified its owner.
 
     **Accept concurrent workers** bypasses the check and records the worker
     names. It also allows another worker to take a run during cancellation.
     Cancellation never overwrites a run a worker has started, and the reference
-    pass holds back the replacement of one that starts later. A run whose Job
-    row is deleted before the reference pass leaves nothing to check, so it is
-    recreated.
+    pass holds back the replacement of one that has started by the time the pass
+    runs. A run whose Job row is deleted before the reference pass leaves
+    nothing to check, so it is recreated.
+
+    A recurring run that executes queues its next run. One queued while the
+    cutover step is open is captured when you enter the cutover again, and is
+    recreated with the others, so it needs no manual schedule. One queued after
+    the step completed is not captured and still runs the built-in Custom
+    Script, even if the reference pass has since moved its Job to the
+    replacement Script. It keeps the owner and interval of the run that queued
+    it. Delete it on the Jobs page before scheduling the Script again.
 
     One worker does not prevent users, integrations or Event Rules from
     submitting new work. The maintenance window is still required.
@@ -272,10 +283,13 @@ is incomplete, capture adds unrecorded waiting runs, including new recurring
 occurrences. Completed cutover steps are not repeated.
 
 If the pass fails after entering `cutover`, resolve the reported problem and
-select **Enter cutover** again. The state alone does not confirm completion.
-A recorded capture can also prevent further staging even while the state still
-reads `staging`. Migration passes that change data run one at a time across
-workers.
+select **Enter cutover** again. If a worker was stopped in the middle of a pass,
+that pass's Job keeps showing Running and the pass stays unavailable. Once no
+worker runs it, delete that Job on the Jobs page and run the pass again. The new
+run can show Running while it waits for the database to end the stopped worker's
+session. The state alone does not confirm completion. A recorded capture can
+also prevent further staging even while the state still reads `staging`.
+Migration passes that change data run one at a time across workers.
 
 Cutover affects four areas:
 
@@ -371,11 +385,13 @@ recurrences can execute before cleanup and verification finish.** The worker
 running the reference pass finishes that Job first, but replayed runs do not
 wait for the maintenance window to end.
 
-Runs recorded as already executing or executed are not automatically recreated.
-Review their outcome and arrange any required future schedule manually. A run
-recorded as cancelled that later started, or was queued again, on the built-in
-side is held back rather than recreated, as the warning under
-[Worker arrangement](#worker-arrangement) explains.
+Runs recorded as already executing or executed are not automatically
+recreated. Review their outcome. For a recurring run, check the warning under
+[Worker arrangement](#worker-arrangement) before arranging a future schedule
+by hand, since re-entering the cutover may already have captured its next
+occurrence. A run recorded as cancelled that started, or was queued again, by
+the time the reference pass runs is held back rather than recreated, as that
+warning explains.
 
 A reference step completes when no retryable work remains. A missing
 replacement Script can leave it open. Once complete, the step returns its
@@ -452,12 +468,10 @@ all duplicate execution.** The scheduler can still queue a cancelled task,
 and runs can start between an interrupted pass and its retry. Check existing
 work before retrying. See [Worker arrangement](#worker-arrangement).
 
-Replay uses recorded cancellation outcomes and each Job's current state. A run
-recorded as cancelled that started, or was queued again, on the built-in side
-is held back rather than recreated. That is not an exactly-once guarantee: a
-run whose Job row is deleted before the reference pass leaves nothing to check.
-Keep the maintenance window and review results even when cutover reports
-completion.
+Replay uses recorded cancellation outcomes and each Job's state when the
+reference pass runs. It is not exactly once: a run that starts after that
+check, or whose Job row is deleted before it, is not detected. Keep the
+maintenance window and review results even when cutover reports completion.
 
 ## Recovery
 
@@ -481,10 +495,10 @@ The journal supports retries of unfinished work, but cannot recreate every
 captured run. Review missing queue tasks, unsupported input, invalid forms,
 ownership changes and permanent skips manually.
 
-Investigate a Job still marked running after its worker disappears. Check the
-workers, queues and any external changes the Script may have made. An absent
-worker does not prove that the Script never ran. Do not delete or replay the
-Job on that basis alone.
+Investigate a Script run whose Job is still marked running after its worker
+disappears. Check the workers, queues and any external changes the Script may
+have made. An absent worker does not prove that the Script never ran. Do not
+delete or replay the Job on that basis alone.
 
 To reverse the installation, restore a consistent pre-cutover database and both
 source stores with the matching software versions. **This does not restore the

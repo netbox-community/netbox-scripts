@@ -177,7 +177,7 @@ jobs:
   # combination is merged into it, so it would have taken over the
   # coverage leg rather than adding one.
   test-branching:
-    name: py3.14 / netbox-v4.7.0 / branching-1.2.0b1
+    name: py3.14 / netbox-v4.7.0 / branching-1.2.1
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -244,10 +244,10 @@ jobs:
         working-directory: netbox-scripts
         run: pip install -e '.[test]'
 
-      # Pinned exactly, and to a pre-release, so it cannot drift onto a
-      # line whose NetBox ceiling sits below this plugin's floor.
+      # Pinned exactly, so it cannot drift onto a line whose NetBox
+      # ceiling sits below this plugin's floor.
       - name: Install NetBox Branching
-        run: pip install 'netboxlabs-netbox-branching==1.2.0b1'
+        run: pip install 'netboxlabs-netbox-branching==1.2.1'
 
       # Provisioning replicates every branch-aware table, once per test.
       - name: Tune PostgreSQL for branch provisioning

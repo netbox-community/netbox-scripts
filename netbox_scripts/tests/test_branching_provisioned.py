@@ -15,7 +15,7 @@ from unittest import mock
 import django_rq
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, connections
 from django.test import RequestFactory, SimpleTestCase, TransactionTestCase
 from django.urls import reverse
 
@@ -95,16 +95,18 @@ class BranchingTestCase(_TestBase):
 
     def setUp(self):
         super().setUp()
-        self._schemas = []
+        self._branches = []
         self.user = User.objects.create_user(username='branchuser')
         self.request = self.make_request(self.user)
 
     def tearDown(self):
         # Phase 1 of provision() commits its CREATE SCHEMA, so rollback leaves the schema behind
         # and a --keepdb run would accumulate one per test.
-        for schema in self._schemas:
+        for branch in self._branches:
+            # A branch connection left open blocks the runner's closing DROP DATABASE.
+            connections[branch.connection_name].close()
             with connection.cursor() as cursor:
-                cursor.execute(f'DROP SCHEMA IF EXISTS {quote_ident(schema)} CASCADE')
+                cursor.execute(f'DROP SCHEMA IF EXISTS {quote_ident(branch.schema_name)} CASCADE')
         super().tearDown()
 
     def make_request(self, user):
@@ -115,9 +117,9 @@ class BranchingTestCase(_TestBase):
         return request
 
     def branch(self, name, **kwargs):
-        """Return a READY branch whose schema this test will drop."""
+        """Return a READY branch whose connection and schema this test will close and drop."""
         branch = provision_branch(name, user=self.user, **kwargs)
-        self._schemas.append(branch.schema_name)
+        self._branches.append(branch)
         return branch
 
     def staged_revision(self, project, script_file_digest=''):

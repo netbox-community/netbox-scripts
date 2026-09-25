@@ -42,7 +42,7 @@ upload interface does not accept them separately.
 Only Python source is accepted. Other file types and compiled artifacts are
 rejected on the upload field. Bytecode without reviewable source is not supported.
 
-### File names arrive flattened
+### Upload filenames
 
 UI and REST uploads use only the base filename. For example,
 `automation/deploy.py` becomes `deploy.py` at the Project root. Use a Data Source
@@ -108,7 +108,7 @@ This action requires `change` permission on the Project and `add` permission on
 Script Files, like the **Add Script** page. Project `add` permission does not
 authorize uploads to an existing Project.
 
-## Putting a revision in service
+## Activate a revision
 
 A valid revision is activated according to the Project's policy:
 
@@ -125,7 +125,7 @@ Activating another revision retires the previous active one in the same step.
 Activation verifies stored source again. If it no longer matches the manifest,
 activation is refused and the current revision remains in service.
 
-## Following what happened
+## Review source and revision status
 
 **Source state**, on the **Project** panel, explains what is happening to the newest
 source, such as waiting for validation or failing it.
@@ -140,7 +140,7 @@ have different Script File selections. The **Script Files** column distinguishes
 these snapshots, and each revision's page lists its selected paths. The Project's
 **Script Files** tab shows declarations and their discovery results.
 
-### Changing which files are script files
+### Select Script Files
 
 Saving a changed Script File selection applies it to the source the Project
 already holds. The revision captures that selection, is validated, and is activated
@@ -150,7 +150,7 @@ that it is in progress rather than showing a final result immediately.
 Saving an unchanged selection stages and queues nothing. Revision identity combines
 source content with the selected Script Files.
 
-## Where the bytes go
+## Source storage
 
 Uploads use the `netbox_scripts` entry in NetBox's `STORAGES` setting. The key prefix
 contains the Project's storage key and revision digest. The backend can use local

@@ -4,7 +4,7 @@ Connect a Project to one directory in a NetBox Data Source. Synchronization
 copies that directory into revisions. You choose which Python files are selected
 for Script discovery.
 
-## Pointing a Project at a directory
+## Connect a Data Source directory
 
 Open *Scripts > Projects*, choose **Add**, and select `Data source` as the source
 type. This reveals the source and path fields.
@@ -43,7 +43,7 @@ Compiled Python files and `__pycache__` directories are skipped. Other violation
 of the [source path policy](configuration.md#source-path-policy) produce an
 `invalid` revision naming the affected paths. The active revision stays in service.
 
-## A new file is a candidate, not a script file
+## Select Script Files
 
 A new Python file becomes a **candidate**. Select it and save the Script Files
 tab to declare it as a file used for discovery. Synchronization does not change
@@ -88,7 +88,7 @@ The previous active revision stays in service. Check **Source state**, the
 
 If the file was removed intentionally, deselect it and reconcile again.
 
-## Putting a revision in service
+## Activate a revision
 
 The activation policy applies after validation, just as it does for uploaded source.
 
@@ -112,7 +112,7 @@ Retired revisions keep their content, so you can return to a known-good version
 without rebuilding it. Other reused revisions may still need processing, as
 described in [What a synchronization does](#what-a-synchronization-does).
 
-## What is not supported
+## Limitations
 
 | Area | Status |
 |---|---|

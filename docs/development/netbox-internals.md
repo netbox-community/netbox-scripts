@@ -9,7 +9,7 @@ The table also includes Django and third-party dependencies, plus documented
 interfaces whose behavior matters to the integration. It is a dependency ledger,
 not a list of unsupported APIs alone.
 
-## The list
+## Dependency ledger
 
 | Symbol | Where we use it | What it gives us |
 |---|---|---|
@@ -145,7 +145,7 @@ check on a collision. Check the live constants when upgrading.
 Like `django_rq` and `strawberry`, the advisory-lock helper is supplied by NetBox
 rather than declared separately by this plugin.
 
-## The ask upstream
+## Proposed NetBox APIs
 
 **A documented execution context.** The upstream request is for an API that
 owns transactions on the default and routed aliases, applies request processors
@@ -223,7 +223,7 @@ Cutover disables captured Object Permissions and Event Rules, cancels reachable
 waiting tasks and removes built-in synchronization registrations. Cleanup deletes
 eligible mapped modules and their source, retaining modules with protected
 history or references. It does not delete every built-in row. See
-[cleanup](../administration/migration.md#retiring-the-built-in-rows) for retained and blocked
+[cleanup](../administration/migration.md#clean-up-built-in-modules) for retained and blocked
 modules.
 
 Permission withdrawal does not restrict superusers, permissions supplied through
@@ -236,7 +236,7 @@ cannot execute. The scheduler can enqueue a task fetched before deletion, even
 with one worker. The reference pass holds back its replacement when the run
 has started, or its task is queued again, by the time the pass runs. The
 migration journal does not provide exactly-once execution. Keep the
-[worker and scheduler precautions](../administration/migration.md#worker-arrangement) in the
+[cancellation and replay limits](../administration/migration.md#cancellation-and-replay-limits) in the
 migration guide as the operational reference.
 
 Inventory and staging are repeatable and content-addressed, but that is not an

@@ -17,8 +17,8 @@ PLUGINS_CONFIG = {
 }
 ```
 
-If you also run NetBox Branching, see [NetBox Branching](branching.md) for the
-model exemptions and routing checks it needs.
+When NetBox Branching is installed, also review
+[NetBox Branching](branching.md) for execution scope and model exemptions.
 
 ## Project storage
 
@@ -92,7 +92,7 @@ S3 limits complete object keys to 1024 UTF-8 bytes. The plugin's prefix uses
 127 bytes, and an accepted source path uses at most 768. This leaves 129 bytes
 for the backend's `location` prefix.
 
-### The one requirement
+### Shared source storage
 
 **Every NetBox web and worker process must have access to the same stored content.**
 Source staged by one process can be executed by another.
@@ -265,7 +265,7 @@ on another pod or much earlier. Unsafe routing leaves content in place and fails
 the Job. NetBox Branching's schema routing on the default connection is supported.
 Arbitrary secondary databases are not.
 
-## What the backend does and does not guarantee
+## Storage backend guarantees and limits
 
 Checksums detect changed content, but the storage backend still controls how its
 keys resolve. The plugin does not prevent every change to a backend's directory

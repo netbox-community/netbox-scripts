@@ -13,10 +13,10 @@ attention.
 
     Inventory leaves the built-in feature unchanged. Staging creates or updates
     plugin objects without activating them. **Cutover has no automatic rollback.**
-    Read [Crossing the fence](#crossing-the-fence) and [Recovery](#recovery) before
+    Read [Enter cutover](#enter-cutover) and [Recovery](#recovery) before
     starting it.
 
-## What the seven passes do
+## Migration workflow
 
 | Pass | What it does | Recovery |
 |---|---|---|
@@ -36,7 +36,11 @@ Follow the order above and review each result. A completed Job does not
 necessarily satisfy the next pass's prerequisites. Verification can run before,
 between or after the other passes.
 
-### Worker arrangement
+A **migration run** stores the state, captured references and input in a journal,
+and each pass's results. Only one run can be open at a time. Its state moves
+forward through `legacy`, `staging`, `cutover` and `migrated`.
+
+## Worker arrangement
 
 Built-in Script runs, plugin Script runs and migration passes use the `default`
 queue unless configured otherwise. One worker can serve several queues in
@@ -54,40 +58,49 @@ workers** is selected. This checks worker count only at that moment. Keep
 additional workers stopped throughout the pass, including any your deployment
 might restart automatically.
 
-!!! warning "A cancelled run can still execute"
+One worker does not stop users, integrations or Event Rules from submitting
+new work. Keep the maintenance window in place.
 
-    One worker prevents a second worker from running built-in Custom Scripts
-    alongside cutover. It does not stop RQ's scheduler from queueing a task it
-    fetched just before cancellation, so that task can still execute after
-    cutover. The reference pass holds back its replacement when the pass runs
-    and finds it started or queued again, but a worker or the scheduler acting
-    after that check is not prevented. A cancelled run that still executes can
-    end as Errored, with a duplicate key error on a notification, although the
-    built-in Custom Script ran, because the cutover already notified its owner.
+## Cancellation and replay limits
 
-    **Accept concurrent workers** bypasses the check and records the worker
-    names. It also allows another worker to take a run during cancellation.
-    Cancellation never overwrites a run a worker has started, and the reference
-    pass holds back the replacement of one that has started by the time the pass
-    runs. A run whose Job row is deleted before the reference pass leaves
-    nothing to check, so its replacement is not held back.
+!!! warning "Cancellation does not guarantee that a run cannot execute"
 
-    A recurring run that executes queues its next run. One queued while the
-    cutover step is open is captured when you enter the cutover again, and the
-    reference pass considers it for replay with the others. Check the reference
-    pass results before scheduling it by hand, so you do not duplicate a
-    replacement it already created. One queued after the step completed is not
-    captured and still runs the built-in Custom Script, even if the reference
-    pass has since moved its Job to the replacement Script. It keeps the owner
-    and interval of the run that queued it. Delete it on the Jobs page before
-    scheduling the Script again.
+    A cancelled built-in run can still execute and may also be recreated by the
+    plugin. This is possible even with one worker. Replay checks the Job and
+    queue at one point in time, not continuously. Keep the maintenance window
+    and review execution evidence before arranging replacement runs.
 
-    One worker does not prevent users, integrations or Event Rules from
-    submitting new work. The maintenance window is still required.
+RQ's scheduler can queue a task it fetched just before cancellation. The
+reference pass holds back a replacement if it finds the original started or
+queued again, but it cannot prevent a worker or scheduler acting after that
+check. If the original Job row was deleted, it has no row to check.
 
-A **migration run** stores the state, captured references and input in a journal,
-and each pass's results. Only one run can be open at a time. Its state moves
-forward through `legacy`, `staging`, `cutover` and `migrated`.
+Selecting **Accept concurrent workers** bypasses the worker-count check and
+records the worker names. It also allows another worker to start a built-in run
+during cancellation. Cancellation never overwrites a run a worker has already
+started. Use the [single-worker arrangement](#worker-arrangement) to reduce that
+overlap, not as a guarantee against duplicate execution.
+
+A cancelled run that still executes can end as **Errored** with a duplicate-key
+error on a notification because cutover already notified its owner. That status
+does not mean the built-in Script did not run.
+
+### Recurring successors
+
+A recurring run that executes queues its next occurrence. What happens to that
+successor depends on when it was queued:
+
+- **While cutover is incomplete:** entering cutover again captures it. The
+  reference pass then considers it for replay. Check the results before creating
+  a manual schedule, so you do not duplicate a replacement already created.
+- **After cutover completes:** it is not captured and still runs the built-in
+  Script, even if repointing has moved its Job onto the replacement Script. It
+  keeps the original owner and interval. Delete the waiting successor on the
+  **Jobs** page before scheduling the replacement Script.
+
+An existing successor is different from a Script run whose worker disappeared.
+For the latter, follow [recovery after cutover](#after-cutover) before deleting
+or replaying anything.
 
 ## Before you start
 
@@ -119,7 +132,7 @@ preparation before selecting **Enter cutover**.
    that staged Projects have usable revisions before cutover. A successful
    staging Job does not mean every revision passed validation.
 
-## Starting a pass
+## Run a migration pass
 
 Open *Scripts > Migration*. The page shows the latest Job for each pass and the
 current state of proposed or staged Projects. **Not staged** means inventory
@@ -151,7 +164,7 @@ Inventory, staging and verification require permission to **add** a Script
 Project. Cutover, activation, repointing and cleanup require the separate Script
 Project **`migrate`** action. The page itself requires `add`, and reading Job
 results requires *Core > Jobs* view permission. See
-[Permissions](permissions.md#the-migration-page).
+[Permissions](permissions.md#migration-permissions).
 
 ## Reports are not covered
 
@@ -174,7 +187,7 @@ Inventory reports the number of excluded Report modules as a warning. The
 plugin does not support their authoring API. Rewrite a Report as a Script before
 moving its functionality into the plugin.
 
-## Reading the inventory
+## Read inventory results
 
 The inventory report is stored in the Job's data.
 
@@ -191,7 +204,7 @@ The inventory report is stored in the Job's data.
 These counts show which references inventory found, not how many it can
 migrate. Inventory does not rewrite them.
 
-## What the three statuses mean
+## Inventory statuses and blocking findings
 
 | Status | Meaning |
 |---|---|
@@ -232,7 +245,7 @@ import or runtime path will succeed.
 An unreadable or unparsable module becomes a finding. Inventory still reports
 on the remaining modules.
 
-## What grouping produces
+## How modules become Projects
 
 A Project holds one source tree that loads as a Python package. Migration
 groups built-in modules by their recorded paths.
@@ -263,7 +276,7 @@ declarations to an existing Project, so a repeated pass can still make changes.
 
 Validation runs separately. Read each revision's verdict and errors rather than
 treating the staging Job's completion as approval. See
-[Putting a revision in service](data-sources.md#putting-a-revision-in-service).
+[Activate a revision](data-sources.md#activate-a-revision).
 
 A module that publishes no Script is staged as a helper without a Script File
 declaration. Staging recognizes Scripts from executable built-in rows or
@@ -274,7 +287,7 @@ Inventory warns about modules that appear to publish nothing. Check these
 warnings: the module may be an intentional helper, or its Script may no longer
 load. Correct the source and repeat inventory and staging before cutover.
 
-## Crossing the fence
+## Enter cutover
 
 **Cutover has no automatic rollback.** It captures references, records the
 `cutover` state, then closes the parts of the built-in feature it controls.
@@ -285,14 +298,15 @@ is incomplete, capture adds unrecorded waiting runs, including new recurring
 occurrences. Completed cutover steps are not repeated.
 
 If the pass fails after entering `cutover`, resolve the reported problem and
-select **Enter cutover** again. If a worker was stopped in the middle of a pass,
-that pass's Job keeps showing Running and the pass stays unavailable. Once no
-worker runs it, delete that migration-pass Job on the Jobs page and run the pass
-again. The new run can show Running while it waits for the database to end the
-stopped worker's session. The state alone does not confirm completion. A
-recorded capture can also prevent further staging even while the state still
-reads `staging`. Migration passes that change data run one at a time across
-workers.
+select **Enter cutover** again. If a worker stopped during a migration pass, its
+migration-pass Job can remain **Running** and prevent another attempt. After
+confirming that no worker is executing that pass, delete the migration-pass Job
+on the **Jobs** page and retry. This instruction does not apply to Script-run
+Jobs. See [Recovery](#recovery). The new pass can show **Running** while waiting
+for the database to end the stopped worker's session. The state alone does not
+confirm completion. A recorded capture can also prevent further staging even
+while the state still reads `staging`. Migration passes that change data run one
+at a time across workers.
 
 Cutover affects four areas:
 
@@ -321,14 +335,14 @@ This check reads revision state, not source storage. Missing files can still
 make activation fail. Review activation results before repointing.
 
 If an RQ task is missing, migration cannot capture its input. Recreate the run
-manually when it is still needed. Decimal and IP address values are stored as
-text that the replacement Script's form can read.
+manually when it is still needed. Decimal and IP address values are recorded
+as text that the replacement Script's form can read.
 
-If any input cannot be recorded, including an uploaded file, migration warns and
-skips the whole run rather than replaying incomplete input. Review the warning
-and recreate the run manually with the required values.
+If any input cannot be recorded, including an uploaded file, migration warns
+and skips the whole run rather than replaying incomplete input. Review the
+warning and recreate the run manually with the required values.
 
-## Activating the staged Projects
+## Activate staged Projects
 
 **Activate Projects** runs after cutover and publishes the Script rows needed
 for repointing. It records an outcome for each Project. One activation failure
@@ -342,7 +356,7 @@ with its published rows repaired, and a Project serving nothing gets its newest
 Check each outcome and active revision before repointing. Repeating activation
 checks the Projects again and can make further changes.
 
-## Repointing what the installation refers to
+## Repoint references
 
 **Repoint references** replays the journal in four steps.
 
@@ -391,12 +405,12 @@ running the reference pass finishes that Job first, but replayed runs do not
 wait for the maintenance window to end.
 
 Runs recorded as already executing or executed are not automatically
-recreated. Review their outcome. For a recurring run, check the warning under
-[Worker arrangement](#worker-arrangement) before arranging a future schedule
-by hand, since re-entering the cutover may already have captured its next
-occurrence. A run recorded as cancelled that started, or was queued again, by
-the time the reference pass runs is held back rather than recreated, as that
-warning explains.
+recreated. Review their outcome. Before arranging a recurring schedule by hand,
+check [Recurring successors](#recurring-successors). Re-entering cutover may
+already have captured the next occurrence. A cancelled run found to have
+started or been queued again is also held back. See
+[Cancellation and replay limits](#cancellation-and-replay-limits) for the
+limits of that check.
 
 A reference step completes when no retryable work remains. A missing
 replacement Script can leave it open. Once complete, the step returns its
@@ -413,7 +427,7 @@ Retained built-in rows may lose their pages when NetBox removes the feature.
 Export or reconcile history you need before that upgrade. Retaining rows does
 not guarantee they will remain accessible.
 
-## Retiring the built-in rows
+## Clean up built-in modules
 
 **Clean up** removes built-in modules and their source files. It runs only after
 all four reference steps have completed. Deleting a built-in Script can also
@@ -444,7 +458,7 @@ The run reaches `migrated` when cleanup has no blocking work left. Retained
 modules are listed in the cleanup results and migration warnings. Verification
 is useful afterwards, but does not replace that detailed retention record.
 
-## After the last pass
+## Finish the migration
 
 1. **Restart every web and worker process.** Processes can retain imported
    built-in modules after their rows and files are removed.
@@ -457,7 +471,7 @@ is useful afterwards, but does not replace that detailed retention record.
 Replayed automation may already have run by this point. Verification does not
 pause it or reverse its effects.
 
-### Two guarantees, and what each one is worth
+### What migration does not guarantee
 
 **Disabling the plugin does not reverse migration.** Permission changes,
 reference updates, removed synchronization registrations and module deletions
@@ -471,7 +485,7 @@ not permanently disable that feature.
 **One worker prevents a second worker from executing alongside cutover, not
 all duplicate execution.** The scheduler can still queue a cancelled task,
 and runs can start between an interrupted pass and its retry. Check existing
-work before retrying. See [Worker arrangement](#worker-arrangement).
+work before retrying. See [Cancellation and replay limits](#cancellation-and-replay-limits).
 
 Replay uses recorded cancellation outcomes and each Job's state when the
 reference pass runs. It is not exactly once: a run that starts after that
@@ -522,10 +536,10 @@ Cleanup records completion before its Job finishes. If the worker stops after
 that point, the Migration page still offers **Verify**.
 
 If the migration state, journal and Job result disagree after another
-interruption, preserve them for investigation. Do not start another migration or
-advance the state manually just to make the page appear complete.
+interruption, preserve them for investigation. Do not start another migration
+or advance the state manually just to make the page appear complete.
 
-## Checking whether it landed
+## Verify the migration
 
 **Verify** normally reports five checks, each with a level, message and evidence
 source. The overall status is the highest level reported. If no migration run
@@ -557,10 +571,10 @@ alone does not prove a recurrence was lost. Verification does not trace every
 recurring occurrence, test every Script or confirm its external actions.
 Use Job history and your operational checks alongside the report.
 
-## What is not part of this release
+## Limitations
 
 | Area | Status |
 |---|---|
-| A complete write fence | Not provided. Keep a maintenance window and control submissions. See [Crossing the fence](#crossing-the-fence). |
+| A complete write fence | Not provided. Keep a maintenance window and control submissions. See [Enter cutover](#enter-cutover). |
 | Choosing a different grouping | No migration grouping selector is provided. Arrange the source layout before staging and cutover. |
 | Reversing a cutover automatically | Not provided. See [Recovery](#recovery). |

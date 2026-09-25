@@ -90,7 +90,7 @@ the Script.
 REST supports list, detail and update, but not creation or deletion. A PATCH can
 set `enabled`, the three execution overrides, `comments`, `owner`, tags and
 custom fields. See
-[Overriding a script's execution defaults](../../user-guide/execution.md#overriding-a-scripts-execution-defaults)
+[Override execution defaults](../../user-guide/execution.md#override-execution-defaults)
 for how the overrides resolve.
 
 Invalid values on writable fields return HTTP 400. Read-only fields and unknown

@@ -3,10 +3,15 @@
 NetBox Scripts can run alongside NetBox Branching. The following rules apply
 when using both plugins.
 
-!!! warning "Scripts do not run inside branches"
+## Script execution
 
-    Script runs use the main schema, regardless of your active branch. They
-    cannot be used to stage changes inside a NetBox Branching branch.
+**Script execution always writes to the main schema**, regardless of the
+requester's active branch. The run explicitly clears branch context restored
+from the copied request before calling the Script.
+
+A recurrence reuses its request, so following that request's branch could change
+its write destination after the branch is merged. This plugin does not support
+using Script execution to stage changes inside a branch.
 
 ## Installation-wide objects
 
@@ -26,10 +31,9 @@ the usual branch-aware change-logging rule.
 
 ## Exempting the models
 
-NetBox Branching's `exempt_models` setting declares that scope. Add these model
-names to the existing `exempt_models` list under
-`PLUGINS_CONFIG['netbox_branching']`. Keep any other plugin settings and
-exemptions already configured.
+NetBox Branching's `exempt_models` setting declares that scope. Add these
+model names to the existing list under `PLUGINS_CONFIG['netbox_branching']`.
+Keep other plugin settings and any exemptions already configured:
 
 ```python
 PLUGINS_CONFIG = {
@@ -67,12 +71,3 @@ through NetBox Branching's public API:
 
 NetBox remains available. These refusals affect the plugin's storage operations,
 not the rest of the installation.
-
-## Script execution
-
-The run explicitly clears branch context restored from the copied request before
-calling the Script.
-
-A recurrence reuses its request, so following that request's branch could change
-its write destination after the branch is merged. This plugin does not support
-using Script execution to stage changes inside a branch.

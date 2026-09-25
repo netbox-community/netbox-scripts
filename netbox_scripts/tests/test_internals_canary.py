@@ -21,7 +21,7 @@ def load_canary():
 
 def table_symbols():
     # The Symbol column of the page's table, backticks stripped, in table order.
-    section = DOCS.read_text().split('## The list', 1)[1].split('\n## ', 1)[0]
+    section = DOCS.read_text().split('## Dependency ledger', 1)[1].split('\n## ', 1)[0]
     return [line.split('|')[1].strip().replace('`', '') for line in section.splitlines() if line.startswith('| `')]
 
 

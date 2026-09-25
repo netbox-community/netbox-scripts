@@ -68,9 +68,9 @@ accounts should be able to write to it. When both services run as `netbox`:
 sudo install -d -m 0700 -o netbox -g netbox /var/lib/netbox-scripts
 ```
 
-If they use different accounts, give both read and write access instead. See
-[Runtime cache](configuration.md#runtime-cache) for accounts that share a
-temporary directory.
+If they use different accounts, give both read and write access to source
+storage. Keep each account's runtime cache private, as described in
+[Runtime cache](configuration.md#runtime-cache).
 
 ## Applying the configuration
 

@@ -31,7 +31,7 @@ Add exports where the package exposes them and keep `__all__` alphabetized.
 Use NetBox's existing models, mixins, forms, serializers, filtersets and views
 where they fit. Keep plugin behavior in the plugin rather than monkey-patching
 NetBox. Record dependencies on undocumented interfaces in the
-[internals ledger](netbox-internals.md#the-list) and its compatibility checker.
+[internals ledger](netbox-internals.md#dependency-ledger) and its compatibility checker.
 
 Register model views with `@register_model_view` and generate their routes with
 `get_model_urls()`. Workflow views, such as migration passes, can use explicit

@@ -227,7 +227,7 @@ Code that bypasses validation, such as `QuerySet.update()` or raw SQL, must
 preserve these invariants. Database constraints enforce digest uniqueness, not
 immutability.
 
-## Serialization
+## Locking and concurrent operations
 
 Staging, refreshing source under a different Script File selection, activation
 and storage cleanup share a Project-scoped lock. It is keyed by the immutable

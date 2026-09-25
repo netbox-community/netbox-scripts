@@ -89,7 +89,7 @@ Use the inner `Meta` class for presentation and execution defaults.
 Operators can override `commit_default`, `notifications_default` and `job_timeout`.
 Treat them as recommended defaults rather than guarantees. `scheduling_enabled`
 remains the author's decision and cannot be overridden. See
-[Overriding a script's execution defaults](execution.md#overriding-a-scripts-execution-defaults).
+[Override execution defaults](execution.md#override-execution-defaults).
 
 ## Logging
 
@@ -121,7 +121,7 @@ from log messages and string output. It does not detect secrets or recursively
 sanitize structured output. The Job retains its revision digest to identify the
 source that ran.
 
-## What a run knows about its own context
+## Run context
 
 The following attributes are set before `run()` is called. Check for `None`
 before using context that may not be available.
@@ -198,7 +198,7 @@ Discovered classes become [Scripts](../reference/models/netboxscript.md) when th
 activated. Identity follows the defining module, even when `script_order`
 re-exports the class elsewhere.
 
-## What validation checks about a class
+## Class validation
 
 Validation builds the run form so configuration errors are found before a user
 tries to run the Script. It rejects:
@@ -300,7 +300,7 @@ before that upgrade:
 from netbox_scripts.scripts import Script, StringVar
 ```
 
-### What the supported surface covers
+### Compatibility scope
 
 The stability guarantee covers the authoring API documented here. Scripts can
 also import other modules available in the NetBox environment, but those APIs

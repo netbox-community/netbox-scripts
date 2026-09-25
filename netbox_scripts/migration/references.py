@@ -272,7 +272,7 @@ def recreate_schedules(run):
                 _(
                     'Schedule "{name}" (Job {pk}) was not cancelled by the cutover, because a worker had '
                     'already taken it, so it has not been recreated. Check whether it ran, and run it again '
-                    'by hand if it did not. If it recurs, see "Worker arrangement" in the migration guide '
+                    'by hand if it did not. If it recurs, see "Recurring successors" in the migration guide '
                     'before scheduling it again, since its next run may already exist.'
                 ).format(pk=entry['job_pk'], name=entry['name'])
             )
@@ -289,7 +289,7 @@ def recreate_schedules(run):
                         _(
                             'Schedule "{name}" (Job {pk}) started or was queued again on the built-in side '
                             'after the cutover cancelled it, so it has not been recreated. Check whether it '
-                            'ran. If it recurs, see "Worker arrangement" in the migration guide before '
+                            'ran. If it recurs, see "Recurring successors" in the migration guide before '
                             'scheduling it again, since its next run may already exist.'
                         ).format(pk=entry['job_pk'], name=entry['name'])
                     )

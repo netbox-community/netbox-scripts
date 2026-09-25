@@ -46,7 +46,7 @@ The UI's **Deactivate** action is on the **Revisions** tab. To reach it, grant
 Project `view` and `activate` along with Revision `view`. Activation permission
 alone does not make that button accessible.
 
-## The Migration page
+## Migration permissions
 
 Migration uses Script Project permissions. The page, inventory, staging and
 verification require `add`. Cutover and the three passes that follow it require
@@ -87,9 +87,9 @@ Scheduling requires the `schedule` permission and the author's
 `scheduling_enabled` setting. Without either, the run form hides **Schedule
 at** and **Recurs every**. Over REST, a caller without `schedule` receives
 `403` when submitting `schedule_at` or `interval`. See
-[Scheduling a run](../user-guide/execution.md#scheduling-a-run) for the execution settings.
+[Schedule a run](../user-guide/execution.md#schedule-a-run) for the execution settings.
 
-## An Event Rule authorizes a run without the run permission
+## Event Rule execution permissions
 
 An Event Rule can run a Script without checking `run_netboxscript` for either
 the rule's author or the user whose action triggered it. The run is attributed
@@ -103,7 +103,7 @@ allow the action type and target to be changed.
 Restrict these permissions to people trusted to arrange those runs. See
 [Event Rules](event-rules.md#permissions) for how the rule authorizes execution.
 
-## Two privileges with no codename of their own
+## Script File and result permissions
 
 **Selecting Script Files** requires Script File `change` to access the
 selection route. Creating a declaration also requires `add` on that row.

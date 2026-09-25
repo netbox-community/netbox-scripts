@@ -118,7 +118,7 @@ source. The deleting process queues cleanup rather than removing stored files
 itself. An untrusted manifest refuses the deletion, preserving the row and its
 cleanup inventory.
 
-## Identity notes
+## Public and storage identifiers
 
 Use `key` or the object ID when integrating with a Project. `storage_key` is
 read-only and exposed for troubleshooting, not as a public identifier. It names

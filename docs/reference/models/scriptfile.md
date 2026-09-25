@@ -80,7 +80,7 @@ route. Creating a declaration also requires `add` permission on the new row.
 Changes to existing declarations require `change` permission on each affected
 row before and after the change. Unchanged rows need no additional child write
 permission. See
-[Permissions](../../administration/permissions.md#two-privileges-with-no-codename-of-their-own)
+[Permissions](../../administration/permissions.md#script-file-and-result-permissions)
 for the complete selection and upload rules.
 
 Script Files also have list, detail, edit, filtering and global-search views for

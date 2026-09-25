@@ -43,6 +43,14 @@ EVENTS_PIPELINE = [
     'netbox_scripts.tests.plugin_testing.pickle_queued_objects',
 ]
 
+# Failure-path tests log expected warnings, and without a root handler Python's last resort prints them to stderr.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'null': {'class': 'logging.NullHandler'}},
+    'root': {'handlers': ['null']},
+}
+
 # Databases 14 and 15 rather than the 0 and 1 a running NetBox uses, because the suite really
 # enqueues. Django's test runner isolates the database but nothing isolates Redis, so a
 # TransactionTestCase commits, its on_commit callback enqueues a live RQ job, and any worker on this

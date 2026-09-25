@@ -17,8 +17,9 @@ released throughout the checklist.
 2. **Update the change log.** Add a `## vX.Y.Z` section above the previous release
     in `docs/releases.md`, separated by `---`. Group entries under
     `### Enhancements` and `### Bug Fixes`, using
-    `* [#<issue>](<url>) - <summary>`. The first release uses only
-    `* Initial release`, without subsections.
+    `* [#<issue>](<url>) - <summary>`. The first release lists only
+    `* Initial release`, without subsections. An alpha release adds a warning
+    that states its upgrade limits and links the open bug reports.
 
 3. **Set the version.** Update `version = "X.Y.Z"` in `pyproject.toml` and
     `__version__ = "X.Y.Z"` in `netbox_scripts/__init__.py`. Both must match the

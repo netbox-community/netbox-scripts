@@ -92,13 +92,15 @@ nullability changes and large-table indexes before implementing them.
 
 ### Initial schema
 
-While the initial schema is being prepared for release, the project keeps one
-`0001_initial.py`. Coordinate regeneration with a maintainer and agree how to
-handle development databases that have already applied it. Do not assume those
-databases can be discarded.
+The first beta can regenerate the migration history into one `0001_initial.py`,
+and it ships no upgrade path from an alpha. The alpha release notes say so.
+Coordinate regeneration with a maintainer and agree how to handle development
+databases that have already applied it. Do not assume those databases can be
+discarded.
 
-Do not regenerate migration history already distributed in a release. Schema
-changes after publication need an upgrade path from the published migrations.
+Apart from that one reset, do not regenerate migration history already
+distributed in a release. Schema changes after publication need an upgrade path
+from the published migrations.
 
 ### NetBox dependency pins
 

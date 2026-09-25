@@ -164,13 +164,13 @@ Preserve these four contracts:
 
 1. **Source enters through `ingestion.py`.** Declaration changes commit before
    staging freezes the enabled selection. Preserve the preconditions and
-   permission checks that precede those writes. See [Uploading](./docs/uploading.md)
-   and [Data Sources](./docs/data-sources.md).
+   permission checks that precede those writes. See [Uploading](./docs/administration/uploading.md)
+   and [Data Sources](./docs/administration/data-sources.md).
 2. **Activation and promotion remain separate.** `activation.py` owns the domain
    operation. `storage/service.py` owns the promotion primitive, whose required
    `on_promote` callback synchronizes Script rows inside the promotion transaction.
    Do not make it optional or merge the layers as a wording or cleanup change.
-   See [Revisions](./docs/models/scriptprojectrevision.md).
+   See [Revisions](./docs/reference/models/scriptprojectrevision.md).
 3. **Coordinate the stored-source lifecycle.** Staging, refresh, promotion and
    reclamation hold `project_lock()` on the immutable
    `storage_key`. Database-only Project and declaration writes use
@@ -179,11 +179,11 @@ Preserve these four contracts:
    actual lock order. See [NetBox internals](./docs/development/netbox-internals.md).
 4. **Built-in feature reads are isolated in `migration/source.py`.** Inventory
    classifies stored Python with `ast` and must not execute it. Migration writers
-   operate on the records supplied by that layer. See [Migration](./docs/migration.md).
+   operate on the records supplied by that layer. See [Migration](./docs/administration/migration.md).
 
 The legacy import adapter gives revision modules their own builtins mapping.
 Its `__import__` resolves `extras` through a plugin-owned adapter, without replacing
-NetBox's package process-wide. See [Runtime](./docs/runtime.md).
+NetBox's package process-wide. See [Runtime](./docs/reference/runtime.md).
 
 ### Integration points with NetBox
 
@@ -193,7 +193,7 @@ Cross-model signal handlers are registered during startup. Use
 `PluginTemplateExtension` when adding cross-model UI content.
 
 Permissions are namespaced under `netbox_scripts`. Refer to the
-[permission guide](./docs/permissions.md) before changing an action or write path.
+[permission guide](./docs/administration/permissions.md) before changing an action or write path.
 
 ## Commands
 

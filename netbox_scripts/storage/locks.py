@@ -24,7 +24,7 @@ It survives nested savepoints until the outermost transaction ends, so storage o
 observe an uncommitted declaration or policy change.
 
 A session lock belongs to the physical backend connection, so transaction-mode pooling breaks
-it. That requirement is stated with the other deployment ones in docs/configuration.md.
+it. That requirement is stated with the other deployment ones in docs/administration/configuration.md.
 """
 
 import hashlib

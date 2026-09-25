@@ -3,13 +3,13 @@
 This reference explains how revisions load, how validation reports problems
 and what activation changes. It is intended for administrators troubleshooting
 Projects and authors working with imports or discovery. Configure the
-[runtime cache](configuration.md#runtime-cache) on the Configuration page.
+[runtime cache](../administration/configuration.md#runtime-cache) on the Configuration page.
 
 Script code can load during validation, run-form preparation and execution.
 Depending on the operation, it runs in an RQ worker, a NetBox web process or
 the process running `runcustomscript`. Imported code has that process's
 permissions. Treat write access to source storage accordingly. See the
-[storage trust boundary](configuration.md#storage-trust-boundary).
+[storage trust boundary](../administration/configuration.md#storage-trust-boundary).
 
 **Keep imports, constructors and form-building code free of side effects.**
 All three can run during a web request, before the Script is executed.
@@ -45,7 +45,7 @@ Loading follows four steps:
 1. **Check the path.** Validate the manifest, check that the Script File has an
    importable dotted name and confirm that it belongs to the manifest. These
    checks happen before I/O.
-2. **Prepare a verified tree.** The [runtime cache](configuration.md#runtime-cache)
+2. **Prepare a verified tree.** The [runtime cache](../administration/configuration.md#runtime-cache)
    supplies a local directory matching the manifest. Verification happens
    before import. The revision's import lock prevents another import from
    reading a damaged tree while the cache moves it aside.
@@ -75,7 +75,7 @@ not on a version comparison. When NetBox removes `extras.scripts`, the hook
 raises an import error directing authors to migrate their imports rather than
 leaving the revision waiting on an environment repair.
 
-See [legacy scripts](authoring.md#legacy-scripts) for supported import forms
+See [legacy scripts](../user-guide/authoring.md#legacy-scripts) for supported import forms
 and the changes authors need to make.
 
 ## What discovery publishes
@@ -181,7 +181,7 @@ Repairs made through a request are recorded in the change log and queue update
 events attributed to the requesting user. Background activation and repair do
 not provide that change log or object-change event delivery. This distinction
 concerns publication, not events from a committed Script run. See
-[Event Rules](event-rules.md#scripts-as-event-sources).
+[Event Rules](../administration/event-rules.md#scripts-as-event-sources).
 
 Deactivation retires the active revision, clears the Project's active pointer
 and retires its Scripts. It reads no storage and imports no source. Activation

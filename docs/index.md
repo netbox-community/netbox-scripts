@@ -15,17 +15,20 @@ activation and lets each Project serve one active revision at a time.
 
 ## Getting started
 
-Start with the [Quickstart](quickstart.md) to install and configure the plugin.
-Then [upload your scripts](uploading.md) or
-[connect a Data Source directory](data-sources.md).
+| What you need to do | Start here |
+|---|---|
+| Run or schedule a Script | [Running scripts](user-guide/execution.md) |
+| Write or adapt a Script | [Writing scripts](user-guide/authoring.md) |
+| Install or administer the plugin | [Installation](administration/installation.md), [Configuration](administration/configuration.md) and [Permissions](administration/permissions.md) |
+| Contribute to the plugin | [Contributing](development/contributing.md) |
 
-Already using NetBox's built-in Custom Scripts? Read the
-[migration guide](migration.md) before moving your scripts.
+**Already using NetBox's built-in Custom Scripts?** Read the
+[migration guide](administration/migration.md) before moving your scripts.
 
 Legacy Reports are not supported. Imports from `extras.scripts` are a
 transitional option and stop working at NetBox v5.0. See
-[Authoring](authoring.md) for supported imports and the changes to make before
-upgrading.
+[Authoring](user-guide/authoring.md) for supported imports and the changes to
+make before upgrading.
 
 ## Main concepts
 
@@ -37,23 +40,6 @@ upgrading.
 | Script | A runnable Python class published from an activated revision. |
 
 A new revision does not replace the active one until activation succeeds.
-
-## Documentation
-
-| Guide | What it covers |
-|---|---|
-| [Features](features.md) | Supported functionality and current limitations. |
-| [Quickstart](quickstart.md) | Install and enable the plugin. |
-| [Configuration](configuration.md) | Configure source storage and plugin settings. |
-| [Uploading Scripts](uploading.md) | Add files to a Project and activate your scripts. |
-| [Data Source Projects](data-sources.md) | Connect a Data Source directory and understand synchronization. |
-| [Migration](migration.md) | Move from NetBox's built-in Custom Scripts. |
-| [Authoring](authoring.md) | Write scripts using the plugin's authoring API. |
-| [Runtime and Loading](runtime.md) | Understand how Scripts are discovered, validated and loaded. |
-| [Running Scripts](execution.md) | Run and schedule scripts, use dry runs and read results. |
-| [Event Rules](event-rules.md) | Run scripts from events and use plugin objects in Event Rules. |
-| [Permissions](permissions.md) | Manage access with NetBox's standard and plugin-specific permissions. |
-| [Releases](releases.md) | Version history and upgrade notes. |
 
 ## Compatibility
 

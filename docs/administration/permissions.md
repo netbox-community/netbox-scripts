@@ -87,7 +87,7 @@ Scheduling requires the `schedule` permission and the author's
 `scheduling_enabled` setting. Without either, the run form hides **Schedule
 at** and **Recurs every**. Over REST, a caller without `schedule` receives
 `403` when submitting `schedule_at` or `interval`. See
-[Scheduling a run](execution.md#scheduling-a-run) for the execution settings.
+[Scheduling a run](../user-guide/execution.md#scheduling-a-run) for the execution settings.
 
 ## An Event Rule authorizes a run without the run permission
 

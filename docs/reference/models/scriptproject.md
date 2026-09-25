@@ -68,7 +68,7 @@ automatically or waits for an operator:
 | `manual` | The revision remains `valid` until an operator activates it. A one-off upload activation request is separate |
 | `automatic_if_valid` | An eligible revision activates automatically once it has a `valid` verdict |
 
-On the [upload form](../uploading.md), **Activate this upload** requests
+On the [upload form](../../administration/uploading.md), **Activate this upload** requests
 activation for that upload without changing the policy for later revisions.
 When the checkbox is clear, the activation policy still applies. The form
 defaults to `manual`.
@@ -79,7 +79,7 @@ and the previously active revision remain unchanged.
 
 For a Data Source Project, choose `manual` to review synchronized changes before
 serving them. Choose `automatic_if_valid` to activate eligible validated changes
-automatically. See [Data Source Projects](../data-sources.md).
+automatically. See [Data Source Projects](../../administration/data-sources.md).
 
 Only validated revisions can be activated. A `retired` revision remains
 eligible for explicit activation, allowing an operator to return to earlier
@@ -106,7 +106,7 @@ source. Automatic activation also checks the accepted source and selection, as
 the stored Project. Project creation and unchanged submitted values are exempt
 from this additional check. The locked `save()` guard rejects unauthorized or
 intervening source-setting changes rather than overwriting them from a stale
-instance. See [Permissions](../permissions.md#script-project).
+instance. See [Permissions](../../administration/permissions.md#script-project).
 
 Code that bypasses validation, such as `QuerySet.update()` or raw SQL, must
 supply canonical values. The database constraint enforces source ownership, not
@@ -129,63 +129,14 @@ stored content, runtime packages and cache paths and never changes.
 All five plugin models are **installation-global**. A revision's storage path
 uses its Project's `storage_key` and its own `digest`, with no branch or schema
 component. The same revision therefore names the same stored content in every
-branch.
-
-NetBox Branching's `exempt_models` setting declares that scope:
-
-```python
-PLUGINS_CONFIG = {
-    'netbox_branching': {
-        'exempt_models': [
-            'netbox_scripts.migrationrun',
-            'netbox_scripts.netboxscript',
-            'netbox_scripts.scriptfile',
-            'netbox_scripts.scriptproject',
-            'netbox_scripts.scriptprojectrevision',
-        ],
-    },
-}
-```
-
-List the models explicitly rather than using `netbox_scripts.*`. A wildcard
-would also exempt future models that may need ordinary branching behavior.
-
-The plugin also attempts to register a resolver that routes these models to the
-main schema. The explicit settings provide a fallback when that resolver is
-unavailable. Neither mechanism replaces the routing check before storage work.
-
-Before staging, activation or stored-source removal, the plugin checks routing
-through NetBox Branching's public API:
-
-- Confirmed main-schema routing allows the operation.
-- Unsafe or unverifiable routing refuses the storage operation, and a system
-  check explains why. Configure exemptions when needed. If routing cannot be
-  inspected, use a NetBox Branching release that provides the inspection API.
-  Exemptions alone cannot make an unavailable check succeed.
-- When a Project or revision row is deleted but cleanup cannot confirm safe
-  routing, source is retained and the refusal is logged at error level.
-
-NetBox remains available. These refusals affect the plugin's storage operations,
-not the rest of the installation.
-
-**Changes to Project and revision rows apply globally**, even when made inside
-a branch. They do not enter the branch diff and are not replayed on merge or
-undone on revert.
-
-**Tags and journal entries remain branch-local.** Changes to them inside a
-branch reach the main schema only on merge. The Project row, its revisions and
-stored source stay global throughout.
+branch. See [NetBox Branching](../../administration/branching.md) for the
+exemption setting, the routing check and the execution policy.
 
 **For developers adding models:** retain ordinary NetBox Branching behavior
 unless the model represents installation-wide content. Check both its scope
 and its relationships. A main-schema row must not depend on a related row that
 exists only in a branch. Global source identities also must not be duplicated
 as branch-local rows, where deletion could remove content still served by main.
-
-Script execution always writes to the main schema, regardless of the branch
-selected by the requesting user. See
-[Configuration](../configuration.md#netbox-branching) for the complete execution
-and routing policy.
 
 ## Limitations
 

@@ -39,13 +39,13 @@ Python requirements live in `pyproject.toml`.
    Install compatible plugin versions in the same environment before running
    upgrade tasks. Keep the plugin in the deployment's dependency list so rebuilding
    the environment does not remove it.
-4. **Apply and verify the change.** For a plugin-only upgrade, follow
-   [Quickstart](https://netbox-community.github.io/netbox-scripts/quickstart/#applying-the-configuration)
+4. **Apply and verify the change.** For a plugin-only upgrade, follow the
+   [installation guide](https://netbox-community.github.io/netbox-scripts/administration/installation/#applying-the-configuration)
    for migrations, static files and restarting web and worker processes. Check
    NetBox's system checks, Project status and a suitable test Script before
    resuming normal operation.
 
 Moving from built-in Custom Scripts is a separate operation. Read the
-[migration guide](https://netbox-community.github.io/netbox-scripts/migration/)
+[migration guide](https://netbox-community.github.io/netbox-scripts/administration/migration/)
 before starting it. Do not use queue deletion or a Redis flush as a routine
 upgrade step.

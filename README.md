@@ -80,7 +80,7 @@ own storage entry and does not fall back to `default`.
 
 Create the directory and allow the NetBox web and worker processes to read and
 write it. Only trusted service or deployment accounts should have write access.
-The [Quickstart](https://netbox-community.github.io/netbox-scripts/quickstart/)
+The [installation guide](https://netbox-community.github.io/netbox-scripts/administration/installation/)
 covers directory setup, static files and restarting the services.
 
 Apply database migrations from the NetBox directory containing `manage.py`:
@@ -90,7 +90,7 @@ python manage.py migrate
 ```
 
 All `PLUGINS_CONFIG` settings are optional. See the
-[configuration guide](https://netbox-community.github.io/netbox-scripts/configuration/)
+[configuration guide](https://netbox-community.github.io/netbox-scripts/administration/configuration/)
 for available settings and object storage options, and the
 [documentation](https://netbox-community.github.io/netbox-scripts/)
 for the complete setup and usage guides.

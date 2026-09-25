@@ -223,7 +223,7 @@ Cutover disables captured Object Permissions and Event Rules, cancels reachable
 waiting tasks and removes built-in synchronization registrations. Cleanup deletes
 eligible mapped modules and their source, retaining modules with protected
 history or references. It does not delete every built-in row. See
-[cleanup](../migration.md#retiring-the-built-in-rows) for retained and blocked
+[cleanup](../administration/migration.md#retiring-the-built-in-rows) for retained and blocked
 modules.
 
 Permission withdrawal does not restrict superusers, permissions supplied through
@@ -236,7 +236,7 @@ cannot execute. The scheduler can enqueue a task fetched before deletion, even
 with one worker. The reference pass holds back its replacement when the run
 has started, or its task is queued again, by the time the pass runs. The
 migration journal does not provide exactly-once execution. Keep the
-[worker and scheduler precautions](../migration.md#worker-arrangement) in the
+[worker and scheduler precautions](../administration/migration.md#worker-arrangement) in the
 migration guide as the operational reference.
 
 Inventory and staging are repeatable and content-addressed, but that is not an

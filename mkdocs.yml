@@ -41,24 +41,29 @@ markdown_extensions:
       alternate_style: true
 
 nav:
-  - Home: index.md
-  - Features: features.md
-  - Quickstart: quickstart.md
-  - Configuration: configuration.md
-  - Uploading Scripts: uploading.md
-  - Data Source Projects: data-sources.md
-  - Migration: migration.md
-  - Authoring: authoring.md
-  - Runtime and Loading: runtime.md
-  - Running Scripts: execution.md
-  - Event Rules: event-rules.md
-  - Permissions: permissions.md
-  - Models:
-      - Script Project: models/scriptproject.md
-      - Script Project Revision: models/scriptprojectrevision.md
-      - Script File: models/scriptfile.md
-      - Script: models/netboxscript.md
-  - Releases: releases.md
+  - Overview:
+      - Introduction: index.md
+      - Features and limitations: features.md
+      - Release notes: releases.md
+  - User guide:
+      - Running scripts: user-guide/execution.md
+      - Writing scripts: user-guide/authoring.md
+  - Administration:
+      - Installation: administration/installation.md
+      - Configuration: administration/configuration.md
+      - Permissions: administration/permissions.md
+      - Uploading scripts: administration/uploading.md
+      - Data Source projects: administration/data-sources.md
+      - Event Rules: administration/event-rules.md
+      - NetBox Branching: administration/branching.md
+      - Migration: administration/migration.md
+  - Reference:
+      - Runtime and loading: reference/runtime.md
+      - Models:
+          - Script Project: reference/models/scriptproject.md
+          - Script File: reference/models/scriptfile.md
+          - Script Project Revision: reference/models/scriptprojectrevision.md
+          - Script: reference/models/netboxscript.md
   - Development:
       - Contributing: development/contributing.md
       - Conventions: development/conventions.md

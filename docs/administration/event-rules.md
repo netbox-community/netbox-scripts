@@ -29,7 +29,7 @@ Each run is queued as a Job. Open the Script's **Jobs** tab under
 
 Read the event context from `self.event`. It is `None` for a manually requested
 run, so check it before use. See
-[Authoring](authoring.md#what-a-run-knows-about-its-own-context).
+[Authoring](../user-guide/authoring.md#what-a-run-knows-about-its-own-context).
 
 | Key | Value |
 |---|---|

@@ -121,7 +121,7 @@ checks you could not run. Do not report a check as passing unless you ran it.
 Use a separate development configuration for interactive testing. Enable
 `netbox_scripts`, configure persistent source storage accessible to the web and
 worker processes, and follow NetBox's development startup instructions. The
-plugin's [Quickstart](https://netbox-community.github.io/netbox-scripts/quickstart/)
+plugin's [installation guide](https://netbox-community.github.io/netbox-scripts/administration/installation/)
 covers its storage and activation requirements.
 
 Do not use the unit-test configuration as a shared web/worker environment. Its

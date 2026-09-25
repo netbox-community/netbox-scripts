@@ -2,7 +2,7 @@
 
 Write Python classes to automate tasks in NetBox. This page covers the plugin's
 authoring API and how Projects discover and publish Scripts. See
-[Uploading](uploading.md) to add source and [Execution](execution.md) to run it.
+[Uploading](../administration/uploading.md) to add source and [Execution](execution.md) to run it.
 
 ## A minimal Script
 
@@ -27,7 +27,7 @@ class PreviewName(Script):
 Define `run(self, data, commit)` to perform the work. For UI, REST and
 `runcustomscript` runs, `data` contains cleaned form values keyed by variable
 name. Event Rules pass their action payload without Script form validation.
-See [Event Rules](event-rules.md#what-the-script-receives).
+See [Event Rules](../administration/event-rules.md#what-the-script-receives).
 
 `commit` indicates whether database changes should persist. `False` means a dry
 run. The value returned from `run()` becomes the output.
@@ -129,7 +129,7 @@ before using context that may not be available.
 | Attribute | Set when | Holds |
 |---|---|---|
 | `self.request` | UI, REST or `runcustomscript` runs, or an Event Rule carrying a request. | The request used to attribute changes to its user. Event Rules pass a stripped copy without uploaded files. |
-| `self.event` | An Event Rule started the run. | JSON-safe event context, including the type, object and rule. See [Event Rules](event-rules.md). |
+| `self.event` | An Event Rule started the run. | JSON-safe event context, including the type, object and rule. See [Event Rules](../administration/event-rules.md). |
 
 A manually requested run has no event context:
 
@@ -156,7 +156,7 @@ def run(self, data, commit):
 
 ## Publishing scripts from a project
 
-Projects discover Scripts through declared [Script Files](models/scriptfile.md).
+Projects discover Scripts through declared [Script Files](../reference/models/scriptfile.md).
 Validation imports those files and discovers the `Script` subclasses defined
 in them, in alphabetical order.
 
@@ -171,7 +171,7 @@ my-project/
 Helpers need no declaration. Import them with relative imports, such as
 `from . import naming` or `from .tools import naming`. A root `__init__.py`
 serves as the Project's package initializer. See
-[Runtime and Loading](runtime.md) for import behavior.
+[Runtime and Loading](../reference/runtime.md) for import behavior.
 
 To set presentation order or publish a class from a helper module, list the
 classes in `script_order` at the top of the Script File:
@@ -192,9 +192,9 @@ publishes once.
 
 Module-level code runs during validation imports, not just execution. Keep module
 bodies to imports and definitions, and put work in `run()`. See
-[Runtime and Loading](runtime.md) for validation and loading details.
+[Runtime and Loading](../reference/runtime.md) for validation and loading details.
 
-Discovered classes become [Scripts](models/netboxscript.md) when the revision is
+Discovered classes become [Scripts](../reference/models/netboxscript.md) when the revision is
 activated. Identity follows the defining module, even when `script_order`
 re-exports the class elsewhere.
 

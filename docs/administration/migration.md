@@ -204,7 +204,7 @@ built-in Custom Scripts in 4.7.0 and schedules their removal for v5.0 in
 [netbox#22935](https://github.com/netbox-community/netbox/issues/22935) and
 [netbox#22938](https://github.com/netbox-community/netbox/issues/22938). Use the
 warning list to plan the move to the plugin's authoring API before upgrading.
-See [Authoring](authoring.md) for supported imports and compatibility limits.
+See [Authoring](../user-guide/authoring.md) for supported imports and compatibility limits.
 
 `import_unresolvable_in_branch` identifies an unavailable import inside a
 conditional branch. Inventory cannot determine whether an arbitrary branch runs
@@ -287,11 +287,12 @@ occurrences. Completed cutover steps are not repeated.
 If the pass fails after entering `cutover`, resolve the reported problem and
 select **Enter cutover** again. If a worker was stopped in the middle of a pass,
 that pass's Job keeps showing Running and the pass stays unavailable. Once no
-worker runs it, delete that Job on the Jobs page and run the pass again. The new
-run can show Running while it waits for the database to end the stopped worker's
-session. The state alone does not confirm completion. A recorded capture can
-also prevent further staging even while the state still reads `staging`.
-Migration passes that change data run one at a time across workers.
+worker runs it, delete that migration-pass Job on the Jobs page and run the pass
+again. The new run can show Running while it waits for the database to end the
+stopped worker's session. The state alone does not confirm completion. A
+recorded capture can also prevent further staging even while the state still
+reads `staging`. Migration passes that change data run one at a time across
+workers.
 
 Cutover affects four areas:
 
@@ -319,11 +320,13 @@ expired.
 This check reads revision state, not source storage. Missing files can still
 make activation fail. Review activation results before repointing.
 
-A missing queue task leaves no input to capture, so the run requires manual
-recreation. Decimal and IP address values are recorded as text their form
-fields read back. An uploaded file, or any other value the journal cannot hold,
-is left out with a warning, and that run is not recreated rather than replayed
-without it. Recreate it by hand.
+If an RQ task is missing, migration cannot capture its input. Recreate the run
+manually when it is still needed. Decimal and IP address values are stored as
+text that the replacement Script's form can read.
+
+If any input cannot be recorded, including an uploaded file, migration warns and
+skips the whole run rather than replaying incomplete input. Review the warning
+and recreate the run manually with the required values.
 
 ## Activating the staged Projects
 
@@ -515,12 +518,12 @@ A pre-cutover database backup does not include the journal captured later.
 After a restore, use your separate record of pending runs to recreate required
 work. Check what actually executed before submitting replacements.
 
-Cleanup closes the run and records its step in one commit, and the page reads
-completion from the run rather than from the cleanup Job, so a worker that
-stops after that commit still leaves **Verify** as the next action. If the
-run's state, journal and Job result disagree after any other interruption,
-preserve them for investigation. Do not open another migration or manually
-advance the state just to make the page appear complete.
+Cleanup records completion before its Job finishes. If the worker stops after
+that point, the Migration page still offers **Verify**.
+
+If the migration state, journal and Job result disagree after another
+interruption, preserve them for investigation. Do not start another migration or
+advance the state manually just to make the page appear complete.
 
 ## Checking whether it landed
 

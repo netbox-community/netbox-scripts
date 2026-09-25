@@ -158,7 +158,7 @@ files or object storage. It is separate from the `scripts` storage entry used by
 built-in Custom Scripts.
 
 See [Project storage](configuration.md#project-storage) for backend choices and
-[Storage layout](models/scriptprojectrevision.md#storage-layout) for the key format.
+[Storage layout](../reference/models/scriptprojectrevision.md#storage-layout) for the key format.
 
 Identical content is stored once, using its manifest digest. It also resolves to
 the same revision when the Script File selection is unchanged.

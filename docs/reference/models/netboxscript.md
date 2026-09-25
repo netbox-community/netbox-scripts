@@ -63,7 +63,7 @@ its `enabled` setting.
 A Script is available for a new run when it is enabled, is not retired, its
 Project is enabled and the Project has an active revision. Deactivation retires
 the Project's Scripts in the same transaction that clears its active revision.
-For the behavior of already queued runs, see [Running Scripts](../execution.md).
+For the behavior of already queued runs, see [Running Scripts](../../user-guide/execution.md).
 
 Change `enabled` through the Script edit form, bulk edit on the list page or a
 REST PATCH.
@@ -90,7 +90,7 @@ the Script.
 REST supports list, detail and update, but not creation or deletion. A PATCH can
 set `enabled`, the three execution overrides, `comments`, `owner`, tags and
 custom fields. See
-[Overriding a script's execution defaults](../execution.md#overriding-a-scripts-execution-defaults)
+[Overriding a script's execution defaults](../../user-guide/execution.md#overriding-a-scripts-execution-defaults)
 for how the overrides resolve.
 
 Invalid values on writable fields return HTTP 400. Read-only fields and unknown
@@ -108,7 +108,7 @@ separately from `change`, and each occurrence is recorded as a Job on the Script
 
 A one-shot run pins the revision active when it is requested. A recurring run
 resolves the active revision when each occurrence starts. See
-[Running Scripts](../execution.md) for scheduling, permissions and results.
+[Running Scripts](../../user-guide/execution.md) for scheduling, permissions and results.
 
 ## Invariants
 
@@ -126,4 +126,5 @@ events, unnecessary update events.
 
 Scripts are installation-global. Under NetBox Branching they read and write the
 main schema, regardless of the active branch. See
-[Script Project](scriptproject.md#netbox-branching) for the shared model policy.
+[NetBox Branching](../../administration/branching.md#installation-wide-objects)
+for the shared model policy.

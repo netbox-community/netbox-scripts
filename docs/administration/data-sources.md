@@ -48,7 +48,7 @@ of the [source path policy](configuration.md#source-path-policy) produce an
 A new Python file becomes a **candidate**. Select it and save the Script Files
 tab to declare it as a file used for discovery. Synchronization does not change
 your selection. Selected files can still import undeclared helpers, as described
-in [Authoring](authoring.md#publishing-scripts-from-a-project).
+in [Authoring](../user-guide/authoring.md#publishing-scripts-from-a-project).
 
 When the source contains exactly one importable module, the tab selects it by
 default. The default alone creates no declaration and publishes no Script. Save

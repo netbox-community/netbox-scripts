@@ -99,7 +99,7 @@ revisions, including a Project deletion that cascades to them.
 
 The model supports change logging. Request-driven activation records changes.
 Automatic activation in the validation Job does not use that change-logging
-context. See [Event Rules](../event-rules.md#scripts-as-event-sources) for the
+context. See [Event Rules](../../administration/event-rules.md#scripts-as-event-sources) for the
 separate event-delivery rules.
 
 ## Recorded Scripts
@@ -238,7 +238,7 @@ database cannot manage as part of its own transactions.
 The lock is a session-level advisory lock. Storage I/O does not require a
 long-running database transaction, and closing the owning database session
 releases the lock. See
-[Database connection pooling](../configuration.md#database-connection-pooling)
+[Database connection pooling](../../administration/configuration.md#database-connection-pooling)
 for deployment requirements.
 
 **Deletion and cleanup use different boundaries.** Deleting a revision row does
@@ -266,7 +266,7 @@ the stored content. Cleanup failures still need attention as described below.
 Files use the configured storage backend, with one key per file beneath
 `netbox-scripts/<storage_key>/revisions/<digest>/`. The Project owns
 `storage_key`. No request, branch or schema changes the key, so every node
-addresses the same content. See [Configuration](../configuration.md) for backend
+addresses the same content. See [Configuration](../../administration/configuration.md) for backend
 setup and the storage trust boundary.
 
 **Verification checks content, not just presence.** Stored source is checked

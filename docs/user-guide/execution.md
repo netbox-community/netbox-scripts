@@ -19,7 +19,7 @@ policy and scheduling setting. Operators can override the first three. See
 
 Running requires `run` permission, separately from `change`. Permission to edit
 a Script does not grant permission to run it, or vice versa. Scheduling also
-requires `schedule`. See [Permissions](permissions.md).
+requires `schedule`. See [Permissions](../administration/permissions.md).
 
 ### Reaching a script you run often
 
@@ -166,9 +166,10 @@ have `schedule` permission.
 
 ## Overriding a script's execution defaults
 
-You can override a Script's commit default, timeout and notification policy on
-its edit page, through bulk edit, or over REST. These settings take precedence
-over the defaults declared in the Script's `Meta` class.
+With the Script's `change` permission, you can override its commit default,
+timeout and notification policy on the edit page, through bulk edit or over
+REST. These settings take precedence over the defaults in the Script's `Meta`
+class.
 
 | Setting | Overridable | Resolved as |
 |---|---|---|
@@ -218,11 +219,14 @@ The commit setting controls whether the run's database changes are kept.
 With commit enabled, changes are kept, attributed to the requesting user, and
 processed through NetBox's change logging and object-change events.
 
+A run always writes to the main schema, even when a NetBox Branching branch is
+active. See [NetBox Branching](../administration/branching.md#script-execution).
+
 With commit disabled, database changes are rolled back when the run finishes.
 The Script receives `commit=False` and can use it to adjust its behavior. Its
 log and output are still recorded. The run's queued object-change events are
 not published. Job start and completion events are separate. See
-[Event Rules](event-rules.md#scripts-as-event-sources).
+[Event Rules](../administration/event-rules.md#scripts-as-event-sources).
 
 **A dry run does not undo external actions.** Device configuration, HTTP requests
 and file writes still take effect. Check `commit` before performing them.

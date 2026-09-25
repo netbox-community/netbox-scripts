@@ -46,8 +46,8 @@ unauthorized source changes, Script execution or access to protected records
 through the plugin's UI or APIs. Please report suspected breaks in those
 boundaries privately, even when you are unsure of their cause.
 
-See [Permissions](https://netbox-community.github.io/netbox-scripts/permissions/)
-and the [storage trust boundary](https://netbox-community.github.io/netbox-scripts/configuration/#storage-trust-boundary)
+See [Permissions](https://netbox-community.github.io/netbox-scripts/administration/permissions/)
+and the [storage trust boundary](https://netbox-community.github.io/netbox-scripts/administration/configuration/#storage-trust-boundary)
 for the plugin's controls. NetBox's own
 [security policy](https://github.com/netbox-community/netbox/blob/main/SECURITY.md)
 and [threat model](https://github.com/netbox-community/netbox/blob/main/THREAT_MODEL.md)

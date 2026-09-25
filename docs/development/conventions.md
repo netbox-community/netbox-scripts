@@ -64,7 +64,7 @@ model it filters, not to a related parent. Follow the existing
 Permission checks use the `netbox_scripts` namespace. In `Meta.permissions`,
 declare the bare action, such as `run`, not `run_netboxscript`. NetBox composes
 the model-specific action when working with Object Permissions. See
-[Permissions](../permissions.md) for the actions and object constraints.
+[Permissions](../administration/permissions.md) for the actions and object constraints.
 
 For object-scoped authorization, use `has_perm(..., obj=...)` or a restricted
 queryset. An objectless permission check does not establish access to the
@@ -81,7 +81,7 @@ creation. Normalize `data_path` with the shared validator.
 
 `QuerySet.update()` and raw SQL bypass model guards. Code using either must
 preserve canonical values and the relevant invariants itself. Consult the
-[Project reference](../models/scriptproject.md#invariants) before changing those
+[Project reference](../reference/models/scriptproject.md#invariants) before changing those
 write paths.
 
 ## Database migrations

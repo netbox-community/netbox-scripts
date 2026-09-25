@@ -178,7 +178,7 @@ class MigrationView(BaseMigrationView):
         # The passes in the order they run, each paired with the button's own render condition and
         # with what would make that pass complete. Two of the refusals the page reports need a
         # clause: a blocking finding withholds staging, and a Project that stopped serving reopens
-        # activation, which is the remedy docs/migration.md names for it.
+        # activation, which is the remedy docs/administration/migration.md names for it.
         sequence = (
             ('inventory', True, _completed(inventory_job)),
             # Staging creates nothing while a blocking finding stands, so it is not next.

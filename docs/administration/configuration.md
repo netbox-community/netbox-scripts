@@ -17,6 +17,9 @@ PLUGINS_CONFIG = {
 }
 ```
 
+If you also run NetBox Branching, see [NetBox Branching](branching.md) for the
+model exemptions and routing checks it needs.
+
 ## Project storage
 
 Revisions use the backend registered as `STORAGES['netbox_scripts']`.
@@ -52,7 +55,7 @@ STORAGES = {
 
 Create the directory before the first upload. It must be writable by the web and
 worker accounts, but not by other users. See
-[Quickstart](quickstart.md#configuring-project-storage) for an example.
+[Installation](installation.md#configuring-project-storage) for an example.
 
 Stored files follow this layout:
 
@@ -307,30 +310,3 @@ can produce a partial report. The next run starts from the oldest work again.
 Review the report before reclaiming content. The sweep cannot find content absent
 from every cleanup Job, because storage backends are not required to list their
 contents. Staging identical content later can reuse those storage keys.
-
-## NetBox Branching
-
-NetBox Scripts can run alongside NetBox Branching. The following rules apply
-when using both plugins.
-
-Projects, Script Files, Scripts, revisions and migration runs are installation-wide.
-All five use the main schema. Changes made from a branch apply everywhere and do
-not appear in its diff, merge or revert. Their tables are not copied into branch
-schemas.
-
-Stored source uses the Project's storage key and revision digest without a schema
-component. Keeping these objects global prevents a deletion in one schema from
-removing source another schema still serves.
-
-Tags and journal entries on these objects remain branch-local, like those on
-NetBox's other exempt models. Tag assignments are branch-aware before exemptions
-apply, and cannot be made global through configuration. Journal entries follow
-the usual branch-aware change-logging rule.
-
-**Script execution always writes to the main schema**, regardless of the
-requester's active branch. The run explicitly clears branch context restored
-from the copied request before calling the Script.
-
-A recurrence reuses its request, so following that request's branch could change
-its write destination after the branch is merged. This plugin does not support
-using Script execution to stage changes inside a branch.

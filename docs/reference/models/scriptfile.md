@@ -80,7 +80,7 @@ route. Creating a declaration also requires `add` permission on the new row.
 Changes to existing declarations require `change` permission on each affected
 row before and after the change. Unchanged rows need no additional child write
 permission. See
-[Permissions](../permissions.md#two-privileges-with-no-codename-of-their-own)
+[Permissions](../../administration/permissions.md#two-privileges-with-no-codename-of-their-own)
 for the complete selection and upload rules.
 
 Script Files also have list, detail, edit, filtering and global-search views for
@@ -99,7 +99,7 @@ and GraphQL endpoints.
 Declaration paths are checked before revision validation:
 
 - Paths are canonicalized using the storage rules and must satisfy the
-  [source path policy](../configuration.md#source-path-policy).
+  [source path policy](../../administration/configuration.md#source-path-policy).
 - The file must end in `.py`. Directory names and the module name without `.py`
   must be Python identifiers, not reserved keywords. The Project root
   `__init__.py` cannot be declared because it names the package itself.

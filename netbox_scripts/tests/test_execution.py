@@ -39,6 +39,7 @@ from netbox_scripts.validation import validate_revision
 from utilities.datetime import local_now
 from utilities.exceptions import AbortScript as LegacyAbortScript
 from utilities.request import NetBoxFakeRequest
+from utilities.testing.mixins import RQQueueTestMixin
 
 
 class Creating(Script):
@@ -477,7 +478,7 @@ class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
             self.assertIsNotNone(instance.as_form())
 
 
-class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
+class EnqueueRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
     def test_enqueue_pins_the_active_revision_on_the_job(self):
         revision = self.publish({'deploy.py': MAKES_A_TAG})
         script = self.script()
@@ -554,8 +555,6 @@ class EnqueueRunTestCase(ScriptJobTestMixin, TestCase):
     def test_an_immediate_run_never_reaches_the_queue(self):
         self.publish({'deploy.py': MAKES_A_TAG})
         queue = django_rq.get_queue('default')
-        queue.empty()
-        self.addCleanup(queue.empty)
 
         # Core queues every non-immediate job from a transaction.on_commit hook, so an
         # implementation reaching that branch would hand the finished run to a worker as well.

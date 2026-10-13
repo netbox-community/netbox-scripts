@@ -99,9 +99,10 @@ services matching that configuration. The database account must be able to creat
 the test database.
 
 **Use isolated development services, never production.** The test configuration
-uses Redis databases 15 for tasks and 14 for caching. No worker serving a different
-NetBox database may consume those test queues. Redis database numbers do not
-protect against commands that clear the whole server.
+uses Redis databases 15 for tasks and 14 for caching. The suite clears the tasks
+database during a run, whichever one the configuration names. No worker serving a
+different NetBox database may consume those test queues. Redis database numbers do
+not protect against commands that clear the whole server.
 
 These exports apply only inside the subshell:
 

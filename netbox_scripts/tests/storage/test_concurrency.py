@@ -17,7 +17,6 @@ import hashlib
 import uuid
 from unittest import mock
 
-import django_rq
 from django.db.models.signals import post_save, pre_save
 from django.test import TransactionTestCase, override_settings
 
@@ -30,6 +29,7 @@ from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, SecondSession
+from utilities.testing.mixins import RQQueueTestMixin
 
 SOURCE = {'hello.py': b'print("hi")\n'}
 
@@ -42,15 +42,12 @@ def manifest_for(files):
     )
 
 
-class SerializationTestCase(TransactionTestCase):
+class SerializationTestCase(RQQueueTestMixin, TransactionTestCase):
     """Shared fixture: one upload project whose content can be staged and reclaimed."""
 
     def setUp(self):
+        super().setUp()
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
-        # This case commits, so the revision-deletion signal's on_commit callback really enqueues a
-        # cleanup job. The queue is isolated by testing/configuration.py, and draining it here means
-        # the suite leaves nothing behind even there.
-        self.addCleanup(django_rq.get_queue('default').empty)
         self.storage = config.get_storage()
         self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
 

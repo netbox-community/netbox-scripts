@@ -25,6 +25,7 @@ from netbox_scripts.models import MigrationRun, ScriptProjectRevision
 from netbox_scripts.tests.migration.test_staging import LEGACY_SCRIPT as SYNCED_SCRIPT
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 from users.models import ObjectPermission
+from utilities.testing.mixins import RQQueueTestMixin
 
 LEGACY_SCRIPT = b"""from extras.scripts import Script
 
@@ -35,7 +36,7 @@ class Deploy(Script):
 """
 
 
-class CutoverTestCase(TestCase):
+class CutoverTestCase(RQQueueTestMixin, TestCase):
     """Crossing the fence: what it refuses, what it records, and what it closes."""
 
     @classmethod
@@ -58,6 +59,7 @@ class CutoverTestCase(TestCase):
         )
 
     def setUp(self):
+        super().setUp()
         self.migration = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
         self.source = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/a')
         self.data_file = DataFile.objects.create(
@@ -149,12 +151,7 @@ class CutoverTestCase(TestCase):
             timeout=600,
         )
         task.save()
-        self.addCleanup(self.discard_task, queue, str(job.job_id))
         return task
-
-    @staticmethod
-    def discard_task(queue, task_id):
-        queue.connection.delete(f'rq:job:{task_id}')
 
     def report_module(self, *, auto_sync_enabled=False):
         """Create a REPORTS-root module, which this migration does not cover."""

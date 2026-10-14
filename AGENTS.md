@@ -136,8 +136,9 @@ Check these integration details when changing the affected paths:
   15 and 14, and nothing else isolates it. A committing test otherwise enqueues
   jobs that a live worker would run with test primary keys. Logical database
   numbers do not make a shared server safe from `FLUSHALL`.
-- **Do not use `RQQueueTestMixin` to clear queues.** It calls server-wide
-  `flushall()`.
+- **`--parallel` workers share the test Redis database.** A test class that
+  reaches Redis lists NetBox's `RQQueueTestMixin` first. See the
+  [testing conventions](./docs/development/conventions.md#testing).
 - **Migration fixtures need real temporary source storage.** `ManagedFile.storage`
   and the built-in loader do not necessarily use the same backend instance.
 - **`has_perm(perm)` without an object is not a target-object check.** It

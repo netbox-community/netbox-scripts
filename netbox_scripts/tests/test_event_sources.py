@@ -13,6 +13,7 @@ from netbox_scripts.models import (
     ScriptProject,
     ScriptProjectRevision,
 )
+from utilities.testing.mixins import RQQueueTestMixin
 
 EVERY_MODEL = (ScriptProject, ScriptProjectRevision, ScriptFile, NetBoxScript)
 
@@ -83,16 +84,12 @@ class EventBodyTestCase(TestCase):
                 self.assertEqual(serialize_for_event(instance)['id'], instance.pk)
 
 
-class EventDispatchTestCase(TestCase):
+class EventDispatchTestCase(RQQueueTestMixin, TestCase):
     """That a rule matching a plugin object reaches the queue."""
 
     def setUp(self):
         super().setUp()
-        # The queue is isolated by testing/configuration.py, so this only separates one test from
-        # the next. Never clear with NetBox's RQQueueTestMixin, which uses a server-wide flushall().
         self.queue = django_rq.get_queue('default')
-        self.queue.empty()
-        self.addCleanup(self.queue.empty)
         self.project = ScriptProject.objects.create(name='Dispatched', key='dispatched')
         self.object_type = ObjectType.objects.get_for_model(ScriptProject)
         webhook = Webhook.objects.create(name='Receiver', payload_url='http://localhost/hook/')

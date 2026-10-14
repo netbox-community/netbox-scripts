@@ -13,7 +13,6 @@ negative control could never fail.
 
 from unittest import mock
 
-import django_rq
 from django.test import TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -31,9 +30,6 @@ class ConditionalWriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTe
 
     def setUp(self):
         self.enterContext(override_settings(STORAGES=IN_MEMORY_STORAGES))
-        # This case commits, so a deletion really enqueues its cleanup. The queue is isolated by
-        # testing/configuration.py, and draining it leaves nothing behind even there.
-        self.addCleanup(django_rq.get_queue('default').empty)
         self.project = ScriptProject.objects.create(name='Deploy Devices', key='deploy-devices')
         self.user = User.objects.create_user(username='testuser')
         self.token = Token.objects.create(user=self.user)

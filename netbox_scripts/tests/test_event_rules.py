@@ -11,6 +11,7 @@ from netbox.event_rules import get_event_rule_action
 from netbox_scripts.event_rules import RunNetBoxScriptAction
 from netbox_scripts.models import NetBoxScript
 from netbox_scripts.tests.test_execution import MAKES_A_TAG, ScriptJobTestMixin
+from utilities.testing.mixins import RQQueueTestMixin
 
 SLUG = 'netbox_scripts.run'
 
@@ -183,7 +184,7 @@ class RunNetBoxScriptActionTestCase(ScriptJobTestMixin, TestCase):
             self.action.resolve_import_object(f'other:{self.netbox_script.full_name}')
 
 
-class ActionInputTestCase(ScriptJobTestMixin, TestCase):
+class ActionInputTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
     """That the rule's action_data reaches the script as its input, verbatim."""
 
     # enqueue_run keeps input off the Job row on purpose, because a variable resolves to a model
@@ -191,11 +192,7 @@ class ActionInputTestCase(ScriptJobTestMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        # The queue is isolated by testing/configuration.py, so this only separates one test from
-        # the next. Never clear with NetBox's RQQueueTestMixin, which uses a server-wide flushall().
         self.queue = django_rq.get_queue('default')
-        self.queue.empty()
-        self.addCleanup(self.queue.empty)
         self.publish({'deploy.py': MAKES_A_TAG})
         self.netbox_script = self.script()
         self.action = get_event_rule_action(SLUG)

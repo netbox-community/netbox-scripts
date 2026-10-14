@@ -137,6 +137,14 @@ and APIs through NetBox's test client rather than mocking persistence. Use
 transactional tests for concurrency and transaction boundaries. A sequential
 `TestCase` alone does not demonstrate that an interleaving is safe.
 
+Parallel test workers get their own databases but share the test Redis
+database. A test class that reaches Redis lists NetBox's `RQQueueTestMixin`,
+from `utilities.testing.mixins`, as its first base and calls `super().setUp()`
+first. A class reaches Redis when it reads or clears a queue, writes an RQ job,
+or lets an unpatched enqueue run, either by committing or through
+`captureOnCommitCallbacks(execute=True)`. The mixin keeps such classes from
+running at the same time and clears the task database around each test.
+
 Keep tests in the same commit as the implementation they cover. Report the
 NetBox ref, command, configuration and result, including skipped or unrun checks.
 Distinguish actual integration tests from checks that replace a framework or

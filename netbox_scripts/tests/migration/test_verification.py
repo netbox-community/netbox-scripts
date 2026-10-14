@@ -13,9 +13,10 @@ from netbox_scripts.migration import cleanup, mapping, plan, verification
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject
 from netbox_scripts.tests.migration.test_cleanup import CleanupMixin
 from users.models import ObjectPermission
+from utilities.testing.mixins import RQQueueTestMixin
 
 
-class VerificationMixin(CleanupMixin):
+class VerificationMixin(RQQueueTestMixin, CleanupMixin):
     """A migration taken as far as each case needs, and a way to read one check out of the report."""
 
     @staticmethod
@@ -34,7 +35,6 @@ class VerificationMixin(CleanupMixin):
             timeout=600,
         )
         task.save()
-        self.addCleanup(queue.connection.delete, f'rq:job:{job.job_id}')
         return task
 
     def waiting_schedule(self, run, *, name='nightly deploy', status=JobStatusChoices.STATUS_SCHEDULED):

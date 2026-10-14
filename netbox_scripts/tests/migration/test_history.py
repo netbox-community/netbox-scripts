@@ -20,6 +20,7 @@ from netbox_scripts.models import NetBoxScript
 from netbox_scripts.runtime.exceptions import ScriptFileImportError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from users.models import ObjectPermission
+from utilities.testing.mixins import RQQueueTestMixin
 
 # A legacy script with a variable, so the journal's primary keys have something to resolve back to.
 VARIABLE_SCRIPT = b"""from extras.scripts import ObjectVar, Script
@@ -49,7 +50,7 @@ class Allocate(Script):
 """
 
 
-class LegacyJobMixin(ReferenceMigrationMixin):
+class LegacyJobMixin(RQQueueTestMixin, ReferenceMigrationMixin):
     """The built-in content plus a Job history and a queue to read schedules out of."""
 
     def setUp(self):
@@ -58,8 +59,6 @@ class LegacyJobMixin(ReferenceMigrationMixin):
         self.variable_script = Script.objects.get(module=self.variable_module, name='Retire')
         self.site = Site.objects.create(name='HQ', slug='hq')
         self.queue = django_rq.get_queue('default')
-        self.queue.empty()
-        self.addCleanup(self.queue.empty)
 
     def legacy_job(self, *, script=None, status=JobStatusChoices.STATUS_COMPLETED, **fields):
         """One built-in Custom Script Job row, in whatever state the case needs."""
@@ -89,7 +88,6 @@ class LegacyJobMixin(ReferenceMigrationMixin):
             timeout=timeout,
         )
         task.save()
-        self.addCleanup(self.queue.connection.delete, f'rq:job:{job.job_id}')
         return job
 
     def plugin_script(self, class_name='Deploy'):

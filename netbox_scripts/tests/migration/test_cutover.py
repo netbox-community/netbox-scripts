@@ -197,6 +197,42 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(self.migration.state, MigrationStateChoices.STAGING)
         self.assertIsNone(self.migration.cutover_started)
 
+    def test_a_captured_run_left_running_is_recorded_executed_once_its_row_is_deleted(self):
+        job = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+
+        with self.assertRaises(cutover.CutoverRefused) as caught:
+            cutover.enter_cutover(self.migration)
+
+        self.assertIn('"Stale running Jobs"', str(caught.exception))
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'][0].get('cancellation'), 'running')
+
+        job.delete()
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'executed')
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
+    def test_the_refusal_records_only_the_cancelled_run_that_started_anyway(self):
+        # Otherwise a run that started anyway is replayed once its Job is deleted.
+        started = self.legacy_job(task_kwargs={})
+        cancelled = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        for entry in self.migration.journal['schedules']:
+            entry['cancellation'] = 'cancelled'
+        self.migration.save(update_fields=('journal',))
+        Job.objects.filter(pk=started.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+
+        with self.assertRaises(cutover.CutoverRefused):
+            cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        outcomes = {entry['job_pk']: entry['cancellation'] for entry in self.migration.journal['schedules']}
+        self.assertEqual(outcomes, {started.pk: 'running', cancelled.pk: 'cancelled'})
+
     def test_it_refuses_while_a_second_worker_could_take_a_built_in_run(self):
         # One worker covering every queue runs them one at a time, which is what closes the window.
         # A second can start a built-in run beside the pass, so the pass refuses rather than race it.
@@ -420,6 +456,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(outstanding, self.migration.journal['schedules'])
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
         self.assertTrue(any(str(job.pk) in warning for warning in warnings))
+        self.assertTrue(any('"Stale running Jobs"' in warning for warning in warnings))
 
     def test_a_resumed_close_reports_what_is_closed_not_what_it_changed(self):
         # Counting the delta made a resumed pass report zeroes for what the first attempt closed.
@@ -451,6 +488,26 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(second['schedules'], 1)
         self.assertEqual(outstanding, [])
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'cancelled')
+
+    def test_a_deleted_row_reads_as_executed_only_for_a_run_a_worker_took(self):
+        taken = self.legacy_job(task_kwargs={})
+        interrupted = self.legacy_job(task_kwargs={})
+        unrecorded = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        entries = {entry['job_pk']: entry for entry in self.migration.journal['schedules']}
+        # Never seen running, so it stays on the replay side.
+        entries[interrupted.pk]['cancellation'] = 'cancelling'
+        Job.objects.filter(pk__in=[interrupted.pk, unrecorded.pk]).delete()
+        Job.objects.filter(pk=taken.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+        cutover._close(self.migration)
+        Job.objects.filter(pk=taken.pk).delete()
+
+        # Twice, since other work can hold the step open once the row is gone.
+        cutover._close(self.migration)
+        cutover._close(self.migration)
+
+        outcomes = {entry['job_pk']: entry['cancellation'] for entry in self.migration.journal['schedules']}
+        self.assertEqual(outcomes, {taken.pk: 'executed', interrupted.pk: 'vanished', unrecorded.pk: 'vanished'})
 
     def test_an_interrupted_cancellation_is_not_read_back_as_an_execution(self):
         # The row is failed and the pass stopped before recording that it failed it. Nothing ran,

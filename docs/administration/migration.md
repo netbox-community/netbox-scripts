@@ -99,8 +99,8 @@ successor depends on when it was queued:
   **Jobs** page before scheduling the replacement Script.
 
 An existing successor is different from a Script run whose worker disappeared.
-For the latter, follow [recovery after cutover](#after-cutover) before deleting
-or replaying anything.
+For the latter, follow [Stale running Jobs](#stale-running-jobs) before
+deleting or replaying anything.
 
 ## Before you start
 
@@ -113,8 +113,10 @@ preparation before selecting **Enter cutover**.
    do not restrict superusers or every other way of granting access.
 2. **Check workers and existing runs.** Keep the single-worker arrangement above
    in place for cutover. Let running built-in Scripts finish. Cutover refuses
-   while any are running and lists them. Review waiting and scheduled work too.
-   It can become due before cutover starts, even during the maintenance window.
+   while any are running and lists them. If one stays **Running** after its
+   worker stopped, see [Stale running Jobs](#stale-running-jobs). Review waiting
+   and scheduled work too. It can become due before cutover starts, even during
+   the maintenance window.
 3. **Take a consistent backup.** Back up the database, built-in source storage
    and plugin source storage together as one restore point. A mismatched
    restore can leave revisions pointing to missing source files. Record the
@@ -302,11 +304,11 @@ select **Enter cutover** again. If a worker stopped during a migration pass, its
 migration-pass Job can remain **Running** and prevent another attempt. After
 confirming that no worker is executing that pass, delete the migration-pass Job
 on the **Jobs** page and retry. This instruction does not apply to Script-run
-Jobs. See [Recovery](#recovery). The new pass can show **Running** while waiting
-for the database to end the stopped worker's session. The state alone does not
-confirm completion. A recorded capture can also prevent further staging even
-while the state still reads `staging`. Migration passes that change data run one
-at a time across workers.
+Jobs. See [Stale running Jobs](#stale-running-jobs). The new pass can show
+**Running** while waiting for the database to end the stopped worker's session.
+The state alone does not confirm completion. A recorded capture can also
+prevent further staging even while the state still reads `staging`. Migration
+passes that change data run one at a time across workers.
 
 Cutover affects four areas:
 
@@ -514,11 +516,6 @@ The journal supports retries of unfinished work, but cannot recreate every
 captured run. Review missing queue tasks, unsupported input, invalid forms,
 ownership changes and permanent skips manually.
 
-Investigate a Script run whose Job is still marked running after its worker
-disappears. Check the workers, queues and any external changes the Script may
-have made. An absent worker does not prove that the Script never ran. Do not
-delete or replay the Job on that basis alone.
-
 To reverse the installation, restore a consistent pre-cutover database and both
 source stores with the matching software versions. **This does not restore the
 queue or undo changes to devices and other external systems.**
@@ -538,6 +535,36 @@ that point, the Migration page still offers **Verify**.
 If the migration state, journal and Job result disagree after another
 interruption, preserve them for investigation. Do not start another migration
 or advance the state manually just to make the page appear complete.
+
+### Stale running Jobs
+
+A built-in Custom Script Job can remain **Running** after its execution
+process stops unexpectedly, which blocks cutover. Select **Enter cutover**
+first, so that the refusal names the affected Jobs and records any that the
+migration had already captured.
+
+1. **Confirm that execution has stopped.** Under
+   *Admin > System > Background Tasks*, every worker's **State** has to be
+   **Idle**. If one is not, wait until it is, or confirm on the worker host that
+   no process is still executing this Job. For a run started with
+   `manage.py runscript`, confirm that the command has exited. Elapsed time and
+   worker start times do not prove that a run stopped.
+2. **Check what the Script changed.** A stopped run saves no log or output on
+   its Job. Uncommitted database changes are rolled back, but committed changes
+   and effects on external systems remain, so check the affected systems.
+3. **Delete only a Job named in the latest refusal**, on the **Jobs** page.
+   This needs permission to delete Jobs, and it does not stop execution.
+4. **Select Enter cutover again.**
+
+The reference pass does not recreate a run cleared this way. If cutover had
+already captured it, entering cutover again records it as executed.
+
+After cutover completes, leave stale Jobs in place until **Repoint references**
+has completed. Deleting a Job that cutover cancelled can let that pass recreate
+the run.
+
+For a recurring run, follow [Recurring successors](#recurring-successors)
+before scheduling a replacement by hand.
 
 ## Verify the migration
 

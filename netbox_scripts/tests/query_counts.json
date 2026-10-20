@@ -1,7 +1,7 @@
 {
-  "netboxscript:list_objects_with_permission": 17,
+  "netboxscript:list_objects_with_permission": 16,
   "scriptfile:api_list_objects": 12,
-  "scriptfile:list_objects_with_permission": 17,
+  "scriptfile:list_objects_with_permission": 16,
   "scriptproject:api_list_objects": 12,
-  "scriptproject:list_objects_with_permission": 17
+  "scriptproject:list_objects_with_permission": 16
 }

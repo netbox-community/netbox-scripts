@@ -3,6 +3,7 @@ import shutil
 import sys
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError, connections
+from django.test import override_settings
 
 from core.models import ObjectType
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
@@ -129,8 +130,12 @@ class PluginTestCases:
     namespace. Compose them with ``ViewTestCases.PrimaryObjectViewTestCase``
     so all standard primary-object views (Get / Edit / Delete / List /
     BulkEdit / BulkDelete / BulkImport) test cleanly.
+
+    Signed-cookie sessions keep the counts in query_counts.json valid on
+    every supported NetBox version.
     """
 
+    @override_settings(SESSION_ENGINE='django.contrib.sessions.backends.signed_cookies')
     class PrimaryObjectViewTestCase(
         PluginViewTestCase,
         ViewTestCases.PrimaryObjectViewTestCase,
@@ -139,6 +144,7 @@ class PluginTestCases:
 
         maxDiff = None
 
+    @override_settings(SESSION_ENGINE='django.contrib.sessions.backends.signed_cookies')
     class NestedObjectViewTestCase(
         PluginViewTestCase,
         ViewTestCases.GetObjectViewTestCase,
@@ -150,6 +156,7 @@ class PluginTestCases:
 
         maxDiff = None
 
+    @override_settings(SESSION_ENGINE='django.contrib.sessions.backends.signed_cookies')
     class DerivedObjectViewTestCase(
         PluginViewTestCase,
         ViewTestCases.GetObjectViewTestCase,

@@ -1,14 +1,15 @@
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db.models.signals import post_save
-from django.test import Client
+from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 
 from core.models import ObjectChange, ObjectType
 from core.tables import ObjectChangeTable
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
-from netbox_scripts.tests.plugin_testing import PluginTestCases
+from netbox_scripts.permissions import SELECTION_REFUSAL
+from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases, refresh_count
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, post_data
 
@@ -278,3 +279,58 @@ class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual({str(action.label) for action in response.context['actions']}, {'Edit'})
+
+
+# Without view permission, the edit form's disabled Project field fails validation.
+@override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+class ScriptFileSelectionViewTestCase(ObjectPermissionTestMixin, TestCase):
+    """Enabling or disabling a Script File on its edit page follows its Project's Script Files tab."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = ScriptProject.objects.create(name='Selection Project', key='selection-project')
+        cls.other = ScriptProject.objects.create(name='Selection Elsewhere', key='selection-elsewhere')
+        cls.first = ScriptFile.objects.create(project=cls.project, source_path='first.py')
+        cls.elsewhere = ScriptFile.objects.create(project=cls.other, source_path='elsewhere.py', enabled=False)
+
+    def edit(self, script_file, **data):
+        url = reverse('plugins:netbox_scripts:scriptfile_edit', args=[script_file.pk])
+        return self.client.post(url, post_data(data))
+
+    def test_enabling_or_disabling_restages_the_project(self):
+        self.add_permissions('netbox_scripts.change_scriptfile', 'netbox_scripts.change_scriptproject')
+        for script_file, enabled in ((self.first, False), (self.elsewhere, True)):
+            with self.subTest(source_path=script_file.source_path):
+                self.assertHttpStatus(self.edit(script_file, enabled=enabled), 302)
+                script_file.refresh_from_db()
+                self.assertEqual(script_file.enabled, enabled)
+                self.assertEqual(refresh_count(script_file.project), 1)
+
+    def test_disabling_needs_the_project_change_permission(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+
+        response = self.edit(self.first, enabled=False)
+
+        self.assertHttpStatus(response, 200)
+        self.assertIn(str(SELECTION_REFUSAL), response.context['form'].non_field_errors())
+        self.first.refresh_from_db()
+        self.assertTrue(self.first.enabled)
+        self.assertEqual(refresh_count(self.project), 0)
+
+    def test_an_edit_that_keeps_the_selection_needs_only_the_script_file_permission(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+
+        response = self.edit(self.first, enabled=True, description='Edited')
+
+        self.assertHttpStatus(response, 302)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.description, 'Edited')
+        self.assertEqual(refresh_count(self.project), 0)
+
+    def test_a_project_permission_scoped_to_another_project_does_not_count(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+        self.grant(ScriptProject, 'change', constraints={'pk': self.other.pk})
+
+        self.assertHttpStatus(self.edit(self.first, enabled=False), 200)
+        self.first.refresh_from_db()
+        self.assertTrue(self.first.enabled)

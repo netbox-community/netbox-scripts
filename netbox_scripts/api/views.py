@@ -2,7 +2,9 @@ from contextlib import contextmanager
 from pathlib import PurePosixPath
 
 from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import router, transaction
+from django.utils.functional import cached_property
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -32,6 +34,7 @@ from ..ingestion import (
     check_upload_preconditions,
     ingest_upload,
     prepare_upload,
+    script_file_edit,
     uploaded_source_path,
 )
 from ..jobs import NetBoxScriptJob, ProjectScriptFileRefreshJob
@@ -123,6 +126,27 @@ class ScriptFileViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
     # A nested numeric id reaches any Project, so declarations are written on the Project only.
     # By method, not by mixin composition, for the reason on NetBoxScriptViewSet below.
     http_method_names = ('get', 'put', 'patch', 'head', 'options')
+
+    @cached_property
+    def queued_project_ids(self):
+        """One set per request, so a bulk update queues each Project's refresh once."""
+        return set()
+
+    def perform_update(self, serializer):
+        """Update one Script File under its Project's Script Files tab rules."""
+        using = router.db_for_write(self.queryset.model)
+        try:
+            with (
+                transaction.atomic(using=using),
+                discard_events_on_rollback(self, using=using),
+                script_file_edit(
+                    serializer.instance, user=self.request.user, queued_project_ids=self.queued_project_ids
+                ),
+            ):
+                super().perform_update(serializer)
+        except PermissionsViolation as error:
+            # Django's class, which NetBox's bulk update reports per entry and DRF's escapes.
+            raise DjangoPermissionDenied(error.message) from error
 
 
 class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):

@@ -3,7 +3,7 @@ Source ingestion for Script Projects.
 
 This module turns supplied source files into a revision that is on its way to a verdict: it
 declares the script files the source implies, stages the tree, and enqueues validation. Upload and
-Data Source reconciliation are its two callers, which is why an entry point here takes a project
+Data Source reconciliation are its two sources, which is why an entry point here takes a project
 that already exists rather than creating one.
 
 The two differ in what the source implies. An uploaded file is a script file unless its caller
@@ -22,18 +22,20 @@ record its cleanup, so a failed write is recorded on the revision as STORAGE_FAI
 where it stays inspectable and retryable.
 """
 
+from contextlib import contextmanager
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
+from django.db import router
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from . import branching
 from .choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_LEASE_SECONDS
-from .jobs import RevisionValidationJob
+from .jobs import ProjectScriptFileRefreshJob, RevisionValidationJob
 from .models import ScriptFile, ScriptProject
-from .permissions import validate_script_file_permissions
+from .permissions import refuse_unpermitted_selection_change, validate_script_file_permissions
 from .storage import config, service, store
 from .storage.exceptions import UnsafePathError
 from .storage.locks import project_lock, project_write_lock
@@ -49,6 +51,7 @@ __all__ = (
     'ingest_upload',
     'prepare_upload',
     'queue_revision_processing',
+    'script_file_edit',
     'uploaded_source_path',
 )
 
@@ -254,3 +257,29 @@ def declare_script_file(project, path, using, *, user=None):
             script_file.save(using=using, update_fields=('enabled', 'last_updated'))
             validate_script_file_permissions(user, changed=(script_file.pk,), using=using)
         return script_file
+
+
+@contextmanager
+def script_file_edit(script_file, *, user, queued_project_ids=None):
+    """
+    Guard one Script File save by the rules of its Project's Script Files tab.
+
+    Raises PermissionsViolation before anything is written when the edit moves enabled and the user may not change
+    the Project or the stored Script File. After the save, a move queues the Project's refresh unless its pk is
+    already in queued_project_ids, the set a bulk request shares across its rows.
+    """
+    queued_project_ids = set() if queued_project_ids is None else queued_project_ids
+    project = script_file.project
+    using = script_file._state.db or router.db_for_write(ScriptFile, instance=script_file)
+    with project_write_lock(project.storage_key, using=using):
+        # The instance already holds the submitted value.
+        stored = ScriptFile.objects.using(using).filter(pk=script_file.pk).values_list('enabled', flat=True).first()
+        moved = stored is not None and stored != script_file.enabled
+        if moved:
+            refuse_unpermitted_selection_change(user, project)
+            # NetBox checked the row as loaded, before this lock.
+            validate_script_file_permissions(user, changed=(script_file.pk,), using=using)
+        yield
+        if moved and project.pk not in queued_project_ids:
+            ProjectScriptFileRefreshJob.enqueue_refresh(project)
+            queued_project_ids.add(project.pk)

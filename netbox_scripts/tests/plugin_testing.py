@@ -5,7 +5,8 @@ import sys
 from django.db import DEFAULT_DB_ALIAS, OperationalError, connections
 from django.test import override_settings
 
-from core.models import ObjectType
+from core.models import Job, ObjectType
+from netbox_scripts.jobs import ProjectScriptFileRefreshJob
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_scripts.storage.locks import advisory_key
 from users.models import ObjectPermission
@@ -36,6 +37,11 @@ def pickle_queued_objects(events):
     """Pickle each queued event's object, as a platform EVENTS_PIPELINE consumer may."""
     for event in events:
         pickle.loads(pickle.dumps(event['object']))
+
+
+def refresh_count(project):
+    """Return how many Script File refresh Jobs are recorded for one Project."""
+    return Job.objects.filter(name=ProjectScriptFileRefreshJob.name, data__project_id=project.pk).count()
 
 
 class SecondSession:

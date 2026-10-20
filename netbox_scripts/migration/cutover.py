@@ -68,7 +68,7 @@ def enter_cutover(run, *, accept_concurrent_workers=False):
     Raises CutoverRefused when the run is not in a state that may cross, while a built-in Custom
     Script job is still running, when a worker other than this pass could take a built-in run and
     accept_concurrent_workers is not set, or when a Project this migration mapped could serve
-    nothing on the far side.
+    nothing on the far side. Before refusing, records any captured job that is still running.
     """
     if run is None:
         raise CutoverRefused(_('Nothing has been staged yet, so there is nothing to cut over to.'))
@@ -77,10 +77,16 @@ def enter_cutover(run, *, accept_concurrent_workers=False):
     if run.step_done(STEP):
         return run.recorded_counts(STEP)
     if running := list(legacy_source.running_script_jobs().values_list('pk', flat=True)):
+        # Recorded before refusing, because clearing a stale run means deleting its Job.
+        if seen := [entry for entry in run.journal.get('schedules', []) if entry['job_pk'] in running]:
+            for entry in seen:
+                entry['cancellation'] = 'running'
+            run.record_journal(schedules=run.journal['schedules'])
         raise CutoverRefused(
-            _('{count} built-in Custom Script job(s) are still running: {keys}. Wait for them to finish.').format(
-                count=len(running), keys=', '.join(str(key) for key in running)
-            )
+            _(
+                '{count} built-in Custom Script job(s) are still running: {keys}. Wait for them to finish. '
+                'If a stopped worker left one running, see "Stale running Jobs" in the migration guide.'
+            ).format(count=len(running), keys=', '.join(str(key) for key in running))
         )
     # Every worker by name: per-queue counts cannot tell one worker on two queues from two workers on one each.
     competing = sorted(get_all_workers())
@@ -487,7 +493,8 @@ def _cancel_schedules(run, captured, unreadable=()):
             continue
         job = Job.objects.filter(pk=entry['job_pk']).first()
         if job is None:
-            entry['cancellation'] = 'vanished'
+            # Taken by a worker, so deleting its row must not make it replayable.
+            entry['cancellation'] = 'executed' if entry.get('cancellation') in ('executed', 'running') else 'vanished'
             continue
         if entry.get('cancellation') == 'cancelling' and job.status not in legacy_source.cancellable_statuses():
             # Only a worker sets started, so it separates this cutover's own failure from a run that went ahead.
@@ -529,7 +536,8 @@ def _cancel_schedules(run, captured, unreadable=()):
             warnings.append(
                 _(
                     'Job {pk} ("{name}") started before the cutover could cancel it, so it was left '
-                    'to finish rather than terminated. Wait for it, then enter the cutover again.'
+                    'to finish rather than terminated. Wait for it, then enter the cutover again. If it '
+                    'still shows Running after its execution stops, see "Stale running Jobs" in the migration guide.'
                 ).format(pk=entry['job_pk'], name=entry['name'])
             )
         else:

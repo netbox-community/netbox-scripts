@@ -3,14 +3,25 @@ from unittest import mock
 from django.urls import reverse
 from rest_framework import status
 
+from core.choices import JobStatusChoices
+from core.models import Job
 from extras.events import serialize_for_event
+from netbox.jobs import AsyncAPIJob
 from netbox_scripts.api.serializers import NetBoxScriptSerializer
 from netbox_scripts.api.views import ScriptFileViewSet
 from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
+from netbox_scripts.jobs import ProjectScriptFileRefreshJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
-from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase, PluginAPIViewTestCases
+from netbox_scripts.permissions import SELECTION_REFUSAL
+from netbox_scripts.tests.plugin_testing import (
+    ObjectPermissionTestMixin,
+    PluginAPIViewTestCase,
+    PluginAPIViewTestCases,
+    refresh_count,
+)
 from utilities.api import get_serializer_for_model
 from utilities.testing import APITestCase
+from utilities.testing.mixins import RQQueueTestMixin
 
 DIGEST = 'e' * 64
 
@@ -286,6 +297,11 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.NestedObjectAPIViewTestCa
         ScriptFile.objects.create(project=cls.project, source_path='tools/second.py', description='Second script file')
         ScriptFile.objects.create(project=cls.project, source_path='tools/third.py', enabled=False)
 
+    def setUp(self):
+        super().setUp()
+        # update_data disables a Script File, which also needs its Project's change permission.
+        self.add_permissions('netbox_scripts.change_scriptproject')
+
     def test_a_patch_does_not_revert_a_discovery_result(self):
         # read_only keeps a submitted value out and settles nothing about the copy the view
         # already holds. Core closes this window only when the caller sends If-Match, so the
@@ -372,3 +388,158 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.NestedObjectAPIViewTestCa
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('project', response.data)
+
+
+class ScriptFileSelectionAPITestCase(ObjectPermissionTestMixin, APITestCase):
+    """Enabling or disabling a Script File over REST follows its Project's Script Files tab."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = ScriptProject.objects.create(name='API Selection Project', key='api-selection-project')
+        cls.other = ScriptProject.objects.create(name='API Selection Elsewhere', key='api-selection-elsewhere')
+        cls.first = ScriptFile.objects.create(project=cls.project, source_path='first.py')
+        cls.second = ScriptFile.objects.create(project=cls.project, source_path='second.py')
+        cls.elsewhere = ScriptFile.objects.create(project=cls.other, source_path='elsewhere.py')
+
+    def patch(self, script_file, data):
+        url = reverse('plugins-api:netbox_scripts-api:scriptfile-detail', args=[script_file.pk])
+        return self.client.patch(url, data, format='json', **self.header)
+
+    def bulk_patch(self, script_files, data):
+        url = reverse('plugins-api:netbox_scripts-api:scriptfile-list')
+        payload = [{'id': script_file.pk, **data} for script_file in script_files]
+        return self.client.patch(url, payload, format='json', **self.header)
+
+    def test_disabling_a_script_file_restages_its_project(self):
+        self.add_permissions('netbox_scripts.change_scriptfile', 'netbox_scripts.change_scriptproject')
+
+        response = self.patch(self.first, {'enabled': False})
+
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.first.refresh_from_db()
+        self.assertFalse(self.first.enabled)
+        self.assertEqual(refresh_count(self.project), 1)
+
+    def test_an_edit_that_keeps_the_selection_needs_only_the_script_file_permission(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+
+        response = self.patch(self.first, {'enabled': True, 'description': 'Edited'})
+
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.description, 'Edited')
+        self.assertEqual(refresh_count(self.project), 0)
+
+    def test_disabling_needs_the_project_change_permission(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+
+        response = self.patch(self.first, {'enabled': False})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data['detail'], str(SELECTION_REFUSAL))
+        self.first.refresh_from_db()
+        self.assertTrue(self.first.enabled)
+        self.assertEqual(refresh_count(self.project), 0)
+
+    def test_a_project_permission_scoped_to_another_project_does_not_count(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+        self.grant(ScriptProject, 'change', constraints={'pk': self.other.pk})
+
+        response = self.patch(self.first, {'enabled': False})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.first.refresh_from_db()
+        self.assertTrue(self.first.enabled)
+
+    def test_a_bulk_update_restages_each_project_once(self):
+        self.add_permissions('netbox_scripts.change_scriptfile', 'netbox_scripts.change_scriptproject')
+
+        response = self.bulk_patch((self.first, self.second, self.elsewhere), {'enabled': False})
+
+        self.assertHttpStatus(response, status.HTTP_200_OK)
+        self.assertEqual(refresh_count(self.project), 1)
+        self.assertEqual(refresh_count(self.other), 1)
+
+    def test_a_refused_row_rolls_back_the_whole_bulk_update(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+        self.grant(ScriptProject, 'change', constraints={'pk': self.project.pk})
+        enqueue_refresh = ProjectScriptFileRefreshJob.enqueue_refresh
+
+        with mock.patch.object(ProjectScriptFileRefreshJob, 'enqueue_refresh', wraps=enqueue_refresh) as enqueue:
+            response = self.bulk_patch((self.first, self.elsewhere), {'enabled': False})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.assertEqual([entry['id'] for entry in response.data['errors']], [self.elsewhere.pk])
+        # The permitted row saved and queued its refresh before the batch rolled back.
+        self.assertEqual(enqueue.call_count, 1)
+        for script_file in (self.first, self.elsewhere):
+            script_file.refresh_from_db()
+            self.assertTrue(script_file.enabled)
+        self.assertEqual(refresh_count(self.project), 0)
+
+    def test_a_stale_copy_cannot_re_enable_a_script_file(self):
+        self.add_permissions('netbox_scripts.change_scriptfile')
+        stale = ScriptFile.objects.get(pk=self.first.pk)
+        ScriptFile.objects.filter(pk=self.first.pk).update(enabled=False)
+
+        # The view's load is patched to hand back a copy taken before the tab disabled the file.
+        with mock.patch.object(ScriptFileViewSet, 'get_object_with_snapshot', return_value=stale):
+            response = self.patch(self.first, {'description': 'Edited'})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.first.refresh_from_db()
+        self.assertFalse(self.first.enabled)
+        self.assertEqual(refresh_count(self.project), 0)
+
+    def test_a_stale_copy_cannot_re_enable_a_script_file_outside_the_change_scope(self):
+        self.add_permissions('netbox_scripts.change_scriptproject')
+        self.grant(ScriptFile, 'change', constraints={'enabled': True})
+        get_object_with_snapshot = ScriptFileViewSet.get_object_with_snapshot
+
+        # Another request disables the file between the permitted load and the save.
+        def load_then_disable(viewset):
+            instance = get_object_with_snapshot(viewset)
+            ScriptFile.objects.filter(pk=instance.pk).update(enabled=False)
+            return instance
+
+        with mock.patch.object(ScriptFileViewSet, 'get_object_with_snapshot', load_then_disable):
+            response = self.patch(self.first, {'description': 'Edited'})
+
+        self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)
+        self.first.refresh_from_db()
+        self.assertFalse(self.first.enabled)
+        self.assertEqual(refresh_count(self.project), 0)
+
+
+class ScriptFileBackgroundSelectionAPITestCase(RQQueueTestMixin, APITestCase):
+    """A background bulk update of Script Files follows the Script Files tab's rules too."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.project = ScriptProject.objects.create(name='API Background Project', key='api-background-project')
+        cls.script_files = [
+            ScriptFile.objects.create(project=cls.project, source_path=path) for path in ('first.py', 'second.py')
+        ]
+
+    def setUp(self):
+        super().setUp()
+        enqueue = AsyncAPIJob.enqueue.__func__
+
+        # Inline, as NetBox's own background bulk tests run AsyncAPIJob.
+        def enqueue_inline(cls, *args, **kwargs):
+            kwargs.setdefault('immediate', True)
+            return enqueue(cls, *args, **kwargs)
+
+        self.enterContext(mock.patch.object(AsyncAPIJob, 'enqueue', classmethod(enqueue_inline)))
+        self.enterContext(mock.patch('netbox.api.viewsets.mixins.any_workers_for_queue', return_value=True))
+
+    def test_a_background_bulk_update_restages_the_project_once(self):
+        self.add_permissions('netbox_scripts.change_scriptfile', 'netbox_scripts.change_scriptproject')
+        url = reverse('plugins-api:netbox_scripts-api:scriptfile-list')
+        payload = [{'id': script_file.pk, 'enabled': False} for script_file in self.script_files]
+
+        response = self.client.patch(f'{url}?background=true', payload, format='json', **self.header)
+
+        self.assertHttpStatus(response, status.HTTP_202_ACCEPTED)
+        self.assertEqual(Job.objects.get(pk=response.data['job']['id']).status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(refresh_count(self.project), 1)

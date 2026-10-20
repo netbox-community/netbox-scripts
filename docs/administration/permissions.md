@@ -13,7 +13,7 @@ object-level constraints to limit access to particular Projects or Scripts.
 |---|---|
 | `view` | View Projects, their Script Files and current state, including the active revision. |
 | `add` | Create a Project. Creating one through **Upload Script** also requires Script File `add`. |
-| `change` | Edit Project fields, subject to the activation requirements below, and upload more scripts. Uploads also require Script File `add`. |
+| `change` | Edit Project fields, subject to the activation requirements below, select its Script Files and upload more scripts. Selecting also requires Script File `change`. Uploads also require Script File `add`. |
 | `delete` | Delete a Project and its associated revisions and Scripts. |
 | `activate` | Activate or deactivate a revision, repair published Scripts, and change `activation_policy`, `data_source` or `data_path`. |
 | `migrate` | Migrate the installation from NetBox's built-in Custom Scripts. |
@@ -105,10 +105,12 @@ Restrict these permissions to people trusted to arrange those runs. See
 
 ## Script File and result permissions
 
-**Selecting Script Files** requires Script File `change` to access the
-selection route. Creating a declaration also requires `add` on that row.
-Changing an existing declaration requires `change` on the row both before and
-after the edit. Unchanged rows need no additional child-write permission.
+**Selecting Script Files** requires Project `change` and Script File `change`
+on the Project's **Script Files** tab, at `projects/<id>/script-files/`, and on
+a Script File's edit page or REST endpoint when the edit enables or disables
+it. Creating a declaration also requires `add` on that row. Changing an
+existing declaration requires `change` on the row both before and after the
+edit. Unchanged rows need no additional child-write permission.
 
 Uploads require Script File `add` to access the route. Each new declaration
 must meet the user's `add` constraints. Re-enabling an existing declaration

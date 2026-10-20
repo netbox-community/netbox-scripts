@@ -13,6 +13,8 @@ ACTIVATE_PERMISSION = 'netbox_scripts.activate_scriptproject'
 
 SOURCE_REFUSAL = _('Changing this field requires the Script Project activate permission.')
 
+SELECTION_REFUSAL = _('Enabling or disabling a Script File requires the Script Project change permission.')
+
 
 def validate_script_file_permissions(user, *, created=(), changed=(), using):
     """Refuse rows outside the user's add or change scope, inside the caller's transaction."""
@@ -22,6 +24,14 @@ def validate_script_file_permissions(user, *, created=(), changed=(), using):
         keys = set(keys)
         if keys and ScriptFile.objects.using(using).restrict(user, action).filter(pk__in=keys).count() != len(keys):
             raise PermissionsViolation()
+
+
+def refuse_unpermitted_selection_change(user, project):
+    """Raise PermissionsViolation unless the user may change the Project whose selection moves."""
+    if user is not None and not user.has_perm('netbox_scripts.change_scriptproject', obj=project):
+        error = PermissionsViolation()
+        error.message = SELECTION_REFUSAL
+        raise error
 
 
 def moved_source_fields(pk, submitted, *, using=DEFAULT_DB_ALIAS):

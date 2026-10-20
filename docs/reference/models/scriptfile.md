@@ -89,6 +89,11 @@ top-level navigation item, create, delete, bulk delete, bulk import or UI bulk
 edit route. REST POST and DELETE return HTTP 405. Bulk PUT and PATCH remain
 available on the Script File list endpoint.
 
+Enabling or disabling a Script File on its edit page or through the REST
+endpoint, single or bulk, changes the Project's selection. It requires Project
+`change` and queues the same refresh as the **Script Files** tab. Other edits
+need Script File `change` only.
+
 Discovery fields are readable and filterable, but cannot be changed through
 these interfaces. `last_discovered_revision` is a nested revision in REST and a
 revision relationship in GraphQL. Revisions also have their own read-only REST

@@ -1,0 +1,3 @@
+# CODEOWNERS for netbox-scripts
+# Default owners for all files
+* @netboxlabs/engineering

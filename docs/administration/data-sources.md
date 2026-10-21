@@ -35,6 +35,22 @@ Reconciliation stages the complete directory, not just changed files. Deleted
 files are absent from the next snapshot. Templates, data and other non-Python
 files are included alongside source modules.
 
+!!! warning "Reconciling during a synchronization"
+
+    NetBox does not apply a synchronization's changes all at once. A reconciliation
+    that runs while a synchronization is writing files can stage part of its
+    changes, such as changed files without the files it adds. Under **Automatic if
+    valid**, that revision is activated if it validates. The reconciliation queued
+    when that synchronization completes reads the directory again. A
+    synchronization that fails partway keeps the changes it had already written
+    until a later one completes.
+
+    Before reconciling, check the Synchronization Job's outcome in the Data
+    Source's **Jobs** tab. A failed run reads `errored`. A recurring
+    Synchronization Job sets the Data Source back to `queued` when it schedules
+    its next run, including after an error. Waiting for a Synchronization Job does
+    not stop a queued reconciliation from overlapping the next synchronization.
+
 When the directory and Script File selection are unchanged, the existing revision
 is reused. It may still be validated or activated, depending on its status and the
 Project's activation settings.
@@ -72,7 +88,8 @@ synchronization. Use it after creating a Project between synchronizations, or wh
 you need its selection applied to the current source inventory.
 
 Reconciliation does not synchronize the Data Source. To fetch newer files,
-synchronize the Data Source from its own page first.
+synchronize the Data Source from its own page first. Wait for its
+Synchronization Job to complete successfully before reconciling.
 
 This action requires the Project's `reconcile` permission, separately from
 `change`. See [Permissions](permissions.md).

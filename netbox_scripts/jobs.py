@@ -211,10 +211,10 @@ class ProjectReconciliationJob(JobRunner):
     """
     Rebuild one project's source from its Data Source directory and drive it to a verdict.
 
-    The directory is read when this runs rather than when it was enqueued, so two jobs queued by
-    two quick synchronizations are not a correctness problem: the second stages identical content
-    and resolves to the revision the first created. Queueing is not deduplicated, so the revision
-    can carry a second validation Job. The lease settles ownership, and the run that loses the
+    The directory is read when this runs rather than when it was enqueued, and unchanged content
+    resolves to the revision an earlier run created. A run that overlaps a synchronization can
+    stage part of its changes. Queueing is not deduplicated, so the revision can carry a second
+    validation Job. The lease settles ownership, and the run that loses the
     claim ends as a failed Job rather than validating the revision twice.
 
     Per project rather than per Data Source, so one project's failure leaves its siblings to

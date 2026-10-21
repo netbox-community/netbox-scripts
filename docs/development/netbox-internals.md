@@ -181,6 +181,16 @@ returning. The plugin therefore creates the immediate Job itself so revision
 provenance exists before execution. A row-data argument or a documented
 post-save, pre-handler hook would remove that duplication.
 
+**Atomic Data Source synchronization.** `DataSource.sync()` commits its file
+updates, deletions and additions separately and marks the source completed
+afterwards. A reader can see part of a synchronization, and one that fails
+partway, for example on an unreadable new file, keeps the changes it already
+wrote. `ingestion.py` reads a directory's paths and contents in one query, so a
+revision holds one committed state of the inventory, but not necessarily a
+complete synchronization. Applying each synchronization in one transaction, with
+a lock on the Data Source taken before its existing files are read, would make
+every such read a complete synchronization.
+
 **A legacy export service.** Migration needs serializable module and class
 records, content checksums, Data Source references, repository paths, source
 streams and the Event Rules, permissions, Job history, schedules and recurrences

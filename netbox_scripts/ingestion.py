@@ -215,15 +215,16 @@ def _data_source_tree(project):
     """
     Return the project's Data Source directory as a mapping of project-relative path to bytes.
 
+    The mapping is one snapshot of the inventory.
+
     Compiled artifacts are dropped, and every other unsafe path is kept so that staging records
     it rather than this function hiding it. Keys need no canonicalization of their own, because
     the store canonicalizes on the way in.
     """
-    # Two queries on purpose. The scope is decided from paths alone, so the bytes fetched are
-    # the project's directory rather than every file on the source, which for a repository
-    # holding more than this one project is the difference that matters.
-    wanted = {}
-    for pk, path in project.data_source.datafiles.values_list('pk', 'path'):
+    # Keeps other projects' bytes on the same source out of memory.
+    rows = project.data_source.datafiles.filter(path__startswith=f'{project.data_path}/')
+    tree = {}
+    for path, content in rows.values_list('path', 'data'):
         relative = data_source_relative_path(path, project.data_path)
         if relative is None:
             continue
@@ -235,11 +236,8 @@ def _data_source_tree(project):
         except UnsafePathError as error:
             if error.code == 'compiled_artifact':
                 continue
-        wanted[pk] = relative
-    if not wanted:
-        return {}
-    rows = project.data_source.datafiles.filter(pk__in=wanted).values_list('pk', 'data')
-    return {wanted[pk]: content for pk, content in rows}
+        tree[relative] = content
+    return tree
 
 
 def declare_script_file(project, path, using, *, user=None):

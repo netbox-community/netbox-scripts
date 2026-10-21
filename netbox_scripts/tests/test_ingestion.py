@@ -39,6 +39,7 @@ from netbox_scripts.models import (
 from netbox_scripts.storage import service, store
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
+from netbox_scripts.utils import data_source_relative_path
 
 from .test_branching import routing
 
@@ -512,7 +513,7 @@ class IngestDataSourceTestCase(TestCase):
         # The scope is decided from paths, so a repository holding other projects does not put
         # their content in this worker's memory.
         self.populate()
-        outsider = data_file(self.source, 'unrelated/huge.py', b'z' * 4096)
+        data_file(self.source, 'unrelated/huge.py', b'z' * 4096)
 
         with CaptureQueriesContext(connection) as queries:
             tree = _data_source_tree(self.project)
@@ -520,9 +521,33 @@ class IngestDataSourceTestCase(TestCase):
         self.assertNotIn('huge.py', ' '.join(tree))
         fetching = [q['sql'] for q in queries.captured_queries if '"data"' in q['sql']]
         self.assertEqual(len(fetching), 1)
-        # The one query that reads bytes is restricted to the in-scope rows by primary key.
-        self.assertIn('IN (', fetching[0])
-        self.assertNotIn(str(outsider.pk), fetching[0])
+        self.assertIn('automation/netbox/%', fetching[0])
+
+    def test_paths_and_bytes_come_from_one_query(self):
+        self.populate()
+        with CaptureQueriesContext(connection) as queries:
+            _data_source_tree(self.project)
+        self.assertEqual(len([q for q in queries.captured_queries if '"core_datafile"' in q['sql']]), 1)
+
+    def test_a_synchronization_writing_during_the_read_is_not_mixed_in(self):
+        changed = data_file(self.source, 'automation/netbox/a.py', b'old')
+        removed = data_file(self.source, 'automation/netbox/obsolete.py', b'old')
+        synchronized = []
+
+        def synchronize_once(path, data_path):
+            if not synchronized:
+                synchronized.append(path)
+                DataFile.objects.filter(pk=changed.pk).update(data=b'new')
+                removed.delete()
+                data_file(self.source, 'automation/netbox/b.py', b'new')
+            return data_source_relative_path(path, data_path)
+
+        # data_source_relative_path() first runs after the reader's first query.
+        with mock.patch('netbox_scripts.ingestion.data_source_relative_path', side_effect=synchronize_once):
+            tree = _data_source_tree(self.project)
+
+        self.assertTrue(synchronized)
+        self.assertEqual(tree, {'a.py': b'old', 'obsolete.py': b'old'})
 
     def test_validation_is_enqueued_once_for_the_staged_revision(self):
         self.populate()

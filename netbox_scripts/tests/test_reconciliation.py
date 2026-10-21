@@ -6,8 +6,9 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 
-from core.choices import JobStatusChoices
+from core.choices import DataSourceStatusChoices, JobStatusChoices
 from core.exceptions import JobFailed
+from core.jobs import SyncDataSourceJob
 from core.models import DataFile, DataSource, Job
 from core.signals import post_sync
 from netbox_scripts import jobs
@@ -152,8 +153,7 @@ class ProjectReconciliationJobTestCase(TestCase):
         self.assertEqual(sorted(entry['path'] for entry in revision.manifest), ['audit.py', 'deploy.py'])
 
     def test_a_second_job_over_an_unchanged_directory_does_nothing(self):
-        # Two synchronizations in quick succession enqueue two jobs. The second resolves to the
-        # revision the first created, so a duplicate is a cheap no-op rather than a problem.
+        # Two synchronizations can queue two Jobs over the same content.
         self.run_job()
         revision = ScriptProjectRevision.objects.get(project=self.project)
         ScriptProjectRevision.objects.filter(pk=revision.pk).update(status=RevisionStatusChoices.VALID)
@@ -204,6 +204,26 @@ class ProjectReconciliationJobTestCase(TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.INVALID)
         self.assertIn('problem(s) recorded', str(job.log_entries))
         self.validated.assert_not_called()
+
+    def test_a_recurring_source_reconciles_after_each_run(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        (root / 'scripts').mkdir()
+        (root / 'scripts' / 'a.py').write_bytes(SCRIPT)
+        source = DataSource.objects.create(name='Recurring', type='local', source_url=root.as_uri())
+        project = data_source_project(source, 'recurring', 'scripts')
+        sync = SyncDataSourceJob.enqueue(instance=source, interval=60)
+        # handle() directly: immediate=True forwards job_id into the periodic re-enqueue, which rejects it.
+        SyncDataSourceJob.handle(sync)
+        sync.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(sync.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(source.status, DataSourceStatusChoices.QUEUED)
+
+        job = self.run_job(project.pk)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        revision = ScriptProjectRevision.objects.get(project=project)
+        self.assertEqual([entry['path'] for entry in revision.manifest], ['a.py'])
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)

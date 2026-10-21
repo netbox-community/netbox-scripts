@@ -151,10 +151,9 @@ An upload holds the existing tree plus the new file. One call can reach
 surfaces perform this work in the web process. The create and Add Script forms
 use a commit hook, while REST stages within the request.
 
-Data Source staging reads the path inventory first, then fetches content only
-under the Project's `data_path`. A repository containing several Projects does
-not load all their content for each Project. This staging, including migration
-staging, runs in an RQ worker.
+Data Source staging reads only the files under the Project's `data_path`. A
+repository containing several Projects does not load all their content for each
+Project. This staging, including migration staging, runs in an RQ worker.
 
 Verification and Script File refresh read one file at a time rather than holding
 the entire tree. Non-positive or non-integer size/count settings raise a

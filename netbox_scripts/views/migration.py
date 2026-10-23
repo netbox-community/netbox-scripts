@@ -112,6 +112,22 @@ def _queued(job_class):
     return job_class.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
 
 
+def _running(job_class):
+    """Return the Jobs of one pass that show Running, newest first."""
+    return list(job_class.get_jobs().filter(status=JobStatusChoices.STATUS_RUNNING))
+
+
+def _warn_queued(request, job_class, message):
+    """Warn that a pass of one class is already under way, naming the Job when one shows Running."""
+    # NetBox never ends a Job whose worker stopped, so a running one may be stale.
+    if running := _running(job_class):
+        message = _(
+            'Job {pk} ("{name}") still shows Running. If its execution has stopped, '
+            'see "Stale running Jobs" in the migration guide.'
+        ).format(pk=running[0].pk, name=running[0].name)
+    messages.warning(request, message)
+
+
 def _completed(job):
     """Report whether a pass finished successfully."""
     return bool(job) and job.status == JobStatusChoices.STATUS_COMPLETED
@@ -198,6 +214,7 @@ class MigrationView(BaseMigrationView):
                 'inventory_job': inventory_job,
                 'staging_job': staging_job,
                 'staging_queued': _queued(MigrationStagingJob),
+                'staging_running': _running(MigrationStagingJob),
                 'blocking_findings': blocking_findings,
                 # Counted rather than listed, because an installation holds hundreds of entries.
                 # One entry per code, because each renders its own sentence and they say very
@@ -214,12 +231,16 @@ class MigrationView(BaseMigrationView):
                 'run': run,
                 'cutover_job': _latest(MigrationCutoverJob),
                 'cutover_queued': _queued(MigrationCutoverJob),
+                'cutover_running': _running(MigrationCutoverJob),
                 'activation_job': _latest(MigrationActivationJob),
                 'activation_queued': _queued(MigrationActivationJob),
+                'activation_running': _running(MigrationActivationJob),
                 'references_job': _latest(MigrationReferencesJob),
                 'references_queued': _queued(MigrationReferencesJob),
+                'references_running': _running(MigrationReferencesJob),
                 'cleanup_job': cleanup_job,
                 'cleanup_queued': _queued(MigrationCleanupJob),
+                'cleanup_running': _running(MigrationCleanupJob),
                 'verification_job': verification_job,
                 'can_activate': can_activate,
                 'can_repoint': can_repoint,
@@ -308,7 +329,7 @@ class MigrationStagingView(BaseMigrationView):
         # Two passes at once race on project creation, where the loser gets a ValidationError
         # instead of the idempotent reuse a single pass is designed for.
         if _queued(MigrationStagingJob):
-            messages.warning(request, _('A Custom Script migration staging pass is already queued.'))
+            _warn_queued(request, MigrationStagingJob, _('A Custom Script migration staging pass is already queued.'))
             return redirect('plugins:netbox_scripts:migration')
         MigrationStagingJob.enqueue(user=request.user)
         messages.success(request, _('Queued Custom Script migration staging.'))
@@ -335,7 +356,7 @@ class MigrationCutoverView(DestructiveMigrationView):
     def post(self, request):
         """Queue the cutover unless one is under way or the backup is unacknowledged."""
         if _queued(MigrationCutoverJob):
-            messages.warning(request, _('A Custom Script migration cutover is already queued.'))
+            _warn_queued(request, MigrationCutoverJob, _('A Custom Script migration cutover is already queued.'))
             return redirect('plugins:netbox_scripts:migration')
         form = MigrationCutoverForm(request.POST)
         if not form.is_valid():
@@ -365,7 +386,7 @@ class MigrationActivationView(DestructiveMigrationView):
         # Not confirmed first, unlike staging and the cutover. The decision was taken at the fence,
         # and activation is a step of the cutover rather than a separate choice.
         if _queued(MigrationActivationJob):
-            messages.warning(request, _('A Custom Script migration activation is already queued.'))
+            _warn_queued(request, MigrationActivationJob, _('A Custom Script migration activation is already queued.'))
             return redirect('plugins:netbox_scripts:migration')
         MigrationActivationJob.enqueue(user=request.user)
         messages.success(request, _('Queued activation of the staged Script Projects.'))
@@ -379,7 +400,9 @@ class MigrationReferencesView(DestructiveMigrationView):
         """Queue the pass unless one is already under way."""
         # Two passes at once would both read the same journal and write the same rows.
         if _queued(MigrationReferencesJob):
-            messages.warning(request, _('A Custom Script migration reference pass is already queued.'))
+            _warn_queued(
+                request, MigrationReferencesJob, _('A Custom Script migration reference pass is already queued.')
+            )
             return redirect('plugins:netbox_scripts:migration')
         MigrationReferencesJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration reference pass.'))
@@ -402,7 +425,7 @@ class MigrationCleanupView(DestructiveMigrationView):
     def post(self, request):
         """Queue the pass unless one is already under way."""
         if _queued(MigrationCleanupJob):
-            messages.warning(request, _('A Custom Script migration cleanup is already queued.'))
+            _warn_queued(request, MigrationCleanupJob, _('A Custom Script migration cleanup is already queued.'))
             return redirect('plugins:netbox_scripts:migration')
         MigrationCleanupJob.enqueue(user=request.user)
         messages.success(request, _('Queued the Custom Script migration cleanup.'))

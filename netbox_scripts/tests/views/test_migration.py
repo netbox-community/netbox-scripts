@@ -2,6 +2,7 @@ import ast
 import shutil
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -99,6 +100,33 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertIn(inventory.get_absolute_url(), body)
         # Staging has never run, so its row says so rather than linking anywhere.
         self.assertIn('Never run', body)
+
+    def test_a_pass_left_running_points_at_the_recovery_on_the_page(self):
+        self.grant('add')
+        job = self.record(MigrationStagingJob)
+        self.assertNotIn('Stale running Jobs', self.client.get(self.url('migration')).content.decode())
+
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
+        body = self.client.get(self.url('migration')).content.decode()
+        self.assertIn('Stale running Jobs', body)
+        # The row already links the newest Job, so its blocker line adds only the pointer.
+        self.assertEqual(body.count(job.get_absolute_url()), 1)
+
+    def test_the_page_names_an_older_job_that_still_holds_a_pass(self):
+        self.grant('add')
+        stale = self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_RUNNING)
+        Job.objects.filter(pk=stale.pk).update(created=timezone.now() - timedelta(hours=1))
+        finished = self.record(MigrationStagingJob)
+        self.record(MigrationInventoryJob, status=JobStatusChoices.STATUS_RUNNING)
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertTrue(response.context['staging_queued'])
+        self.assertEqual(response.context['staging_job'], finished)
+        self.assertIn(stale.get_absolute_url(), body)
+        # The Running inventory Job holds nothing back, so only the staging row points at the guide.
+        self.assertEqual(body.count('Stale running Jobs'), 1)
 
     def with_findings(self, *findings):
         """Record an inventory Job carrying the supplied findings."""
@@ -782,6 +810,38 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         response = self.client.post(self.url('migration_cleanup'))
         self.assertHttpStatus(response, 302)
         self.cleanup.assert_not_called()
+
+    def test_a_pass_left_running_names_its_job_until_the_job_is_deleted(self):
+        self.grant('add', 'migrate')
+        passes = (
+            ('migration_stage', MigrationStagingJob, self.staging, {}),
+            ('migration_cutover', MigrationCutoverJob, self.cutover, {'confirm': 'true', 'backup_taken': 'on'}),
+            ('migration_activate', MigrationActivationJob, self.activation, {}),
+            ('migration_repoint', MigrationReferencesJob, self.references, {}),
+            ('migration_cleanup', MigrationCleanupJob, self.cleanup, {}),
+        )
+        for name, job_class, enqueue, data in passes:
+            with self.subTest(route=name):
+                stale = self.record(job_class, status=JobStatusChoices.STATUS_RUNNING)
+                response = self.client.post(self.url(name), data, follow=True)
+                message = str(list(response.context['messages'])[0])
+                self.assertIn(f'Job {stale.pk} ', message)
+                self.assertIn('"Stale running Jobs"', message)
+                enqueue.assert_not_called()
+
+                # A queryset delete, because Job.delete() reaches the shared Redis.
+                Job.objects.filter(pk=stale.pk).delete()
+                self.client.post(self.url(name), data, follow=True)
+                enqueue.assert_called_once()
+
+    def test_a_pass_still_waiting_keeps_the_queued_warning(self):
+        self.grant('add')
+        self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_PENDING)
+        response = self.client.post(self.url('migration_stage'), follow=True)
+        self.assertEqual(
+            str(list(response.context['messages'])[0]), 'A Custom Script migration staging pass is already queued.'
+        )
+        self.staging.assert_not_called()
 
     def test_the_cleanup_route_needs_the_migrate_permission(self):
         self.assertHttpStatus(self.client.post(self.url('migration_cleanup')), 403)

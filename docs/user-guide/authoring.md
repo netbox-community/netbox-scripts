@@ -226,6 +226,9 @@ The plugin reimplements the built-in authoring API, with these differences:
   rather than pinning the whole schedule to one revision.
 - Recurring uploads are rejected. The built-in implementation accepts them but
   reuses file objects that an earlier occurrence may have read or closed.
+- Each recurring occurrence receives its own copy of the queued inputs. The
+  built-in implementation passes changes a Script makes to `data` on to later
+  occurrences.
 - `TextVar` honors an explicitly supplied widget rather than always using a
   textarea.
 - A custom `ScriptVariable` can declare `field_attrs` at class level. Each

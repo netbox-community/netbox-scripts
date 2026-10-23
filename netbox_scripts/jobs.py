@@ -1,5 +1,6 @@
 """Background jobs for the NetBox Scripts plugin."""
 
+import pickle
 import uuid
 from datetime import timedelta
 
@@ -804,8 +805,11 @@ class NetBoxScriptJob(JobRunner):
         instance = script_class()
         instance.request = request  # cloud-compat: ok, the run's copy of the request, and a Script is never queued
         instance.event = event
-        # Cleaned values win. A request file only fills a name the cleaned values do not carry.
         values = dict(data)
+        # The next occurrence reuses this data. Pickling as rq does, unlike deepcopy, keeps QuerySet results.
+        if self.job.interval:
+            values = pickle.loads(pickle.dumps(values, protocol=pickle.HIGHEST_PROTOCOL))
+        # Cleaned values win. A request file only fills a name the cleaned values do not carry.
         for name, uploaded in getattr(request, 'FILES', {}).items():
             values.setdefault(name, uploaded)
         try:

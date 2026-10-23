@@ -1,4 +1,5 @@
 import json
+import pickle
 import tempfile
 import uuid
 from contextlib import contextmanager
@@ -9,7 +10,7 @@ from unittest.mock import patch
 import django_rq
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured, ValidationError
-from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.files.uploadedfile import SimpleUploadedFile, TemporaryUploadedFile
 from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 
@@ -426,6 +427,42 @@ REPORTS_ITS_EVENT = (
     b"        return '{} {}'.format(self.event['event_type'], self.event['object_id'])\n"
 )
 
+CHANGES_ITS_INPUTS = (
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class ChangesInputs(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        data['colours'].append('green')\n"
+    b"        data['tag'].name += '!'\n"
+    b"        for tag in data['tags']:\n"
+    b"            tag.name += '?'\n"
+    b"        tags = ', '.join(tag.name for tag in data['tags'])\n"
+    b"        return ' / '.join((', '.join(data['colours']), data['tag'].name, tags))\n"
+)
+
+READS_A_FILE = (
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class ReadsFile(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        return data['attachment'].read().decode()\n"
+)
+
+RETURNS_ITS_PAYLOAD = (
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class ReturnsPayload(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        return data['blob'].payload.decode()\n"
+)
+
+
+class PicklesAtProtocolFiveOnly:
+    """An input value only pickle protocol 5 can serialize, which rq uses."""
+
+    def __init__(self, payload):
+        self.payload = bytes(payload)
+
+    def __reduce_ex__(self, protocol):
+        return PicklesAtProtocolFiveOnly, (pickle.PickleBuffer(self.payload),)
+
 
 class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
     """What script_class_context refuses, and what it refuses to disclose while doing it."""
@@ -689,14 +726,50 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
         self.assertTrue(self.visible_to_another_session(job.pk))
 
 
-class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
+class ScheduledRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
     """
-    Deferred and recurring runs, and which revision each of them executes.
+    Deferred and recurring runs, the revision each of them executes, and the inputs each occurrence starts from.
 
     A one-shot run pins at enqueue, so it executes the source the operator was looking at. A
     recurring run pins nothing, because JobRunner.handle() re-enqueues a periodic job with the
     same kwargs, and a pin carried forward would run one frozen revision forever.
     """
+
+    def occurrence(self, job):
+        """Run one occurrence of a recurring job's body and return the runner."""
+        # The runner records its result on self.job without saving, because JobRunner.handle()
+        # is what terminates and persists. Calling run() directly means reading it in memory.
+        runner = NetBoxScriptJob(job)
+        runner.run(
+            revision_id=None,
+            revision_digest=None,
+            module_path='deploy',
+            class_name='MakeTag',
+            data={},
+            commit=True,
+        )
+        return runner
+
+    def schedule_changing_inputs(self):
+        """Publish a Script that changes its inputs and queue it to recur, returning the first Job."""
+        self.publish({'deploy.py': CHANGES_ITS_INPUTS})
+        Tag.objects.create(name='Beta', slug='beta')
+        data = {
+            'colours': ['red'],
+            'tag': Tag.objects.create(name='Alpha', slug='alpha'),
+            'tags': Tag.objects.filter(slug='beta'),
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            job = NetBoxScriptJob.enqueue_run(self.script(), data=data, commit=True, user=self.user, interval=60)
+        return job
+
+    def run_queued(self, job):
+        """Run the task stored for a Job, so its input crosses rq's pickling, and return the Job as saved."""
+        task = django_rq.get_queue(job.queue_name).fetch_job(str(job.job_id))
+        with self.captureOnCommitCallbacks(execute=True):
+            task.func(*task.args, **task.kwargs)
+        job.refresh_from_db()
+        return job
 
     def test_a_deferred_run_reaches_the_worker_with_its_scheduled_time(self):
         self.publish({'deploy.py': MAKES_A_TAG})
@@ -759,21 +832,6 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertIsNone(job.data['revision_id'])
         self.assertIsNone(job.data['revision_digest'])
-
-    def occurrence(self, job):
-        """Run one occurrence of a recurring job's body and return the runner."""
-        # The runner records its result on self.job without saving, because JobRunner.handle()
-        # is what terminates and persists. Calling run() directly means reading it in memory.
-        runner = NetBoxScriptJob(job)
-        runner.run(
-            revision_id=None,
-            revision_digest=None,
-            module_path='deploy',
-            class_name='MakeTag',
-            data={},
-            commit=True,
-        )
-        return runner
 
     def test_a_recurring_occurrence_runs_the_revision_active_at_the_time(self):
         # The behaviour the absent pin exists to produce: a project that activates new source
@@ -941,6 +999,40 @@ class ScheduledRunTestCase(ScriptJobTestMixin, TestCase):
             Job.objects.filter(object_id=script.pk, object_type=job.object_type).exclude(pk=job.pk).exists()
         )
 
+    def test_each_occurrence_starts_from_the_submitted_inputs(self):
+        job = self.schedule_changing_inputs()
+        outputs = []
+        for _occurrence in range(3):
+            job = self.run_queued(job)
+            outputs.append(job.data['output'])
+            job = NetBoxScriptJob.get_jobs(self.script()).get(status=JobStatusChoices.STATUS_SCHEDULED)
+
+        self.assertEqual(outputs, ['red, green / Alpha! / Beta?'] * 3)
+
+    def test_a_selection_reaches_the_run_as_it_was_queued(self):
+        job = self.schedule_changing_inputs()
+        Tag.objects.filter(slug='beta').update(name='Renamed')
+
+        job = self.run_queued(job)
+
+        self.assertEqual(job.data['output'], 'red, green / Alpha! / Beta?')
+
+    def test_an_input_only_protocol_five_pickles_still_reaches_the_run(self):
+        self.publish({'deploy.py': RETURNS_ITS_PAYLOAD})
+        with self.captureOnCommitCallbacks(execute=True):
+            job = NetBoxScriptJob.enqueue_run(
+                self.script(),
+                data={'blob': PicklesAtProtocolFiveOnly(b'queued')},
+                commit=True,
+                user=self.user,
+                interval=60,
+            )
+
+        job = self.run_queued(job)
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(job.data['output'], 'queued')
+
 
 class RunJobTestCase(ScriptJobTestMixin, TestCase):
     def test_a_run_executes_the_script_and_records_its_log(self):
@@ -1052,17 +1144,23 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
         self.assertFalse([name for name in sys.modules if name == prefix or name.startswith(f'{prefix}.')])
 
     def test_uploaded_files_reach_the_script_data(self):
-        reads_a_file = (
-            b'from netbox_scripts.scripts import Script\n\n\n'
-            b'class ReadsFile(Script):\n'
-            b'    def run(self, data, commit):\n'
-            b"        return data['attachment'].read().decode()\n"
-        )
-        self.publish({'deploy.py': reads_a_file})
+        self.publish({'deploy.py': READS_A_FILE})
         request = fake_request(self.user)
         request.FILES = {'attachment': SimpleUploadedFile('notes.txt', b'file content')}
 
         job = self.run_job(request=request)
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(job.data['output'], 'file content')
+
+    def test_an_immediate_run_still_reads_a_disk_backed_upload(self):
+        self.publish({'deploy.py': READS_A_FILE})
+        upload = TemporaryUploadedFile('notes.txt', 'text/plain', 12, 'utf-8')
+        self.addCleanup(upload.close)
+        upload.write(b'file content')
+        upload.seek(0)
+
+        job = self.run_job(data={'attachment': upload})
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertEqual(job.data['output'], 'file content')

@@ -245,6 +245,13 @@ default instead. Set an explicit timeout when you need a different value.
 Each run imports its revision afresh and unloads it afterwards. Module-level
 state does not persist between runs, regardless of which worker executes them.
 
+Each occurrence of a recurring run receives its own copy of the inputs the
+schedule was queued with, so changes a Script makes to `data` in place do not
+reach later occurrences, even after a dry run or a failed run. Object inputs
+keep the field values and selections loaded when the schedule was queued, and
+the plugin does not refresh them before a run. Call `refresh_from_db()` on an
+object before relying on its current state or saving it.
+
 Source is checked against the revision manifest before every import. An existing
 cache entry is verified too.
 

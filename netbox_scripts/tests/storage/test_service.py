@@ -6,6 +6,7 @@ from django.core.files.base import ContentFile
 from django.db import DEFAULT_DB_ALIAS, IntegrityError, connection, router, transaction
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+from rq.timeouts import JobTimeoutException
 
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
@@ -671,6 +672,13 @@ class ScriptFileIdentityTestCase(StorageServiceMixin, TestCase):
 class RefreshScriptFilesTestCase(StorageServiceMixin, TestCase):
     """refresh_revision_script_files restages stored content under the current configuration."""
 
+    def stored_under_another_selection(self, files):
+        """Return the revision that stores files with hello.py selected, leaving hello.py deselected."""
+        ScriptFile.objects.update_or_create(project=self.project, source_path='hello.py', defaults={'enabled': True})
+        stored = self.materialize(files)
+        ScriptFile.objects.filter(project=self.project, source_path='hello.py').update(enabled=False)
+        return stored
+
     def test_refresh_stages_the_content_under_the_current_configuration(self):
         first = self.materialize()
         script_file = ScriptFile.objects.create(project=self.project, source_path='hello.py')
@@ -711,6 +719,56 @@ class RefreshScriptFilesTestCase(StorageServiceMixin, TestCase):
         first.refresh_from_db()
         self.assertEqual(first.status, RevisionStatusChoices.INVALID)
         self.assertEqual(refreshed.status, RevisionStatusChoices.MATERIALIZED)
+
+    def test_refresh_settles_a_revision_whose_write_did_not_complete(self):
+        cases = (
+            (OSError('read-only file system'), RevisionStatusChoices.STORAGE_FAILED),
+            (JobTimeoutException(), RevisionStatusChoices.STAGING),
+        )
+        for marker, (error, status) in enumerate(cases):
+            with self.subTest(status=status):
+                files = content(marker)
+                with mock.patch(WRITE_TARGET, side_effect=error), self.assertRaises(type(error)):
+                    service.stage_revision(self.project, files)
+                earlier = self.project.revisions.get(status=status)
+                stored = self.stored_under_another_selection(files)
+
+                refreshed, created = service.refresh_revision_script_files(stored)
+
+                self.assertFalse(created)
+                self.assertEqual((refreshed.pk, refreshed.status), (earlier.pk, RevisionStatusChoices.MATERIALIZED))
+                row = ScriptProjectRevision.objects.get(pk=earlier.pk)
+                self.assertEqual((row.status, row.validation_errors), (RevisionStatusChoices.MATERIALIZED, []))
+                self.assertEqual(ScriptProject.objects.get(pk=self.project.pk).source_revision_id, earlier.pk)
+
+    def test_refresh_leaves_a_revision_owned_by_validation_untouched(self):
+        errors = [{'path': 'hello.py', 'code': 'syntax_error', 'message': 'bad syntax'}]
+        for marker, status in enumerate((RevisionStatusChoices.VALIDATING, RevisionStatusChoices.INVALID)):
+            with self.subTest(status=status):
+                files = content(marker)
+                earlier = self.materialize(files)
+                ScriptProjectRevision.objects.filter(pk=earlier.pk).update(status=status, validation_errors=errors)
+                stored = self.stored_under_another_selection(files)
+
+                refreshed = service.refresh_revision_script_files(stored).revision
+
+                self.assertEqual(refreshed.pk, earlier.pk)
+                row = ScriptProjectRevision.objects.get(pk=earlier.pk)
+                self.assertEqual((row.status, row.validation_errors), (status, errors))
+
+    def test_refresh_settles_nothing_when_the_stored_tree_fails_verification(self):
+        with mock.patch(WRITE_TARGET, side_effect=OSError('read-only file system')), self.assertRaises(OSError):
+            service.stage_revision(self.project, GOOD_FILES)
+        earlier = self.project.revisions.get()
+        stored = self.stored_under_another_selection(GOOD_FILES)
+        self.overwrite(stored.digest, 'hello.py', b'tampered')
+
+        with self.assertRaises(RevisionCorruptError):
+            service.refresh_revision_script_files(stored)
+
+        row = ScriptProjectRevision.objects.get(pk=earlier.pk)
+        self.assertEqual(row.status, RevisionStatusChoices.STORAGE_FAILED)
+        self.assertEqual(row.validation_errors[0]['code'], 'storage_write_failed')
 
 
 class ActivationSnapshotTestCase(StorageServiceMixin, TestCase):

@@ -17,7 +17,7 @@ from netbox_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
-from netbox_scripts.jobs import ProjectReconciliationJob, RevisionValidationJob
+from netbox_scripts.jobs import ProjectReconciliationJob, ProjectScriptFileRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
     NetBoxScript,
     ScriptFile,
@@ -354,3 +354,25 @@ class ReconciliationPolicyTestCase(TestCase):
         self.assertIn('has not changed', str(job.log_entries))
         self.assertEqual(self.project.active_revision_id, active.pk)
         self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+
+    def test_reselecting_a_file_activates_the_revision_whose_write_failed(self):
+        ScriptFile.objects.create(project=self.project, source_path='audit.py', enabled=True)
+        data_file(self.source, 'scripts/audit.py', SCRIPT.replace(b'Deploy', b'Audit'))
+        self.reconcile()
+        DataFile.objects.filter(path='scripts/deploy.py').delete()
+        data_file(self.source, 'scripts/deploy.py', SCRIPT + b'\nVALUE = 2\n')
+        with mock.patch.object(store, 'write_revision', side_effect=StorageError('the backend refused')):
+            self.assertEqual(self.run_reconciliation().status, JobStatusChoices.STATUS_FAILED)
+        failed = self.project.revisions.get(status=RevisionStatusChoices.STORAGE_FAILED)
+
+        self.project.select_script_files(['deploy.py'])
+        ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=self.project.pk)
+        # Stores the content the failed write could not.
+        self.reconcile()
+        self.assertFalse(NetBoxScript.objects.get(project=self.project, class_name='Audit').is_executable)
+        self.project.select_script_files(['deploy.py', 'audit.py'])
+        ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=self.project.pk)
+
+        self.project = ScriptProject.objects.get(pk=self.project.pk)
+        self.assertEqual((self.project.active_revision_id, self.project.source_revision_id), (failed.pk, failed.pk))
+        self.assertTrue(NetBoxScript.objects.get(project=self.project, class_name='Audit').is_executable)

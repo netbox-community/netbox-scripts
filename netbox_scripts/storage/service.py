@@ -216,6 +216,7 @@ def _refresh_revision_script_files(revision):
     uploaded again. The source revision only needs a digest, so even an INVALID verdict on
     the old configuration stays untouched while its content gets a fresh candidate. Returns
     a StagedRevision whose created flag says whether this configuration was already staged.
+    A returned row whose write never completed is settled as MATERIALIZED.
 
     Raises ValueError for a revision with no digest, since a rejected staging attempt stored
     no content to refresh, RevisionCorruptError when the stored tree no longer matches the
@@ -257,6 +258,12 @@ def _refresh_revision_script_files(revision):
                 'script_file_snapshot': snapshot,
             },
         )
+        if candidate.status in constants.RETRYABLE_REVISION_STATUSES:
+            # Another selection stored this tree, verified above, so the unfinished write needs no retry.
+            ScriptProjectRevision.objects.using(using).filter(
+                pk=candidate.pk, status__in=constants.RETRYABLE_REVISION_STATUSES
+            ).update(status=RevisionStatusChoices.MATERIALIZED, validation_errors=[], last_updated=timezone.now())
+            _refresh_surviving(candidate, using)
         return StagedRevision(candidate, created)
 
 

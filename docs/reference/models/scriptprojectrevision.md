@@ -129,7 +129,10 @@ Later edits or disabling a declaration do not change that revision's verdict.
 
 To use the current declarations with stored source, the storage service offers
 a refresh operation. It creates or returns the revision for the same source
-digest and the current Script File digest, without another upload.
+digest and the current Script File digest, without another upload. Revisions
+for different selections share stored source, so a returned revision still in
+`staging` or `storage_failed` becomes `materialized` once the refresh has
+verified that source.
 
 A canonical builder creates the snapshot. Refresh, validation and activation
 check it before use, including its shape, paths, ordering, uniqueness and digest.
@@ -161,6 +164,7 @@ Storage, validation and activation are separate stages:
 | `staging` | `materialized` | Source was written and verified against its manifest |
 | `staging` | `storage_failed` | A retryable storage write failed |
 | `storage_failed` | `staging` | Re-staging identical content resumes the write |
+| `staging` or `storage_failed` | `materialized` | A Script File refresh verified that the same source is stored |
 | (new) | `invalid` | Content was rejected before anything was stored |
 | `materialized` | `validating` | Validation claimed the revision |
 | `validating` | `valid` or `invalid` | Validation reached a verdict |

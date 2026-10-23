@@ -261,7 +261,7 @@ def _activate_project(project):
             return _outcome(project, newest.pk, outcome)
         revision, outcome = candidate, 'activated'
     try:
-        activation.activate_revision(revision)
+        activation.activate_revision(revision, repair=revision.pk == project.active_revision_id)
     except _ACTIVATION_FAILURES as error:
         return _outcome(project, revision.pk, f'could not be activated: {error}')
     return _outcome(project, revision.pk, outcome)

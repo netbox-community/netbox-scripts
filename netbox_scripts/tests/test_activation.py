@@ -251,6 +251,18 @@ class ActivationMixin(StorageServiceMixin):
 
 
 class ActivateRevisionTestCase(ActivationMixin, TestCase):
+    def overtaken_by(self, change):
+        """Patch verification to run change once on this connection, between a promotion's unlocked and locked reads."""
+        real = store.verify_revision_tree
+        pending = [change]
+
+        def verify(*args, **kwargs):
+            if pending:
+                pending.pop()()
+            return real(*args, **kwargs)
+
+        return mock.patch.object(store, 'verify_revision_tree', side_effect=verify)
+
     def test_activation_publishes_a_row_for_every_recorded_script(self):
         revision = self.valid_with([record(), record(class_name='AuditDevices', position=1)])
         activate_revision(revision)
@@ -274,6 +286,35 @@ class ActivateRevisionTestCase(ActivationMixin, TestCase):
         NetBoxScript.objects.all().delete()
         activate_revision(revision)
         self.assertEqual(NetBoxScript.objects.get().class_name, 'DeployDevices')
+
+    def test_a_repair_overtaken_by_another_activation_changes_nothing(self):
+        first = self.valid_with([record()], marker=1)
+        activate_revision(first)
+        second = self.valid_with([record(class_name='Later')], marker=2)
+
+        with (
+            self.overtaken_by(lambda: activate_revision(second)),
+            self.assertRaises(ActivationError) as captured,
+        ):
+            activate_revision(first, repair=True)
+
+        self.assertIn('is not the active revision', str(captured.exception))
+        self.assertEqual(ScriptProject.objects.get(pk=self.project.pk).active_revision_id, second.pk)
+        self.assertFalse(NetBoxScript.objects.get(class_name='Later').is_retired)
+        self.assertTrue(NetBoxScript.objects.get(class_name='DeployDevices').is_retired)
+
+    def test_a_repair_overtaken_by_a_deactivation_changes_nothing(self):
+        revision = self.valid_with([record()])
+        activate_revision(revision)
+
+        with (
+            self.overtaken_by(lambda: deactivate_revision(revision)),
+            self.assertRaises(ActivationError),
+        ):
+            activate_revision(revision, repair=True)
+
+        self.assertIsNone(ScriptProject.objects.get(pk=self.project.pk).active_revision_id)
+        self.assertTrue(NetBoxScript.objects.get().is_retired)
 
     def test_activation_imports_nothing(self):
         # Re-importing could disagree with the verdict the revision already carries.

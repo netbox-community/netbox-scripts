@@ -178,6 +178,16 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.assertEqual(project.active_revision_id, latest.pk)
         self.assertEqual(self.outcome(results, project), 'activated')
 
+    def test_the_pass_does_not_revert_an_activation_made_after_its_read(self):
+        stale = self.serving_project()
+        latest = self.staged(stale, {'latest.py': b'VALUE = 2\n'}, RevisionStatusChoices.VALID)
+        activation.activate_revision(latest)
+
+        outcome = cutover._activate_project(stale)
+
+        self.assertEqual(ScriptProject.objects.get(pk=stale.pk).active_revision_id, latest.pk)
+        self.assertTrue(outcome['outcome'].startswith('could not be activated: '))
+
     def test_a_second_run_over_fewer_modules_keeps_the_whole_record(self):
         # record_step assigns, so replacing the list would shrink what verification then checks.
         self.stage_and_validate()

@@ -19,6 +19,7 @@ from netbox_scripts.models import (
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases
 from netbox_scripts.ui import ScriptProjectPanel, ScriptProjectStatePanel
+from netbox_scripts.views import ScriptProjectRepairView
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, create_test_user, post_data
 
@@ -800,6 +801,21 @@ class ScriptProjectRepairViewTestCase(ObjectPermissionTestMixin, TestCase):
 
         self.assertIn('already matched its revision', self.message(response))
         self.assertNotIn('Repaired', self.message(response))
+
+    def test_posting_after_another_activation_refuses_instead_of_reverting_it(self):
+        self.grant('view', 'activate')
+        stale = ScriptProject.objects.get(pk=self.project.pk)
+        newer = service.stage_revision(self.project, {'deploy.py': b'VALUE = 2\n'}).revision
+        ScriptProjectRevision.objects.filter(pk=newer.pk).update(
+            status=RevisionStatusChoices.VALID, discovered_scripts=self.revision.discovered_scripts
+        )
+        activation.activate_revision(ScriptProjectRevision.objects.get(pk=newer.pk))
+
+        with mock.patch.object(ScriptProjectRepairView, 'get_object', return_value=stale):
+            response = self.client.post(self.url(), follow=True)
+
+        self.assertEqual(ScriptProject.objects.get(pk=self.project.pk).active_revision_id, newer.pk)
+        self.assertIn('is not the active revision', self.message(response))
 
     def test_the_change_permission_alone_is_not_enough(self):
         self.grant('view', 'change')

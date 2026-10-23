@@ -175,7 +175,9 @@ Use **Repair Scripts** on the Project page to synchronize its published rows
 with the active revision. It restores missing or changed rows and reports the
 number changed. Matching rows are left alone, with no write or change log.
 The Project-level and revision-level **Activate** routes refuse a revision
-that is already active, so use **Repair Scripts** for this operation.
+that is already active, so use **Repair Scripts** for this operation. If
+another activation or a deactivation changes the active revision while a
+repair is in progress, the repair is refused and changes nothing.
 
 Repairs made through a request are recorded in the change log and queue update
 events attributed to the requesting user. Background activation and repair do

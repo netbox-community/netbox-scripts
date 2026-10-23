@@ -182,7 +182,7 @@ class ScriptProjectRepairView(generic.ObjectView):
         """Republish, reporting how many rows moved rather than a bare success."""
         project = self.get_object(**kwargs)
         try:
-            result = activation.activate_revision(project.active_revision)
+            result = activation.activate_revision(project.active_revision, repair=True)
         except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             messages.error(request, _('The Scripts could not be repaired: {error}').format(error=error))

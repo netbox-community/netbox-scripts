@@ -56,7 +56,7 @@ class ActivationResult(NamedTuple):
     scripts: ScriptSyncResult
 
 
-def activate_revision(revision, *, automatic=False):
+def activate_revision(revision, *, automatic=False, repair=False):
     """
     Make one revision active and publish its Scripts in a single transaction.
 
@@ -66,6 +66,9 @@ def activate_revision(revision, *, automatic=False):
     built from. Raises ActivationError, including for a snapshot no build could have produced,
     and RevisionCorruptError when the stored tree no longer matches its manifest.
 
+    With repair, the revision is republished only while its project still serves it, and
+    ActivationError is raised otherwise.
+
     Return an ActivationResult, or None when an automatic request is no longer current or permitted.
     """
     _validated_records(revision)
@@ -74,6 +77,9 @@ def activate_revision(revision, *, automatic=False):
     written = []
 
     def on_promote(*, project, revision, using):
+        # Checked against the locked row, because the caller read the revision in force before the lock.
+        if repair and project.active_revision_id != revision.pk:
+            raise ActivationError(_('Revision {pk} is not the active revision of its project.').format(pk=revision.pk))
         written.append(
             synchronize_scripts(project=project, revision=revision, records=_validated_records(revision), using=using)
         )

@@ -143,7 +143,9 @@ proposed a Project that staging has not created.
 Buttons are numbered in workflow order. The highlighted button suggests the
 next action. If a Project stops serving a revision, activation may be suggested
 again. A source or validation problem can leave the page without a suggested
-action.
+action. Every button except **Run inventory** and **Verify** stays disabled
+while a Job of its pass is queued or running. If a stopped worker left one
+**Running**, see [Stale running Jobs](#stale-running-jobs).
 
 **Run inventory** is safe to repeat. The page lists blockers and summarizes
 warnings. Open its Job for the complete report.
@@ -300,15 +302,11 @@ is incomplete, capture adds unrecorded waiting runs, including new recurring
 occurrences. Completed cutover steps are not repeated.
 
 If the pass fails after entering `cutover`, resolve the reported problem and
-select **Enter cutover** again. If a worker stopped during a migration pass, its
-migration-pass Job can remain **Running** and prevent another attempt. After
-confirming that no worker is executing that pass, delete the migration-pass Job
-on the **Jobs** page and retry. This instruction does not apply to Script-run
-Jobs. See [Stale running Jobs](#stale-running-jobs). The new pass can show
-**Running** while waiting for the database to end the stopped worker's session.
-The state alone does not confirm completion. A recorded capture can also
-prevent further staging even while the state still reads `staging`. Migration
-passes that change data run one at a time across workers.
+select **Enter cutover** again. If its worker stopped instead, see
+[Stale running Jobs](#stale-running-jobs). The state alone does not confirm
+completion. A recorded capture can also prevent further staging even while the
+state still reads `staging`. Migration passes that change data run one at a
+time across workers.
 
 Cutover affects four areas:
 
@@ -538,8 +536,19 @@ or advance the state manually just to make the page appear complete.
 
 ### Stale running Jobs
 
-A built-in Custom Script Job can remain **Running** after its execution
-process stops unexpectedly, which blocks cutover. Select **Enter cutover**
+NetBox does not finish a Job whose execution process stops unexpectedly, so the
+Job keeps showing **Running**.
+
+**A migration pass Job** that shows **Running** keeps its pass from starting
+again, except for **Run inventory** and **Verify**, which can be run again
+regardless. The Migration page names each such Job in that pass's row. Confirm
+that execution has stopped as in step 1 below, then delete each Job the row
+names on the **Jobs** page. Deleting needs permission to delete Jobs and does
+not stop execution. Start the pass again as you would after a failed pass. A
+stopped pass saves no log on its Job, and the new pass can show **Running**
+while it waits for the database to end the stopped worker's session.
+
+**A built-in Custom Script Job** blocks cutover. Select **Enter cutover**
 first, so that the refusal names the affected Jobs and records any that the
 migration had already captured.
 
@@ -559,9 +568,9 @@ migration had already captured.
 The reference pass does not recreate a run cleared this way. If cutover had
 already captured it, entering cutover again records it as executed.
 
-After cutover completes, leave stale Jobs in place until **Repoint references**
-has completed. Deleting a Job that cutover cancelled can let that pass recreate
-the run.
+After cutover completes, leave stale built-in Script Jobs in place until
+**Repoint references** has completed. Deleting a Job that cutover cancelled can
+let that pass recreate the run.
 
 For a recurring run, follow [Recurring successors](#recurring-successors)
 before scheduling a replacement by hand.
@@ -590,8 +599,9 @@ its completed recreation record. Investigate the missing task and recreate the
 required run manually.
 
 An unreachable queue produces a warning, not a report of lost tasks. Task
-checks also wait until the reference pass finishes. Run verification again
-once the queue is reachable and repointing is complete.
+checks also wait until the reference pass finishes. If a stopped worker left
+that pass's Job **Running**, see [Stale running Jobs](#stale-running-jobs). Run
+verification again once the queue is reachable and repointing is complete.
 
 Job records may be removed after execution by retention cleanup. A missing ID
 alone does not prove a recurrence was lost. Verification does not trace every

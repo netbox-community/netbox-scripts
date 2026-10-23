@@ -1,10 +1,11 @@
 {% load helpers %}
 {% load i18n %}
 {% comment %}
-One pass's most recent run.
+One pass's most recent run, and the Jobs that hold the pass back.
 
 Context:
   - job: The Job, or None
+  - running: The Jobs that show Running and hold the pass back, newest first, or absent
 {% endcomment %}
 {% if job %}
   <a href="{{ job.get_absolute_url }}">{% trans "Job" %} #{{ job.pk }}</a>
@@ -13,3 +14,12 @@ Context:
 {% else %}
   <span class="text-secondary">{% trans "Never run" %}</span>
 {% endif %}
+{% for blocker in running %}
+  <div class="small">
+    {% if blocker != job %}
+      <a href="{{ blocker.get_absolute_url }}">{% trans "Job" %} #{{ blocker.pk }}</a>
+      {% badge blocker.get_status_display bg_color=blocker.get_status_color %}
+    {% endif %}
+    <span class="text-secondary">{% trans "If it still shows Running after its execution stops, see Stale running Jobs in the migration guide." %}</span>
+  </div>
+{% endfor %}

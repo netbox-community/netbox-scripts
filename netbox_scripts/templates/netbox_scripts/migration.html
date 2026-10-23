@@ -7,6 +7,7 @@ Context:
   - inventory_job:  The most recent inventory Job, or None
   - staging_job:    The most recent staging Job, or None
   - staging_queued: Whether a staging pass is already under way
+  - staging_running: The staging Jobs that show Running, newest first, which hold the pass back
   - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
   - warning_count:  How many modules the last inventory reported a warning for
   - branch_import_count: How many modules import something absent, but only inside a branch
@@ -17,18 +18,22 @@ Context:
   - run:            The open MigrationRun, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
   - cutover_queued: Whether a cutover is already under way
+  - cutover_running: The cutover Jobs that show Running, newest first, which hold the pass back
   - can_cut_over:   Whether the crossing has not been recorded yet and can be served past the fence
   - cutover_interrupted: Whether the state reached cutover with the crossing unrecorded, so the fence may have closed
   - unservable_projects: The staged Projects that could serve nothing past the fence, each {project_key, reason}
   - activation_job: The most recent activation Job, or None
   - activation_queued: Whether an activation is already under way
+  - activation_running: The activation Jobs that show Running, newest first, which hold the pass back
   - can_activate:   Whether the fence has been crossed, which is activation's only precondition
   - references_job: The most recent reference pass Job, or None
   - references_queued: Whether a reference pass is already under way
+  - references_running: The reference pass Jobs that show Running, newest first, which hold the pass back
   - can_repoint:    Whether every migrated Project that still exists serves, so a reference has a row to name
   - projects_not_serving: The migrated Projects that exist and serve nothing, which a reference pass would refuse over
   - cleanup_job:    The most recent cleanup Job, or None
   - cleanup_queued: Whether a cleanup is already under way
+  - cleanup_running: The cleanup Jobs that show Running, newest first, which hold the pass back
   - can_clean_up:   Whether every reference step is done and every mapped Project serves, which is what deletion waits for
   - verification_job: The most recent verification Job, or None
   - next_action:  Which pass to run next, or None when the next move is not a button here
@@ -64,23 +69,23 @@ Context:
             </tr>
             <tr>
               <th scope="row">{% trans "Last staging" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=staging_job %}</td>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=staging_job running=staging_running %}</td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last cutover" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cutover_job %}</td>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cutover_job running=cutover_running %}</td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last activation" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=activation_job %}</td>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=activation_job running=activation_running %}</td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last reference pass" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=references_job %}</td>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=references_job running=references_running %}</td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last cleanup" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cleanup_job %}</td>
+              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cleanup_job running=cleanup_running %}</td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last verification" %}</th>

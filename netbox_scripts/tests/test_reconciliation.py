@@ -1,10 +1,12 @@
 import shutil
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.choices import DataSourceStatusChoices, JobStatusChoices
 from core.exceptions import JobFailed
@@ -17,6 +19,7 @@ from netbox_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
+from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import ProjectReconciliationJob, ProjectScriptFileRefreshJob, RevisionValidationJob
 from netbox_scripts.models import (
     NetBoxScript,
@@ -166,6 +169,39 @@ class ProjectReconciliationJobTestCase(TestCase):
         # This project activates manually and has never activated anything, so the revision the
         # second job resolves to is the one an operator has yet to act on.
         self.assertIn('waiting for an operator', str(job.log_entries))
+
+    def test_a_validation_whose_lease_expired_is_reported_as_queued_again(self):
+        self.run_job()
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING,
+            validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
+        )
+        self.validated.reset_mock()
+        self.validated.return_value = mock.sentinel.processing_job
+
+        job = self.run_job()
+
+        self.validated.assert_called_once_with(revision)
+        self.assertIn(
+            f'Revision {revision.digest[:12]} is queued for validation again, because its validation lease expired.',
+            str(job.log_entries),
+        )
+
+    def test_a_validation_inside_its_lease_is_reported_as_owned(self):
+        self.run_job()
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING, validation_started=timezone.now()
+        )
+        self.validated.reset_mock()
+
+        job = self.run_job()
+
+        self.validated.assert_not_called()
+        self.assertIn(
+            f'Revision {revision.digest[:12]} matches the source and another run owns it.', str(job.log_entries)
+        )
 
     def test_a_project_deleted_before_the_job_runs_completes_with_nothing_to_do(self):
         deleted_pk = self.project.pk

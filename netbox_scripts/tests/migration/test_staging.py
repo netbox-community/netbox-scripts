@@ -1,5 +1,6 @@
 import hashlib
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -18,6 +19,7 @@ from netbox_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
+from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import MigrationStagingJob, RevisionValidationJob
 from netbox_scripts.migration import plan, source, staging
 from netbox_scripts.models import (
@@ -251,6 +253,44 @@ class StageTestCase(LegacySourceMixin, TestCase):
 
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('is Valid.', messages)
+        self.assertIn('0 awaiting a verdict', messages)
+
+    def test_the_job_reports_a_revision_still_validating_as_awaiting_a_verdict(self):
+        revisions = {result['key']: result['revision_pk'] for result in self.stage_all()}
+        uploaded = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        synced = self.project_for(ProjectSourceTypeChoices.DATA_SOURCE)
+        # The expired claim goes to the uploaded Project, since the reconciliation tests cover the Data Source path.
+        expired = timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS)
+        for project, started in ((uploaded, expired), (synced, timezone.now())):
+            ScriptProjectRevision.objects.filter(pk=revisions[project.key]).update(
+                status=RevisionStatusChoices.VALIDATING, validation_started=started
+            )
+
+        job = MigrationStagingJob.enqueue(immediate=True)
+        job.refresh_from_db()
+
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertIn(
+            f'Reused project {uploaded.key}, revision {revisions[uploaded.key]} is queued for validation.', messages
+        )
+        self.assertIn(f'Reused project {synced.key}, revision {revisions[synced.key]} is Validating.', messages)
+        self.assertIn('2 awaiting a verdict', messages)
+        queued = {result['key']: result['processing_queued'] for result in job.data['projects']}
+        self.assertEqual(queued, {uploaded.key: True, synced.key: False})
+
+    def test_the_job_reports_a_valid_revision_queued_for_activation_by_its_status(self):
+        self.stage_and_validate()
+        uploaded = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        # A refused activate-once promotion leaves the request pending, so staging queues the activation.
+        ScriptProject.objects.filter(pk=uploaded.pk).update(source_activation_pending=True)
+
+        job = MigrationStagingJob.enqueue(immediate=True)
+        job.refresh_from_db()
+
+        result = next(result for result in job.data['projects'] if result['key'] == uploaded.key)
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertTrue(result['processing_queued'])
+        self.assertIn(f'Reused project {uploaded.key}, revision {result["revision_pk"]} is Valid.', messages)
         self.assertIn('0 awaiting a verdict', messages)
 
     def test_the_job_opens_its_run_under_the_lock(self):

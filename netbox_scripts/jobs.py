@@ -20,7 +20,12 @@ from utilities.rqworker import get_queue_for_model
 
 from . import activation, branching
 from .choices import ActivationPolicyChoices, MigrationStateChoices, RevisionStatusChoices
-from .constants import ACTIVATABLE_REVISION_STATUSES, STALLED_CLEANUP_GRACE_SECONDS, VALIDATION_JOB_TIMEOUT
+from .constants import (
+    ACTIVATABLE_REVISION_STATUSES,
+    PENDING_VERDICT_REVISION_STATUSES,
+    STALLED_CLEANUP_GRACE_SECONDS,
+    VALIDATION_JOB_TIMEOUT,
+)
 from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
 from .models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from .models.migration import migration_lock
@@ -299,9 +304,12 @@ class ProjectReconciliationJob(JobRunner):
                     )
                 )
         else:
-            self.logger.info(
-                _('Revision {digest} matches the source and another run owns it.').format(digest=revision.digest[:12])
+            template = (
+                _('Revision {digest} is queued for validation again, because its validation lease expired.')
+                if staged.processing_job is not None
+                else _('Revision {digest} matches the source and another run owns it.')
             )
+            self.logger.info(template.format(digest=revision.digest[:12]))
 
 
 class ProjectScriptFileRefreshJob(JobRunner):
@@ -364,7 +372,7 @@ class ProjectScriptFileRefreshJob(JobRunner):
                     )
                     return
                 staged = service.refresh_revision_script_files(source)
-                queue_revision_processing(staged.revision)
+                processing_job = queue_revision_processing(staged.revision)
         except (StorageError, StorageConfigurationError, OSError) as error:
             detail = _('Refreshing the script files of "{project}" failed and needs another run: {error}').format(
                 project=project, error=error
@@ -377,6 +385,13 @@ class ProjectScriptFileRefreshJob(JobRunner):
             self.logger.info(
                 _('Revision {digest} is staged and queued for validation.').format(digest=revision.digest[:12])
             )
+        elif revision.status == RevisionStatusChoices.VALIDATING:
+            template = (
+                _('Revision {digest} is queued for validation again, because its validation lease expired.')
+                if processing_job is not None
+                else _('Revision {digest} matches this selection and another run owns it.')
+            )
+            self.logger.info(template.format(digest=revision.digest[:12]))
         elif revision.pk == project.active_revision_id:
             self.logger.info(_('The selection has not changed, this project already serves it.'))
         else:
@@ -944,7 +959,9 @@ class MigrationStagingJob(JobRunner):
             status = result['revision_status']
             # Any status but materialized is one the revision already held when content addressing found it.
             # Whole sentences per branch: a translator cannot reorder a substituted fragment.
-            if status == RevisionStatusChoices.MATERIALIZED:
+            if status == RevisionStatusChoices.MATERIALIZED or (
+                status == RevisionStatusChoices.VALIDATING and result['processing_queued']
+            ):
                 template = (
                     _('Created project {key}, revision {revision_pk} is queued for validation.')
                     if result['created']
@@ -959,7 +976,7 @@ class MigrationStagingJob(JobRunner):
                 )
                 message = template.format(key=result['key'], revision_pk=result['revision_pk'], label=labels[status])
             self.logger.info(message)
-        pending = sum(1 for result in staged if result['revision_status'] == RevisionStatusChoices.MATERIALIZED)
+        pending = sum(1 for result in staged if result['revision_status'] in PENDING_VERDICT_REVISION_STATUSES)
         refused = len(results) - len(staged)
         self.logger.info(
             _(

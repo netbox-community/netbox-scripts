@@ -1,13 +1,16 @@
 import shutil
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.choices import JobStatusChoices
 from netbox_scripts import branching
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
+from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
 from netbox_scripts.forms import ScriptProjectScriptFilesForm
 from netbox_scripts.ingestion import ingest_upload
 from netbox_scripts.jobs import ProjectScriptFileRefreshJob, RevisionValidationJob
@@ -166,6 +169,35 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
         )
         self.run_job()
         self.validated.assert_called_once()
+
+    def test_an_unchanged_selection_reports_an_expired_validation_as_queued_again(self):
+        revision = self.project.current_revision
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING,
+            validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
+        )
+        self.validated.return_value = mock.sentinel.processing_job
+
+        job = self.run_job()
+
+        self.validated.assert_called_once_with(revision)
+        self.assertIn(
+            f'Revision {revision.digest[:12]} is queued for validation again, because its validation lease expired.',
+            str(job.log_entries),
+        )
+
+    def test_an_unchanged_selection_reports_a_live_validation_as_owned(self):
+        revision = self.project.current_revision
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING, validation_started=timezone.now()
+        )
+
+        job = self.run_job()
+
+        self.validated.assert_not_called()
+        self.assertIn(
+            f'Revision {revision.digest[:12]} matches this selection and another run owns it.', str(job.log_entries)
+        )
 
     def test_a_project_with_no_stored_content_completes_with_nothing_to_do(self):
         empty = ScriptProject.objects.create(name='Empty', key='empty')

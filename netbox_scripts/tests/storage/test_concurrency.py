@@ -21,6 +21,7 @@ from django.db.models.signals import post_save, pre_save
 from django.test import TransactionTestCase, override_settings
 
 from core.models import Job
+from netbox_scripts.activation import activate_revision
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
@@ -29,6 +30,7 @@ from netbox_scripts.storage.exceptions import RevisionVanishedError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, SecondSession
+from netbox_scripts.tests.test_activation import record
 from utilities.testing.mixins import RQQueueTestMixin
 
 SOURCE = {'hello.py': b'print("hi")\n'}
@@ -70,7 +72,7 @@ class SerializationTestCase(RQQueueTestMixin, TransactionTestCase):
 
 
 class ScriptEditLockScopeTestCase(SerializationTestCase):
-    """An ordinary Script edit serializes on its own row, never on the project."""
+    """Script edits lock only their own row, and activation locks every Script of its Project before writing."""
 
     def observe_project_lock_during_save(self, instance):
         """Save one row and report whether another session could take the project lock meanwhile."""
@@ -101,6 +103,59 @@ class ScriptEditLockScopeTestCase(SerializationTestCase):
         script_file.description = 'Edited'
 
         self.assertFalse(self.observe_project_lock_during_save(script_file), 'The declaration lost its lock.')
+
+    def test_an_edit_locks_only_its_script_row(self):
+        script = NetBoxScript.objects.create(
+            project=self.project, module_path='deploy', class_name='Deploy', display_name='Deploy'
+        )
+        observed = []
+
+        def observe(sender, instance, **kwargs):
+            with SecondSession() as other:
+                observed.append(
+                    {
+                        'script': other.row_locked(NetBoxScript, instance.pk),
+                        'project': other.row_locked(ScriptProject, self.project.pk),
+                    }
+                )
+
+        pre_save.connect(observe, sender=NetBoxScript, dispatch_uid='script-guard-row-lock')
+        self.addCleanup(pre_save.disconnect, observe, sender=NetBoxScript, dispatch_uid='script-guard-row-lock')
+        script.enabled = False
+        script.save()
+
+        self.assertEqual(observed, [{'script': True, 'project': False}])
+
+    def test_activation_locks_all_existing_scripts_before_writing(self):
+        revision = self.materialize()
+        # Primary keys run against publication order, and Retired is dropped from the snapshot.
+        zeta, alpha, retired = (
+            NetBoxScript.objects.create(project=self.project, module_path='deploy', class_name=name, display_name=name)
+            for name in ('Zeta', 'Alpha', 'Retired')
+        )
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALID,
+            discovered_scripts=[record(class_name='Alpha'), record(class_name='Zeta', position=1)],
+        )
+        revision.refresh_from_db()
+        other = ScriptProject.objects.create(name='Audit Devices', key='audit-devices')
+        bystander = NetBoxScript.objects.create(
+            project=other, module_path='audit', class_name='Audit', display_name='Audit'
+        )
+        observed = []
+
+        def observe(sender, instance, **kwargs):
+            if not observed:
+                with SecondSession() as session:
+                    observed.append(
+                        {row.pk: session.row_locked(NetBoxScript, row.pk) for row in (zeta, alpha, retired, bystander)}
+                    )
+
+        pre_save.connect(observe, sender=NetBoxScript, dispatch_uid='activation-row-locks')
+        self.addCleanup(pre_save.disconnect, observe, sender=NetBoxScript, dispatch_uid='activation-row-locks')
+        activate_revision(revision)
+
+        self.assertEqual(observed, [{zeta.pk: True, alpha.pk: True, retired.pk: True, bystander.pk: False}])
 
 
 class DeclarationGuardRowLockTestCase(SerializationTestCase):

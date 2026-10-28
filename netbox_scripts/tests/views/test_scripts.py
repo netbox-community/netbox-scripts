@@ -1,6 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
@@ -9,7 +9,12 @@ from core.models import ObjectChange, ObjectType
 from core.tables import ObjectChangeTable
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.permissions import SELECTION_REFUSAL
-from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases, refresh_count
+from netbox_scripts.tests.plugin_testing import (
+    ObjectPermissionTestMixin,
+    PluginTestCases,
+    create_scripts_out_of_default_order,
+    refresh_count,
+)
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_tags, post_data
 
@@ -79,6 +84,34 @@ class NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
         clobbered = NetBoxScript.objects.get(pk=published['pk'])
         self.assertEqual(clobbered.display_name, 'Renamed By Sync')
         self.assertFalse(clobbered.enabled)
+
+    def test_a_bulk_edit_saves_in_primary_key_order(self):
+        pks = create_scripts_out_of_default_order()
+        saved = []
+
+        def record_save(sender, instance, **kwargs):
+            saved.append(instance.pk)
+
+        pre_save.connect(record_save, sender=NetBoxScript, dispatch_uid='bulk-edit-save-order')
+        self.addCleanup(pre_save.disconnect, record_save, sender=NetBoxScript, dispatch_uid='bulk-edit-save-order')
+        self.add_permissions('netbox_scripts.view_netboxscript', 'netbox_scripts.change_netboxscript')
+
+        response = self.client.post(
+            self._get_url('bulk_edit'),
+            data={'pk': pks[::-1], '_apply': True, **post_data({'enabled': False})},
+        )
+
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(saved, pks)
+
+    def test_the_bulk_edit_confirmation_preserves_default_order(self):
+        pks = create_scripts_out_of_default_order()
+        self.add_permissions('netbox_scripts.view_netboxscript', 'netbox_scripts.change_netboxscript')
+
+        response = self.client.post(self._get_url('bulk_edit'), data={'pk': pks})
+
+        self.assertHttpStatus(response, 200)
+        self.assertEqual([row.record.pk for row in response.context['table'].rows], [pks[1], pks[2], pks[0]])
 
 
 class NetBoxScriptViewTestCase(TestCase):

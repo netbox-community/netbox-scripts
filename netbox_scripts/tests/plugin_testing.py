@@ -7,6 +7,7 @@ from django.test import override_settings
 
 from core.models import Job, ObjectType
 from netbox_scripts.jobs import ProjectScriptFileRefreshJob
+from netbox_scripts.models import NetBoxScript, ScriptProject
 from netbox_scripts.runtime.naming import PRIVATE_ROOT
 from netbox_scripts.storage.locks import advisory_key
 from users.models import ObjectPermission
@@ -42,6 +43,16 @@ def pickle_queued_objects(events):
 def refresh_count(project):
     """Return how many Script File refresh Jobs are recorded for one Project."""
     return Job.objects.filter(name=ProjectScriptFileRefreshJob.name, data__project_id=project.pk).count()
+
+
+def create_scripts_out_of_default_order():
+    """Create Scripts out of default order, interleaving two Projects, and return their primary keys."""
+    zeta = ScriptProject.objects.create(name='Zeta Project', key='zeta-project')
+    alpha = ScriptProject.objects.create(name='Alpha Project', key='alpha-project')
+    return [
+        NetBoxScript.objects.create(project=project, module_path='deploy', class_name=name, display_name=name).pk
+        for project, name in ((zeta, 'Zeta'), (alpha, 'Mid'), (zeta, 'Alpha'))
+    ]
 
 
 class SecondSession:

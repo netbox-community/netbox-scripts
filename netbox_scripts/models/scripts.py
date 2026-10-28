@@ -253,6 +253,8 @@ class NetBoxScript(JobsMixin, PrimaryModel):
             original = (
                 type(self)
                 .objects.using(using)
+                # The default ordering joins the Project, and FOR UPDATE would lock that row too.
+                .order_by('pk')
                 .select_for_update()
                 .filter(pk=self.pk)
                 .values(*PUBLISHED_SCRIPT_FIELDS)

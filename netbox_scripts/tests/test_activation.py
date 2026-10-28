@@ -235,6 +235,13 @@ class SynchronizeScriptsTestCase(TestCase):
         self.sync([record()])
         self.assertEqual(NetBoxScript.objects.get().jobs.count(), 1)
 
+    def test_the_scripts_are_locked_in_primary_key_order_before_any_write(self):
+        self.sync([record(), record(class_name='AuditDevices', position=1)])
+        with CaptureQueriesContext(connection) as captured:
+            self.sync([record(class_name='AuditDevices', display_name='Audit Devices')])
+        first = next(q['sql'] for q in captured.captured_queries if f'"{SCRIPT_TABLE}"' in q['sql'])
+        self.assertTrue(first.endswith(f'ORDER BY "{SCRIPT_TABLE}"."id" ASC FOR UPDATE'), first)
+
 
 class ActivationMixin(StorageServiceMixin):
     """A project with real stored content, plus a way to give a revision recorded scripts."""

@@ -45,12 +45,17 @@ ROWS = (
         'netbox.api.viewsets:NetBoxModelViewSet.perform_update',
         'netbox.api.viewsets:NetBoxModelViewSet.perform_destroy',
     ),
+    (
+        'netbox.api.viewsets.mixins.BulkUpdateModelMixin.get_bulk_update_queryset',
+        'netbox.api.viewsets.mixins:BulkUpdateModelMixin.get_bulk_update_queryset',
+    ),
     ('utilities.exceptions.PermissionsViolation', 'utilities.exceptions:PermissionsViolation'),
     ('utilities.exceptions.AbortRequest', 'utilities.exceptions:AbortRequest'),
     (
         'netbox.views.generic.BulkEditView.pre_save_operations',
         'netbox.views.generic:BulkEditView.pre_save_operations',
     ),
+    ('netbox.views.generic.BulkEditView.get_queryset', 'netbox.views.generic:BulkEditView.get_queryset'),
     ('utilities.data.normalize_update_fields', 'utilities.data:normalize_update_fields'),
     ('utilities.rqworker.get_queue_for_model', 'utilities.rqworker:get_queue_for_model'),
     ('rq.utils.parse_timeout', 'rq.utils:parse_timeout'),

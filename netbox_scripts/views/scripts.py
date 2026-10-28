@@ -95,6 +95,11 @@ class NetBoxScriptBulkEditView(generic.BulkEditView):
     table = NetBoxScriptTable
     form = NetBoxScriptBulkEditForm
 
+    def get_queryset(self, request):
+        """Return Scripts in primary-key order when a bulk edit is applied, to match synchronization."""
+        queryset = super().get_queryset(request)
+        return queryset.order_by('pk') if '_apply' in request.POST else queryset
+
 
 @register_model_view(NetBoxScript, 'run', path='run')
 class NetBoxScriptRunView(generic.ObjectView):

@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import tempfile
 import uuid
+from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -16,9 +17,11 @@ from core.choices import JobStatusChoices, ManagedFileRootPathChoices
 from core.events import JOB_COMPLETED, OBJECT_UPDATED
 from core.models import AutoSyncRecord, DataFile, DataSource, Job, ObjectType
 from dcim.models import Site
+from extras.jobs import ScriptJob
 from extras.models import EventRule, Notification, Script, ScriptModule, Webhook
 from netbox_scripts import activation
 from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoices, RevisionStatusChoices
+from netbox_scripts.jobs import MigrationCutoverJob
 from netbox_scripts.migration import cutover, mapping, plan, staging
 from netbox_scripts.migration import source as legacy_source
 from netbox_scripts.models import MigrationRun, ScriptProjectRevision
@@ -358,21 +361,79 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(self.migration.journal['schedules'][0]['dropped'], ['upload'])
         self.assertTrue(any('upload' in warning for warning in self.migration.warnings))
 
-    def test_a_schedule_whose_task_the_queue_lost_is_reported_rather_than_raised(self):
-        job = self.legacy_job(task_kwargs=None)
+    def test_a_job_saved_before_its_task_is_queued_holds_the_step_until_its_task_is_read(self):
+        # Holding the publish leaves the gap between Job.enqueue()'s save and its queued task.
+        due = timezone.now() + timedelta(hours=1)
+        with self.captureOnCommitCallbacks() as publish:
+            job = Job.enqueue(
+                ScriptJob.handle,
+                instance=self.script,
+                name=self.script.name,
+                schedule_at=due,
+                interval=60,
+                data={'site': 'east'},
+                commit=False,
+            )
 
-        counts = cutover.enter_cutover(self.migration)
+        for attempt in ('first', 'retry'):
+            with self.subTest(attempt=attempt):
+                cutover.enter_cutover(self.migration)
+                self.migration.refresh_from_db()
+                self.assertFalse(self.migration.step_done(cutover.STEP))
+                self.assertEqual(self.migration.journal['schedules'], [])
+                job.refresh_from_db()
+                self.assertEqual(job.status, JobStatusChoices.STATUS_SCHEDULED)
+        # After both passes, because the run keeps a repeated warning only once.
+        self.assertTrue(
+            any(
+                str(job.pk) in warning
+                and 'still shows Pending or Scheduled' in warning
+                and '"Missing queue tasks"' in warning
+                for warning in self.migration.warnings
+            )
+        )
+
+        for callback in publish:
+            callback()
+        cutover.enter_cutover(self.migration)
 
         self.migration.refresh_from_db()
-        self.assertEqual(self.migration.journal['schedules'], [])
-        self.assertEqual(counts['schedules'], 0)
-        self.assertTrue(any(str(job.pk) in warning for warning in self.migration.warnings))
-        # Its row stays waiting, so without a record of it the step could never complete.
-        self.assertEqual(self.migration.journal['schedules_unreadable'], [job.pk])
-        self.assertEqual(counts['unreadable'], 1)
+        entries = self.migration.journal['schedules']
+        self.assertEqual([entry['job_pk'] for entry in entries], [job.pk])
+        self.assertEqual(entries[0]['cancellation'], 'cancelled')
+        self.assertEqual(entries[0]['data'], {'site': 'east'})
+        self.assertFalse(entries[0]['commit'])
+        self.assertEqual(entries[0]['interval'], 60)
+        self.assertEqual(datetime.fromisoformat(entries[0]['scheduled']), due)
         self.assertTrue(self.migration.step_done(cutover.STEP))
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+
+    def test_a_job_an_earlier_version_recorded_as_unreadable_is_captured_once_readable(self):
+        # An earlier version excluded this key from every later capture.
+        job = self.legacy_job(task_kwargs={'data': {'site': 'east'}, 'commit': True})
+        self.migration.journal['schedules_unreadable'] = [job.pk]
+        self.migration.save(update_fields=('journal',))
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        outcomes = [(entry['job_pk'], entry['cancellation']) for entry in self.migration.journal['schedules']]
+        self.assertEqual(outcomes, [(job.pk, 'cancelled')])
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
+    def test_deleting_a_job_whose_task_is_lost_lets_the_cutover_complete(self):
+        job = self.legacy_job(task_kwargs=None)
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+
+        job.delete()
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+        self.assertEqual(self.migration.journal['schedules'], [])
 
     def test_a_terminal_job_is_not_captured(self):
         self.legacy_job(status=JobStatusChoices.STATUS_COMPLETED)
@@ -447,25 +508,24 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(len(self.migration.journal['schedules']), 1)
         Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
 
-        counts, outstanding, warnings = cutover._close(self.migration)
+        counts = cutover._close(self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
         self.assertEqual(counts['schedules'], 0)
         # Skipping is the deliberate half, recording it is the fix: the replay has to know.
-        self.assertEqual(outstanding, self.migration.journal['schedules'])
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
-        self.assertTrue(any(str(job.pk) in warning for warning in warnings))
-        self.assertTrue(any('"Stale running Jobs"' in warning for warning in warnings))
+        self.assertTrue(any(str(job.pk) in warning for warning in self.migration.warnings))
+        self.assertTrue(any('"Stale running Jobs"' in warning for warning in self.migration.warnings))
 
     def test_a_resumed_close_reports_what_is_closed_not_what_it_changed(self):
         # Counting the delta made a resumed pass report zeroes for what the first attempt closed.
         permission = self.legacy_permission()
         rule = self.legacy_action_rule()
         cutover._capture(self.migration)
-        first, _outstanding, _raised = cutover._close(self.migration)
+        first = cutover._close(self.migration)
 
-        second, _resumed, _restated = cutover._close(self.migration)
+        second = cutover._close(self.migration)
 
         self.assertEqual(first['permissions'], second['permissions'])
         self.assertEqual(first['event_rules'], second['event_rules'])
@@ -481,12 +541,11 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.legacy_job(task_kwargs={})
         cutover._capture(self.migration)
 
-        first, _outstanding, _raised = cutover._close(self.migration)
-        second, outstanding, _restated = cutover._close(self.migration)
+        first = cutover._close(self.migration)
+        second = cutover._close(self.migration)
 
         self.assertEqual(first['schedules'], 1)
         self.assertEqual(second['schedules'], 1)
-        self.assertEqual(outstanding, [])
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'cancelled')
 
     def test_a_deleted_row_reads_as_executed_only_for_a_run_a_worker_took(self):
@@ -525,10 +584,9 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
             cutover._close(self.migration)
 
         reloaded = MigrationRun.objects.get(pk=self.migration.pk)
-        counts, outstanding, _warnings = cutover._close(reloaded)
+        counts = cutover._close(reloaded)
 
         self.assertEqual(counts['schedules'], 1)
-        self.assertEqual(outstanding, [])
         self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'cancelled')
 
     def test_a_job_a_worker_took_while_cancelling_is_not_replaced(self):
@@ -546,12 +604,11 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         Job.objects.filter(pk=job.pk).update(started=timezone.now())
 
         reloaded = MigrationRun.objects.get(pk=self.migration.pk)
-        counts, outstanding, warnings = cutover._close(reloaded)
+        counts = cutover._close(reloaded)
 
         self.assertEqual(counts['schedules'], 0)
-        self.assertEqual(len(outstanding), 1)
         self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'executed')
-        self.assertIn('taken by a worker', ' '.join(str(warning) for warning in warnings))
+        self.assertIn('taken by a worker', ' '.join(reloaded.warnings))
 
     def test_a_run_a_worker_starts_while_it_is_cancelled_is_left_to_run(self):
         # In the cancellation, RQJob.fetch runs after the row is read and before it is failed.
@@ -565,13 +622,12 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
             return fetch(*args, **kwargs)
 
         with mock.patch.object(RQJob, 'fetch', side_effect=start_in_the_gap):
-            counts, outstanding, _warnings = cutover._close(self.migration)
+            counts = cutover._close(self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
         self.assertEqual(counts['schedules'], 0)
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
-        self.assertEqual(outstanding, self.migration.journal['schedules'])
 
     def test_the_owner_of_a_cancelled_run_is_notified(self):
         owner = get_user_model().objects.create_user(username='owner')
@@ -585,13 +641,12 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
     def test_a_capture_replayed_before_any_close_records_nothing_twice(self):
         # A crash before the closures leaves every job enqueued, so a second capture sees them all.
         job = self.legacy_job(task_kwargs={})
-        lost = self.legacy_job(task_kwargs=None)
+        self.legacy_job(task_kwargs=None)
 
         cutover._capture(self.migration)
         cutover._capture(self.migration)
 
         self.assertEqual([entry['job_pk'] for entry in self.migration.journal['schedules']], [job.pk])
-        self.assertEqual(self.migration.journal['schedules_unreadable'], [lost.pk])
 
     def test_a_job_that_starts_after_the_capture_leaves_the_step_open(self):
         # The window the fence could not see: the up-front running check passes, then a worker
@@ -612,6 +667,33 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(counts['schedules'], 0)
         self.assertFalse(self.migration.step_done(cutover.STEP))
         self.assertTrue(any(str(job.pk) in warning for warning in self.migration.warnings))
+
+    def test_a_run_a_worker_took_before_the_capture_holds_the_step_until_it_ends(self):
+        # Already running when the capture reads, so only the read after the closures sees it.
+        job = self.legacy_job(task_kwargs={})
+        capture = cutover._capture
+
+        def take_it_first(run):
+            Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+            return capture(run)
+
+        with mock.patch.object(cutover, '_capture', take_it_first):
+            cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+        self.assertNotIn(job.pk, [entry['job_pk'] for entry in self.migration.journal['schedules']])
+        self.assertTrue(
+            any(str(job.pk) in warning and 'still waiting or running' in warning for warning in self.migration.warnings)
+        )
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
+
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_COMPLETED)
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(cutover.STEP))
 
     def test_a_job_that_finished_after_the_capture_does_not_hold_the_step(self):
         # It has already had its effect, so there is nothing left to wait for. Recording it is what
@@ -641,10 +723,68 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(entries[successor.pk]['cancellation'], 'cancelled')
         self.assertEqual(entries[first.pk]['cancellation'], 'executed')
         self.assertEqual(counts['schedules'], 1)
-        self.assertEqual(counts['uncaptured'], 0)
         self.assertTrue(self.migration.step_done(cutover.STEP))
         successor.refresh_from_db()
         self.assertEqual(successor.status, JobStatusChoices.STATUS_FAILED)
+
+    def test_a_successor_queued_while_closing_holds_the_step_until_captured(self):
+        # Queued by a run another worker finished during the last closure.
+        owner = get_user_model().objects.create_user(username='owner')
+        drop_auto_sync = cutover._drop_auto_sync
+        queued = []
+
+        def queue_a_successor(run):
+            successor = self.legacy_job(interval=60, task_kwargs={'data': {'site': 'east'}, 'commit': True})
+            Job.objects.filter(pk=successor.pk).update(user=owner)
+            queued.append(successor)
+            return drop_auto_sync(run)
+
+        with mock.patch.object(cutover, '_drop_auto_sync', queue_a_successor):
+            cutover.enter_cutover(self.migration)
+
+        successor = queued[0]
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+        self.assertTrue(
+            any(
+                str(successor.pk) in warning and 'still waiting or running' in warning
+                for warning in self.migration.warnings
+            )
+        )
+        successor.refresh_from_db()
+        self.assertEqual(successor.status, JobStatusChoices.STATUS_SCHEDULED)
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        entries = [entry for entry in self.migration.journal['schedules'] if entry['job_pk'] == successor.pk]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['cancellation'], 'cancelled')
+        self.assertEqual(entries[0]['data'], {'site': 'east'})
+        self.assertEqual(entries[0]['user_pk'], owner.pk)
+        self.assertEqual(entries[0]['interval'], 60)
+        successor.refresh_from_db()
+        self.assertEqual(successor.status, JobStatusChoices.STATUS_FAILED)
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
+    def test_a_cancelled_run_that_starts_anyway_holds_the_step_and_is_named(self):
+        # A stale copy of its task starting after the cancellation, which its journal entry cannot show.
+        job = self.legacy_job(task_kwargs={})
+        drop_auto_sync = cutover._drop_auto_sync
+
+        def start_a_stale_copy(run):
+            Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+            return drop_auto_sync(run)
+
+        with mock.patch.object(cutover, '_drop_auto_sync', start_a_stale_copy):
+            cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'cancelled')
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+        self.assertTrue(
+            any(str(job.pk) in warning and 'still waiting or running' in warning for warning in self.migration.warnings)
+        )
 
     def test_the_deregistered_records_are_journalled(self):
         # The only closure with no record of what it removed, so a manual restore had nothing to read.
@@ -715,6 +855,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
 
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.state, MigrationStateChoices.CUTOVER)
+        self.assertTrue(self.migration.step_done(cutover.STEP))
 
     def test_the_source_directory_is_deregistered_from_synchronization(self):
         concrete = ObjectType.objects.get_for_model(ScriptModule)
@@ -814,6 +955,31 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         rule.refresh_from_db()
         self.assertTrue(permission.enabled)
         self.assertTrue(rule.enabled)
+
+    def test_the_pass_job_reports_what_the_cutover_closed(self):
+        self.legacy_job(task_kwargs={})
+
+        job = MigrationCutoverJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('cancelled 1 queued job(s), and deregistered 1 synchronization record(s)', messages)
+
+    def test_the_pass_job_reports_a_step_an_earlier_version_completed(self):
+        # Recorded before the unreadable and uncaptured counts were dropped.
+        self.migration.advance(MigrationStateChoices.CUTOVER)
+        self.migration.complete_step(
+            cutover.STEP,
+            {'permissions': 1, 'event_rules': 0, 'schedules': 2, 'unreadable': 1, 'uncaptured': 0, 'auto_sync': 1},
+        )
+
+        job = MigrationCutoverJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        messages = ' '.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('cancelled 2 queued job(s), and deregistered 1 synchronization record(s)', messages)
 
     def test_an_interrupted_fence_finishes_the_closures_without_recapturing(self):
         permission = self.legacy_permission()

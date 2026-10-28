@@ -155,6 +155,27 @@ class LegacyModulesTestCase(TestCase):
 
         self.assertNotIn(job.pk, self.keys(source.script_jobs()))
         self.assertNotIn(job.pk, self.keys(source.enqueued_script_jobs()))
+        self.assertNotIn(job.pk, self.keys(source.unfinished_script_jobs()))
+
+    def test_the_unfinished_reader_holds_waiting_and_running_jobs(self):
+        module = self.synced_module()
+        statuses = (
+            JobStatusChoices.STATUS_PENDING,
+            JobStatusChoices.STATUS_SCHEDULED,
+            JobStatusChoices.STATUS_RUNNING,
+            JobStatusChoices.STATUS_COMPLETED,
+            JobStatusChoices.STATUS_FAILED,
+            JobStatusChoices.STATUS_ERRORED,
+        )
+        keys = {}
+        for status in statuses:
+            job = self.legacy_job(self.module_type(), module.pk)
+            Job.objects.filter(pk=job.pk).update(status=status)
+            keys[status] = job.pk
+
+        held = self.keys(source.unfinished_script_jobs().filter(pk__in=keys.values()))
+
+        self.assertEqual(held, {keys[status] for status in statuses[:3]})
 
     def test_the_job_readers_exclude_a_report_class(self):
         audit = Script.objects.create(module=self.report_module(), name='Audit')

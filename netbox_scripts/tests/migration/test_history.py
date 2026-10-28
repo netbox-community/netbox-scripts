@@ -13,6 +13,7 @@ from rq.job import Job as RQJob
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from dcim.models import Site
+from extras.jobs import ScriptJob
 from extras.models import Script, ScriptModule
 from netbox_scripts.jobs import MigrationReferencesJob
 from netbox_scripts.migration import cutover, references
@@ -174,7 +175,12 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         # is why the queries scope on the object type rather than on the key alone.
         module_type = ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False)
         job = Job.objects.create(
-            name='sync', object_type=module_type, object_id=self.synced.pk, job_id=uuid.uuid4(), queue_name='default'
+            name='sync',
+            object_type=module_type,
+            object_id=self.synced.pk,
+            job_id=uuid.uuid4(),
+            queue_name='default',
+            status=JobStatusChoices.STATUS_COMPLETED,
         )
         self.cross_over()
 
@@ -581,6 +587,48 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'executed')
         self.assertEqual(counts['recreated'], 0)
         self.assertFalse(self.new_jobs().exists())
+
+    def test_a_successor_whose_task_arrives_late_is_recreated_once_and_its_predecessor_is_not(self):
+        due = self.future()
+        predecessor = self.legacy_schedule(
+            script=self.variable_script, data={'site': self.site}, commit=False, scheduled=due, interval=60
+        )
+        self.stage_and_validate()
+        cutover._capture(self.migration)
+        Job.objects.filter(pk=predecessor.pk).update(
+            status=JobStatusChoices.STATUS_COMPLETED, started=timezone.now(), completed=timezone.now()
+        )
+        # Its row is saved and its task not yet queued while the publish is held.
+        with self.captureOnCommitCallbacks() as publish:
+            successor = Job.enqueue(
+                ScriptJob.handle,
+                instance=self.variable_script,
+                name=self.variable_script.name,
+                schedule_at=due + timedelta(hours=1),
+                interval=60,
+                data={'site': self.site},
+                commit=False,
+            )
+
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(cutover.STEP))
+
+        for callback in publish:
+            callback()
+        cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        cutover.activate_staged(self.migration)
+        self.migration.refresh_from_db()
+        references.repoint_job_history(self.migration)
+        with self.captureOnCommitCallbacks(execute=True):
+            counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(counts['skipped'], 1)
+        replacement = self.new_jobs().exclude(pk__in=[predecessor.pk, successor.pk]).get()
+        self.assertEqual(replacement.scheduled, due + timedelta(hours=1))
+        self.assertEqual(replacement.interval, 60)
 
     def owned_schedule(self, username='scheduler'):
         """Capture one schedule owned by a named account, and return the account."""

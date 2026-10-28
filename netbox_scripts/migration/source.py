@@ -27,6 +27,7 @@ __all__ = (
     'reference_counts',
     'running_script_jobs',
     'script_jobs',
+    'unfinished_script_jobs',
 )
 
 
@@ -160,6 +161,11 @@ def cancellable_statuses():
 def enqueued_script_jobs():
     """Return every built-in Custom Script job waiting to run, one-shot, scheduled or recurring."""
     return script_jobs().filter(status__in=cancellable_statuses())
+
+
+def unfinished_script_jobs():
+    """Return every built-in Custom Script job not yet finished, waiting or running."""
+    return enqueued_script_jobs() | running_script_jobs()
 
 
 def legacy_event_rules():

@@ -304,8 +304,8 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.NestedObjectAPIViewTestCa
 
     def test_a_patch_does_not_revert_a_discovery_result(self):
         # read_only keeps a submitted value out and settles nothing about the copy the view
-        # already holds. Core closes this window only when the caller sends If-Match, so the
-        # load is patched to reach it and everything past the load stays real.
+        # already holds. Before v4.7.4 core closes this window only when the caller sends If-Match,
+        # so the load is patched to reach it and everything past the load stays real.
         self.add_permissions('netbox_scripts.view_scriptfile', 'netbox_scripts.change_scriptfile')
         script_file = ScriptFile.objects.get(source_path='tools/first.py')
         stale = ScriptFile.objects.get(pk=script_file.pk)
@@ -494,15 +494,11 @@ class ScriptFileSelectionAPITestCase(ObjectPermissionTestMixin, APITestCase):
     def test_a_stale_copy_cannot_re_enable_a_script_file_outside_the_change_scope(self):
         self.add_permissions('netbox_scripts.change_scriptproject')
         self.grant(ScriptFile, 'change', constraints={'enabled': True})
-        get_object_with_snapshot = ScriptFileViewSet.get_object_with_snapshot
+        stale = ScriptFile.objects.get(pk=self.first.pk)
+        ScriptFile.objects.filter(pk=self.first.pk).update(enabled=False)
 
-        # Another request disables the file between the permitted load and the save.
-        def load_then_disable(viewset):
-            instance = get_object_with_snapshot(viewset)
-            ScriptFile.objects.filter(pk=instance.pk).update(enabled=False)
-            return instance
-
-        with mock.patch.object(ScriptFileViewSet, 'get_object_with_snapshot', load_then_disable):
+        # From v4.7.4 a write inside this load would roll back with the refusal.
+        with mock.patch.object(ScriptFileViewSet, 'get_object_with_snapshot', return_value=stale):
             response = self.patch(self.first, {'description': 'Edited'})
 
         self.assertHttpStatus(response, status.HTTP_403_FORBIDDEN)

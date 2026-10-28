@@ -248,11 +248,13 @@ class IngestUploadTestCase(TestCase):
             validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
         )
         self.enqueued.reset_mock()
+        self.enqueued.return_value = mock.sentinel.processing_job
 
-        ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
 
         self.enqueued.assert_called_once()
         self.assertEqual(self.enqueued.call_args.args[0].pk, first.revision.pk)
+        self.assertIs(staged.processing_job, mock.sentinel.processing_job)
 
     def test_a_validation_inside_its_lease_is_left_to_its_owner(self):
         first = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
@@ -260,10 +262,12 @@ class IngestUploadTestCase(TestCase):
             status=RevisionStatusChoices.VALIDATING, validation_started=timezone.now()
         )
         self.enqueued.reset_mock()
+        self.enqueued.return_value = mock.sentinel.processing_job
 
-        ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
+        staged = ingest_upload(self.project, filename='deploy.py', content=SCRIPT)
 
         self.enqueued.assert_not_called()
+        self.assertIsNone(staged.processing_job)
 
     def test_a_nested_path_is_preserved_at_this_layer(self):
         # Flattening to a basename happens in Django's uploaded-file handling, so it binds the

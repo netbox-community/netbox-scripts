@@ -24,17 +24,20 @@ where it stays inspectable and retryable.
 
 from contextlib import contextmanager
 from datetime import timedelta
+from typing import NamedTuple
 
 from django.core.exceptions import ValidationError
 from django.db import router
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
+from core.models import Job
+
 from . import branching
 from .choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from .constants import ACTIVATABLE_REVISION_STATUSES, VALIDATION_LEASE_SECONDS
 from .jobs import ProjectScriptFileRefreshJob, RevisionValidationJob
-from .models import ScriptFile, ScriptProject
+from .models import ScriptFile, ScriptProject, ScriptProjectRevision
 from .permissions import refuse_unpermitted_selection_change, validate_script_file_permissions
 from .storage import config, service, store
 from .storage.exceptions import UnsafePathError
@@ -43,6 +46,7 @@ from .storage.paths import normalize_source_path
 from .utils import data_source_relative_path, source_path_to_dotted_name
 
 __all__ = (
+    'IngestedRevision',
     'check_upload_conflicts',
     'check_upload_preconditions',
     'current_source_tree',
@@ -58,6 +62,14 @@ __all__ = (
 # The first release treats every uploaded file as an executable script file, so only Python
 # source can be uploaded. Projects that bundle helper modules are managed through Git.
 SOURCE_SUFFIX = '.py'
+
+
+class IngestedRevision(NamedTuple):
+    """The result of one ingestion call: the staging result plus any Job queued to process the revision."""
+
+    revision: ScriptProjectRevision
+    created: bool
+    processing_job: Job | None
 
 
 def uploaded_source_path(filename):
@@ -175,8 +187,7 @@ def ingest_upload(project, *, filename, content, declare=True, activate_once=Fal
         files = current_source_tree(project)
         files[path] = bytes(content)
         staged = service.stage_revision(project, files, activate_once=activate_once)
-        queue_revision_processing(staged.revision)
-        return staged
+        return IngestedRevision(staged.revision, staged.created, queue_revision_processing(staged.revision))
 
 
 def ingest_data_source(project):
@@ -192,8 +203,7 @@ def ingest_data_source(project):
                 )
             )
         staged = service.stage_revision(project, _data_source_tree(project))
-        queue_revision_processing(staged.revision)
-        return staged
+        return IngestedRevision(staged.revision, staged.created, queue_revision_processing(staged.revision))
 
 
 def queue_revision_processing(revision):

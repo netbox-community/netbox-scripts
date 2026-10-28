@@ -43,6 +43,7 @@ def stage(proposed, modules):
                 'revision_pk': staged.revision.pk,
                 'revision_created': staged.created,
                 'revision_status': staged.revision.status,
+                'processing_queued': staged.processing_job is not None,
             }
         )
     return results
@@ -109,7 +110,7 @@ def _declare(project, members):
 
 
 def _stage_content(project, members):
-    """Stage the project's source and return the StagedRevision."""
+    """Stage the project's source and return the IngestedRevision."""
     if project.source_type == ProjectSourceTypeChoices.UPLOAD:
         member = members[0]
         source = legacy_source.read_source(member)

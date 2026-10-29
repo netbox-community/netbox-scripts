@@ -297,7 +297,8 @@ class ScriptProjectScriptFilesForm(PrimaryModelForm):
             )
             groups.setdefault(directory, []).append((path, label))
         # The empty key sorts first, so the project root leads whatever its files are called.
-        return [(directory or _('(root)'), groups[directory]) for directory in sorted(groups)]
+        # Use '.' for the project root so its heading cannot match a directory name.
+        return [(directory or '.', groups[directory]) for directory in sorted(groups)]
 
     @staticmethod
     def _label(path, script_file, available, awaiting=False, reason=None):

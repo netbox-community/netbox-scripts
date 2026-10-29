@@ -324,6 +324,17 @@ def _verify_jobs(run):
     captured = run.journal.get('schedules') or []
     if not run.step_done(legacy_references.HISTORY_STEP):
         return _check(JOBS, plan.WARNING, _('The Job history has not been repointed yet.'))
+    # Report unfinished built-in runs before recommending replacements for lost tasks.
+    if unfinished := list(legacy_source.unfinished_script_jobs().order_by('pk').values_list('pk', flat=True)):
+        return _check(
+            JOBS,
+            plan.BLOCKING,
+            _(
+                '{count} built-in Custom Script Job(s) are still waiting or running: {keys}. They may still '
+                'execute built-in Custom Scripts. Review them on the Jobs page before scheduling replacement runs.'
+            ).format(count=len(unfinished), keys=', '.join(str(key) for key in unfinished)),
+            source=_('the built-in rows'),
+        )
     recreated = run.journal.get('recreated_schedules') or {}
     # A recorded number that has simply gone says nothing: a recurring job is re-enqueued as a new
     # row every occurrence and housekeeping deletes by age, so the first one is meant to disappear.
@@ -352,15 +363,13 @@ def _verify_jobs(run):
             ).format(count=len(lost), names=', '.join(lost)),
             source=_('the journal and the queue'),
         )
-    held = legacy_source.script_jobs()
-    if held.exists():
+    # A Job queued after the unfinished check must not count as finished.
+    held = legacy_source.script_jobs().filter(status__in=JobStatusChoices.TERMINAL_STATE_CHOICES)
+    if count := held.count():
         return _check(
             JOBS,
             plan.WARNING,
-            _(
-                '{count} Job(s) still name the built-in feature. Each one is history no Script Project '
-                'can hold, so it stays where it is.'
-            ).format(count=held.count()),
+            _('{count} finished Job(s) still name the built-in feature.').format(count=count),
             source=_('the built-in rows'),
         )
     if not queue_read:

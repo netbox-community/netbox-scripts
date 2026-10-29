@@ -641,11 +641,19 @@ exists, the report says there is nothing to verify.
 | Scripts | Replacement identities and retirement state. After built-in modules are gone, it checks publication in the migrated Projects instead. |
 | Event Rules | Remaining built-in references and captured rules still disabled. |
 | Permissions | Remaining built-in grants, including those left for manual recreation. |
-| Jobs | Remaining built-in history, recorded recreations, failed replacement Jobs and task presence for recorded replacements still waiting. |
+| Jobs | Remaining built-in Jobs, recorded recreations, failed replacement Jobs and task presence for recorded replacements still waiting. |
 
 Warnings can mean a step has not run or manual work remains, such as recreating
 constrained permissions or reviewing retained history. Read each message rather
 than treating warnings as harmless.
+
+After Job history has been repointed, Jobs that still reference the built-in
+feature produce a **blocking** result if they are **Pending**, **Scheduled** or
+**Running**. They may still execute built-in Custom Scripts. Review the listed
+Jobs before scheduling replacement runs. See
+[Recurring successors](#recurring-successors) and
+[Stale running Jobs](#stale-running-jobs). Finished Jobs left on the built-in
+feature produce a warning.
 
 A replacement Job recorded by migration produces a **blocking** result if it
 is still waiting but has no RQ task. Repeating the reference pass does not repair

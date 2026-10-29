@@ -1,8 +1,10 @@
 import uuid
+from datetime import timedelta
 from unittest import mock
 
 import django_rq
 from django.test import TestCase
+from django.utils import timezone
 from redis.exceptions import RedisError
 from rq.job import Job as RQJob
 
@@ -64,6 +66,15 @@ class VerificationBeforeAnythingTestCase(VerificationMixin, TestCase):
         self.assertEqual(report['status'], plan.WARNING)
         self.assertEqual({check['level'] for check in report['checks']}, {plan.WARNING})
 
+    def test_an_unfinished_built_in_job_before_repointing_does_not_block(self):
+        job = self.script_job(self.script)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_PENDING)
+
+        check = self.named(verification.verify(self.migration), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.WARNING)
+        self.assertIn('not been repointed yet', str(check['message']))
+
     def test_it_reads_the_latest_run_rather_than_the_open_one(self):
         # A finished run is closed, and it is exactly the one worth verifying.
         run = self.repoint_all()
@@ -121,6 +132,22 @@ class VerificationAfterAFullRunTestCase(VerificationMixin, TestCase):
         verification.verify(run)
 
         self.assertEqual(self.snapshot(), before)
+
+    def test_an_unfinished_job_and_its_task_are_unchanged(self):
+        run = self.repoint_all()
+        job = self.script_job(self.script)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_PENDING)
+        task = self.rq_task(job)
+        before = self.snapshot()
+        job_before = Job.objects.filter(pk=job.pk).values().get()
+        task_before = task.to_dict()
+
+        report = verification.verify(run)
+
+        self.assertEqual(self.named(report, verification.JOBS)['level'], plan.BLOCKING)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(Job.objects.filter(pk=job.pk).values().get(), job_before)
+        self.assertEqual(RQJob.fetch(task.id, connection=task.connection).to_dict(), task_before)
 
     def snapshot(self):
         """Row counts plus the field values a migration moves, which is what a mutation would show."""
@@ -230,7 +257,50 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         check = self.named(verification.verify(run), verification.JOBS)
 
         self.assertEqual(check['level'], plan.WARNING)
-        self.assertIn('stays where it is', str(check['message']))
+        self.assertIn('1 finished Job(s)', str(check['message']))
+
+    def test_unfinished_built_in_jobs_block_even_when_history_remains(self):
+        run = self.repoint_all()
+        self.module_job(self.synced)
+        jobs = [self.script_job(self.script), self.module_job(self.synced)]
+        keys = [job.pk for job in jobs]
+        # A recurring successor is unfinished work just like a one-off run.
+        Job.objects.filter(pk=jobs[0].pk).update(interval=1440)
+
+        for status in JobStatusChoices.ENQUEUED_STATE_CHOICES:
+            with self.subTest(status=status):
+                Job.objects.filter(pk__in=keys).update(
+                    status=status,
+                    scheduled=timezone.now() + timedelta(days=1)
+                    if status == JobStatusChoices.STATUS_SCHEDULED
+                    else None,
+                )
+
+                report = verification.verify(run)
+                check = self.named(report, verification.JOBS)
+
+                self.assertEqual(report['status'], plan.BLOCKING)
+                self.assertEqual(check['level'], plan.BLOCKING)
+                self.assertIn(
+                    f'2 built-in Custom Script Job(s) are still waiting or running: {keys[0]}, {keys[1]}.',
+                    str(check['message']),
+                )
+                self.assertIn('may still execute built-in Custom Scripts', str(check['message']))
+                self.assertIn('built-in rows', str(check['source']))
+
+    def test_a_finished_recurring_built_in_job_is_history(self):
+        run = self.repoint_all()
+        job = self.script_job(self.script)
+        Job.objects.filter(pk=job.pk).update(scheduled=timezone.now() - timedelta(days=1), interval=1440)
+
+        for status in JobStatusChoices.TERMINAL_STATE_CHOICES:
+            with self.subTest(status=status):
+                Job.objects.filter(pk=job.pk).update(status=status)
+
+                check = self.named(verification.verify(run), verification.JOBS)
+
+                self.assertEqual(check['level'], plan.WARNING)
+                self.assertIn('1 finished Job(s)', str(check['message']))
 
     def test_a_captured_schedule_with_no_live_counterpart_warns(self):
         run = self.repoint_all()
@@ -283,7 +353,7 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
 
         self.assertEqual(check['level'], plan.READY)
 
-    def test_a_lost_schedule_is_reported_ahead_of_a_lingering_built_in_job(self):
+    def test_a_lost_schedule_is_reported_ahead_of_finished_built_in_history(self):
         # The queueless one names work the operator can do. The lingering Job is left on purpose.
         self.module_job(self.synced)
         run = self.repoint_all()
@@ -292,6 +362,30 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         check = self.named(verification.verify(run), verification.JOBS)
 
         self.assertEqual(check['level'], plan.BLOCKING)
+
+    def test_an_unfinished_built_in_job_is_reported_ahead_of_a_lost_schedule(self):
+        run = self.repoint_all()
+        job = self.script_job(self.script)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_PENDING)
+        self.waiting_schedule(run)
+
+        check = self.named(verification.verify(run), verification.JOBS)
+
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn(f'still waiting or running: {job.pk}.', str(check['message']))
+
+    def test_an_unfinished_built_in_job_is_reported_without_reading_the_queue(self):
+        run = self.repoint_all()
+        job = self.script_job(self.script)
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_PENDING)
+        self.waiting_schedule(run)
+
+        with mock.patch.object(RQJob, 'fetch') as fetch:
+            check = self.named(verification.verify(run), verification.JOBS)
+
+        fetch.assert_not_called()
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn(f'still waiting or running: {job.pk}.', str(check['message']))
 
     def test_a_queue_that_cannot_be_read_warns_rather_than_naming_every_schedule_lost(self):
         # No schedule is named: an unread queue says nothing about any one of them.

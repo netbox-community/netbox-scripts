@@ -131,7 +131,7 @@ def _refusal_for(module, references, stranded):
             'Built-in script module {name} holds Job history for a class that left the file, which no '
             'Script replaces, so it stays where it is.'
         ).format(name=name)
-    # Ahead of the two history refusals these can accompany, since they are the ones naming an action.
+    # Ahead of the reference refusals, so nobody deletes Jobs for a module that still cannot be deleted.
     if stranded == 'unresolved':
         return False, _(
             'Built-in script module {name} publishes a class no Script resolves to, so deleting it '
@@ -145,14 +145,13 @@ def _refusal_for(module, references, stranded):
         ).format(name=name)
     if references['live_script_jobs']:
         return False, _(
-            'Built-in script module {name} has a built-in Custom Script that still holds Job history the '
-            'reference pass did not move. Run that pass again. If this module still blocks, that history was created '
-            'after the pass ran and only deleting those jobs would release it.'
+            'Built-in script module {name} still has Custom Script Jobs. The reference pass has completed and '
+            'will not move them. Once you no longer need those Jobs, see "Clean up built-in modules" in the '
+            'migration guide before deleting them, then run Clean up again.'
         ).format(name=name)
     if references['event_rules']:
         return False, _(
-            'Built-in script module {name} is still named by an Event Rule the reference pass did not '
-            'move. Run that pass again. If this module still blocks, that rule was made after the pass '
-            'ran and has to be repointed or deleted by hand.'
+            'Built-in script module {name} is still named by an Event Rule. The reference pass has completed '
+            'and will not move it. Repoint the rule or delete it by hand, then run Clean up again.'
         ).format(name=name)
     return False, None

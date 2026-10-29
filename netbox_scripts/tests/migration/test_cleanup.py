@@ -271,7 +271,22 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
         self.assertFalse(ScriptModule.objects.filter(pk=self.uploaded.pk).exists())
         self.assertTrue(Job.objects.filter(pk=job.pk).exists())
-        self.assertTrue(any('Job history' in warning for warning in warnings))
+        self.assertTrue(any('still has Custom Script Jobs' in warning for warning in warnings))
+
+    def test_history_from_a_run_after_repointing_names_a_remedy_rather_than_the_pass(self):
+        run = self.repointed()
+        self.script_job(self.script)
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 1)
+        self.assertTrue(
+            any(
+                'has completed and will not move them' in warning and 'before deleting them' in warning
+                for warning in warnings
+            )
+        )
+        self.assertFalse(any('Run that pass again' in warning for warning in warnings))
 
     def test_a_module_holding_its_own_job_history_is_retained_and_the_run_still_closes(self):
         # No plugin row can hold these, and JobsMixin.delete() would take them without the guard.
@@ -400,8 +415,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
 
     def test_a_stranded_script_holding_history_is_named_by_what_the_operator_can_fix(self):
-        # Both refusals apply to this module. The one naming an action has to win, or the advice
-        # sends the operator to a pass that has nothing left to do.
+        # Both refusals apply to this module.
         run = self.repointed()
         self.script_job(self.script)
         self.plugin_script().delete()
@@ -410,7 +424,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
 
         self.assertEqual(counts['blocked'], 1)
         self.assertTrue(any('stage it again' in str(warning) for warning in warnings))
-        self.assertFalse(any('Run that pass again' in str(warning) for warning in warnings))
+        self.assertFalse(any('before deleting them' in str(warning) for warning in warnings))
 
     def test_a_helper_only_module_does_not_hold_the_migration_open(self):
         # Its Project declares nothing, so the revision is vacuously valid and can be activated,
@@ -488,8 +502,7 @@ class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
 
     def test_a_rule_that_appeared_after_the_fence_holds_its_module_back(self):
-        # Uncaptured, so no pass moved it, and on this host one still could: a fault an operator
-        # clears with a fresh run rather than permanent residue.
+        # Uncaptured, so no pass moved it, but an operator can repoint it, so it blocks rather than being retained.
         run = self.repointed()
         rule = self.action_rule()
 
@@ -499,6 +512,6 @@ class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
         self.assertEqual(counts['retained'], 0)
         self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
-        self.assertTrue(any('did not' in warning and 'move' in warning for warning in warnings))
+        self.assertTrue(any('will not move it' in warning and 'Repoint the rule' in warning for warning in warnings))
         run.refresh_from_db()
         self.assertNotEqual(run.state, MigrationStateChoices.MIGRATED)

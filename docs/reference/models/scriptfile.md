@@ -63,8 +63,8 @@ Script File.
 
 Use the Project's **Script Files** tab to select from importable modules at any
 directory depth. Candidates are grouped by directory, with top-level files
-under `(root)`. Each option shows its filename, so you do not need to type a
-path. The Project selection is also available over REST:
+under `.`, the Project root. Each option shows its filename, so you do not need
+to type a path. The Project selection is also available over REST:
 
 ```text
 GET  /api/plugins/netbox-scripts/projects/<id>/script-files/

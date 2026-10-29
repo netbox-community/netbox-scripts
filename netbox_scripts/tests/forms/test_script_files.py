@@ -74,7 +74,7 @@ class ScriptFileSelectionTestCase(TestCase):
 
     def test_the_options_are_grouped_by_directory(self):
         form = ScriptProjectScriptFilesForm(instance=self.project)
-        self.assertEqual(self.groups(form), ['(root)', 'tools'])
+        self.assertEqual(self.groups(form), ['.', 'tools'])
 
     def test_an_option_carries_the_file_name_rather_than_the_whole_path(self):
         form = ScriptProjectScriptFilesForm(instance=self.project)
@@ -91,6 +91,16 @@ class ScriptFileSelectionTestCase(TestCase):
         )
 
         self.assertEqual(self.groups(ScriptProjectScriptFilesForm(instance=project)), ['tools', 'tools/deep'])
+
+    def test_a_directory_named_root_gets_its_own_heading(self):
+        project = self.undeclarable_project('root-named-directory', 'deploy.py', '(root)/deploy.py')
+
+        choices = ScriptProjectScriptFilesForm(instance=project).fields['script_files'].choices
+
+        self.assertEqual(
+            [(str(group), [value for value, _label in members]) for group, members in choices],
+            [('.', ['deploy.py']), ('(root)', ['(root)/deploy.py'])],
+        )
 
     def test_a_lone_candidate_starts_selected(self):
         project = self.single_candidate_project('lone-candidate')

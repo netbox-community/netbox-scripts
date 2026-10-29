@@ -445,14 +445,29 @@ no replacement identity for that history. Keep it unless you have made a
 separate retention decision.
 
 **Blocked** modules keep migration open. They have unresolved or retired
-replacement Scripts, history still to move, remaining Event Rule references
-or replacement Projects without an active revision. Follow the reported reason:
+replacement Scripts, remaining Job history, remaining Event Rule references or
+replacement Projects without an active revision. Follow the reported reason:
 correct the source, activate the required revision or resolve the reference,
 then retry.
 
-A reference added after its step completed may need manual handling. Repeating
-a completed reference step does not necessarily move it. Do not delete history
-solely to clear a blocker.
+Completed reference steps do not scan again, so repeating
+**Repoint references** cannot resolve a remaining reference. Resolve it by hand:
+
+- **Job history:** neither the **Jobs** page nor the REST API can move a Job to
+  another Script. Keep the module while you need that history, or delete those
+  Jobs on the **Jobs** page and select **Clean up** again. Do not delete history
+  solely to clear a blocker.
+- **Waiting or running Jobs:** check a Job's state before deleting it.
+  Deleting a waiting Job only requests cancellation, so its run can still
+  execute, as [Cancellation and replay limits](#cancellation-and-replay-limits)
+  explains. For a recurring one, follow
+  [Recurring successors](#recurring-successors) first. Deleting a running Job
+  does not stop it, so let it finish. If its worker stopped, confirm that
+  execution has stopped and check what it changed, as
+  [Stale running Jobs](#stale-running-jobs) describes, then delete it on the
+  **Jobs** page and select **Clean up** again.
+- **Event Rules:** repoint the rule at a Script, or delete it, then select
+  **Clean up** again.
 
 The run reaches `migrated` when cleanup has no blocking work left. Retained
 modules are listed in the cleanup results and migration warnings. Verification

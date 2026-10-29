@@ -186,16 +186,20 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(counts['modules'], 1)
         self.assertTrue(any('module' in warning for warning in warnings))
 
-    def test_a_second_pass_returns_the_recorded_counts(self):
+    def test_a_second_pass_returns_the_recorded_counts_and_leaves_a_later_job(self):
         self.legacy_job()
         self.cross_over()
         first, _warnings = references.repoint_job_history(self.migration)
         self.migration.refresh_from_db()
+        late = self.legacy_job()
 
         second, warnings = references.repoint_job_history(self.migration)
 
         self.assertEqual(second, first)
         self.assertEqual(warnings, [])
+        late.refresh_from_db()
+        self.assertEqual(late.object_type_id, self.script_type.pk)
+        self.assertEqual(late.object_id, self.script.pk)
 
 
 class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):

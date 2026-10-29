@@ -36,9 +36,31 @@ class OpenAPISchemaTestCase(TestCase):
 
     def test_run_takes_the_run_input_and_returns_a_job(self):
         self.assertEqual(self.request_ref(RUN, 'post'), '#/components/schemas/NetBoxScriptRunInputRequest')
+        self.assertEqual(
+            self.request_ref(RUN, 'post', content='multipart/form-data'),
+            '#/components/schemas/NetBoxScriptRunMultipartInputRequest',
+        )
         self.assertEqual(self.response_ref(RUN, 'post', '201'), '#/components/schemas/Job')
         # The inferred contract reported the Script at 200.
         self.assertIsNone(self.response_ref(RUN, 'post', '200'))
+
+    def test_a_multipart_run_takes_data_as_a_string_and_files_as_extra_parts(self):
+        components = self.schema['components']['schemas']
+        multipart = components['NetBoxScriptRunMultipartInputRequest']
+        self.assertEqual(multipart['properties']['data']['type'], 'string')
+        parts = multipart['additionalProperties']
+        self.assertEqual((parts['type'], parts['format']), ('string', 'binary'))
+        self.assertNotIn('additionalProperties', components['NetBoxScriptRunInputRequest'])
+
+    def test_both_run_bodies_take_the_same_optional_run_parameters(self):
+        components = self.schema['components']['schemas']
+        json_body = components['NetBoxScriptRunInputRequest']['properties']
+        multipart = components['NetBoxScriptRunMultipartInputRequest']
+        self.assertEqual(
+            {name: field for name, field in multipart['properties'].items() if name != 'data'},
+            {name: field for name, field in json_body.items() if name != 'data'},
+        )
+        self.assertNotIn('required', multipart)
 
     def test_upload_takes_a_file_and_returns_a_revision(self):
         self.assertEqual(

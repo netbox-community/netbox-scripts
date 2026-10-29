@@ -15,9 +15,10 @@ from netbox_scripts.activation import activate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
+from netbox_scripts.scripts import BaseScript
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import PluginAPIViewTestCase
-from netbox_scripts.tests.views.test_run import TAKES_A_NAME, RunViewTestMixin
+from netbox_scripts.tests.views.test_run import CHECKS_A_PATH, TAKES_A_NAME, RunViewTestMixin
 from netbox_scripts.validation import validate_revision
 from users.models import ObjectPermission
 from utilities.datetime import local_now
@@ -573,18 +574,38 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertIn('could not be loaded', str(response.data))
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
 
-    def test_a_cache_failure_leaks_no_storage_identity_into_the_response(self):
+    def test_a_cache_failure_answers_a_fixed_message_and_logs_its_cause(self):
         self.grant('view', 'run')
         key = str(self.project.storage_key)
         leaky = LocalCacheError(f'/var/cache/{key}/{self.revision.digest}/deploy.py could not be read')
 
-        with patch('netbox_scripts.execution.resolve_script_class', side_effect=leaky):
+        with (
+            patch('netbox_scripts.execution.resolve_script_class', side_effect=leaky),
+            self.assertLogs('netbox.plugins.netbox_scripts.api', 'ERROR') as logged,
+        ):
             response = self.post_run({'data': {'label': 'never-runs'}})
 
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
-        body = str(response.data)
-        self.assertNotIn(key, body)
-        self.assertNotIn(self.revision.digest, body)
+        self.assertEqual(response.data, {'detail': 'The Script could not be loaded from its source.'})
+        self.assertIs(logged.records[0].exc_info[1].__cause__, leaky)
+
+    def test_an_error_raised_by_a_custom_field_escapes_unchanged(self):
+        script = self.publish_elsewhere(CHECKS_A_PATH)
+        self.grant('view', 'run')
+
+        with self.assertRaises(FileNotFoundError) as caught:
+            self.post_run({'data': {'path': '/does/not/exist'}}, script=script)
+
+        self.assertEqual(caught.exception.filename, '/does/not/exist')
+
+    def test_an_error_raised_by_the_script_constructor_escapes_unchanged(self):
+        self.grant('view', 'run')
+        error = FileNotFoundError(2, 'No such file or directory', 'settings.yaml')
+
+        with patch.object(BaseScript, '__init__', side_effect=error), self.assertRaises(FileNotFoundError) as caught:
+            self.post_run({'data': {'label': 'never-runs'}})
+
+        self.assertIs(caught.exception, error)
 
     def test_the_worker_check_and_enqueue_use_the_scripts_queue(self):
         self.grant('view', 'run')

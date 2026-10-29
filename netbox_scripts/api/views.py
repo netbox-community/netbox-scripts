@@ -1,4 +1,5 @@
-from contextlib import contextmanager
+import logging
+from contextlib import ExitStack, contextmanager
 from pathlib import PurePosixPath
 
 from django.core.exceptions import ImproperlyConfigured, ValidationError
@@ -52,6 +53,8 @@ from .serializers import (
     ScriptProjectSerializer,
     ScriptProjectUploadSerializer,
 )
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.api')
 
 #
 # Permission classes
@@ -349,13 +352,13 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         queue_name = get_queue_for_model(NetBoxScript._meta.model_name)
         if not any_workers_for_queue(queue_name):
             raise RQWorkerNotRunningException()
-        try:
-            with script_class_context(script) as script_class:
-                return self._enqueue_run(request, script, script_class(), queue_name=queue_name)
-        except LOAD_FAILURES as error:
-            raise APIValidationError(
-                {'detail': _('The Script could not be loaded from its source: {error}').format(error=error)}
-            ) from error
+        with ExitStack() as stack:
+            try:
+                script_class = stack.enter_context(script_class_context(script))
+            except LOAD_FAILURES as error:
+                logger.exception('Could not load Script %s from its source.', script.pk)
+                raise APIValidationError({'detail': _('The Script could not be loaded from its source.')}) from error
+            return self._enqueue_run(request, script, script_class(), queue_name=queue_name)
 
     def _enqueue_run(self, request, script, instance, *, queue_name):
         """Validate inputs and enqueue while the script's revision namespace is loaded."""

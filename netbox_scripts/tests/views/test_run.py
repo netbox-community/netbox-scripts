@@ -15,6 +15,7 @@ from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
+from netbox_scripts.scripts import BaseScript
 from netbox_scripts.scripts.logging import LogLevelChoices
 from netbox_scripts.storage import service
 from netbox_scripts.tests.plugin_testing import (
@@ -48,6 +49,21 @@ TAKES_A_NAME = (
     b"        Tag.objects.create(name=data['label'], slug='made-by-run')\n"
     b"        self.log_success('Created ' + data['label'])\n"
     b"        return data['label']\n"
+)
+
+# A custom field whose cleaning raises an OSError, as one opening a missing file would.
+CHECKS_A_PATH = (
+    b'from django import forms\n\n'
+    b'from netbox_scripts.scripts import Script, ScriptVariable\n\n\n'
+    b'class ExistingFileField(forms.CharField):\n'
+    b'    def clean(self, value):\n'
+    b"        raise FileNotFoundError(2, 'No such file or directory', super().clean(value))\n\n\n"
+    b'class ExistingFileVar(ScriptVariable):\n'
+    b'    form_field = ExistingFileField\n\n\n'
+    b'class CheckFile(Script):\n'
+    b"    path = ExistingFileVar(label='Path')\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        self.log_success(data['path'])\n"
 )
 
 
@@ -198,6 +214,26 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         content = response.content.decode()
         self.assertNotIn(key, content)
         self.assertNotIn(self.revision.digest, content)
+
+    def test_an_error_raised_by_a_custom_field_escapes_unchanged(self):
+        self.publish(CHECKS_A_PATH)
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='CheckFile')
+        self.grant('view', 'run')
+
+        with self.assertRaises(FileNotFoundError) as caught:
+            self.client.post(self.url(), {'path': '/does/not/exist', '_commit': 'on'})
+
+        self.assertEqual(caught.exception.filename, '/does/not/exist')
+
+    def test_an_error_raised_by_the_script_constructor_escapes_unchanged(self):
+        self.grant('view', 'run')
+        error = FileNotFoundError(2, 'No such file or directory', 'settings.yaml')
+
+        # Validation constructs the class too, so the failure is injected after publishing.
+        with patch.object(BaseScript, '__init__', side_effect=error), self.assertRaises(FileNotFoundError) as caught:
+            self.client.get(self.url())
+
+        self.assertIs(caught.exception, error)
 
     @override_settings(FILE_UPLOAD_MAX_MEMORY_SIZE=0)
     def test_a_disk_backed_upload_is_refused_on_the_browser_path_too(self):

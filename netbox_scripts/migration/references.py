@@ -58,8 +58,7 @@ _SIBLING_SUFFIX = ' (Scripts)'
 # Marks a captured schedule whose time has passed and which must not simply be run instead.
 _UNSCHEDULABLE = object()
 
-# Everything a schedule can refuse to be replayed with: the script cannot run, or its revision
-# cannot give up the class. The run view treats each of these as a reason rather than a crash.
+# Warned and skipped rather than ending the pass: the script cannot run or load, or its own code raised an OSError.
 _REPLAY_FAILURES = LOAD_FAILURES + (ScriptNotExecutableError,)
 
 

@@ -193,10 +193,10 @@ class NetBoxScriptRunView(generic.ObjectView):
         with ExitStack() as stack:
             try:
                 script_class = stack.enter_context(script_class_context(script))
-                instance = script_class()
             except LOAD_FAILURES as error:
                 yield None, _('The Script could not be loaded from its source: {error}').format(error=error)
                 return
+            instance = script_class()
             instance.scheduling_permitted = self.request.user.has_perm(
                 get_permission_for_model(NetBoxScript, 'schedule'), script
             )

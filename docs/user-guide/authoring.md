@@ -154,6 +154,12 @@ def run(self, data, commit):
         raise AbortScript('Explain why the script stopped')
 ```
 
+## Caching between runs
+
+Use Django's cache API to reuse external lookup results across runs. See
+[Caching between Script runs](caching.md) for an example with expiry, key scoping
+and cache-miss handling, including the limits of sharing values across workers.
+
 ## Publishing scripts from a project
 
 Projects discover Scripts through declared [Script Files](../reference/models/scriptfile.md).

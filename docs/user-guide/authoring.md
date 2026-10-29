@@ -71,6 +71,128 @@ an earlier occurrence may have read or closed. The request is rejected before a
 Job is created. Use a one-shot run instead. An optional `FileVar` left empty does
 not prevent recurrence.
 
+## Object selection
+
+Use `ObjectVar` to select one NetBox object and `MultiObjectVar` to select
+several. The form submits object IDs. For form-based runs, `data` contains a
+model instance for `ObjectVar` and a queryset of instances for `MultiObjectVar`.
+
+### Selection helpers
+
+This Script takes an optional prefix and logs its description:
+
+```python
+from ipam.models import Prefix
+from netbox_scripts import ObjectVar, Script
+
+
+class InspectPrefix(Script):
+    prefix = ObjectVar(
+        model=Prefix,
+        required=False,
+        selector=True,
+        quick_add=True,
+    )
+
+    def run(self, data, commit):
+        prefix = data['prefix']
+        if prefix is None:
+            self.log_info('No prefix selected.')
+            return
+        self.log_info(prefix.description or 'No description.', obj=prefix)
+```
+
+`required=False` allows an empty selection, which reaches `run()` as `None`.
+
+- `selector=True` adds an **Open selector** button beside the field, which
+  opens a dialog for searching and filtering prefixes.
+- `quick_add=True` adds a **Quick add** button, which opens the prefix creation
+  form and selects the new prefix once it is saved. The prefix is saved
+  immediately, before the Script runs, so a
+  [dry run](execution.md#commit-and-dry-run) does not remove it.
+
+### Dependent selections and labels
+
+Use `query_params` to filter the dropdown's results. Prefix a variable name with
+`$` to use its current value. Here, the dropdown offers physical interfaces at
+the selected site:
+
+```python
+from dcim.models import Interface, Site
+from netbox_scripts import AbortScript, MultiObjectVar, ObjectVar, Script
+
+
+class InspectInterfaces(Script):
+    site = ObjectVar(model=Site)
+    interfaces = MultiObjectVar(
+        model=Interface,
+        query_params={'site_id': '$site', 'kind': 'physical'},
+        context={'parent': 'device'},
+        required=False,
+    )
+
+    def run(self, data, commit):
+        site = data['site']
+        for interface in data['interfaces']:
+            if interface.device.site_id != site.pk:
+                raise AbortScript(f'{interface.device} {interface} is not at {site}.')
+        for interface in data['interfaces']:
+            self.log_info(f'Selected {interface.device} {interface}', obj=interface)
+```
+
+`site_id` and `kind` are Interface API filters. `$site` supplies the selected
+site's ID. Until a site is selected, the dropdown offers every physical
+interface the user can view.
+
+`context` maps parts of each option to fields of the brief REST API response
+the dropdown loads. Here `parent` reads the `device` field of
+`/api/dcim/interfaces/?brief=true`, so each option names its device beside the
+interface. `context` can name only fields that response includes. Keep the
+`value` mapping at its default, `id`, because the form validates submitted
+values as object IDs.
+
+To show each prefix's description as its main label, add
+`context={'label': 'description', 'description': 'prefix'}` to the first
+example's `prefix` variable. The brief Prefix response includes both fields. A
+prefix without a description then shows a blank label. A prefilled prefix, or
+one chosen through the selector or **Quick add**, shows its usual label until
+the dropdown next loads it.
+
+These filters and labels only shape the dropdown. The form accepts any existing
+interface, so the example checks every interface's site before acting on any.
+With `required=False`, an empty selection reaches `run()` as an empty queryset.
+
+The advanced selector does not follow `$` references, so this example leaves it
+off the dependent field.
+
+### Permissions
+
+The dropdown's API lookups and the advanced selector respect the user's view
+permissions. These examples need `ipam.view_prefix`, `dcim.view_site` and
+`dcim.view_interface`. Creating a prefix through **Quick add** also needs
+`ipam.add_prefix`, and the new prefix must satisfy that permission's
+constraints. These permissions are separate from
+[permission to run the Script](../administration/permissions.md#script).
+
+The form does not check view permission on the IDs it receives. A Run link can
+preselect, and a run can receive, an object its user cannot view. Check the
+required permission in `run()` and pass the selected object. For example,
+before changing a prefix, use
+`self.request.user.has_perm('ipam.change_prefix', prefix)`. Without the object,
+a permission limited to other prefixes still passes.
+
+### Prefill from a URL
+
+Add a variable's name and an object ID to the Script's **Run** URL as a query
+parameter. This link opens the first example's form with prefix 34 selected:
+
+```text
+https://netbox.example.com/plugins/netbox-scripts/scripts/12/run/?prefix=34
+```
+
+Replace `12` with the Script's ID and `34` with the prefix's ID. The link only
+fills in the form. The Script runs once the form is submitted.
+
 ## Meta attributes
 
 Use the inner `Meta` class for presentation and execution defaults.

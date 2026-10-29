@@ -1021,14 +1021,12 @@ class MigrationCutoverJob(JobRunner):
         self.logger.info(
             _(
                 'Withdrew {permissions} permission(s) on the built-in feature, disabled '
-                '{event_rules} Event Rule(s), cancelled {schedules} queued job(s), closed '
-                '{unreadable} whose input could not be read, and deregistered {auto_sync} '
-                'synchronization record(s).'
+                '{event_rules} Event Rule(s), cancelled {schedules} queued job(s), and deregistered '
+                '{auto_sync} synchronization record(s).'
             ).format(
                 permissions=counts['permissions'],
                 event_rules=counts['event_rules'],
                 schedules=counts['schedules'],
-                unreadable=counts['unreadable'],
                 auto_sync=counts['auto_sync'],
             )
         )

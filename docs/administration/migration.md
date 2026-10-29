@@ -87,8 +87,10 @@ does not mean the built-in Script did not run.
 
 ### Recurring successors
 
-A recurring run that executes queues its next occurrence. What happens to that
-successor depends on when it was queued:
+A recurring run that executes queues its next occurrence. Cutover completes
+only when no built-in Custom Script Job is waiting or running after its last
+closure, so a run still executing keeps it incomplete until the run ends. What
+happens to a successor depends on when it was queued:
 
 - **While cutover is incomplete:** entering cutover again captures it. The
   reference pass then considers it for replay. Check the results before creating
@@ -97,6 +99,12 @@ successor depends on when it was queued:
   Script, even if repointing has moved its Job onto the replacement Script. It
   keeps the original owner and interval. Delete the waiting successor on the
   **Jobs** page before scheduling the replacement Script.
+
+A successor can still follow a completed cutover. NetBox marks a recurring Job
+finished before it queues the successor, and with several workers cutover can
+complete in that gap. One worker for the queues involved prevents that overlap.
+A cancelled run that still executes can also queue its successor after cutover
+(see [Cancellation and replay limits](#cancellation-and-replay-limits)).
 
 An existing successor is different from a Script run whose worker disappeared.
 For the latter, follow [Stale running Jobs](#stale-running-jobs) before
@@ -116,7 +124,9 @@ preparation before selecting **Enter cutover**.
    while any are running and lists them. If one stays **Running** after its
    worker stopped, see [Stale running Jobs](#stale-running-jobs). Review waiting
    and scheduled work too. It can become due before cutover starts, even during
-   the maintenance window.
+   the maintenance window. A waiting Job whose RQ task is missing, for example
+   after Redis lost its data, keeps cutover incomplete. See
+   [Missing queue tasks](#missing-queue-tasks).
 3. **Take a consistent backup.** Back up the database, built-in source storage
    and plugin source storage together as one restore point. A mismatched
    restore can leave revisions pointing to missing source files. Record the
@@ -297,9 +307,11 @@ load. Correct the source and repeat inventory and staging before cutover.
 `cutover` state, then closes the parts of the built-in feature it controls.
 
 The journal keeps the original permissions, Event Rules, migration map and
-readable input from waiting runs. Retries preserve those records. While cutover
-is incomplete, capture adds unrecorded waiting runs, including new recurring
-occurrences. Completed cutover steps are not repeated.
+readable input from waiting runs. Retries preserve those records. Cutover stays
+incomplete while a built-in Custom Script Job is still waiting or running after
+the closures, and its warnings name each one. While cutover is incomplete,
+capture adds unrecorded waiting runs, including new recurring occurrences.
+Completed cutover steps are not repeated.
 
 If the pass fails after entering `cutover`, resolve the reported problem and
 select **Enter cutover** again. If its worker stopped instead, see
@@ -314,7 +326,7 @@ Cutover affects four areas:
 |---|---|
 | Permissions | Disables captured Object Permissions. Shared Report coverage is affected too. |
 | Event Rules | Disables captured rules. Rules whose action runs a Report are excluded. |
-| Queued runs | Deletes reachable waiting tasks and marks their Jobs failed, unless a worker has already started one. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
+| Queued runs | Deletes captured waiting tasks and marks their Jobs failed, unless a worker has already started one. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
 | Synchronization | Removes synchronization registrations for the built-in Custom Script modules. |
 
 Captured permissions and Event Rules are closed before any waiting run is
@@ -334,9 +346,10 @@ expired.
 This check reads revision state, not source storage. Missing files can still
 make activation fail. Review activation results before repointing.
 
-If an RQ task is missing, migration cannot capture its input. Recreate the run
-manually when it is still needed. Decimal and IP address values are recorded
-as text that the replacement Script's form can read.
+If a waiting run's RQ task is missing, migration cannot capture its input, and
+the run keeps cutover incomplete. See
+[Missing queue tasks](#missing-queue-tasks). Decimal and IP address values are
+recorded as text that the replacement Script's form can read.
 
 If any input cannot be recorded, including an uploaded file, migration warns
 and skips the whole run rather than replaying incomplete input. Review the
@@ -574,6 +587,32 @@ let that pass recreate the run.
 
 For a recurring run, follow [Recurring successors](#recurring-successors)
 before scheduling a replacement by hand.
+
+### Missing queue tasks
+
+A waiting built-in Custom Script Job whose RQ task is missing keeps cutover
+incomplete, because the task holds the run's input. NetBox saves a Job before it
+queues the task, so a missing task can still be on its way.
+
+1. **Confirm that nothing can still queue or run a Job.** New submissions must
+   be stopped, and under *Admin > System > Background Tasks* every worker's
+   **State** has to be **Idle**. An Idle worker does not prove that a web or API
+   request has finished queueing its task, so also make sure none is still
+   running, for example by restarting the NetBox web service. Elapsed time
+   proves neither.
+2. **Select Enter cutover again.** A task that has arrived by then is captured,
+   and cutover cancels its Job, which then shows **Failed**.
+3. **Delete only a Job that still shows Pending or Scheduled and whose task a
+   warning reports as not in the queue**, on the **Jobs** page. NetBox keeps no
+   change record of a Job, so first note its Script, scheduled time, interval
+   and owner. Deleting needs permission to delete Jobs. Leave a Job that shows
+   **Failed** in place until **Repoint references** has completed, since that
+   pass checks its row for a start or a requeued task before recreating the run.
+4. **Select Enter cutover again.**
+
+Migration never captured a deleted Job's input, so the reference pass cannot
+recreate it. Schedule it against the replacement Script after the migration if
+it is still needed.
 
 ## Verify the migration
 

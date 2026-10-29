@@ -49,7 +49,7 @@ not a list of unsupported APIs alone.
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Disables captured rules during handover and restores eligible rules after repointing their action and source types. |
 | `core.models.Job.terminate` | `migration/cutover.py` | Mirrored rather than called. Cancellation fails a waiting Job with a conditional update, because `terminate()` saves the whole row and would overwrite a start by a worker that took the task first. The Notification `terminate()` sends the owner of a failed Job is created the same way instead. |
 | `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` / `.exists` | `migration/cutover.py`, `migration/references.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. The reference pass checks whether the task exists again, which a claim or a scheduler's re-queue writes back. |
-| `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | Handles a missing RQ task. Capture marks its input unrecoverable, and cancellation treats the task as already deleted. |
+| `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | Handles a missing RQ task. Capture warns and leaves the Job waiting, which keeps cutover incomplete, because `Job.enqueue()` saves the row before `on_commit()` queues the task. Cancellation treats the task as already deleted. |
 | `netaddr.IPAddress` and `.IPNetwork` | `migration/cutover.py` | The values an IP address or network variable cleans to, recorded as text the replacement's form field parses back. `netaddr` arrives with NetBox, which the plugin relies on without declaring. |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Removes built-in synchronization registrations. These use the **concrete** `ManagedFile` content type, unlike Job and Event Rule references to the proxy. |
 | `extras.models.EventRule.action_type`, `.action_object_type`, `.action_object_id`, `.object_types` | `migration/references.py` | Repoints actions and source types to replacement Scripts. Calls `full_clean()` first because a rule may already be invalid. |
@@ -190,6 +190,13 @@ revision holds one committed state of the inventory, but not necessarily a
 complete synchronization. Applying each synchronization in one transaction, with
 a lock on the Data Source taken before its existing files are read, would make
 every such read a complete synchronization.
+
+**Rescheduling before termination.** `JobRunner.handle()` terminates a recurring
+Job before its `finally` queues the next occurrence, so for a moment the Job
+reads finished while no successor exists. Cutover completes only when no
+built-in Custom Script Job is waiting or running after its last closure, and
+that reading cannot see across the gap. Rescheduling while the Job still reads
+Running would close it.
 
 **A legacy export service.** Migration needs serializable module and class
 records, content checksums, Data Source references, repository paths, source

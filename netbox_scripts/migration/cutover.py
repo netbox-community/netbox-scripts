@@ -63,8 +63,8 @@ def enter_cutover(run, *, accept_concurrent_workers=False):
 
     Captures what is not captured yet, extending the schedules an earlier pass recorded. Closing is
     idempotent. Returns the counts recorded on the run, and returns them unchanged without touching
-    anything when the step has already completed. Leaves the step incomplete while an occurrence is
-    still executing, or one enqueued after the capture is still waiting, for a later pass to close.
+    anything when the step has already completed. Leaves the step incomplete while a built-in Custom
+    Script job is still waiting or running after the closures, for a later pass to close.
     Raises CutoverRefused when the run is not in a state that may cross, while a built-in Custom
     Script job is still running, when a worker other than this pass could take a built-in run and
     accept_concurrent_workers is not set, or when a Project this migration mapped could serve
@@ -113,18 +113,26 @@ def enter_cutover(run, *, accept_concurrent_workers=False):
     if len(competing) > 1:
         # A flag would not say which workers the risk was accepted against.
         run.record_journal(concurrent_workers_accepted=competing)
-    warnings = _capture(run)
+    run.record_warnings(_capture(run))
     # After the capture and before the closures. Before the capture too, a crash here would leave
     # a run that unservable_projects() can still refuse and staging will not take back.
     if run.state == MigrationStateChoices.STAGING:
         run.advance(MigrationStateChoices.CUTOVER)
-    counts, outstanding, raised = _close(run)
-    warnings = [*warnings, *raised]
-    if any(entry['cancellation'] == 'running' for entry in outstanding) or counts['uncaptured']:
+    counts = _close(run)
+    # After every closure, so a successor queued while closing still holds the step.
+    if unfinished := list(legacy_source.unfinished_script_jobs().order_by('pk').values_list('pk', flat=True)):
         # Left incomplete the way the reference passes leave theirs, for a later pass to close.
-        run.record_warnings(warnings)
+        run.record_warnings(
+            [
+                _(
+                    '{count} built-in Custom Script job(s) are still waiting or running: {keys}. Enter the cutover '
+                    'again to capture and cancel the waiting ones. While one is still running, the cutover refuses '
+                    'and names it.'
+                ).format(count=len(unfinished), keys=', '.join(str(key) for key in unfinished))
+            ]
+        )
         return counts
-    run.complete_step(STEP, counts, warnings)
+    run.complete_step(STEP, counts)
     return counts
 
 
@@ -284,14 +292,11 @@ def _capture(run):
     if 'mapping' not in journal:
         entries['mapping'] = mapping.build_map()
     seen = [entry['job_pk'] for entry in journal.get('schedules', [])]
-    unreadable = list(journal.get('schedules_unreadable', []))
     # Extended rather than skipped: a cancelled job is no longer enqueued, so a second capture sees
-    # only occurrences created since the first, a recurring run's successor among them.
-    fresh, warnings, lost = _capture_schedules(exclude=seen + unreadable)
+    # only the waiting jobs it has not recorded, a recurring run's successor among them.
+    fresh, warnings = _capture_schedules(exclude=seen)
     if fresh or 'schedules' not in journal:
         entries['schedules'] = journal.get('schedules', []) + fresh
-    if lost or 'schedules_unreadable' not in journal:
-        entries['schedules_unreadable'] = unreadable + lost
     run.record_journal(**entries)
     return warnings
 
@@ -343,16 +348,17 @@ def _capture_event_rules():
 
 
 def _capture_schedules(exclude=()):
-    """Record every waiting built-in Custom Script job with what a replay needs, and what could not be read."""
-    captured, warnings, unreadable = [], [], []
+    """Record every waiting built-in Custom Script job with what a replay needs, warning about any it cannot read."""
+    captured, warnings = [], []
     for job in legacy_source.enqueued_script_jobs().exclude(pk__in=exclude).select_related('object_type'):
         entry, dropped = _capture_schedule(job)
         if entry is None:
-            unreadable.append(job.pk)
+            # NetBox saves the row before it queues the task, so a later pass may still read it.
             warnings.append(
                 _(
-                    'Job {pk} ("{name}") is queued but its task is no longer in the queue, so its '
-                    'input could not be read. Recreate it by hand after the cutover.'
+                    'Job {pk} ("{name}") is waiting but its task is not in the queue, so its input '
+                    'could not be read. Enter the cutover again to retry. If the Job still shows Pending '
+                    'or Scheduled after that, see "Missing queue tasks" in the migration guide.'
                 ).format(pk=job.pk, name=job.name)
             )
             continue
@@ -364,11 +370,11 @@ def _capture_schedules(exclude=()):
                 ).format(pk=job.pk, name=job.name, dropped=', '.join(dropped))
             )
         captured.append(entry)
-    return captured, warnings, unreadable
+    return captured, warnings
 
 
 def _capture_schedule(job):
-    """Return one waiting job's replay parameters and the input names dropped, or None if RQ lost it."""
+    """Return one waiting job's replay parameters and the input names dropped, or (None, []) if its task is missing."""
     queue = django_rq.get_queue(job.queue_name)
     try:
         task = RQJob.fetch(str(job.job_id), connection=queue.connection)
@@ -428,36 +434,25 @@ def _render(value):
 
 
 def _close(run):
-    """Close every door available to a plugin, report how many of each, and what stayed open."""
+    """
+    Disable the captured grants and rules, cancel the captured runs and deregister synchronization.
+
+    Records the warnings on the run and returns how many of each it closed.
+    """
     journal = run.journal
     # First, so a run that slips past the cancellations below meets no captured grant or rule.
     permissions = _disable_permissions(journal['permissions'])
     event_rules = _disable_event_rules(journal['event_rules'])
-    unreadable = journal.get('schedules_unreadable', [])
-    cancelled, outstanding, warnings = _cancel_schedules(run, journal['schedules'], unreadable)
+    cancelled, warnings = _cancel_schedules(run, journal['schedules'])
     # The outcomes it resolved from a job's own state, which it does not record as it goes.
     run.record_journal(schedules=journal['schedules'])
-    captured = {entry['job_pk'] for entry in journal['schedules']}
-    # Enqueued since the capture, an occurrence's own successor among them. A row whose task the
-    # queue lost would sit here for ever, which is what failing those closed above prevents.
-    uncaptured = list(legacy_source.enqueued_script_jobs().exclude(pk__in=captured).values_list('pk', flat=True))
-    counts = {
+    run.record_warnings(warnings)
+    return {
         'permissions': permissions,
         'event_rules': event_rules,
         'schedules': cancelled,
-        # Counted apart from 'schedules', which is the count that promises a replay.
-        'unreadable': len(unreadable),
-        'uncaptured': len(uncaptured),
         'auto_sync': _drop_auto_sync(run),
     }
-    if uncaptured:
-        warnings.append(
-            _(
-                '{count} built-in Custom Script job(s) were enqueued after the capture and are still '
-                'waiting: {keys}. Enter the cutover again to capture and cancel them.'
-            ).format(count=len(uncaptured), keys=', '.join(str(key) for key in uncaptured))
-        )
-    return counts, outstanding, warnings
 
 
 def _disable_permissions(captured):
@@ -478,14 +473,14 @@ def _disable_event_rules(captured):
     return EventRule.objects.filter(pk__in=keys, enabled=False).count()
 
 
-def _cancel_schedules(run, captured, unreadable=()):
-    """Fail every reachable job closed, and record on each captured entry what that achieved.
+def _cancel_schedules(run, captured):
+    """Cancel captured waiting jobs and record each job's outcome.
 
     Annotates every entry with a 'cancellation' of 'cancelled', 'executed', 'running' or 'vanished',
     recording 'cancelling' before it touches a row so an interrupted pass can resolve it.
-    Returns the number cancelled, the entries that were not, and one warning naming each of those.
+    Returns the number cancelled and the warnings raised.
     """
-    cancelled, outstanding, warnings = 0, [], []
+    cancelled, warnings = 0, []
     for entry in captured:
         if entry.get('cancellation') == 'cancelled':
             # Its row is failed now, which reads as executed below, so this stays the first check.
@@ -510,7 +505,6 @@ def _cancel_schedules(run, captured, unreadable=()):
                         'the migration guide before scheduling it again, since its next run may already exist.'
                     ).format(pk=entry['job_pk'], name=entry['name'])
                 )
-                outstanding.append(entry)
             run.record_journal(schedules=captured)
             continue
         if job.status in legacy_source.cancellable_statuses():
@@ -549,20 +543,7 @@ def _cancel_schedules(run, captured, unreadable=()):
                     'in the migration guide before scheduling it again, since its next run may already exist.'
                 ).format(pk=entry['job_pk'], name=entry['name'])
             )
-        outstanding.append(entry)
-    for key in unreadable:
-        # Still waiting, and no capture could read it, so closing is all that is left to do.
-        # Also what keeps it out of the uncaptured count, which would otherwise never reach zero.
-        job = Job.objects.filter(pk=key, status__in=legacy_source.cancellable_statuses()).first()
-        if job is not None:
-            _fail_closed(
-                job,
-                _(
-                    'Cancelled by the Custom Scripts migration cutover. Its input could not be read, '
-                    'so recreate this run by hand.'
-                ),
-            )
-    return cancelled, outstanding, warnings
+    return cancelled, warnings
 
 
 def _fail_closed(job, error):

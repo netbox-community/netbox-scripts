@@ -4,6 +4,7 @@ from unittest import mock
 from django.core.files.storage import storages
 from django.test import TestCase
 
+from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.choices import MigrationStateChoices
@@ -41,6 +42,7 @@ class CleanupMixin(ReferenceMigrationMixin):
             object_id=module.pk,
             job_id=uuid.uuid4(),
             queue_name='default',
+            status=JobStatusChoices.STATUS_COMPLETED,
         )
 
     def blocked_module(self, module):
@@ -56,6 +58,7 @@ class CleanupMixin(ReferenceMigrationMixin):
             object_id=script.pk,
             job_id=uuid.uuid4(),
             queue_name='default',
+            status=JobStatusChoices.STATUS_COMPLETED,
         )
 
 

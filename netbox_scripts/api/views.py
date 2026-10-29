@@ -43,7 +43,7 @@ from ..storage import config
 from ..storage.exceptions import StorageError
 from ..storage.locks import project_lock
 from ..storage.service import require_default_database
-from .schemas import SCRIPT_FILE_SELECTION, SCRIPT_FILE_STATE
+from .schemas import SCRIPT_FILE_SELECTION, SCRIPT_FILE_STATE, NetBoxScriptRunMultipartInputSerializer
 from .serializers import (
     NetBoxScriptRunInputSerializer,
     NetBoxScriptSerializer,
@@ -323,7 +323,10 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
     # http_method_names is checked on every dispatch, so the action declares its own as an
     # initkwarg, which applies to this route alone and leaves POST refused on the list route.
     @extend_schema(
-        request=NetBoxScriptRunInputSerializer,
+        request={
+            'application/json': NetBoxScriptRunInputSerializer,
+            'multipart/form-data': NetBoxScriptRunMultipartInputSerializer,
+        },
         responses={
             201: OpenApiResponse(
                 response=JobSerializer,

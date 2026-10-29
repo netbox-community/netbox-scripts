@@ -1,5 +1,6 @@
 from unittest import mock
 
+from django.db.models.signals import pre_save
 from django.urls import reverse
 from rest_framework import status
 
@@ -17,6 +18,7 @@ from netbox_scripts.tests.plugin_testing import (
     ObjectPermissionTestMixin,
     PluginAPIViewTestCase,
     PluginAPIViewTestCases,
+    create_scripts_out_of_default_order,
     refresh_count,
 )
 from utilities.api import get_serializer_for_model
@@ -267,6 +269,24 @@ class NetBoxScriptAPIViewTestCase(PluginAPIViewTestCase, APITestCase):
             self._get_detail_url(self.script), {'enabled': False}, format='json', **self.header
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_a_bulk_update_saves_in_primary_key_order(self):
+        pks = create_scripts_out_of_default_order()
+        saved = []
+
+        def record_save(sender, instance, **kwargs):
+            saved.append(instance.pk)
+
+        pre_save.connect(record_save, sender=NetBoxScript, dispatch_uid='bulk-update-save-order')
+        self.addCleanup(pre_save.disconnect, record_save, sender=NetBoxScript, dispatch_uid='bulk-update-save-order')
+        self.add_permissions('netbox_scripts.view_netboxscript', 'netbox_scripts.change_netboxscript')
+
+        response = self.client.patch(
+            self._get_list_url(), [{'id': pk, 'enabled': False} for pk in pks[::-1]], format='json', **self.header
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(saved, pks)
 
 
 FILE_DIGEST = 'c' * 64

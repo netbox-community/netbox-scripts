@@ -320,6 +320,10 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
             # class already applied restricts to what the user may add, and that set is empty.
             self.queryset = type(self).queryset.restrict(request.user, 'run')
 
+    def get_bulk_update_queryset(self):
+        """Return Scripts in primary-key order to match synchronization."""
+        return super().get_bulk_update_queryset().order_by('pk')
+
     # http_method_names is checked on every dispatch, so the action declares its own as an
     # initkwarg, which applies to this route alone and leaves POST refused on the list route.
     @extend_schema(

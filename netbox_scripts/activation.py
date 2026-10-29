@@ -138,10 +138,11 @@ def synchronize_scripts(*, project, revision, records, using):
     """
     Bring one project's Script rows in line with a validated discovery snapshot.
 
-    Database work only, inside the transaction and the project lock the caller holds. A row the
-    snapshot no longer names is retired rather than deleted, keeping its primary key and the Job
-    history on it. A row whose recorded fields already match is left untouched. enabled is never
-    written.
+    Database work only, inside the transaction and the project lock the caller holds. Every
+    existing Script of the project is locked in primary-key order before any write, matching the
+    order used by bulk edits. A row the snapshot no longer names is retired rather than deleted,
+    keeping its primary key and the Job history on it. A row whose recorded fields already match
+    is left untouched. enabled is never written.
 
     Returns a ScriptSyncResult. Inside a request each written row is change logged and queues an
     event attributed to the user who asked for the activation, OBJECT_CREATED for a newly
@@ -150,7 +151,10 @@ def synchronize_scripts(*, project, revision, records, using):
     """
     written = 0
     retired = 0
-    rows = {(row.module_path, row.class_name): row for row in project.scripts.using(using)}
+    rows = {
+        (row.module_path, row.class_name): row
+        for row in project.scripts.using(using).order_by('pk').select_for_update()
+    }
     for record in records:
         identity = (record['module_path'], record['class_name'])
         # script_file_id and script_file_path stay in the revision's snapshot. Which

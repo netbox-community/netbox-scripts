@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from contextlib import ExitStack
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured, ValidationError
@@ -63,13 +64,14 @@ class Command(BaseCommand):
             raise CommandError(
                 _('"{script}" cannot be run. {reason}').format(script=script, reason=script.run_refusal_reason)
             )
-        try:
-            with script_class_context(script) as script_class:
-                values = self.values(script_class(), options['data'])
-        except LOAD_FAILURES as error:
-            raise CommandError(
-                _('The Script could not be loaded from its source: {error}').format(error=error)
-            ) from error
+        with ExitStack() as stack:
+            try:
+                script_class = stack.enter_context(script_class_context(script))
+            except LOAD_FAILURES as error:
+                raise CommandError(
+                    _('The Script could not be loaded from its source: {error}').format(error=error)
+                ) from error
+            values = self.values(script_class(), options['data'])
 
         user = self.user(options['user'])
         # In this process rather than a worker, so the caller waits and reads the exit status.

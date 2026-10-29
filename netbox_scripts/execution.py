@@ -139,7 +139,8 @@ def script_class_context(script):
     Construction, form validation and rendering must finish before leaving this context.
     The namespace is unloaded on both success and failure. Raises
     ScriptResolutionError when the project serves no revision, when the active revision does not
-    publish the row's identity, and for any load failure, whose message is sanitized.
+    publish the row's identity, and for any load failure, whose message is sanitized. Exceptions
+    raised inside the context propagate unchanged.
     """
     identity = f'{script.module_path}.{script.class_name}'
     revision = script.project.active_revision
@@ -154,7 +155,7 @@ def script_class_context(script):
     sanitize = build_error_sanitizer(storage_key, revision.digest)
     with revision_import_session(storage_key, revision.digest):
         try:
-            yield resolve_script_class(
+            script_class = resolve_script_class(
                 storage_key,
                 revision.digest,
                 discovered_scripts=revision.discovered_scripts,
@@ -168,6 +169,9 @@ def script_class_context(script):
             # Cache errors carry paths built from the storage key and digest, and this is the
             # only caller holding both. Collapsed to one class: no call site branches on the type.
             raise ScriptResolutionError(sanitize(str(error)), code='load_failed', name=identity) from error
+        else:
+            # Yielded from else, so an exception raised in the caller's block skips the load-failure handler.
+            yield script_class
         finally:
             unload_revision(storage_key, revision.digest)
 

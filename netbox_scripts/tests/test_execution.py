@@ -31,6 +31,7 @@ from netbox_scripts.models import (
     ScriptProjectRevision,
 )
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptResolutionError
+from netbox_scripts.runtime.loader import unload_revision
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.scripts import AbortScript, Script
 from netbox_scripts.storage import service
@@ -495,6 +496,30 @@ class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
         self.assertNotIn(storage_key, message)
         self.assertNotIn(revision.digest, message)
         self.assertIn('could not be read', message)
+
+    def test_an_error_raised_inside_the_context_escapes_unchanged(self):
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+        error = FileNotFoundError(2, 'No such file or directory', '/does/not/exist')
+
+        with self.assertRaises(FileNotFoundError) as caught, script_class_context(self.script()):
+            raise error
+
+        self.assertIs(caught.exception, error)
+        self.assertEqual(unload_revision(str(self.project.storage_key), revision.digest), ())
+
+    def test_an_os_error_while_resolving_is_still_a_load_failure(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        error = PermissionError(13, 'Permission denied', '/var/cache/netbox-scripts')
+
+        with (
+            patch('netbox_scripts.execution.resolve_script_class', side_effect=error),
+            self.assertRaises(ScriptResolutionError) as caught,
+            script_class_context(self.script()),
+        ):
+            pass
+
+        self.assertEqual(caught.exception.code, 'load_failed')
+        self.assertIs(caught.exception.__cause__, error)
 
     def test_relative_imports_remain_available_during_construction_and_form_building(self):
         source = (

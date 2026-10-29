@@ -13,7 +13,9 @@ from extras.models import Tag
 from netbox_scripts.management.commands.runcustomscript import Command
 from netbox_scripts.models import NetBoxScript, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
+from netbox_scripts.scripts import BaseScript
 from netbox_scripts.tests.test_execution import MAKES_A_TAG, RAISES, ScriptJobTestMixin
+from netbox_scripts.tests.views.test_run import CHECKS_A_PATH
 
 
 class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
@@ -255,6 +257,23 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertNotIn(key, str(caught.exception))
         self.assertNotIn(revision.digest, str(caught.exception))
+
+    def test_an_error_raised_by_a_custom_field_escapes_unchanged(self):
+        self.publish({'deploy.py': CHECKS_A_PATH})
+
+        with self.assertRaises(FileNotFoundError) as caught:
+            self.run_command('deploy.CheckFile', data='{"path": "/does/not/exist"}')
+
+        self.assertEqual(caught.exception.filename, '/does/not/exist')
+
+    def test_an_error_raised_by_the_script_constructor_escapes_unchanged(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        error = FileNotFoundError(2, 'No such file or directory', 'settings.yaml')
+
+        with patch.object(BaseScript, '__init__', side_effect=error), self.assertRaises(FileNotFoundError) as caught:
+            self.run_command('deploy.MakeTag')
+
+        self.assertIs(caught.exception, error)
 
     def test_a_retired_script_is_refused_before_its_source_is_loaded(self):
         self.publish({'deploy.py': MAKES_A_TAG})

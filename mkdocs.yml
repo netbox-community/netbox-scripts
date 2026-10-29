@@ -48,6 +48,7 @@ nav:
   - User guide:
       - Running scripts: user-guide/execution.md
       - Writing scripts: user-guide/authoring.md
+      - Caching between runs: user-guide/caching.md
   - Administration:
       - Installation: administration/installation.md
       - Configuration: administration/configuration.md

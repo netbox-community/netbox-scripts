@@ -14,7 +14,7 @@ from django.utils import timezone
 from rq.job import Job as RQJob
 
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
-from core.events import JOB_COMPLETED, OBJECT_UPDATED
+from core.events import JOB_COMPLETED, JOB_ERRORED, JOB_FAILED, OBJECT_UPDATED
 from core.models import AutoSyncRecord, DataFile, DataSource, Job, ObjectType
 from dcim.models import Site
 from extras.jobs import ScriptJob
@@ -614,7 +614,9 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
 
     def test_a_run_a_worker_starts_while_it_is_cancelled_is_left_to_run(self):
         # In the cancellation, RQJob.fetch runs after the row is read and before it is failed.
+        owner = get_user_model().objects.create_user(username='owner')
         job = self.legacy_job(task_kwargs={})
+        Job.objects.filter(pk=job.pk).update(user=owner)
         cutover._capture(self.migration)
         carried = Job.objects.get(pk=job.pk)
         fetch = RQJob.fetch
@@ -630,6 +632,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_RUNNING)
         self.assertEqual(counts['schedules'], 0)
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
+        self.assertFalse(Notification.objects.filter(user=owner, object_id=job.pk).exists())
 
     def test_the_owner_of_a_cancelled_run_is_notified(self):
         owner = get_user_model().objects.create_user(username='owner')
@@ -639,6 +642,65 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         cutover.enter_cutover(self.migration)
 
         self.assertTrue(Notification.objects.filter(user=owner, object_id=job.pk).exists())
+
+    def test_the_owner_of_a_cancelled_run_is_notified_after_an_interrupted_pass(self):
+        owner = get_user_model().objects.create_user(username='owner')
+        job = self.legacy_job(task_kwargs={})
+        Job.objects.filter(pk=job.pk).update(user=owner)
+
+        with (
+            mock.patch.object(Notification, 'save', side_effect=RuntimeError('stopped')),
+            self.assertRaises(RuntimeError),
+        ):
+            cutover.enter_cutover(self.migration)
+        # A failed notification save leaves the Job waiting for the next pass.
+        self.assertEqual(Job.objects.get(pk=job.pk).status, JobStatusChoices.STATUS_SCHEDULED)
+        reloaded = MigrationRun.objects.get(pk=self.migration.pk)
+        self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'cancelling')
+
+        counts = cutover.enter_cutover(reloaded)
+
+        self.assertEqual(counts['schedules'], 1)
+        self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'cancelled')
+        self.assertEqual(Notification.objects.get(user=owner, object_id=job.pk).event_type, JOB_FAILED)
+
+    def test_cancelling_a_retried_run_reissues_its_notice_once(self):
+        owner = get_user_model().objects.create_user(username='owner')
+        job = self.legacy_job(task_kwargs={})
+        Job.objects.filter(pk=job.pk).update(user=owner)
+        # A retried Job is waiting again and keeps the notice its first attempt sent.
+        old = timezone.now() - timedelta(days=1)
+        earlier = Notification.objects.create(user=owner, object=job, event_type=JOB_ERRORED, read=old)
+        Notification.objects.filter(pk=earlier.pk).update(created=old, object_repr='stale')
+        original = cutover._fail_closed
+
+        def interrupt(job, error):
+            original(job, error)
+            raise RuntimeError('stopped before the outcome was recorded')
+
+        with mock.patch.object(cutover, '_fail_closed', interrupt), self.assertRaises(RuntimeError):
+            cutover.enter_cutover(self.migration)
+
+        job.refresh_from_db()
+        notice = Notification.objects.get(user=owner, object_id=job.pk)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertEqual(notice.pk, earlier.pk)
+        self.assertEqual(
+            (notice.event_type, notice.object_repr, notice.read, notice.created),
+            (JOB_FAILED, Notification.get_object_repr(job), None, job.completed),
+        )
+        # Resuming must preserve the notification's timestamp and read state.
+        Notification.objects.filter(pk=notice.pk).update(read=timezone.now())
+        notice.refresh_from_db()
+        reloaded = MigrationRun.objects.get(pk=self.migration.pk)
+
+        cutover.enter_cutover(reloaded)
+
+        self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'cancelled')
+        self.assertEqual(
+            Notification.objects.values_list('pk', 'created', 'read').get(user=owner, object_id=job.pk),
+            (notice.pk, notice.created, notice.read),
+        )
 
     def test_a_capture_replayed_before_any_close_records_nothing_twice(self):
         # A crash before the closures leaves every job enqueued, so a second capture sees them all.

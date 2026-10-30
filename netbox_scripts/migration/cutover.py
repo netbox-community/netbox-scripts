@@ -6,7 +6,7 @@ import decimal
 
 import django_rq
 import netaddr
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rq.exceptions import NoSuchJobError
@@ -14,7 +14,7 @@ from rq.job import Job as RQJob
 
 from core.choices import JobNotificationChoices, JobStatusChoices
 from core.events import JOB_FAILED
-from core.models import Job
+from core.models import Job, ObjectType
 from extras.models import EventRule, Notification
 from users.models import ObjectPermission
 from utilities.rqworker import get_all_workers
@@ -547,17 +547,30 @@ def _cancel_schedules(run, captured):
 
 
 def _fail_closed(job, error):
-    """Drop one job's queued task and fail its row unless a worker has started it, returning whether it did."""
+    """Remove the queued task and fail a waiting, unstarted Job. Return whether the Job was updated."""
     queue = django_rq.get_queue(job.queue_name)
     with contextlib.suppress(NoSuchJobError):
         RQJob.fetch(str(job.job_id), connection=queue.connection).delete()
-    # An update, since terminate()'s full save would overwrite a start by a worker that took the task first.
-    failed = Job.objects.filter(
-        pk=job.pk, status__in=legacy_source.cancellable_statuses(), started__isnull=True
-    ).update(status=JobStatusChoices.STATUS_FAILED, error=str(error), completed=timezone.now())
-    if failed and job.user_id and job.notifications != JobNotificationChoices.NOTIFICATION_NEVER:
-        # The owner notice terminate() would have sent for a failed job.
-        Notification(user_id=job.user_id, object=job, event_type=JOB_FAILED).save()
+    # Commit the failure and notification together so a resumed pass cannot skip the notice.
+    with transaction.atomic():
+        completed = timezone.now()
+        # Use a conditional update to avoid overwriting a Job that a worker has started.
+        failed = Job.objects.filter(
+            pk=job.pk, status__in=legacy_source.cancellable_statuses(), started__isnull=True
+        ).update(status=JobStatusChoices.STATUS_FAILED, error=str(error), completed=completed)
+        if failed and job.user_id and job.notifications != JobNotificationChoices.NOTIFICATION_NEVER:
+            # The notice terminate() would have sent. A retried Job can retain its previous one.
+            Notification.objects.update_or_create(
+                object_type=ObjectType.objects.get_for_model(job),
+                object_id=job.pk,
+                user_id=job.user_id,
+                defaults={
+                    'event_type': JOB_FAILED,
+                    'object_repr': Notification.get_object_repr(job),
+                    'created': completed,
+                    'read': None,
+                },
+            )
     return bool(failed)
 
 

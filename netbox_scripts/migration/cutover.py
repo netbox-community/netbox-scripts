@@ -562,7 +562,7 @@ def _fail_closed(job, error):
 
 
 def _drop_auto_sync(run):
-    """Deregister built-in script source from synchronization, recording what it deregistered."""
+    """Deregister built-in script source from synchronization, record what it deregistered, and report how many."""
     # Scoped to script modules: a report is not this migration's, so its source keeps syncing.
     keys = legacy_source.legacy_script_module_keys()
     records = legacy_source.legacy_auto_sync_records(module_pks=keys)
@@ -571,8 +571,9 @@ def _drop_auto_sync(run):
         # between would otherwise leave the rows gone and nothing naming them. A replay then
         # skips this, since it would read the deregistered state back as the original.
         run.record_journal(auto_sync=sorted(records.values_list('object_id', flat=True)))
-    deleted, _by_model = records.delete()
-    return deleted
+    records.delete()
+    # The journal rather than the rows this attempt deleted, so a resumed pass reports the same total.
+    return len(run.journal['auto_sync'])
 
 
 def _label(object_type):

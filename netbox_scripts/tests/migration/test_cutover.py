@@ -529,6 +529,8 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
 
         self.assertEqual(first['permissions'], second['permissions'])
         self.assertEqual(first['event_rules'], second['event_rules'])
+        self.assertEqual(first['auto_sync'], 1)
+        self.assertEqual(second['auto_sync'], 1)
         self.assertGreaterEqual(second['permissions'], 1)
         permission.refresh_from_db()
         rule.refresh_from_db()
@@ -740,11 +742,12 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
             return drop_auto_sync(run)
 
         with mock.patch.object(cutover, '_drop_auto_sync', queue_a_successor):
-            cutover.enter_cutover(self.migration)
+            first = cutover.enter_cutover(self.migration)
 
         successor = queued[0]
         self.migration.refresh_from_db()
         self.assertFalse(self.migration.step_done(cutover.STEP))
+        self.assertEqual(first['auto_sync'], 1)
         self.assertTrue(
             any(
                 str(successor.pk) in warning and 'still waiting or running' in warning
@@ -754,7 +757,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         successor.refresh_from_db()
         self.assertEqual(successor.status, JobStatusChoices.STATUS_SCHEDULED)
 
-        cutover.enter_cutover(self.migration)
+        counts = cutover.enter_cutover(self.migration)
 
         self.migration.refresh_from_db()
         entries = [entry for entry in self.migration.journal['schedules'] if entry['job_pk'] == successor.pk]
@@ -766,6 +769,8 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         successor.refresh_from_db()
         self.assertEqual(successor.status, JobStatusChoices.STATUS_FAILED)
         self.assertTrue(self.migration.step_done(cutover.STEP))
+        self.assertEqual(counts['auto_sync'], 1)
+        self.assertEqual(self.migration.recorded_counts(cutover.STEP)['auto_sync'], 1)
 
     def test_a_cancelled_run_that_starts_anyway_holds_the_step_and_is_named(self):
         # A stale copy of its task starting after the cancellation, which its journal entry cannot show.
@@ -798,9 +803,10 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         report = self.report_module(auto_sync_enabled=True)
         concrete = ObjectType.objects.get_for_model(ScriptModule)
 
-        cutover.enter_cutover(self.migration)
+        counts = cutover.enter_cutover(self.migration)
 
         self.assertTrue(AutoSyncRecord.objects.filter(object_type=concrete, object_id=report.pk).exists())
+        self.assertEqual(counts['auto_sync'], 1)
 
     def test_the_fence_leaves_a_report_job_alone(self):
         audit = Script.objects.create(module=self.report_module(), name='Audit')
@@ -879,8 +885,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(self.migration.journal['auto_sync'], recorded)
 
     def test_a_crash_before_the_step_record_still_leaves_the_auto_sync_readable(self):
-        # The real replay window: the records are already deleted and the journal entry naming
-        # them was never persisted, which is the only state a resumed close can be entered in.
+        # The registrations are gone and their journal entry survives, but completion was not recorded.
         cutover._capture(self.migration)
         cutover._drop_auto_sync(self.migration)
         self.migration.refresh_from_db()
@@ -890,6 +895,28 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
 
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.journal['auto_sync'], [self.module.pk])
+
+    def test_a_retry_after_capture_still_removes_the_auto_sync_registration(self):
+        cutover._capture(self.migration)
+        self.migration.advance(MigrationStateChoices.CUTOVER)
+        self.migration.record_journal(auto_sync=[self.module.pk])
+        records = legacy_source.legacy_auto_sync_records(module_pks=[self.module.pk])
+        self.assertTrue(records.exists())
+
+        counts = cutover.enter_cutover(self.migration)
+
+        self.assertFalse(records.exists())
+        self.assertEqual(counts['auto_sync'], 1)
+
+    def test_a_cutover_without_auto_sync_registrations_reports_zero(self):
+        legacy_source.legacy_auto_sync_records(module_pks=[self.module.pk]).delete()
+
+        counts = cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['auto_sync'], [])
+        self.assertEqual(counts['auto_sync'], 0)
+        self.assertEqual(self.migration.recorded_counts(cutover.STEP)['auto_sync'], 0)
 
     def test_nothing_that_carries_history_is_deleted(self):
         completed = self.legacy_job(status=JobStatusChoices.STATUS_COMPLETED)

@@ -66,6 +66,15 @@ CHECKS_A_PATH = (
     b"        self.log_success(data['path'])\n"
 )
 
+SELECTS_A_PREFIX = (
+    b'from ipam.models import Prefix\n\n'
+    b'from netbox_scripts.scripts import ObjectVar, Script\n\n\n'
+    b'class InspectPrefix(Script):\n'
+    b'    prefix = ObjectVar(model=Prefix, selector=True, quick_add=True)\n\n'
+    b'    def run(self, data, commit):\n'
+    b"        self.log_info(str(data['prefix']), obj=data['prefix'])\n"
+)
+
 
 class RunViewTestMixin(ObjectPermissionTestMixin):
     def grant(self, *actions, model=NetBoxScript, constraints=None):
@@ -152,6 +161,19 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         identifier = ' '.join(content[content.find('<code class="d-block text-muted') :][:300].split())
         self.assertIn('deploy.MakeTag', identifier)
         self.assertNotIn('netbox_scripts.netboxscript', identifier)
+
+    def test_the_selector_and_quick_add_buttons_have_a_modal_to_open(self):
+        # The widget renders buttons that target the modal, never the modal itself.
+        self.publish(SELECTS_A_PREFIX)
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='InspectPrefix')
+        self.grant('view', 'run')
+
+        content = self.client.get(self.url()).content.decode()
+
+        self.assertIn('aria-label="Open selector"', content)
+        self.assertIn('aria-label="Quick add"', content)
+        self.assertEqual(content.count('id="htmx-modal"'), 1)
+        self.assertEqual(content.count('id="htmx-modal-content"'), 1)
 
     def test_the_run_page_is_refused_without_the_run_action(self):
         # View alone is not enough, running is its own permission.

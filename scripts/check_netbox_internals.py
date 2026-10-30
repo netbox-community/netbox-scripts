@@ -97,7 +97,11 @@ ROWS = (
     ),
     ('users.models.ObjectPermission.enabled', 'users.models:ObjectPermission.enabled'),
     ('extras.models.EventRule.enabled', 'extras.models:EventRule.enabled'),
-    ('core.models.Job.terminate', 'core.models:Job.terminate'),
+    (
+        'core.models.Job.terminate and extras.models.Notification.get_object_repr',
+        'core.models:Job.terminate',
+        'extras.models:Notification.get_object_repr',
+    ),
     (
         'django_rq.get_queue and rq.job.Job.fetch / .delete / .exists',
         'django_rq:get_queue',

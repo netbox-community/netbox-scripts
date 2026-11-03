@@ -660,6 +660,11 @@ is still waiting but has no RQ task. Repeating the reference pass does not repai
 its completed recreation record. Investigate the missing task and recreate the
 required run manually.
 
+The Jobs check names each schedule it reports by the ID of the Job that
+cutover captured, as the cutover and reference pass warnings do, and adds the
+ID of its replacement Job where one was recorded. Both are the IDs the
+**Jobs** page shows in its **ID** column, while those Jobs still exist.
+
 An unreachable queue produces a warning, not a report of lost tasks. Task
 checks also wait until the reference pass finishes. If a stopped worker left
 that pass's Job **Running**, see [Stale running Jobs](#stale-running-jobs). Run

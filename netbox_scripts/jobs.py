@@ -278,10 +278,17 @@ class ProjectReconciliationJob(JobRunner):
         # _accept_source() moves the pointer and the intent flag with a queryset update, which
         # leaves this instance behind, and the branches below read both.
         project.refresh_from_db()
-        if revision.status == RevisionStatusChoices.INVALID:
+        # Only a rejected staging attempt lacks a digest, so any other INVALID revision failed validation.
+        if revision.status == RevisionStatusChoices.INVALID and not revision.digest:
             self.logger.warning(
                 _('The synchronized source cannot be stored, {count} problem(s) recorded.').format(
                     count=len(revision.validation_errors)
+                )
+            )
+        elif revision.status == RevisionStatusChoices.INVALID:
+            self.logger.warning(
+                _('Revision {digest} already failed validation, {count} problem(s) recorded.').format(
+                    digest=revision.digest[:12], count=len(revision.validation_errors)
                 )
             )
         elif revision.status == RevisionStatusChoices.MATERIALIZED:

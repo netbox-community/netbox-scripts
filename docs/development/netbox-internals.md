@@ -28,7 +28,7 @@ not a list of unsupported APIs alone.
 | `netbox.views.generic.BulkEditView.pre_save_operations` | `views/projects.py` | Runs the source-field permission check before each save in NetBox's bulk-edit transaction. The check reads the undocumented `_nullify` list used by **Set null**. |
 | `netbox.views.generic.BulkEditView.get_queryset` | `views/scripts.py` | Uses primary-key order when applying a Script bulk edit. Checks `_apply`, the undocumented name of the Apply button, to preserve the initial confirmation page's default order. |
 | `utilities.data.normalize_update_fields` | `models/projects.py` | Converts `update_fields` to a frozenset in the forwarded save arguments. Membership checks then cannot exhaust a one-shot iterable before the save. NetBox uses the same pattern. |
-| `utilities.rqworker.get_queue_for_model` | `api/views.py`, `jobs.py` | Selects the configured queue for both worker checks and enqueue operations. |
+| `utilities.rqworker.get_queue_for_model` | `api/views.py`, `jobs.py`, `migration/cutover.py`, `migration/verification.py` | Selects queues for worker checks and enqueueing. Provides the fallback for Jobs without a recorded queue name. |
 | `rq.utils.parse_timeout` | `runtime/introspection.py` | Parses the author's `job_timeout` using RQ's own grammar, including strings such as `"30m"`. |
 | `rq.exceptions.TimeoutFormatError` | `runtime/introspection.py` | Converts an invalid RQ timeout string into a Script metadata error. |
 | `rq.timeouts.JobTimeoutException` | `jobs.py` | Propagates the worker deadline rather than classifying it as a content error. Timed-out work releases its lease without a permanent verdict. |

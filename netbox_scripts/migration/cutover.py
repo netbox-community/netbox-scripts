@@ -17,7 +17,7 @@ from core.events import JOB_FAILED
 from core.models import Job, ObjectType
 from extras.models import EventRule, Notification
 from users.models import ObjectPermission
-from utilities.rqworker import get_all_workers
+from utilities.rqworker import get_all_workers, get_queue_for_model
 
 from .. import activation
 from ..choices import MigrationStateChoices, RevisionStatusChoices
@@ -375,7 +375,9 @@ def _capture_schedules(exclude=()):
 
 def _capture_schedule(job):
     """Return one waiting job's replay parameters and the input names dropped, or (None, []) if its task is missing."""
-    queue = django_rq.get_queue(job.queue_name)
+    # A Job saved before NetBox v4.5.2 has no queue name.
+    queue_name = job.queue_name or get_queue_for_model(job.object_type.model)
+    queue = django_rq.get_queue(queue_name)
     try:
         task = RQJob.fetch(str(job.job_id), connection=queue.connection)
     except NoSuchJobError:
@@ -394,7 +396,7 @@ def _capture_schedule(job):
         'commit': bool(kwargs.get('commit', True)),
         'scheduled': job.scheduled.isoformat() if job.scheduled else None,
         'interval': job.interval,
-        'queue_name': job.queue_name,
+        'queue_name': queue_name,
         'job_timeout': task.timeout,
         'notifications': job.notifications,
         'user_pk': job.user_id,
@@ -548,7 +550,7 @@ def _cancel_schedules(run, captured):
 
 def _fail_closed(job, error):
     """Remove the queued task and fail a waiting, unstarted Job. Return whether the Job was updated."""
-    queue = django_rq.get_queue(job.queue_name)
+    queue = django_rq.get_queue(job.queue_name or get_queue_for_model(job.object_type.model))
     with contextlib.suppress(NoSuchJobError):
         RQJob.fetch(str(job.job_id), connection=queue.connection).delete()
     # Commit the failure and notification together so a resumed pass cannot skip the notice.

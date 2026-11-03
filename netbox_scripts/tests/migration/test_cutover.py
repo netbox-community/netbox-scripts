@@ -316,6 +316,24 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(captured[0]['legacy_script_pk'], self.script.pk)
         self.assertEqual(captured[0]['job_timeout'], 600)
 
+    @override_settings(QUEUE_MAPPINGS={'script': 'high'})
+    def test_a_job_saved_without_a_queue_name_is_captured_from_its_mapped_queue(self):
+        legacy = self.legacy_job(task_kwargs={'data': {}, 'commit': True})
+        named = self.legacy_job(task_kwargs={'data': {}, 'commit': True})
+        # NetBox v4.5.2 added the field without a backfill.
+        Job.objects.filter(pk=legacy.pk).update(queue_name='')
+
+        cutover.enter_cutover(self.migration)
+
+        self.migration.refresh_from_db()
+        outcomes = {
+            entry['job_pk']: (entry['queue_name'], entry['cancellation'])
+            for entry in self.migration.journal['schedules']
+        }
+        # A recorded name still wins over the mapping.
+        self.assertEqual(outcomes, {legacy.pk: ('high', 'cancelled'), named.pk: ('default', 'cancelled')})
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+
     def test_a_model_instance_in_the_input_is_captured_as_its_key(self):
         site = Site.objects.create(name='HQ', slug='hq')
         self.legacy_job(task_kwargs={'data': {'site': site, 'others': [site]}, 'commit': True})

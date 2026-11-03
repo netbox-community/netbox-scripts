@@ -42,7 +42,9 @@ ROWS = (
         'netbox.api.viewsets.mixins:discard_events_on_rollback',
     ),
     (
-        'netbox.api.viewsets.NetBoxModelViewSet.perform_update and perform_destroy',
+        'netbox.api.viewsets.NetBoxModelViewSet.update, perform_bulk_update, perform_update and perform_destroy',
+        'netbox.api.viewsets:NetBoxModelViewSet.update',
+        'netbox.api.viewsets:NetBoxModelViewSet.perform_bulk_update',
         'netbox.api.viewsets:NetBoxModelViewSet.perform_update',
         'netbox.api.viewsets:NetBoxModelViewSet.perform_destroy',
     ),

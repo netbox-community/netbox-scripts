@@ -282,7 +282,16 @@ def _references_running():
     return MigrationReferencesJob.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
 
 
-def _queueless_schedules(recreated, names):
+def _schedule_label(entry, recreated):
+    """Identify a captured schedule and its recorded replacement by Job ID."""
+    if (recreated_pk := recreated.get(str(entry['job_pk']))) is not None:
+        return _('"{name}" (Job {pk}, recreated as Job {recreated_pk})').format(
+            name=entry['name'], pk=entry['job_pk'], recreated_pk=recreated_pk
+        )
+    return _('"{name}" (Job {pk})').format(name=entry['name'], pk=entry['job_pk'])
+
+
+def _queueless_schedules(recreated, labels):
     """
     Return which recreated schedules are waiting with no queue task behind them.
 
@@ -311,7 +320,7 @@ def _queueless_schedules(recreated, names):
         try:
             RQJob.fetch(str(job.job_id), connection=django_rq.get_queue(name).connection)
         except NoSuchJobError:
-            lost.append(names.get(job.pk) or str(job.pk))
+            lost.append(labels.get(job.pk) or str(job.pk))
         except (RedisError, KeyError):
             # Distinct from an absent task on purpose. Treating an outage as a loss would name
             # every migrated schedule as gone and send the operator to recreate all of them.
@@ -351,7 +360,11 @@ def _verify_jobs(run):
     ]
     # Read from the queue rather than the row, because the row is exactly what survives. The marker
     # is written inside the enqueue transaction and the task is handed over in a commit hook.
-    by_pk = {recreated[str(entry['job_pk'])]: entry['name'] for entry in captured if str(entry['job_pk']) in recreated}
+    by_pk = {
+        recreated[str(entry['job_pk'])]: _schedule_label(entry, recreated)
+        for entry in captured
+        if str(entry['job_pk']) in recreated
+    }
     lost, queue_read = ([], False) if _references_running() else _queueless_schedules(recreated, by_pk)
     if lost:
         return _check(
@@ -387,7 +400,9 @@ def _verify_jobs(run):
                 'No Job names the built-in feature. {count} of the {total} captured schedule(s) were not '
                 'recreated, or were recreated into a job that failed: {names}.'
             ).format(
-                count=len(missing), total=len(captured), names=', '.join(sorted(entry['name'] for entry in missing))
+                count=len(missing),
+                total=len(captured),
+                names=', '.join(sorted(_schedule_label(entry, recreated) for entry in missing)),
             ),
             source=_('the journal and the live jobs'),
         )

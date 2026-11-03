@@ -303,15 +303,21 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
                 self.assertIn('1 finished Job(s)', str(check['message']))
 
     def test_a_captured_schedule_with_no_live_counterpart_warns(self):
+        # NetBox names every UI and REST run "Run Script", so only the Job IDs tell these apart.
         run = self.repoint_all()
-        run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
-        run.journal['recreated_schedules'] = {}
+        done = Job.objects.create(name='Run Script', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_COMPLETED)
+        run.journal['schedules'] = [{'job_pk': pk, 'name': 'Run Script'} for pk in (4243, 4241, 4242)]
+        run.journal['recreated_schedules'] = {'4241': done.pk}
         run.save(update_fields=('journal',))
 
         check = self.named(verification.verify(run), verification.JOBS)
 
         self.assertEqual(check['level'], plan.WARNING)
-        self.assertIn('nightly deploy', str(check['message']))
+        self.assertIn(
+            '2 of the 3 captured schedule(s) were not recreated, or were recreated into a job that failed: '
+            '"Run Script" (Job 4242), "Run Script" (Job 4243).',
+            str(check['message']),
+        )
 
     def test_a_recreated_schedule_with_a_live_job_reads_ready(self):
         run = self.repoint_all()
@@ -336,12 +342,20 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
     def test_a_recreated_schedule_the_queue_never_received_blocks(self):
         # The journal claims it and the row survives, so only the queue can say it will never fire.
         run = self.repoint_all()
-        self.waiting_schedule(run)
+        healthy = Job.objects.create(name='Run Script', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_SCHEDULED)
+        lost = Job.objects.create(name='Run Script', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_SCHEDULED)
+        self.rq_task(healthy)
+        run.journal['schedules'] = [{'job_pk': pk, 'name': 'Run Script'} for pk in (4242, 4243)]
+        run.journal['recreated_schedules'] = {'4242': healthy.pk, '4243': lost.pk}
+        run.save(update_fields=('journal',))
 
         check = self.named(verification.verify(run), verification.JOBS)
 
         self.assertEqual(check['level'], plan.BLOCKING)
-        self.assertIn('nightly deploy', str(check['message']))
+        self.assertIn(
+            f'so they will never run: "Run Script" (Job 4243, recreated as Job {lost.pk}). Recreate each one by hand.',
+            str(check['message']),
+        )
         self.assertIn('queue', str(check['source']))
 
     def test_a_recurrence_that_already_fired_is_not_reported(self):
@@ -401,15 +415,22 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
 
     def test_a_recreated_schedule_whose_job_failed_warns(self):
         run = self.repoint_all()
-        job = Job.objects.create(name='nightly deploy', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_FAILED)
-        run.journal['schedules'] = [{'job_pk': 4242, 'name': 'nightly deploy'}]
-        run.journal['recreated_schedules'] = {'4242': job.pk}
+        done = Job.objects.create(name='Run Script', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_COMPLETED)
+        errored = Job.objects.create(name='Run Script', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_ERRORED)
+        failed = Job.objects.create(name='Run Script', job_id=uuid.uuid4(), status=JobStatusChoices.STATUS_FAILED)
+        run.journal['schedules'] = [{'job_pk': pk, 'name': 'Run Script'} for pk in (4244, 4243, 4242)]
+        run.journal['recreated_schedules'] = {'4244': done.pk, '4243': errored.pk, '4242': failed.pk}
         run.save(update_fields=('journal',))
 
         check = self.named(verification.verify(run), verification.JOBS)
 
         self.assertEqual(check['level'], plan.WARNING)
-        self.assertIn('nightly deploy', str(check['message']))
+        self.assertIn(
+            '2 of the 3 captured schedule(s) were not recreated, or were recreated into a job that failed: '
+            f'"Run Script" (Job 4242, recreated as Job {failed.pk}), '
+            f'"Run Script" (Job 4243, recreated as Job {errored.pk}).',
+            str(check['message']),
+        )
 
 
 class VerificationAfterCleanupTestCase(VerificationMixin, TestCase):

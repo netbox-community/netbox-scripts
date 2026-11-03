@@ -558,6 +558,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         entries = {entry['job_pk']: entry for entry in self.migration.journal['schedules']}
         # Never seen running, so it stays on the replay side.
         entries[interrupted.pk]['cancellation'] = 'cancelling'
+        self.migration.save(update_fields=('journal',))
         Job.objects.filter(pk__in=[interrupted.pk, unrecorded.pk]).delete()
         Job.objects.filter(pk=taken.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
         cutover._close(self.migration)
@@ -633,6 +634,29 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(counts['schedules'], 0)
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'running')
         self.assertFalse(Notification.objects.filter(user=owner, object_id=job.pk).exists())
+
+    def test_a_run_deleted_while_it_is_cancelled_is_recorded_vanished(self):
+        self.legacy_job(task_kwargs={})
+        self.legacy_job(task_kwargs={})
+        deleted = []
+        original = cutover._fail_closed
+
+        def delete_first(job, error):
+            if not deleted:
+                deleted.append(job.pk)
+                # Another request's delete, landing between the cancellation's read and its update.
+                Job.objects.get(pk=job.pk).delete()
+            return original(job, error)
+
+        with mock.patch.object(cutover, '_fail_closed', delete_first):
+            counts = cutover.enter_cutover(self.migration)
+
+        reloaded = MigrationRun.objects.get(pk=self.migration.pk)
+        outcomes = {entry['job_pk']: entry['cancellation'] for entry in reloaded.journal['schedules']}
+        self.assertEqual(outcomes.pop(deleted[0]), 'vanished')
+        self.assertEqual(list(outcomes.values()), ['cancelled'])
+        self.assertEqual(counts['schedules'], 1)
+        self.assertTrue(reloaded.step_done(cutover.STEP))
 
     def test_the_owner_of_a_cancelled_run_is_notified(self):
         owner = get_user_model().objects.create_user(username='owner')

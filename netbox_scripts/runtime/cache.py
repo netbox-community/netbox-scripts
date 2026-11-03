@@ -230,7 +230,16 @@ def _ensure_private_root(root):
     # Every level this function creates is created private. mkdir(parents=True) applies its mode
     # to the leaf only, so an intermediate directory left at the process umask would be group
     # writable, and the check below would then reject a root this code had just made itself.
-    missing = [directory for directory in (root, *root.parents) if not directory.exists()]
+    missing = []
+    for directory in (root, *root.parents):
+        try:
+            directory.stat()
+        except FileNotFoundError:
+            missing.append(directory)
+        except OSError as error:
+            raise LocalCacheError(
+                _('Unable to inspect the cache root "{directory}": {error}').format(directory=directory, error=error)
+            ) from error
     for directory in reversed(missing):
         try:
             directory.mkdir(mode=0o700)  # cloud-compat: ok, the runtime cache tier

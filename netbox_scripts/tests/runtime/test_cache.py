@@ -145,6 +145,28 @@ class CacheRootTestCase(TestCase):
             cache._ensure_private_root(base / 'runtime-cache')
         self.assertIn(f'chmod 700 {base}', str(ctx.exception))
 
+    @unittest.skipIf(os.getuid() == 0, 'root ignores directory permissions')
+    def test_an_inaccessible_root_is_reported_as_a_cache_error(self):
+        base = Path(tempfile.mkdtemp(prefix='nbcs-inaccessible-root-'))
+        self.addCleanup(shutil.rmtree, base, True)
+        root = base / 'netbox-scripts' / 'runtime-cache'
+        root.mkdir(parents=True)
+        root.parent.chmod(0o000)
+        self.addCleanup(root.parent.chmod, 0o700)
+        with self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(root)
+        self.assertIn(f'Unable to inspect the cache root "{root}"', str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, PermissionError)
+
+    def test_a_file_in_place_of_an_ancestor_is_reported_as_a_cache_error(self):
+        base = Path(tempfile.mkdtemp(prefix='nbcs-file-ancestor-'))
+        self.addCleanup(shutil.rmtree, base, True)
+        (base / 'netbox-scripts').write_bytes(b'')
+        root = base / 'netbox-scripts' / 'runtime-cache'
+        with self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(root)
+        self.assertIn(f'"{root}"', str(ctx.exception))
+
 
 class VerifyLocalTreeTestCase(TestCase):
     """Cover judging a local tree against a revision manifest."""

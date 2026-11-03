@@ -238,7 +238,7 @@ class ProjectReconciliationJobTestCase(TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.INVALID)
-        self.assertIn('problem(s) recorded', str(job.log_entries))
+        self.assertIn('The synchronized source cannot be stored, 1 problem(s) recorded.', str(job.log_entries))
         self.validated.assert_not_called()
 
     def test_a_recurring_source_reconciles_after_each_run(self):
@@ -390,6 +390,22 @@ class ReconciliationPolicyTestCase(TestCase):
         self.assertIn('has not changed', str(job.log_entries))
         self.assertEqual(self.project.active_revision_id, active.pk)
         self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+
+    def test_an_unchanged_source_reports_its_existing_validation_failure(self):
+        ScriptFile.objects.create(project=self.project, source_path='broken.py', enabled=True)
+        data_file(self.source, 'scripts/broken.py', b'def broken(\n')
+        invalid = self.reconcile()
+        self.assertEqual(invalid.status, RevisionStatusChoices.INVALID)
+        validations = Job.objects.filter(name=RevisionValidationJob.name).count()
+
+        job = self.run_reconciliation()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertIn(
+            f'Revision {invalid.digest[:12]} already failed validation, 1 problem(s) recorded.', str(job.log_entries)
+        )
+        self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)
+        self.assertEqual(Job.objects.filter(name=RevisionValidationJob.name).count(), validations)
 
     def test_reselecting_a_file_activates_the_revision_whose_write_failed(self):
         ScriptFile.objects.create(project=self.project, source_path='audit.py', enabled=True)

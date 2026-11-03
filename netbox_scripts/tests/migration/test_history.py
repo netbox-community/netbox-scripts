@@ -6,7 +6,7 @@ from unittest.mock import patch
 import django_rq
 import netaddr
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rq.job import Job as RQJob
 
@@ -525,6 +525,20 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
         self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+
+    @override_settings(QUEUE_MAPPINGS={'script': 'high'})
+    def test_a_schedule_saved_without_a_queue_name_is_recreated_on_its_captured_queue(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        Job.objects.filter(pk=job.pk).update(queue_name='')
+        self.cross_over()
+        references.repoint_job_history(self.migration)
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        job.refresh_from_db()
+        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(self.new_jobs().exclude(pk=job.pk).get().queue_name, 'high')
 
     def test_a_resumed_pass_still_holds_back_a_schedule_queued_again(self):
         user = self.owned_schedule()

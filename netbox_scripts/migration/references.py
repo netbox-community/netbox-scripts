@@ -280,7 +280,8 @@ def recreate_schedules(run):
             # By key alone: the history pass may already have moved this row to the Script.
             job = Job.objects.filter(pk=entry['job_pk']).first()
             if job is not None:
-                connection = django_rq.get_queue(job.queue_name).connection
+                # Use the captured queue, since history may already have changed the Job's object type.
+                connection = django_rq.get_queue(entry['queue_name']).connection
                 # A worker's start saves started, and a claim or a scheduler's re-queue writes the task back.
                 if job.started is not None or RQJob.exists(str(job.job_id), connection=connection):
                     counts['skipped'] += 1

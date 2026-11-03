@@ -524,8 +524,13 @@ def _cancel_schedules(run, captured):
                 run.record_journal(schedules=captured)
                 cancelled += 1
                 continue
-            # A worker started it after the read above.
-            job.refresh_from_db()
+            # A worker started it after the read above, or its row was deleted.
+            try:
+                job.refresh_from_db()
+            except Job.DoesNotExist:
+                # The outcome a retry reaches through the read at the top.
+                entry['cancellation'] = 'vanished'
+                continue
         # Never terminated underneath the worker that owns it, so the outcome is recorded instead.
         if job.status == JobStatusChoices.STATUS_RUNNING:
             entry['cancellation'] = 'running'

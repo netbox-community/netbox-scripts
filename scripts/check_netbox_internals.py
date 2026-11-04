@@ -36,6 +36,7 @@ ROWS = (
     ('django.db.router.db_for_write on a change-logged core model', 'dcim.models:Device'),
     ('utilities.exceptions.AbortScript', 'utilities.exceptions:AbortScript'),
     ('utilities.request.copy_safe_request', 'utilities.request:copy_safe_request'),
+    ('utilities.querydict.normalize_querydict', 'utilities.querydict:normalize_querydict'),
     (
         'netbox.api.viewsets.mixins.discard_events_on_rollback',
         'netbox.api.viewsets.mixins:discard_events_on_rollback',

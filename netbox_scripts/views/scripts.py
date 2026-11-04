@@ -14,6 +14,7 @@ from netbox.ui import layout
 from netbox.ui.panels import CommentsPanel
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
+from utilities.querydict import normalize_querydict
 from utilities.request import copy_safe_request
 from utilities.views import ViewTab, register_model_view
 
@@ -145,7 +146,7 @@ class NetBoxScriptRunView(generic.ObjectView):
         """Render the run form while its revision namespace remains loaded."""
         script = self.get_object(**kwargs)
         with self._load(script) as (instance, reason):
-            form = self._build_form(script, instance, initial=request.GET.dict()) if instance else None
+            form = self._build_form(script, instance, initial=normalize_querydict(request.GET)) if instance else None
             return self._render(request, script, form, instance, reason)
 
     def post(self, request, **kwargs):

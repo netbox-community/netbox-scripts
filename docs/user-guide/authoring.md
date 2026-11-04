@@ -190,8 +190,18 @@ parameter. This link opens the first example's form with prefix 34 selected:
 https://netbox.example.com/plugins/netbox-scripts/scripts/12/run/?prefix=34
 ```
 
-Replace `12` with the Script's ID and `34` with the prefix's ID. The link only
-fills in the form. The Script runs once the form is submitted.
+Replace `12` with the Script's ID and `34` with the prefix's ID.
+
+For `MultiObjectVar` and `MultiChoiceVar`, repeat the parameter for each value.
+This link preselects site 7 and interfaces 1 and 2 in the `InspectInterfaces`
+example:
+
+```text
+https://netbox.example.com/plugins/netbox-scripts/scripts/13/run/?site=7&interfaces=1&interfaces=2
+```
+
+Replace the Script and object IDs with your own. These links only fill in the
+form. The Script runs once the form is submitted.
 
 ## Meta attributes
 

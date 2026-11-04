@@ -797,6 +797,24 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertIn('stored source', response.content.decode())
         self.cleanup.assert_not_called()
 
+    def test_the_cleanup_confirmation_separates_retained_modules_from_blockers(self):
+        self.grant('add', 'migrate')
+
+        body = self.client.get(self.url('migration_cleanup')).content.decode()
+
+        for phrase in (
+            'module-level Job history or history for classes no longer published by their source are retained',
+            'unless you have made a separate retention decision',
+            'Migration completes when no blockers remain, even if some modules are retained',
+            'resolve blockers before retrying cleanup',
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, body)
+        # The two false claims the page used to make.
+        for phrase in ('clearing that history and running this again', 'nothing was left behind'):
+            with self.subTest(absent=phrase):
+                self.assertNotIn(phrase, body)
+
     def test_the_cleanup_route_queues_the_job_and_returns_to_the_page(self):
         self.grant('add', 'migrate')
         response = self.client.post(self.url('migration_cleanup'))

@@ -19,7 +19,7 @@ Context:
   </p>
   <p class="text-secondary">
     {% trans "Only the modules this migration mapped are deleted, and the built-in Custom Scripts under them go with the module. Any module the migration did not map is left alone, and Reports are not part of this migration at all." %}
-    {% trans "A module whose Job history has not moved onto a Script is left in place and named in the job log, so clearing that history and running this again is how the last of them are retired." %}
-    {% trans "The migration is recorded as complete once nothing was left behind." %}
+    {% trans "Modules with module-level Job history or history for classes no longer published by their source are retained and listed in the Job log. Keep that history unless you have made a separate retention decision." %}
+    {% trans "Migration completes when no blockers remain, even if some modules are retained. Follow the Job log's guidance to resolve blockers before retrying cleanup." %}
   </p>
 {% endblock message %}

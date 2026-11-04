@@ -51,6 +51,17 @@ TAKES_A_NAME = (
     b"        return data['label']\n"
 )
 
+TAKES_MULTIPLE_VALUES = (
+    b'from netbox_scripts.scripts import MultiChoiceVar, MultiObjectVar, Script, StringVar\n'
+    b'from extras.models import Tag\n\n\n'
+    b'class PickValues(Script):\n'
+    b'    tags = MultiObjectVar(model=Tag, required=False)\n'
+    b"    protocols = MultiChoiceVar(choices=(('ssh', 'SSH'), ('telnet', 'Telnet')), default=['ssh'])\n"
+    b"    label = StringVar(default='Default label')\n\n"
+    b'    def run(self, data, commit):\n'
+    b'        pass\n'
+)
+
 # A custom field whose cleaning raises an OSError, as one opening a missing file would.
 CHECKS_A_PATH = (
     b'from django import forms\n\n'
@@ -116,6 +127,42 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         content = response.content.decode()
         self.assertIn('name="label"', content)
         self.assertIn('name="_commit"', content)
+
+    def test_query_parameters_prefill_single_and_multiple_values(self):
+        self.publish(TAKES_MULTIPLE_VALUES)
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='PickValues')
+        self.grant('view', 'run')
+        self.grant('view', model=Tag)
+        tags = [Tag.objects.create(name=f'Tag {number}', slug=f'tag-{number}') for number in (1, 2)]
+
+        for selected_tags, protocols in ((tags[1:], ['telnet']), (tags, ['ssh', 'telnet'])):
+            with self.subTest(count=len(selected_tags)):
+                response = self.client.get(
+                    self.url(),
+                    {'tags': [tag.pk for tag in selected_tags], 'protocols': protocols, 'label': 'From the URL'},
+                )
+
+                self.assertHttpStatus(response, 200)
+                form = response.context['form']
+                self.assertFalse(form.is_bound)
+                for name, expected in (('tags', [str(tag.pk) for tag in selected_tags]), ('protocols', protocols)):
+                    with self.subTest(field=name):
+                        selected = [str(option.data['value']) for option in form[name] if option.data['selected']]
+                        self.assertEqual(selected, expected)
+                self.assertEqual(form['label'].value(), 'From the URL')
+
+    def test_omitted_query_parameters_preserve_variable_defaults(self):
+        self.publish(TAKES_MULTIPLE_VALUES)
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='PickValues')
+        self.grant('view', 'run')
+
+        response = self.client.get(self.url())
+
+        self.assertHttpStatus(response, 200)
+        form = response.context['form']
+        self.assertFalse(form.is_bound)
+        self.assertEqual(form['protocols'].value(), ['ssh'])
+        self.assertEqual(form['label'].value(), 'Default label')
 
     def test_no_template_syntax_reaches_the_browser(self):
         # A {# #} comment is single-line only in Django, so a two-line one renders as text.

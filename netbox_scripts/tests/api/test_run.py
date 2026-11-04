@@ -9,7 +9,7 @@ from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 
-from core.choices import JobStatusChoices
+from core.choices import JobNotificationChoices, JobStatusChoices
 from core.models import Job, ObjectType
 from netbox_scripts.activation import activate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
@@ -85,6 +85,24 @@ CLEANS_A_FILE = (
     b"        return repr(data['rows'])\n"
 )
 
+# Variables named after the five run parameters, told apart from them only by arriving as file parts.
+NAMED_LIKE_PARAMETERS = (
+    b'from netbox_scripts.scripts import FileVar, Script, StringVar\n\n\n'
+    b'class TakeNamedFiles(Script):\n'
+    b'    class Meta:\n'
+    b"        name = 'Take Named Files'\n\n"
+    b"    label = StringVar(label='Label', required=False)\n"
+    b"    data = FileVar(label='Data', required=False)\n"
+    b"    commit = FileVar(label='Commit', required=False)\n"
+    b"    schedule_at = FileVar(label='Schedule at', required=False)\n"
+    b"    interval = FileVar(label='Interval', required=False)\n"
+    b"    notifications = FileVar(label='Notifications', required=False)\n\n"
+    b'    def run(self, data, commit):\n'
+    b"        names = ('data', 'commit', 'schedule_at', 'interval', 'notifications')\n"
+    b'        files = [data[name].read().decode() for name in names if data[name]]\n'
+    b"        return ' '.join([data['label'], *files]).strip()\n"
+)
+
 # The same script under a different comment, so it stages to a different digest.
 TAKES_A_NAME_AGAIN = b'# a second revision of the same script\n' + TAKES_A_NAME
 
@@ -117,12 +135,16 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         activate_revision(revision)
         return NetBoxScript.objects.get(project=project)
 
-    def post_multipart(self, script, data, parameters=None, **files):
-        """POST one run request as multipart, which is the only way to carry an uploaded file."""
-        body = {'data': json.dumps(data), **(parameters or {}), **files}
+    def post_multipart(self, script, values=None, parameters=None, **files):
+        """POST one run request as multipart, which can carry uploads, with no data part when values is None."""
+        body = {} if values is None else {'data': json.dumps(values)}
+        body.update(parameters or {})
+        for name, upload in files.items():
+            # A list sends both parts under one name, as a client repeating -F does.
+            body[name] = [body[name], upload] if name in body else upload
         return self.client.post(self.run_url(script), body, format='multipart', **self.header)
 
-    def queued_run(self, script, data, **files):
+    def queued_run(self, script, values=None, parameters=None, **files):
         """POST one multipart run and return its Job with the input a worker would unpickle."""
         queued = {}
         original = NetBoxScriptJob.enqueue_run
@@ -133,7 +155,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
             return original(script, **kwargs)
 
         with patch.object(NetBoxScriptJob, 'enqueue_run', record):
-            response = self.post_multipart(script, data, **files)
+            response = self.post_multipart(script, values, parameters, **files)
         self.assertHttpStatus(response, status.HTTP_201_CREATED)
         return Job.objects.get(pk=response.data['id']), queued
 
@@ -351,6 +373,113 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
         self.assertHttpStatus(response, status.HTTP_201_CREATED)
         self.assertEqual(Job.objects.get(pk=response.data['id']).interval, 60)
+
+    def test_file_variables_named_like_run_parameters_reach_the_run(self):
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+        names = ('data', 'commit', 'schedule_at', 'interval', 'notifications')
+        uploads = {name: SimpleUploadedFile(f'{name}.txt', name.encode()) for name in names}
+
+        job, queued = self.queued_run(script, {'label': 'made-over-rest'}, **uploads)
+        NetBoxScriptJob.handle(job, **job.data, **queued)
+        job.refresh_from_db()
+
+        self.assertEqual(job.data['output'], 'made-over-rest data commit schedule_at interval notifications')
+
+    def test_a_file_named_data_can_be_the_only_part(self):
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+
+        job, queued = self.queued_run(script, data=SimpleUploadedFile('data.txt', b'data'))
+        NetBoxScriptJob.handle(job, **job.data, **queued)
+        job.refresh_from_db()
+
+        self.assertEqual(job.data['output'], 'data')
+
+    def test_a_commit_part_beside_a_same_named_upload_sets_the_runs_commit(self):
+        # Both values, so neither an omitted part nor the Script's default could pass for the text part.
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+
+        for text, expected in (('true', True), ('false', False)):
+            with self.subTest(commit=text):
+                upload = SimpleUploadedFile('commit.txt', b'commit')
+                response = self.post_multipart(script, {}, parameters={'commit': text}, commit=upload)
+
+                self.assertHttpStatus(response, status.HTTP_201_CREATED)
+                self.assertIs(Job.objects.get(pk=response.data['id']).data['commit'], expected)
+
+    def test_an_invalid_commit_part_beside_a_same_named_upload_is_refused(self):
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+
+        response = self.post_multipart(
+            script, {}, parameters={'commit': 'maybe'}, commit=SimpleUploadedFile('commit.txt', b'commit')
+        )
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('commit', response.data)
+        self.assertFalse(Job.objects.filter(object_id=script.pk).exists())
+
+    def test_a_schedule_at_part_beside_a_same_named_upload_schedules_the_run(self):
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+        when = local_now() + timedelta(hours=1)
+        parameters = {'schedule_at': when.isoformat()}
+
+        refused = self.post_multipart(
+            script, {}, parameters=parameters, schedule_at=SimpleUploadedFile('schedule_at.txt', b'schedule_at')
+        )
+        self.grant('schedule')
+        job, queued = self.queued_run(
+            script, {}, parameters=parameters, schedule_at=SimpleUploadedFile('schedule_at.txt', b'schedule_at')
+        )
+
+        self.assertHttpStatus(refused, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_SCHEDULED)
+        self.assertEqual(job.scheduled, when)
+        self.assertEqual(queued['data']['schedule_at'].read(), b'schedule_at')
+
+    def test_a_notifications_upload_named_like_a_policy_never_sets_the_policy(self):
+        # DRF's choice field reads an upload through str(), which is its filename.
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+        on_failure = JobNotificationChoices.NOTIFICATION_ON_FAILURE
+
+        omitted = self.post_multipart(script, {}, notifications=SimpleUploadedFile('never', b'notifications'))
+        given = self.post_multipart(
+            script,
+            {},
+            parameters={'notifications': on_failure},
+            notifications=SimpleUploadedFile('never', b'notifications'),
+        )
+
+        self.assertHttpStatus(omitted, status.HTTP_201_CREATED)
+        self.assertHttpStatus(given, status.HTTP_201_CREATED)
+        self.assertEqual(Job.objects.get(pk=omitted.data['id']).notifications, script.notifications_default)
+        self.assertEqual(Job.objects.get(pk=given.data['id']).notifications, on_failure)
+
+    def test_a_data_upload_without_a_file_variable_is_not_read_as_the_values(self):
+        # An undeclared upload, so the run is validated with no values and its required label is missing.
+        self.grant('view', 'run')
+
+        response = self.post_multipart(self.script, data=SimpleUploadedFile('values.json', b'{"label": "x"}'))
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('label', response.data)
+
+    def test_an_interval_part_beside_a_same_named_upload_reaches_the_recurring_refusal(self):
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run', 'schedule')
+        before = Job.objects.count()
+
+        response = self.post_multipart(
+            script, {}, parameters={'interval': 60}, interval=SimpleUploadedFile('interval.txt', b'interval')
+        )
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('not supported for recurring runs', str(response.data))
+        self.assertEqual(Job.objects.count(), before)
 
     def test_the_list_route_still_refuses_post(self):
         # Routing a detail action must not reopen creation on a derived model.

@@ -369,7 +369,9 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
 
     def _enqueue_run(self, request, script, instance, *, queue_name):
         """Validate inputs and enqueue while the script's revision namespace is loaded."""
-        input_serializer = NetBoxScriptRunInputSerializer(data=request.data, context={'script_class': type(instance)})
+        # In request.data an upload wins over a same-named text part, and a FileVar may share a parameter's name.
+        input_data = request.POST if request.FILES else request.data
+        input_serializer = NetBoxScriptRunInputSerializer(data=input_data, context={'script_class': type(instance)})
         input_serializer.is_valid(raise_exception=True)
         parameters = input_serializer.validated_data
         # REST has no form to omit the fields from, so the value is refused instead. Read after

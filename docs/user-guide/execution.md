@@ -139,7 +139,13 @@ curl -sS -X POST \
   https://netbox.example.com/api/plugins/netbox-scripts/scripts/12/run/
 ```
 
-Other top-level fields, such as `commit`, go in their own parts.
+Other top-level fields, such as `commit`, go in their own parts. In a
+multipart request, the endpoint reads top-level fields from text parts
+only, so a `FileVar` may share a top-level field's name. For a `FileVar`
+named `commit`, `-F commit=false -F commit=@notes.txt` disables commit
+and passes the file to the variable. To take `data` from a file, use
+`-F 'data=<values.json'`, which sends its content as a text part rather
+than as a file.
 
 Omitting `commit` or `notifications` uses the Script's effective default: an
 operator override when set, otherwise the class default. See

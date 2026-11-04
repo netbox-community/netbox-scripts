@@ -292,8 +292,8 @@ def _capture(run):
     if 'mapping' not in journal:
         entries['mapping'] = mapping.build_map()
     seen = [entry['job_pk'] for entry in journal.get('schedules', [])]
-    # Extended rather than skipped: a cancelled job is no longer enqueued, so a second capture sees
-    # only the waiting jobs it has not recorded, a recurring run's successor among them.
+    # Extended rather than skipped: a second capture adds only the waiting jobs it has not recorded,
+    # a recurring run's successor among them.
     fresh, warnings = _capture_schedules(exclude=seen)
     if fresh or 'schedules' not in journal:
         entries['schedules'] = journal.get('schedules', []) + fresh
@@ -485,7 +485,7 @@ def _cancel_schedules(run, captured):
     cancelled, warnings = 0, []
     for entry in captured:
         if entry.get('cancellation') == 'cancelled':
-            # Its row is failed now, which reads as executed below, so this stays the first check.
+            # This cutover failed its row, which reads as executed below, so this stays the first check.
             cancelled += 1
             continue
         job = Job.objects.filter(pk=entry['job_pk']).first()

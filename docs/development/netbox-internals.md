@@ -50,7 +50,8 @@ not a list of unsupported APIs alone.
 | `users.models.ObjectPermission.enabled` | `migration/cutover.py` | Disables captured Object Permission grants on the built-in feature. This is not an installation-wide write fence. |
 | `extras.models.EventRule.enabled` | `migration/cutover.py`, `migration/references.py` | Disables captured rules during handover and restores eligible rules after repointing their action and source types. |
 | `core.models.Job.terminate` and `extras.models.Notification.get_object_repr` | `migration/cutover.py` | `terminate()` is mirrored rather than called. Cancellation fails a waiting Job with a conditional update, because `terminate()` saves the whole row and would overwrite a start by a worker that took the task first. The guarded update and the owner notification commit together, refreshing any existing notice with the failure outcome, completion time, display text and unread state. |
-| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` / `.exists` | `migration/cutover.py`, `migration/references.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. The reference pass checks whether the task exists again, which a claim or a scheduler's re-queue writes back. |
+| `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py`, `migration/verification.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. Verify checks that a recorded replacement still waiting has its task. |
+| `core.models.Job.start` | `migration/references.py` | Starts only a pending or scheduled Job with no recorded start, from NetBox v4.7.5. A task fetched before cancellation cannot run the Job the cancellation failed, so the reference pass considers a cancelled run for replay while its Job is still failed with no recorded start. Requeue and Enqueue return a Job to pending and clear its start, which the pass holds back. |
 | `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | Handles a missing RQ task. Capture warns and leaves the Job waiting, which keeps cutover incomplete, because `Job.enqueue()` saves the row before `on_commit()` queues the task. Cancellation treats the task as already deleted. |
 | `netaddr.IPAddress` and `.IPNetwork` | `migration/cutover.py` | The values an IP address or network variable cleans to, recorded as text the replacement's form field parses back. `netaddr` arrives with NetBox, which the plugin relies on without declaring. |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Removes built-in synchronization registrations. These use the **concrete** `ManagedFile` content type, unlike Job and Event Rule references to the proxy. |
@@ -250,11 +251,13 @@ Permission withdrawal does not restrict superusers, permissions supplied through
 through `ModelBackend`. A privileged user can also grant
 `extras.add_scriptmodule` again and upload new built-in Custom Scripts.
 
-Task deletion and failed Job status do not guarantee that a cancelled run
-cannot execute. The scheduler can enqueue a task fetched before deletion, even
-with one worker. The reference pass holds back its replacement when the run
-has started, or its task is queued again, by the time the pass runs. The
-migration journal does not provide exactly-once execution. Keep the
+A failed Job keeps a cancelled run from executing, because `Job.start()`
+starts only a waiting Job with no recorded start. The scheduler can still
+enqueue a task fetched before deletion, even with one worker, and NetBox skips
+it. Requeue and Enqueue return a Job to pending, clear its start and can run it
+again. The reference pass holds back its replacement when the run has started,
+or waits again, by the time the pass runs. The migration journal does not
+provide exactly-once execution. Keep the
 [cancellation and replay limits](../administration/migration.md#cancellation-and-replay-limits) in the
 migration guide as the operational reference.
 

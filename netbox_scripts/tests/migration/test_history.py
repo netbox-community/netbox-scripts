@@ -1,13 +1,16 @@
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from unittest import skipIf
 from unittest.mock import patch
 
 import django_rq
 import netaddr
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from packaging.version import Version
 from rq.job import Job as RQJob
 
 from core.choices import JobStatusChoices
@@ -22,6 +25,9 @@ from netbox_scripts.runtime.exceptions import ScriptFileImportError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from users.models import ObjectPermission
 from utilities.testing.mixins import RQQueueTestMixin
+
+# NetBox claims a Job before running it from v4.7.5, which the stale-task tests rely on.
+BEFORE_JOB_CLAIM = Version(settings.RELEASE.version) < Version('4.7.5')
 
 # A legacy script with a variable, so the journal's primary keys have something to resolve back to.
 VARIABLE_SCRIPT = b"""from extras.scripts import ObjectVar, Script
@@ -225,6 +231,19 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         """Return the messages a completed MigrationReferencesJob logged at one level, joined into one string."""
         reference_job.refresh_from_db()
         return ' '.join(entry['message'] for entry in reference_job.log_entries if entry['level'] == level)
+
+    def built_in_task(self, **schedule):
+        """Queue one built-in run through NetBox, and return its Job and the task copy a worker would hold."""
+        with self.captureOnCommitCallbacks(execute=True):
+            job = Job.enqueue(
+                ScriptJob.handle,
+                instance=self.variable_script,
+                name=self.variable_script.name,
+                data={'site': self.site},
+                commit=False,
+                **schedule,
+            )
+        return job, RQJob.fetch(str(job.job_id), connection=self.queue.connection)
 
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
@@ -475,28 +494,32 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(counts['recreated'], 1)
 
     def test_a_cancelled_run_that_started_on_the_built_in_side_is_not_recreated(self):
-        job = self.legacy_schedule(scheduled=self.future())
+        running = self.legacy_schedule(scheduled=self.future())
+        failed = self.legacy_schedule(scheduled=self.future())
         self.cross_over()
-        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+        Job.objects.filter(pk=running.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+        # A run requeued after the cutover that failed again keeps its start.
+        Job.objects.filter(pk=failed.pk).update(started=timezone.now())
 
         counts, warnings = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 0)
-        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['skipped'], 2)
         self.assertFalse(self.new_jobs().exists())
-        self.assertTrue(any('started or was queued again' in warning for warning in warnings))
+        self.assertEqual(sum('changed after cancellation' in warning for warning in warnings), 2)
 
-    def test_a_cancelled_run_queued_again_on_the_built_in_side_is_not_recreated(self):
+    def test_a_cancelled_run_whose_task_reappears_is_still_recreated(self):
         job = self.legacy_schedule(scheduled=self.future())
         self.cross_over()
+        # NetBox will not start the failed row, so the reappearing task holds nothing back.
         RQJob.create(
             func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
         ).save()
 
         counts, _warnings = references.recreate_schedules(self.migration)
 
-        self.assertEqual(counts['recreated'], 0)
-        self.assertFalse(self.new_jobs().exists())
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(self.new_jobs().count(), 1)
 
     def test_a_cancelled_run_that_started_is_held_back_once_history_has_moved(self):
         job = self.legacy_schedule(scheduled=self.future())
@@ -509,22 +532,42 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
-        self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+        self.assertIn('changed after cancellation', self.log_messages(reference_job, 'warning'))
 
-    def test_a_cancelled_run_queued_again_is_held_back_once_history_has_moved(self):
-        job = self.legacy_schedule(scheduled=self.future())
+    @skipIf(BEFORE_JOB_CLAIM, 'NetBox before v4.7.5 runs a stale task')
+    def test_a_stale_task_neither_runs_nor_recurs_once_its_run_is_recreated(self):
+        # A copy of the task held across its deletion by the cutover, then queued again.
+        job, stale = self.built_in_task(schedule_at=self.future(), interval=60)
         self.cross_over()
-        RQJob.create(
-            func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
-        ).save()
+        self.queue.enqueue_job(stale)
+        MigrationReferencesJob.enqueue(immediate=True)
+        cancelled = Job.objects.filter(pk=job.pk).values().get()
+        count = Job.objects.count()
 
-        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+        with patch.object(ScriptJob, 'run') as run, self.assertLogs('netbox.jobs', 'WARNING'):
+            stale.func(*stale.args, **stale.kwargs)
 
-        job.refresh_from_db()
-        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
-        self.migration.refresh_from_db()
-        self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
-        self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+        run.assert_not_called()
+        self.assertEqual(Job.objects.filter(pk=job.pk).values().get(), cancelled)
+        self.assertEqual(Job.objects.count(), count)
+        self.assertEqual(self.new_jobs().exclude(pk=job.pk).count(), 1)
+
+    @skipIf(BEFORE_JOB_CLAIM, 'NetBox before v4.7.5 runs a stale task')
+    def test_a_stale_task_cannot_restore_a_cancelled_run_whose_job_was_deleted(self):
+        job, stale = self.built_in_task(schedule_at=self.future())
+        self.cross_over()
+        # Deleted on the Jobs page, so the pass recreates the run.
+        Job.objects.get(pk=job.pk).delete()
+        MigrationReferencesJob.enqueue(immediate=True)
+        count = Job.objects.count()
+
+        with patch.object(ScriptJob, 'run') as run, self.assertLogs('netbox.jobs', 'WARNING'):
+            stale.func(*stale.args, **stale.kwargs)
+
+        run.assert_not_called()
+        self.assertFalse(Job.objects.filter(pk=job.pk).exists())
+        self.assertEqual(Job.objects.count(), count)
+        self.assertEqual(self.new_jobs().count(), 1)
 
     @override_settings(QUEUE_MAPPINGS={'script': 'high'})
     def test_a_schedule_saved_without_a_queue_name_is_recreated_on_its_captured_queue(self):
@@ -540,7 +583,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(self.new_jobs().exclude(pk=job.pk).get().queue_name, 'high')
 
-    def test_a_resumed_pass_still_holds_back_a_schedule_queued_again(self):
+    def test_a_resumed_pass_still_holds_back_a_requeued_schedule(self):
         user = self.owned_schedule()
         job = Job.objects.get(user=user)
         self.cross_over()
@@ -551,9 +594,8 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
 
         # The first pass moved this row, so swapping the two passes would not rescue a lookup by type.
-        RQJob.create(
-            func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
-        ).save()
+        # What Requeue and Enqueue leave: waiting again, with no start.
+        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_PENDING, completed=None, error='')
         self.grant_run(user)
         reference_job = MigrationReferencesJob.enqueue(immediate=True)
 
@@ -561,7 +603,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
         self.migration.refresh_from_db()
         self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
-        self.assertIn('started or was queued again', self.log_messages(reference_job, 'warning'))
+        self.assertIn('changed after cancellation', self.log_messages(reference_job, 'warning'))
 
     def test_a_cancelled_unstarted_schedule_is_recreated_exactly_once(self):
         job = self.legacy_schedule(scheduled=self.future())

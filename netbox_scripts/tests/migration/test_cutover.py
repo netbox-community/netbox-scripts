@@ -877,15 +877,15 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(self.migration.recorded_counts(cutover.STEP)['auto_sync'], 1)
 
     def test_a_cancelled_run_that_starts_anyway_holds_the_step_and_is_named(self):
-        # A stale copy of its task starting after the cancellation, which its journal entry cannot show.
+        # A requeued run starting after the cancellation, which its journal entry cannot show.
         job = self.legacy_job(task_kwargs={})
         drop_auto_sync = cutover._drop_auto_sync
 
-        def start_a_stale_copy(run):
+        def start_a_requeued_run(run):
             Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
             return drop_auto_sync(run)
 
-        with mock.patch.object(cutover, '_drop_auto_sync', start_a_stale_copy):
+        with mock.patch.object(cutover, '_drop_auto_sync', start_a_requeued_run):
             cutover.enter_cutover(self.migration)
 
         self.migration.refresh_from_db()

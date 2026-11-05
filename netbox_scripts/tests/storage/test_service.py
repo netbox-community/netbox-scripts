@@ -26,6 +26,7 @@ GOOD_FILES = {'hello.py': b'print("hi")\n', 'pkg/mod.py': b'VALUE = 1\n'}
 BAD_FILES = {'hello.py': b'print("hi")\n', '../escape.py': b'nope\n'}
 CONFLICT_FILES = {'pkg': b'plain file\n', 'pkg/module.py': b'child module\n'}
 WRITE_TARGET = 'netbox_scripts.storage.service.store.write_revision'
+STORAGE_FAILED_ERRORS = [{'path': None, 'code': 'storage_write_failed', 'message': 'Unable to store the revision.'}]
 
 
 def promote_without_synchronizing(**kwargs):
@@ -200,7 +201,7 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         revision = self.project.revisions.get()
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
         self.assertIsNotNone(revision.digest)
-        self.assertEqual(revision.validation_errors[0]['code'], 'storage_write_failed')
+        self.assertEqual(revision.validation_errors, STORAGE_FAILED_ERRORS)
 
     def test_stage_revision_records_a_tree_that_failed_verification(self):
         # This is where a verification failure has to arrive for an operator to act on. The
@@ -209,14 +210,14 @@ class StageRevisionTestCase(StorageServiceMixin, TestCase):
         corrupt = RevisionCorruptError('The stored revision does not match its manifest.', ['size_mismatch:hello.py'])
         with (
             mock.patch.object(store, '_verify_tree', side_effect=corrupt),
-            self.assertRaises(StorageError),
+            self.assertRaises(RevisionCorruptError) as ctx,
         ):
             service.stage_revision(self.project, GOOD_FILES)
 
+        self.assertIs(ctx.exception, corrupt)
         revision = self.project.revisions.get()
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
-        self.assertEqual(revision.validation_errors[0]['code'], 'storage_write_failed')
-        self.assertIn('does not match its manifest', revision.validation_errors[0]['message'])
+        self.assertEqual(revision.validation_errors, STORAGE_FAILED_ERRORS)
         self.assertEqual(self.revision_keys(revision.digest), set(GOOD_FILES))
 
     def test_stage_revision_records_storage_failed_when_the_backend_cannot_answer_exists(self):

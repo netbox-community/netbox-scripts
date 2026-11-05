@@ -179,10 +179,11 @@ class ScriptProjectUploadViewTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_failed_store_leaves_the_operator_on_the_project_rather_than_a_500(self):
         self.grant_both()
+        error = StorageError('the backend is unreachable')
         # The real write, so the revision genuinely reaches STORAGE_FAILED.
-        with mock.patch(
-            'netbox_scripts.storage.service.store.write_revision',
-            side_effect=StorageError('the backend is unreachable'),
+        with (
+            mock.patch('netbox_scripts.storage.service.store.write_revision', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.forms', 'ERROR') as logged,
         ):
             response = self.post()
 
@@ -191,6 +192,7 @@ class ScriptProjectUploadViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertEqual(response.url, project.get_absolute_url())
         self.assertEqual(project.revisions.get().status, RevisionStatusChoices.STORAGE_FAILED)
         self.assertEqual(project.source_state, 'New source could not be stored.')
+        self.assertIs(logged.records[0].exc_info[1], error)
 
     def test_the_project_permission_alone_is_not_enough(self):
         # The upload declares a script file, so it needs the Script File permission too.
@@ -403,11 +405,13 @@ class ScriptProjectAddScriptViewTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_failed_store_leaves_the_operator_on_the_project_rather_than_a_500(self):
         self.grant_both()
-        with mock.patch(
-            'netbox_scripts.storage.service.store.write_revision',
-            side_effect=StorageError('the backend is unreachable'),
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/audit.py')
+        with (
+            mock.patch('netbox_scripts.storage.service.store.write_revision', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.forms', 'ERROR') as logged,
         ):
             response = self.post(upload_file=self.upload())
 
         self.assertHttpStatus(response, 302)
         self.assertEqual(self.project.revisions.latest('pk').status, RevisionStatusChoices.STORAGE_FAILED)
+        self.assertIs(logged.records[0].exc_info[1], error)

@@ -218,13 +218,15 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
         except ValidationError as error:
             raise APIValidationError({'file': error.messages}) from error
         except ImproperlyConfigured as error:
-            # Raised by check_upload_preconditions, before anything is written.
-            raise APIValidationError({'detail': str(error)}) from error
-        except (StorageError, OSError) as error:
-            # The pair the run action already maps through LOAD_FAILURES, for the same reason.
+            logger.exception(
+                'Could not accept an upload for Script Project %s due to a configuration error.', project.pk
+            )
             raise APIValidationError(
-                {'detail': _('The upload could not be stored: {error}').format(error=error)}
+                {'detail': _('The upload could not be accepted because of a configuration error.')}
             ) from error
+        except (StorageError, OSError) as error:
+            logger.exception('Could not store an upload for Script Project %s.', project.pk)
+            raise APIValidationError({'detail': _('The upload could not be stored.')}) from error
 
         return Response(
             ScriptProjectRevisionSerializer(staged.revision, context={'request': request}).data,

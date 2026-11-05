@@ -2,7 +2,7 @@ import logging
 from contextlib import ExitStack, contextmanager
 from pathlib import PurePosixPath
 
-from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.exceptions import FieldError, ImproperlyConfigured, ValidationError
 from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import router, transaction
 from django.utils.functional import cached_property
@@ -79,38 +79,47 @@ class UploadSourcePermissions(TokenPermissions):
 
 
 class ProjectLockOrderMixin:
-    """Hold the project lock across this viewset's update and delete, before core locks the row."""
+    """Take the owning Projects' locks before NetBox's row locks. Updates hold them past the commit or rollback."""
 
-    # Path from this viewset's model to the owning project's storage key.
-    storage_key_path = 'storage_key'
+    # The field of this viewset's model that holds its Project's primary key.
+    project_id_field = 'pk'
 
-    def perform_update(self, serializer):
-        """Update under the project lock."""
-        with self._project_lock(serializer.instance):
-            super().perform_update(serializer)
+    def update(self, request, *args, **kwargs):
+        """Lock the Project before NetBox locks and reads the row."""
+        manager = self.queryset.model._default_manager
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        try:
+            queryset = manager.filter(**{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        except (KeyError, FieldError, TypeError, ValueError, ValidationError):
+            # Locks nothing, and NetBox answers the lookup itself.
+            queryset = manager.none()
+        with self._project_locks(queryset):
+            return super().update(request, *args, **kwargs)
+
+    def perform_bulk_update(self, objects, update_data, partial):
+        """Lock every Project in the batch before NetBox opens its transaction."""
+        with self._project_locks(self.queryset.model._default_manager.filter(pk__in=update_data.keys())):
+            return super().perform_bulk_update(objects, update_data, partial)
 
     def perform_destroy(self, instance):
         """Delete under the project lock."""
-        with self._project_lock(instance):
+        with self._project_locks(self.queryset.model._default_manager.filter(pk=instance.pk)):
             super().perform_destroy(instance)
 
     @contextmanager
-    def _project_lock(self, instance):
-        """Hold the lock for the project owning one row."""
-        # From the row rather than the instance, which the serializer has already assigned the
-        # submitted values onto by the time this runs.
-        storage_key = (
-            self.queryset.model.objects.filter(pk=instance.pk).values_list(self.storage_key_path, flat=True).first()
+    def _project_locks(self, queryset):
+        """Hold the locks of the Projects owning these rows, on the connection NetBox writes through."""
+        using = router.db_for_write(queryset.model)
+        storage_keys = (
+            ScriptProject.objects.using(using)
+            .filter(pk__in=queryset.values(self.project_id_field))
+            # Name order, as bulk edit and delete take these locks. The pk makes it total.
+            .order_by('name', 'pk')
+            .values_list('storage_key', flat=True)
         )
-        if storage_key is None:
-            yield
-            return
-        # The alias the save writes to, so the lock and the write share one connection.
-        using = instance._state.db or router.db_for_write(type(instance), instance=instance)
-        # Core locks the row before serializer.save() on an If-Match request and the model save
-        # then asks for this, which reverses activation's order. Taken for every write, not only
-        # the conditional one, so there is one order rather than one per request shape.
-        with project_lock(storage_key, using=using):
+        with ExitStack() as stack:
+            for storage_key in storage_keys:
+                stack.enter_context(project_lock(storage_key, using=using))
             yield
 
 
@@ -125,7 +134,7 @@ class ScriptFileViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
     queryset = ScriptFile.objects.select_related('project', 'last_discovered_revision')
     serializer_class = ScriptFileSerializer
     filterset_class = ScriptFileFilterSet
-    storage_key_path = 'project__storage_key'
+    project_id_field = 'project_id'
     # A nested numeric id reaches any Project, so declarations are written on the Project only.
     # By method, not by mixin composition, for the reason on NetBoxScriptViewSet below.
     http_method_names = ('get', 'put', 'patch', 'head', 'options')

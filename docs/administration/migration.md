@@ -63,27 +63,32 @@ new work. Keep the maintenance window in place.
 
 ## Cancellation and replay limits
 
-!!! warning "Cancellation does not guarantee that a run cannot execute"
+!!! warning "A requeued run can still execute"
 
-    A cancelled built-in run can still execute and may also be recreated by the
-    plugin. This is possible even with one worker. Replay checks the Job and
-    queue at one point in time, not continuously. Keep the maintenance window
-    and review execution evidence before arranging replacement runs.
+    Cutover cancels a waiting built-in run by marking its Job failed, and
+    NetBox does not start a failed Job. **Requeue** and **Enqueue**, under
+    *Admin > System > Background Tasks* or through the REST API, return a Job
+    to pending, so they can still run a cancelled run on the built-in side.
+    The plugin may recreate that run as well. Do not requeue or enqueue
+    built-in Custom Script tasks during the migration, and keep the
+    maintenance window in place.
 
-RQ's scheduler can queue a task it fetched just before cancellation. The
-reference pass holds back a replacement if it finds the original started or
-queued again, but it cannot prevent a worker or scheduler acting after that
-check. If the original Job row was deleted, it has no row to check.
+RQ's scheduler can still queue a task it fetched just before cancellation.
+NetBox does not start its failed Job, and the reference pass considers the run
+for replay. The pass holds back a replacement if it finds the original started,
+or requeued and waiting again. It checks once, so a run requeued after that
+check can execute on both sides. If the original Job row was deleted, the pass
+also considers the run for replay.
+
+This depends on every worker running the NetBox release this plugin requires.
+Restart all workers after upgrading NetBox, because a worker started before the
+upgrade still runs the older code.
 
 Selecting **Accept concurrent workers** bypasses the worker-count check and
 records the worker names. It also allows another worker to start a built-in run
 during cancellation. Cancellation never overwrites a run a worker has already
 started. Use the [single-worker arrangement](#worker-arrangement) to reduce that
 overlap, not as a guarantee against duplicate execution.
-
-A cancelled run that still executes can end as **Errored** with a duplicate-key
-error on a notification because cutover already notified its owner. That status
-does not mean the built-in Script did not run.
 
 ### Recurring successors
 
@@ -103,8 +108,8 @@ happens to a successor depends on when it was queued:
 A successor can still follow a completed cutover. NetBox marks a recurring Job
 finished before it queues the successor, and with several workers cutover can
 complete in that gap. One worker for the queues involved prevents that overlap.
-A cancelled run that still executes can also queue its successor after cutover
-(see [Cancellation and replay limits](#cancellation-and-replay-limits)).
+A cancelled run that is requeued and executes can also queue its successor
+after cutover (see [Cancellation and replay limits](#cancellation-and-replay-limits)).
 
 An existing successor is different from a Script run whose worker disappeared.
 For the latter, follow [Stale running Jobs](#stale-running-jobs) before
@@ -421,7 +426,7 @@ Runs recorded as already executing or executed are not automatically
 recreated. Review their outcome. Before arranging a recurring schedule by hand,
 check [Recurring successors](#recurring-successors). Re-entering cutover may
 already have captured the next occurrence. A cancelled run found to have
-started or been queued again is also held back. See
+started or been requeued is also held back. See
 [Cancellation and replay limits](#cancellation-and-replay-limits) for the
 limits of that check.
 
@@ -471,9 +476,8 @@ Completed reference steps do not scan again, so repeating
   Jobs on the **Jobs** page and select **Clean up** again. Do not delete history
   solely to clear a blocker.
 - **Waiting or running Jobs:** check a Job's state before deleting it.
-  Deleting a waiting Job only requests cancellation, so its run can still
-  execute, as [Cancellation and replay limits](#cancellation-and-replay-limits)
-  explains. For a recurring one, follow
+  NetBox does not start a deleted Job, but a worker can start a waiting one
+  before it is deleted. For a recurring one, follow
   [Recurring successors](#recurring-successors) first. Deleting a running Job
   does not stop it, so let it finish. If its worker stopped, confirm that
   execution has stopped and check what it changed, as
@@ -511,14 +515,14 @@ again, allowing new built-in Custom Scripts to be uploaded. Migration does
 not permanently disable that feature.
 
 **One worker prevents a second worker from executing alongside cutover, not
-all duplicate execution.** The scheduler can still queue a cancelled task,
-and runs can start between an interrupted pass and its retry. Check existing
+all duplicate execution.** Runs can start between an interrupted pass and its
+retry, and a requeued run can execute after its cancellation. Check existing
 work before retrying. See [Cancellation and replay limits](#cancellation-and-replay-limits).
 
 Replay uses recorded cancellation outcomes and each Job's state when the
-reference pass runs. It is not exactly once: a run that starts after that
-check, or whose Job row is deleted before it, is not detected. Keep the
-maintenance window and review results even when cutover reports completion.
+reference pass runs. It is not exactly once: a run requeued after that check,
+or one that ran and whose Job row was deleted before it, is not detected. Keep
+the maintenance window and review results even when cutover reports completion.
 
 ## Recovery
 
@@ -622,7 +626,7 @@ queues the task, so a missing task can still be on its way.
    change record of a Job, so first note its Script, scheduled time, interval
    and owner. Deleting needs permission to delete Jobs. Leave a Job that shows
    **Failed** in place until **Repoint references** has completed, since that
-   pass checks its row for a start or a requeued task before recreating the run.
+   pass checks its row for a start or a requeue before recreating the run.
 4. **Select Enter cutover again.**
 
 Migration never captured a deleted Job's input, so the reference pass cannot

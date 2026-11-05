@@ -1,14 +1,13 @@
 """Moving the references an installation holds off the built-in Custom Scripts onto plugin rows."""
 
-import django_rq
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
-from rq.job import Job as RQJob
 
+from core.choices import JobStatusChoices
 from core.models import Job
 
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
@@ -278,22 +277,19 @@ def recreate_schedules(run):
             continue
         if entry.get('cancellation') == 'cancelled':
             # By key alone: the history pass may already have moved this row to the Script.
-            job = Job.objects.filter(pk=entry['job_pk']).first()
-            if job is not None:
-                # Use the captured queue, since history may already have changed the Job's object type.
-                connection = django_rq.get_queue(entry['queue_name']).connection
-                # A worker's start saves started, and a claim or a scheduler's re-queue writes the task back.
-                if job.started is not None or RQJob.exists(str(job.job_id), connection=connection):
-                    counts['skipped'] += 1
-                    warnings.append(
-                        _(
-                            'Schedule "{name}" (Job {pk}) started or was queued again on the built-in side '
-                            'after the cutover cancelled it, so it has not been recreated. Check whether it '
-                            'ran. If it recurs, see "Recurring successors" in the migration guide before '
-                            'scheduling it again, since its next run may already exist.'
-                        ).format(pk=entry['job_pk'], name=entry['name'])
-                    )
-                    continue
+            changed = Job.objects.filter(pk=entry['job_pk']).exclude(
+                status=JobStatusChoices.STATUS_FAILED, started__isnull=True
+            )
+            # NetBox never starts the failed, unstarted row the cutover left, so any other state may mean a run.
+            if changed.exists():
+                counts['skipped'] += 1
+                warnings.append(
+                    _(
+                        'Schedule "{name}" (Job {pk}) changed after cancellation and has not been recreated. '
+                        'Check its execution history and any recurring successor before scheduling it again.'
+                    ).format(pk=entry['job_pk'], name=entry['name'])
+                )
+                continue
         # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
         if entry.get('legacy_object_type') != 'extras.script':
             counts['skipped'] += 1

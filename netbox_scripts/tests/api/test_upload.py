@@ -14,6 +14,7 @@ from core.models import DataSource, Job, ObjectType
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
+from netbox_scripts.storage import config
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 from users.models import ObjectPermission
@@ -152,28 +153,65 @@ class UploadAPITestCase(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_an_unsafe_branch_route_is_refused_readably(self):
+    def test_an_unsafe_branch_route_returns_a_fixed_message_and_logs_its_reason(self):
         self.allow_uploads()
-        with mock.patch(
-            'netbox_scripts.ingestion.branching.require_safe_routing',
-            side_effect=ImproperlyConfigured('Script Projects are routed to a branch schema.'),
+        reason = 'Routing failed while reading /srv/netbox/private/router.conf'
+        with (
+            mock.patch('netbox_scripts.branching.unsafe_routing_reason', return_value=reason),
+            self.assertLogs('netbox.plugins.netbox_scripts.api', 'ERROR') as logged,
         ):
             response = self.upload()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('branch schema', str(response.data))
+        self.assertEqual(
+            response.data, {'detail': 'The upload could not be accepted because of a configuration error.'}
+        )
+        self.assertIsInstance(logged.records[0].exc_info[1], ImproperlyConfigured)
+        self.assertIn(reason, str(logged.records[0].exc_info[1]))
+        self.assertFalse(ScriptFile.objects.filter(project=self.project).exists())
         self.assertFalse(ScriptProjectRevision.objects.filter(project=self.project).exists())
 
-    def test_a_failed_store_is_refused_readably(self):
+    def test_storage_errors_return_a_fixed_message_and_log_the_exception(self):
         self.allow_uploads()
-        with mock.patch(
-            'netbox_scripts.storage.service.store.write_revision',
-            side_effect=StorageError('the backend is unreachable'),
+        errors = (
+            StorageError('The backend at /srv/netbox/private/storage is unreachable'),
+            PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py'),
+        )
+        for index, error in enumerate(errors):
+            with (
+                self.subTest(error=type(error).__name__),
+                mock.patch('netbox_scripts.storage.service.store.write_revision', side_effect=error),
+                self.assertLogs('netbox.plugins.netbox_scripts.api', 'ERROR') as logged,
+            ):
+                response = self.upload(name=f'failed_{index}.py')
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.data, {'detail': 'The upload could not be stored.'})
+                self.assertIs(logged.records[0].exc_info[1], error)
+
+    def test_a_backend_write_failure_returns_a_fixed_message_and_logs_its_cause(self):
+        self.allow_uploads()
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+        with (
+            mock.patch.object(config.get_storage(), 'save', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.api', 'ERROR') as logged,
         ):
-            response = self.upload()
+            # In-memory storage survives database rollbacks, so use a path no other test writes.
+            response = self.upload(name='backend_failure.py')
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('could not be stored', str(response.data))
+        self.assertEqual(response.data, {'detail': 'The upload could not be stored.'})
+        self.assertIsInstance(logged.records[0].exc_info[1], StorageError)
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
+        errors = [{'path': None, 'code': 'storage_write_failed', 'message': 'Unable to store the revision.'}]
+        self.assertEqual(revision.validation_errors, errors)
+        self.add_permissions('netbox_scripts.view_scriptprojectrevision')
+        url = reverse('plugins-api:netbox_scripts-api:scriptprojectrevision-detail', args=[revision.pk])
+        detail = self.client.get(url, **self.header)
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data['validation_errors'], errors)
 
     def test_the_manual_policy_leaves_the_revision_inactive(self):
         self.allow_uploads()

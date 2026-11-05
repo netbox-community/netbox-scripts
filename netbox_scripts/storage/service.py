@@ -166,7 +166,7 @@ def _stage_revision(project, files):
             _refresh_surviving(revision, using)
         try:
             store.write_revision(storage, storage_key, revision.digest, source_files, _validated_manifest(revision))
-        except (OSError, StorageError) as error:
+        except (OSError, StorageError):
             # Only a row still inside its write window takes the failure. One a concurrent owner
             # has advanced keeps that owner's word, and the error still propagates either way.
             ScriptProjectRevision.objects.using(using).filter(
@@ -177,7 +177,7 @@ def _stage_revision(project, files):
                     {
                         'path': None,
                         'code': 'storage_write_failed',
-                        'message': _('Unable to store the revision: {error}').format(error=error),
+                        'message': str(_('Unable to store the revision.')),
                     }
                 ],
                 last_updated=timezone.now(),

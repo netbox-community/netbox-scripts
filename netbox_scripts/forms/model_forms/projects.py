@@ -1,3 +1,5 @@
+import logging
+
 from django import forms
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
@@ -18,7 +20,7 @@ from ...jobs import ProjectScriptFileRefreshJob
 from ...models import ScriptProject
 from ...permissions import SOURCE_REFUSAL, unpermitted_source_moves
 from ...storage import config
-from ...storage.exceptions import UnsafePathError
+from ...storage.exceptions import StorageError, UnsafePathError
 from ...storage.paths import normalize_source_path
 from ...utils import source_path_to_dotted_name
 
@@ -28,6 +30,8 @@ __all__ = (
     'ScriptProjectScriptFilesForm',
     'ScriptProjectUploadForm',
 )
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.forms')
 
 
 class ScriptProjectEditForm(PrimaryModelForm):
@@ -155,9 +159,7 @@ class ScriptProjectUploadForm(PrimaryModelForm):
         activate_once = self.cleaned_data.get('activate_this_revision', False)
         _prepare_form_upload(project, filename, confirm_replace=False)
         transaction.on_commit(
-            lambda: ingest_upload(
-                project, filename=filename, content=content, declare=False, activate_once=activate_once
-            ),
+            lambda: _ingest_form_upload(project, filename, content, activate_once=activate_once),
             using=project._state.db,
             # Runs past ObjectEditView's handlers, so a raised fault would 500 an already-committed save.
             robust=True,
@@ -228,7 +230,7 @@ class ScriptProjectAddScriptForm(PrimaryModelForm):
         filename, content = upload.name, upload.read()
         _prepare_form_upload(project, filename, confirm_replace=self.cleaned_data['confirm_replace'])
         transaction.on_commit(
-            lambda: ingest_upload(project, filename=filename, content=content, declare=False),
+            lambda: _ingest_form_upload(project, filename, content),
             using=project._state.db,
             # Runs past ObjectEditView's handlers, so a raised fault would 500 an already-committed save.
             robust=True,
@@ -360,6 +362,14 @@ def _prepare_form_upload(project, filename, *, confirm_replace):
         # Unsafe branch routing. ObjectEditView.post() catches only AbortRequest and
         # PermissionsViolation, so anything else leaves the operator a 500.
         raise AbortRequest(str(error)) from error
+
+
+def _ingest_form_upload(project, filename, content, *, activate_once=False):
+    """Stage a form's upload once its request commits, logging a storage failure with its traceback."""
+    try:
+        ingest_upload(project, filename=filename, content=content, declare=False, activate_once=activate_once)
+    except (StorageError, OSError):
+        logger.exception('Could not store an upload for Script Project %s.', project.pk)
 
 
 def _check_upload_size(upload):

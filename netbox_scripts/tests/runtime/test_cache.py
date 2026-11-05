@@ -86,7 +86,11 @@ class GatedStorage(InMemoryStorage):
 
 
 class CacheRootTestCase(TestCase):
-    """Cover where the cache root comes from and how revision directories are laid out."""
+    """Cover where the cache root comes from, how its path is checked, and how revision directories are laid out."""
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix='nbcs-root-path-')).resolve()
+        self.addCleanup(shutil.rmtree, self.base, True)
 
     def test_the_default_root_sits_under_the_system_temporary_directory(self):
         self.assertEqual(
@@ -138,7 +142,7 @@ class CacheRootTestCase(TestCase):
     def test_a_group_writable_ancestor_names_the_mode_fix(self):
         # The remedy is a mode change on the offending directory, so the message says so rather
         # than only suggesting a different root.
-        base = Path(tempfile.mkdtemp(prefix='nbcs-open-root-'))
+        base = Path(tempfile.mkdtemp(prefix='nbcs-open-root-')).resolve()
         self.addCleanup(shutil.rmtree, base, True)
         base.chmod(0o775)
         with self.assertRaises(LocalCacheError) as ctx:
@@ -147,7 +151,7 @@ class CacheRootTestCase(TestCase):
 
     @unittest.skipIf(os.getuid() == 0, 'root ignores directory permissions')
     def test_an_inaccessible_root_is_reported_as_a_cache_error(self):
-        base = Path(tempfile.mkdtemp(prefix='nbcs-inaccessible-root-'))
+        base = Path(tempfile.mkdtemp(prefix='nbcs-inaccessible-root-')).resolve()
         self.addCleanup(shutil.rmtree, base, True)
         root = base / 'netbox-scripts' / 'runtime-cache'
         root.mkdir(parents=True)
@@ -159,13 +163,191 @@ class CacheRootTestCase(TestCase):
         self.assertIsInstance(ctx.exception.__cause__, PermissionError)
 
     def test_a_file_in_place_of_an_ancestor_is_reported_as_a_cache_error(self):
-        base = Path(tempfile.mkdtemp(prefix='nbcs-file-ancestor-'))
+        base = Path(tempfile.mkdtemp(prefix='nbcs-file-ancestor-')).resolve()
         self.addCleanup(shutil.rmtree, base, True)
         (base / 'netbox-scripts').write_bytes(b'')
         root = base / 'netbox-scripts' / 'runtime-cache'
         with self.assertRaises(LocalCacheError) as ctx:
             cache._ensure_private_root(root)
-        self.assertIn(f'"{root}"', str(ctx.exception))
+        self.assertIn(f'The cache path "{root.parent}" is not a directory.', str(ctx.exception))
+
+    def test_trusted_absolute_and_relative_symlinks_are_accepted(self):
+        for absolute in (True, False):
+            with self.subTest(absolute=absolute):
+                target = self.base / f'target-{absolute}'
+                target.mkdir(mode=0o700)
+                link = self.base / f'link-{absolute}'
+                link.symlink_to(target if absolute else target.name)
+
+                cache._ensure_private_root(link / 'runtime-cache')
+
+                self.assertTrue((target / 'runtime-cache').is_dir())
+
+    def test_trusted_chained_symlinks_are_accepted(self):
+        target = self.base / 'target'
+        target.mkdir(mode=0o700)
+        first = self.base / 'first'
+        second = self.base / 'second'
+        first.symlink_to(second.name)
+        second.symlink_to(target)
+
+        cache._ensure_private_root(first / 'runtime-cache')
+
+        self.assertTrue((target / 'runtime-cache').is_dir())
+        cache._ensure_private_root(first / '..' / first.name / 'second-cache')
+        self.assertTrue((target / 'second-cache').is_dir())
+
+    def test_a_trusted_dangling_symlink_can_create_its_target(self):
+        target = self.base / 'target'
+        link = self.base / 'link'
+        link.symlink_to(target)
+
+        cache._ensure_private_root(link / 'runtime-cache')
+
+        self.assertTrue((target / 'runtime-cache').is_dir())
+
+    def test_an_unsafe_ancestor_is_refused_directly_and_through_a_symlink(self):
+        unsafe = self.base / 'unsafe'
+        unsafe.mkdir()
+        unsafe.chmod(0o777)
+        target = unsafe / 'target'
+        target.mkdir(mode=0o700)
+        link = self.base / 'link'
+        link.symlink_to(target)
+
+        for directory in (target, link):
+            with self.subTest(directory=directory):
+                with self.assertRaises(LocalCacheError) as ctx:
+                    cache._ensure_private_root(directory / 'runtime-cache')
+                self.assertIn(f'chmod 700 {unsafe}', str(ctx.exception))
+                self.assertFalse((target / 'runtime-cache').exists())
+
+    def test_a_foreign_owned_symlink_is_refused_before_creating_the_cache(self):
+        target = self.base / 'target'
+        target.mkdir(mode=0o700)
+        link = self.base / 'link'
+        link.symlink_to(target)
+        original = Path.lstat
+
+        def lstat(path):
+            info = original(path)
+            if path == link:
+                return mock.Mock(st_mode=info.st_mode, st_uid=os.getuid() + 1)
+            return info
+
+        with mock.patch.object(Path, 'lstat', lstat), self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(link / 'runtime-cache')
+
+        self.assertIn(f'"{link}" belongs to another user', str(ctx.exception))
+        self.assertFalse((target / 'runtime-cache').exists())
+
+    def test_a_foreign_owned_intermediate_symlink_is_refused(self):
+        target = self.base / 'target'
+        target.mkdir(mode=0o700)
+        first = self.base / 'first'
+        second = self.base / 'second'
+        first.symlink_to(second.name)
+        second.symlink_to(target)
+        original = Path.lstat
+
+        def lstat(path):
+            info = original(path)
+            if path == second:
+                return mock.Mock(st_mode=info.st_mode, st_uid=os.getuid() + 1)
+            return info
+
+        with mock.patch.object(Path, 'lstat', lstat), self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(first / 'runtime-cache')
+
+        self.assertIn(f'"{second}" belongs to another user', str(ctx.exception))
+        self.assertFalse((target / 'runtime-cache').exists())
+
+    def test_parent_traversal_does_not_skip_an_unsafe_symlink_target(self):
+        unsafe = self.base / 'unsafe'
+        unsafe.mkdir()
+        unsafe.chmod(0o777)
+        direct = self.base / 'direct'
+        direct.symlink_to(unsafe)
+        embedded = self.base / 'embedded'
+        embedded.symlink_to('unsafe/../runtime-cache')
+
+        for root in (direct / '..' / 'runtime-cache', embedded):
+            with self.subTest(root=root):
+                with self.assertRaises(LocalCacheError) as ctx:
+                    cache._ensure_private_root(root)
+                self.assertIn(f'chmod 700 {unsafe}', str(ctx.exception))
+                self.assertFalse((self.base / 'runtime-cache').exists())
+
+    def test_a_symlink_loop_raises_a_cache_error(self):
+        first = self.base / 'first'
+        second = self.base / 'second'
+        first.symlink_to(second.name)
+        second.symlink_to(first.name)
+
+        with self.assertRaisesMessage(LocalCacheError, 'Too many symbolic links'):
+            cache._ensure_private_root(first / 'runtime-cache')
+
+    def test_an_entry_created_by_another_process_is_checked(self):
+        root = self.base / 'runtime-cache'
+        original = Path.mkdir
+
+        def mkdir(path, *args, **kwargs):
+            if path == root:
+                original(path, mode=0o700)
+                path.chmod(0o777)
+            return original(path, *args, **kwargs)
+
+        with mock.patch.object(Path, 'mkdir', mkdir), self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(root)
+
+        self.assertIn(f'chmod 700 {root}', str(ctx.exception))
+
+    def test_a_symlink_created_during_directory_creation_is_checked(self):
+        root = self.base / 'runtime-cache'
+        target = self.base / 'target'
+        target.mkdir(mode=0o700)
+        original_mkdir = Path.mkdir
+        original_lstat = Path.lstat
+
+        def mkdir(path, *args, **kwargs):
+            if path == root:
+                path.symlink_to(target)
+            return original_mkdir(path, *args, **kwargs)
+
+        def lstat(path):
+            info = original_lstat(path)
+            if path == root:
+                return mock.Mock(st_mode=info.st_mode, st_uid=os.getuid() + 1)
+            return info
+
+        with (
+            mock.patch.object(Path, 'mkdir', mkdir),
+            mock.patch.object(Path, 'lstat', lstat),
+            self.assertRaises(LocalCacheError) as ctx,
+        ):
+            cache._ensure_private_root(root / 'child')
+
+        self.assertIn(f'"{root}" belongs to another user', str(ctx.exception))
+        self.assertFalse((target / 'child').exists())
+
+    def test_a_readlink_failure_preserves_the_path_and_cause(self):
+        link = self.base / 'link'
+        link.symlink_to(self.base / 'target')
+        error = PermissionError(errno.EACCES, os.strerror(errno.EACCES), str(link))
+
+        with mock.patch.object(Path, 'readlink', side_effect=error), self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(link / 'runtime-cache')
+
+        self.assertIn(f'Unable to inspect the cache root "{link}"', str(ctx.exception))
+        self.assertIs(ctx.exception.__cause__, error)
+        self.assertFalse((self.base / 'target').exists())
+
+    def test_a_name_too_long_to_inspect_is_reported_as_a_cache_error(self):
+        long_name = self.base / ('x' * 256)
+        with self.assertRaises(LocalCacheError) as ctx:
+            cache._ensure_private_root(long_name / 'runtime-cache')
+        self.assertIn(f'Unable to inspect the cache root "{long_name}"', str(ctx.exception))
+        self.assertEqual(ctx.exception.__cause__.errno, errno.ENAMETOOLONG)
 
 
 class VerifyLocalTreeTestCase(TestCase):

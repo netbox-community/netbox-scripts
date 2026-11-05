@@ -45,6 +45,7 @@ __all__ = (
 _PLUGIN_NAME = 'netbox_scripts'
 _HASH_CHUNK = 1024 * 1024
 _MAX_MATERIALIZE_ATTEMPTS = 3
+_MAX_CACHE_SYMLINKS = 40
 _BYTECODE_SUFFIXES = ('.pyc', '.pyo')
 
 # Linux bounds a path at 4096 bytes including the terminator. Staying comfortably under it
@@ -226,51 +227,76 @@ def _ensure_private_root(root):
     The loader imports from a verified tree, so an ancestor another user can rename is a
     substitution window that verification cannot close. A group or world writable ancestor is
     accepted only when it is sticky, which is what keeps a shared temporary directory usable.
+    A symlink on the path must belong to this user or root, and the directories its target
+    passes through are checked the same way.
     """
-    # Every level this function creates is created private. mkdir(parents=True) applies its mode
-    # to the leaf only, so an intermediate directory left at the process umask would be group
-    # writable, and the check below would then reject a root this code had just made itself.
-    missing = []
-    for directory in (root, *root.parents):
+    try:
+        root = root.absolute()
+    except OSError as error:
+        raise LocalCacheError(
+            _('Unable to inspect the cache root "{directory}": {error}').format(directory=root, error=error)
+        ) from error
+    pending = list(reversed(root.parts[1:]))
+    directory = Path(root.anchor)
+    trusted_owners = (os.getuid(), 0)
+    symlinks = 0
+
+    while True:
         try:
-            directory.stat()
-        except FileNotFoundError:
-            missing.append(directory)
+            info = _lstat_or_none(directory)
+            if info is None:
+                # The parent is checked. Inspect the entry even when another process creates it first.
+                try:
+                    directory.mkdir(mode=0o700, exist_ok=True)  # cloud-compat: ok, the runtime cache tier
+                except OSError as error:
+                    raise LocalCacheError(
+                        _('Unable to create the cache root "{directory}": {error}').format(
+                            directory=directory, error=error
+                        )
+                    ) from error
+                info = directory.lstat()
+
+            if info.st_uid not in trusted_owners:
+                raise LocalCacheError(
+                    _(
+                        'The cache path "{directory}" belongs to another user, who could substitute the tree '
+                        'the loader imports. Point runtime_cache_root somewhere this process owns.'
+                    ).format(directory=directory)
+                )
+            if stat.S_ISLNK(info.st_mode):
+                symlinks += 1
+                if symlinks > _MAX_CACHE_SYMLINKS:
+                    raise LocalCacheError(
+                        _('Too many symbolic links while inspecting the cache root "{root}".').format(root=root)
+                    )
+                target = directory.readlink()
+                if target.is_absolute():
+                    directory = Path(target.anchor)
+                    pending.extend(reversed(target.parts[1:]))
+                else:
+                    directory = directory.parent
+                    pending.extend(reversed(target.parts))
+                continue
+            if not stat.S_ISDIR(info.st_mode):
+                raise LocalCacheError(_('The cache path "{directory}" is not a directory.').format(directory=directory))
+            if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
+                raise LocalCacheError(
+                    _(
+                        'The cache path "{directory}" is writable by other users and not sticky, so the tree '
+                        'the loader imports could be substituted. Restrict it with "chmod 700 {directory}", or '
+                        'point runtime_cache_root somewhere already private.'
+                    ).format(directory=directory)
+                )
         except OSError as error:
             raise LocalCacheError(
                 _('Unable to inspect the cache root "{directory}": {error}').format(directory=directory, error=error)
             ) from error
-    for directory in reversed(missing):
-        try:
-            directory.mkdir(mode=0o700)  # cloud-compat: ok, the runtime cache tier
-        except FileExistsError:
-            continue
-        except OSError as error:
-            raise LocalCacheError(
-                _('Unable to create the cache root "{directory}": {error}').format(directory=directory, error=error)
-            ) from error
-    for directory in (root, *root.parents):
-        try:
-            info = directory.stat()
-        except OSError as error:
-            raise LocalCacheError(
-                _('Unable to inspect the cache root "{directory}": {error}').format(directory=directory, error=error)
-            ) from error
-        if info.st_uid not in (os.getuid(), 0):
-            raise LocalCacheError(
-                _(
-                    'The cache path "{directory}" belongs to another user, who could substitute the tree '
-                    'the loader imports. Point runtime_cache_root somewhere this process owns.'
-                ).format(directory=directory)
-            )
-        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH) and not info.st_mode & stat.S_ISVTX:
-            raise LocalCacheError(
-                _(
-                    'The cache path "{directory}" is writable by other users and not sticky, so the tree '
-                    'the loader imports could be substituted. Restrict it with "chmod 700 {directory}", or '
-                    'point runtime_cache_root somewhere already private.'
-                ).format(directory=directory)
-            )
+
+        if not pending:
+            return
+        # Links are already followed, so ".." steps to the physical parent, as the kernel does.
+        component = pending.pop()
+        directory = directory.parent if component == '..' else directory / component
 
 
 def _guard_path_budget(project_dir, digest, manifest):

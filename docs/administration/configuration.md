@@ -218,6 +218,8 @@ chmod 700 /path/to/runtime-cache
 
 Every parent is checked, so a private cache directory inside a group-writable,
 non-sticky parent is still rejected. Restrict the parent or choose a safe location.
+Symbolic links must belong to the NetBox process account or root. Their targets
+and every directory reached through them are checked by the same rules.
 
 Existing cache content is verified on every use:
 

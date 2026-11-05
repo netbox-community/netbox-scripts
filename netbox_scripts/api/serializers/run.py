@@ -44,7 +44,12 @@ class NetBoxScriptRunInputSerializer(serializers.Serializer):
         return value
 
     def validate(self, data):
-        """Anchor a recurrence that named no start time, the same rule the run form applies."""
+        """Normalize scheduling and leave an omitted commit unset."""
         if data.get('interval') and not data.get('schedule_at'):
             data['schedule_at'] = local_now()
+
+        # DRF treats an omitted form boolean as false, masking the Script's default.
+        if 'commit' not in self.initial_data:
+            data.pop('commit', None)
+
         return super().validate(data)

@@ -412,7 +412,7 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
             job = NetBoxScriptJob.enqueue_run(
                 script,
                 data=values,
-                # An absent optional field is left out of validated_data, so the class default stands.
+                # An absent optional field is left out of validated_data, so the Script's default stands.
                 commit=parameters.get('commit', script.commit_default),
                 schedule_at=parameters.get('schedule_at'),
                 interval=parameters.get('interval'),

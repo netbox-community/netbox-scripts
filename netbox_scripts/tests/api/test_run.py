@@ -396,18 +396,33 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
 
         self.assertEqual(job.data['output'], 'data')
 
+    def test_a_multipart_run_without_a_commit_part_takes_the_scripts_effective_default(self):
+        script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
+        self.grant('view', 'run')
+
+        for override, expected in ((None, True), (False, False)):
+            NetBoxScript.objects.filter(pk=script.pk).update(commit_default_override=override)
+            for uploads in ({}, {'commit': SimpleUploadedFile('commit.txt', b'commit')}):
+                with self.subTest(override=override, commit_upload=bool(uploads)):
+                    response = self.post_multipart(script, {}, **uploads)
+
+                    self.assertHttpStatus(response, status.HTTP_201_CREATED)
+                    self.assertIs(Job.objects.get(pk=response.data['id']).data['commit'], expected)
+
     def test_a_commit_part_beside_a_same_named_upload_sets_the_runs_commit(self):
         # Both values, so neither an omitted part nor the Script's default could pass for the text part.
         script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)
         self.grant('view', 'run')
 
-        for text, expected in (('true', True), ('false', False)):
-            with self.subTest(commit=text):
-                upload = SimpleUploadedFile('commit.txt', b'commit')
-                response = self.post_multipart(script, {}, parameters={'commit': text}, commit=upload)
+        for override in (None, False):
+            NetBoxScript.objects.filter(pk=script.pk).update(commit_default_override=override)
+            for text, expected in (('true', True), ('false', False)):
+                with self.subTest(override=override, commit=text):
+                    upload = SimpleUploadedFile('commit.txt', b'commit')
+                    response = self.post_multipart(script, {}, parameters={'commit': text}, commit=upload)
 
-                self.assertHttpStatus(response, status.HTTP_201_CREATED)
-                self.assertIs(Job.objects.get(pk=response.data['id']).data['commit'], expected)
+                    self.assertHttpStatus(response, status.HTTP_201_CREATED)
+                    self.assertIs(Job.objects.get(pk=response.data['id']).data['commit'], expected)
 
     def test_an_invalid_commit_part_beside_a_same_named_upload_is_refused(self):
         script = self.publish_elsewhere(NAMED_LIKE_PARAMETERS)

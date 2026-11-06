@@ -35,6 +35,7 @@ from netbox_scripts.runtime.loader import unload_revision
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.scripts import AbortScript, Script
 from netbox_scripts.storage import service
+from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageConfigurationError, StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.tests.test_branching import branching_installed, fake_branching, fake_contextvars
 from netbox_scripts.validation import validate_revision
@@ -1130,16 +1131,71 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
         job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        logged = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('cannot supply deploy.Vanished', logged)
+        self.assertNotIn('The Script did not finish', logged)
 
     def test_a_script_that_raises_fails_the_job_and_keeps_its_log(self):
-        self.publish({'deploy.py': RAISES})
+        sources = (
+            ('RuntimeError', RAISES),
+            ('OSError', RAISES.replace(b'RuntimeError', b'OSError')),
+            ('ConnectionRefusedError', RAISES.replace(b'RuntimeError', b'ConnectionRefusedError')),
+            ('FileNotFoundError', RAISES.replace(b'RuntimeError', b'FileNotFoundError')),
+            (
+                'ConnectionError',
+                b'from requests.exceptions import ConnectionError\n'
+                + RAISES.replace(b'RuntimeError', b'ConnectionError'),
+            ),
+        )
+        for exception, source in sources:
+            with self.subTest(exception=exception):
+                revision = self.publish({'deploy.py': source})
 
-        job = self.run_job()
+                job = self.run_job()
+                job.refresh_from_db()
+
+                self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+                logged = '\n'.join(record['message'] for record in job.data['log'])
+                self.assertIn(f'{exception}: the script broke', logged)
+                self.assertIn('Traceback (most recent call last)', logged)
+                job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+                self.assertIn('The Script did not finish: the script broke', job_log)
+                self.assertNotIn('could not reach the source', job_log)
+                self.assertEqual(unload_revision(str(self.project.storage_key), revision.digest), ())
+
+    def test_a_source_access_failure_is_reported_as_a_source_failure(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        failures = (
+            ('config.get_storage', StorageConfigurationError),
+            ('resolve_script_class', StorageError),
+            ('resolve_script_class', LocalCacheError),
+            ('resolve_script_class', OSError),
+        )
+        for target, exception in failures:
+            with (
+                self.subTest(exception=exception.__name__),
+                patch(f'netbox_scripts.jobs.{target}', side_effect=exception('the source is unavailable')),
+            ):
+                job = self.run_job()
+                job.refresh_from_db()
+
+                self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+                logged = '\n'.join(entry['message'] for entry in job.log_entries)
+                self.assertIn('The run could not reach the source it was pinned to: the source is unavailable', logged)
+                self.assertNotIn('The Script did not finish', logged)
+                self.assertFalse(Tag.objects.filter(slug='from-revision').exists())
+
+    def test_a_corrupt_revision_is_reported_as_a_resolution_failure(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        with patch('netbox_scripts.jobs.resolve_script_class', side_effect=RevisionCorruptError('the tree is damaged')):
+            job = self.run_job()
+        job.refresh_from_db()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
-        logged = '\n'.join(record['message'] for record in job.data['log'])
-        self.assertIn('RuntimeError', logged)
-        self.assertIn('the script broke', logged)
+        logged = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('cannot supply deploy.MakeTag: the tree is damaged', logged)
+        self.assertNotIn('could not reach the source', logged)
 
     def test_the_job_log_carries_no_storage_identities(self):
         # An unhandled exception records its traceback, and the frame is a file in the runtime

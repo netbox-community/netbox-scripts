@@ -1,5 +1,5 @@
 """
-Lock ordering for the REST write paths.
+Lock ordering for the REST write paths and the Project bulk edit.
 
 Every statement that locks or writes a target row is observed from a second session, which must find the owning
 Projects' locks already taken. A probe at save() runs after NetBox's own row lock, so it cannot see the order.
@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from unittest import mock
 
 from django.db import DatabaseError, connection, transaction
-from django.test import TransactionTestCase, override_settings
+from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -24,10 +24,11 @@ from netbox_scripts.storage.locks import advisory_key, project_lock
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, ObjectPermissionTestMixin, SecondSession
 from users.constants import TOKEN_PREFIX
 from users.models import Token, User
+from utilities.testing import post_data
 
 
 class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
-    """REST writes take the owning Projects' locks before NetBox locks or writes a row."""
+    """REST writes and the Project bulk edit take the owning Projects' locks before NetBox locks or writes a row."""
 
     client_class = APIClient
 
@@ -134,6 +135,17 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
                             [call.args[0] for call in acquire.call_args_list], [alpha.storage_key, zulu.storage_key]
                         )
                     data.reverse()
+
+    def test_a_project_bulk_edit_holds_every_lock_through_its_writes(self):
+        bravo = ScriptProject.objects.create(name='Bravo Devices', key='bravo-devices')
+        client = Client()
+        client.force_login(self.user)
+        data = {'pk': [self.project.pk, bravo.pk], '_apply': True, **post_data({'description': 'edited'})}
+
+        with self.observe_row_writes(ScriptProject, (self.project, bravo)):
+            response = client.post(reverse('plugins:netbox_scripts:scriptproject_bulk_edit'), data)
+
+        self.assertEqual(response.status_code, 302)
 
     def test_a_conditional_project_delete_holds_the_project_lock_first(self):
         etag = self.etag(self.project)

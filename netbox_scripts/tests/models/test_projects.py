@@ -965,6 +965,72 @@ class ScriptProjectSourceStateTestCase(TestCase):
         self.project.save(update_fields=('active_revision',))
         self.assertIn('newest source', str(self.project.source_state))
 
+    def test_reusing_an_older_revision_is_reported_as_current(self):
+        active = self.revision(RevisionStatusChoices.ACTIVE)
+        superseded = self.revision(RevisionStatusChoices.RETIRED, digest=DIGEST_B)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active, source_revision=active)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.latest_revision(), superseded)
+        for status in (
+            RevisionStatusChoices.RETIRED,
+            RevisionStatusChoices.VALID,
+            RevisionStatusChoices.VALIDATING,
+            RevisionStatusChoices.INVALID,
+        ):
+            with self.subTest(status=status):
+                ScriptProjectRevision.objects.filter(pk=superseded.pk).update(status=status)
+                with self.assertNumQueries(1):
+                    self.assertEqual(self.project.source_state, 'The active revision is the newest source.')
+
+    def test_an_explicit_rollback_keeps_the_retired_revision_summary(self):
+        active = self.revision(RevisionStatusChoices.ACTIVE)
+        accepted = self.revision(RevisionStatusChoices.RETIRED, digest=DIGEST_B)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active, source_revision=accepted)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.source_state, 'The newest revision has been retired.')
+
+    def test_a_retired_revision_without_an_active_revision_is_reported(self):
+        retired = self.revision(RevisionStatusChoices.RETIRED)
+        for source_id in (None, retired.pk):
+            with self.subTest(source_id=source_id):
+                ScriptProject.objects.filter(pk=self.project.pk).update(source_revision_id=source_id)
+                self.project.refresh_from_db()
+
+                self.assertEqual(self.project.source_state, 'The newest revision has been retired.')
+
+    def test_an_active_revision_without_an_accepted_source_keeps_the_retired_summary(self):
+        active = self.revision(RevisionStatusChoices.ACTIVE)
+        self.revision(RevisionStatusChoices.RETIRED, digest=DIGEST_B)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.source_state, 'The newest revision has been retired.')
+
+    def test_newer_pending_and_failed_source_attempts_remain_visible(self):
+        active = self.revision(RevisionStatusChoices.ACTIVE)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active, source_revision=active)
+        cases = (
+            (RevisionStatusChoices.STAGING, 'b' * 64, False, 'New source is being stored.'),
+            (RevisionStatusChoices.STORAGE_FAILED, 'c' * 64, False, 'New source could not be stored.'),
+            (RevisionStatusChoices.INVALID, None, False, 'New source failed validation.'),
+            (RevisionStatusChoices.MATERIALIZED, '1' * 64, False, 'New source is waiting to be validated.'),
+            (RevisionStatusChoices.MATERIALIZED, 'd' * 64, True, 'New source is waiting to be validated.'),
+            (RevisionStatusChoices.VALIDATING, 'e' * 64, True, 'New source is being validated.'),
+            (RevisionStatusChoices.VALID, 'f' * 64, True, 'New source is valid and waiting to be activated.'),
+            (RevisionStatusChoices.INVALID, '0' * 64, True, 'New source failed validation.'),
+        )
+        for status, digest, accepted, summary in cases:
+            with self.subTest(status=status, accepted=accepted):
+                revision = self.revision(status, digest=digest)
+                ScriptProject.objects.filter(pk=self.project.pk).update(
+                    source_revision=revision if accepted else active
+                )
+                self.project.refresh_from_db()
+
+                self.assertEqual(self.project.source_state, summary)
+
     def test_a_valid_revision_awaiting_activation_is_reported(self):
         self.revision(RevisionStatusChoices.VALID)
         self.assertIn('waiting to be activated', str(self.project.source_state))

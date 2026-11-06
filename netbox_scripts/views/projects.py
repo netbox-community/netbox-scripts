@@ -1,4 +1,5 @@
 from django.contrib import messages
+from django.db import router
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
@@ -38,6 +39,7 @@ from ..models import ScriptProject, ScriptProjectRevision
 from ..object_actions import ActivateRevision, AddScript, ReconcileSource, RepairScripts
 from ..permissions import GATED_SOURCE_FIELDS, refuse_unpermitted_source_change
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
+from ..storage.locks import project_write_lock
 from ..tables import ScriptProjectFileTable, ScriptProjectRevisionTable, ScriptProjectTable
 from ..ui import ScriptProjectPanel, ScriptProjectSourcePanel, ScriptProjectStatePanel
 from .revisions import activation_message
@@ -408,6 +410,21 @@ class ScriptProjectBulkEditView(generic.BulkEditView):
         touched = (set(form.changed_data) | nullified) & set(GATED_SOURCE_FIELDS)
         submitted = {field: None if field in nullified else form.cleaned_data[field] for field in touched}
         refuse_unpermitted_source_change(self.request.user, obj, submitted)
+
+    def _update_objects(self, form, request):
+        """Lock every selected Project for the rest of NetBox's transaction, before NetBox reads the rows."""
+        using = router.db_for_write(self.queryset.model)
+        storage_keys = (
+            ScriptProject.objects.using(using)
+            .filter(pk__in=[project.pk for project in form.cleaned_data['pk']])
+            # The REST lock-order mixin's order, which a bulk edit has to share.
+            .order_by('name', 'pk')
+            .values_list('storage_key', flat=True)
+        )
+        for storage_key in storage_keys:
+            with project_write_lock(storage_key, using=using):
+                pass
+        return super()._update_objects(form, request)
 
 
 @register_model_view(ScriptProject, 'bulk_delete', path='delete', detail=False)

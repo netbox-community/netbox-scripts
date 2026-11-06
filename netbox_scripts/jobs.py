@@ -765,10 +765,8 @@ class NetBoxScriptJob(JobRunner):
                     )
                 finally:
                     unload_revision(storage_key, revision.digest)
-        except (StorageError, StorageConfigurationError, OSError) as error:
-            detail = sanitize(_('The run could not reach the source it was pinned to: {error}').format(error=error))
-            self.logger.error(detail)
-            raise JobFailed() from error
+        except JobFailed:
+            raise
         except Exception as error:
             # The run log already carries the detail, so this line only fails the Job.
             self.logger.error(sanitize(_('The Script did not finish: {error}').format(error=error)))
@@ -819,6 +817,10 @@ class NetBoxScriptJob(JobRunner):
                     digest=revision.digest[:12], module_path=module_path, class_name=class_name, error=error
                 )
             )
+            self.logger.error(detail)
+            raise JobFailed() from error
+        except (StorageError, OSError) as error:
+            detail = sanitize(_('The run could not reach the source it was pinned to: {error}').format(error=error))
             self.logger.error(detail)
             raise JobFailed() from error
 

@@ -58,6 +58,7 @@ ROWS = (
         'netbox.views.generic.BulkEditView.pre_save_operations',
         'netbox.views.generic:BulkEditView.pre_save_operations',
     ),
+    ('netbox.views.generic.BulkEditView._update_objects', 'netbox.views.generic:BulkEditView._update_objects'),
     ('netbox.views.generic.BulkEditView.get_queryset', 'netbox.views.generic:BulkEditView.get_queryset'),
     ('utilities.data.normalize_update_fields', 'utilities.data:normalize_update_fields'),
     ('utilities.rqworker.get_queue_for_model', 'utilities.rqworker:get_queue_for_model'),

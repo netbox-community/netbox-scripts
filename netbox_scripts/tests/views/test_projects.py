@@ -1,8 +1,11 @@
 import pickle
 import uuid
+from contextlib import contextmanager
+from functools import partial
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import RequestFactory, override_settings
 from django.urls import reverse
 
@@ -17,6 +20,7 @@ from netbox_scripts.models import (
     ScriptProjectRevision,
 )
 from netbox_scripts.storage import service
+from netbox_scripts.storage.locks import advisory_key, project_write_lock
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases
 from netbox_scripts.ui import ScriptProjectPanel, ScriptProjectStatePanel
 from netbox_scripts.views import ScriptProjectRepairView
@@ -95,6 +99,24 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         # creation), so posted values are ignored and must not be asserted.
         return {key: value for key, value in self.form_data.items() if key not in ('key', 'source_type')}
 
+    def bulk_edit(self, *projects):
+        """Post a bulk edit that sets these Projects' description to 'bulk'."""
+        data = {'pk': [project.pk for project in projects], '_apply': True, **post_data({'description': 'bulk'})}
+        return self.client.post(self._get_url('bulk_edit'), data)
+
+    @contextmanager
+    def while_waiting_for(self, project, change):
+        """Run change once, just before the request asks for this Project's write lock."""
+        pending = [change]
+
+        def change_first(execute, sql, params, many, context):
+            if pending and 'pg_advisory_xact_lock' in sql and tuple(params) == advisory_key(project.storage_key):
+                pending.pop()()
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(change_first):
+            yield
+
     def test_edit_object_with_permission(self):
         self.form_data = self._form_data_without_identity_fields()
         super().test_edit_object_with_permission()
@@ -114,6 +136,61 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         objects = [event['object'] for call in flush.call_args_list for event in call.args[0]]
         self.assertIn(project, objects)
         self.assertEqual([pickle.loads(pickle.dumps(obj)) for obj in objects], objects)
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_edit_keeps_changes_made_while_it_waits_for_a_lock(self):
+        self.add_permissions('netbox_scripts.change_scriptproject')
+        change = {'name': 'Bravo Devices Renamed', 'comments': 'Edited during the wait'}
+        for waiting_for in ('first', 'last'):
+            with self.subTest(waiting_for=waiting_for):
+                alpha = ScriptProject.objects.create(name=f'Alpha Devices {waiting_for}', key=f'alpha-{waiting_for}')
+                bravo = ScriptProject.objects.create(name=f'Bravo Devices {waiting_for}', key=f'bravo-{waiting_for}')
+                edit = partial(ScriptProject.objects.filter(pk=bravo.pk).update, **change)
+                with self.while_waiting_for(alpha if waiting_for == 'first' else bravo, edit):
+                    response = self.bulk_edit(alpha, bravo)
+
+                self.assertHttpStatus(response, 302)
+                alpha.refresh_from_db()
+                bravo.refresh_from_db()
+                self.assertEqual(
+                    (alpha.description, bravo.description, bravo.name, bravo.comments),
+                    ('bulk', 'bulk', change['name'], change['comments']),
+                )
+                record = ObjectChange.objects.get(
+                    changed_object_type=ObjectType.objects.get_for_model(ScriptProject), changed_object_id=bravo.pk
+                )
+                # Snapshotted after the wait, so neither field reads as changed.
+                for data in (record.prechange_data, record.postchange_data):
+                    self.assertEqual({field: data[field] for field in change}, change)
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_edit_takes_project_locks_in_name_order(self):
+        self.add_permissions('netbox_scripts.change_scriptproject')
+        # Zulu comes first by pk, key, storage key and advisory key, and last only by name.
+        keys = sorted((uuid.UUID(int=2), uuid.UUID(int=3)), key=advisory_key)
+        self.assertEqual(keys, sorted(keys))
+        zulu = ScriptProject.objects.create(name='Zulu Devices', key='devices-1', storage_key=keys[0])
+        alpha = ScriptProject.objects.create(name='Alpha Devices', key='devices-2', storage_key=keys[1])
+
+        with mock.patch('netbox_scripts.views.projects.project_write_lock', wraps=project_write_lock) as acquire:
+            response = self.bulk_edit(zulu, alpha)
+
+        self.assertHttpStatus(response, 302)
+        self.assertEqual([call.args[0] for call in acquire.call_args_list], [alpha.storage_key, zulu.storage_key])
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_edit_does_not_recreate_a_project_deleted_while_it_waits(self):
+        self.add_permissions('netbox_scripts.change_scriptproject')
+        alpha = ScriptProject.objects.create(name='Alpha Devices', key='alpha-devices')
+        bravo = ScriptProject.objects.create(name='Bravo Devices', key='bravo-devices')
+
+        with self.while_waiting_for(alpha, ScriptProject.objects.filter(pk=bravo.pk).delete):
+            response = self.bulk_edit(alpha, bravo)
+
+        self.assertHttpStatus(response, 302)
+        self.assertFalse(ScriptProject.objects.filter(pk=bravo.pk).exists())
+        alpha.refresh_from_db()
+        self.assertEqual(alpha.description, 'bulk')
 
 
 class ScriptProjectScriptFilesViewTestCase(ObjectPermissionTestMixin, TestCase):

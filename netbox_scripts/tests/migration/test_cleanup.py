@@ -34,7 +34,7 @@ class CleanupMixin(ReferenceMigrationMixin):
     def module_type(self):
         return ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False)
 
-    def module_job(self, module):
+    def module_job(self, module, *, status=JobStatusChoices.STATUS_COMPLETED):
         """One Job naming a built-in script module, which older NetBox versions created."""
         return Job.objects.create(
             name='sync',
@@ -42,7 +42,7 @@ class CleanupMixin(ReferenceMigrationMixin):
             object_id=module.pk,
             job_id=uuid.uuid4(),
             queue_name='default',
-            status=JobStatusChoices.STATUS_COMPLETED,
+            status=status,
         )
 
     def blocked_module(self, module):
@@ -50,15 +50,15 @@ class CleanupMixin(ReferenceMigrationMixin):
         stranded = Script.objects.create(module=module, name='Removed')
         return self.script_job(stranded)
 
-    def script_job(self, script):
-        """One Job naming a built-in Custom Script, as a run before the migration left behind."""
+    def script_job(self, script, *, status=JobStatusChoices.STATUS_COMPLETED):
+        """One Job naming a built-in Custom Script."""
         return Job.objects.create(
             name=script.name,
             object_type=self.script_type,
             object_id=script.pk,
             job_id=uuid.uuid4(),
             queue_name='default',
-            status=JobStatusChoices.STATUS_COMPLETED,
+            status=status,
         )
 
 
@@ -259,6 +259,98 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
 class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
     """The per-module refusal, which is the safety net the whole ordering exists for."""
 
+    def assert_unfinished_job_blocks(self, run, job):
+        reference = (job.object_type_id, job.object_id, job.status)
+
+        counts, warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 1)
+        self.assertEqual(counts['retained'], 0)
+        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        self.assertFalse(ScriptModule.objects.filter(pk=self.uploaded.pk).exists())
+        self.assertTrue(storages['scripts'].exists(self.synced.file_path))
+        job.refresh_from_db()
+        self.assertEqual((job.object_type_id, job.object_id, job.status), reference)
+        self.assertTrue(
+            any('waiting or running' in warning and 'Clean up built-in modules' in warning for warning in warnings)
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
+        self.assertIsNone(run.completed)
+        self.assertFalse(run.step_done(cleanup.STEP))
+        self.assertEqual(MigrationRun.current(), run)
+        for warning in warnings:
+            self.assertIn(str(warning), run.warnings)
+
+    def assert_retained_history_does_not_hide_unfinished_jobs(self, run):
+        job = self.script_job(self.script)
+        for status in JobStatusChoices.ENQUEUED_STATE_CHOICES:
+            with self.subTest(status=status):
+                job.status = status
+                job.save(update_fields=('status',))
+                self.assert_unfinished_job_blocks(run, job)
+
+        job.status = JobStatusChoices.STATUS_COMPLETED
+        job.save(update_fields=('status',))
+
+        counts, _warnings = cleanup.retire_legacy(run)
+
+        self.assertEqual(counts['blocked'], 0)
+        self.assertEqual(counts['retained'], 1)
+        self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
+        self.assertTrue(Job.objects.filter(pk=job.pk).exists())
+        run.refresh_from_db()
+        self.assertEqual(run.state, MigrationStateChoices.MIGRATED)
+        self.assertTrue(run.step_done(cleanup.STEP))
+
+    def test_module_history_does_not_hide_an_unfinished_script_job(self):
+        run = self.repointed()
+        history = self.module_job(self.synced)
+
+        self.assert_retained_history_does_not_hide_unfinished_jobs(run)
+
+        self.assertTrue(Job.objects.filter(pk=history.pk).exists())
+
+    def test_retired_script_history_does_not_hide_an_unfinished_script_job(self):
+        retired = Script.objects.create(module=self.synced, name='OldDeploy', is_executable=False)
+        history = self.script_job(retired)
+        run = self.repointed()
+
+        self.assert_retained_history_does_not_hide_unfinished_jobs(run)
+
+        self.assertTrue(Job.objects.filter(pk=history.pk).exists())
+
+    def test_unfinished_module_jobs_block_cleanup(self):
+        run = self.repointed()
+        job = self.module_job(self.synced)
+
+        for status in JobStatusChoices.ENQUEUED_STATE_CHOICES:
+            with self.subTest(status=status):
+                job.status = status
+                job.save(update_fields=('status',))
+                self.assert_unfinished_job_blocks(run, job)
+
+    def test_unfinished_retired_script_jobs_block_cleanup(self):
+        run = self.repointed()
+        retired = Script.objects.create(module=self.synced, name='OldDeploy', is_executable=False)
+        job = self.script_job(retired)
+
+        for status in JobStatusChoices.ENQUEUED_STATE_CHOICES:
+            with self.subTest(status=status):
+                job.status = status
+                job.save(update_fields=('status',))
+                self.assert_unfinished_job_blocks(run, job)
+
+    def test_unfinished_live_script_jobs_block_cleanup(self):
+        run = self.repointed()
+        job = self.script_job(self.script)
+
+        for status in JobStatusChoices.ENQUEUED_STATE_CHOICES:
+            with self.subTest(status=status):
+                job.status = status
+                job.save(update_fields=('status',))
+                self.assert_unfinished_job_blocks(run, job)
+
     def test_a_module_whose_live_script_holds_history_blocks_and_its_sibling_is_deleted(self):
         run = self.repointed()
         stranded = Script.objects.create(module=self.synced, name='Removed')
@@ -291,13 +383,13 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
     def test_a_module_holding_its_own_job_history_is_retained_and_the_run_still_closes(self):
         # No plugin row can hold these, and JobsMixin.delete() would take them without the guard.
         run = self.repointed()
-        job = self.module_job(self.synced)
+        jobs = [self.module_job(self.synced, status=status) for status in JobStatusChoices.TERMINAL_STATE_CHOICES]
 
         counts, warnings = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['retained'], 1)
         self.assertEqual(counts['blocked'], 0)
-        self.assertTrue(Job.objects.filter(pk=job.pk).exists())
+        self.assertEqual(Job.objects.filter(pk__in=[job.pk for job in jobs]).count(), len(jobs))
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
         self.assertTrue(any(self.synced.python_name in warning for warning in warnings))
         # Nothing an operator does clears this, so holding the run open would strand it forever.
@@ -308,14 +400,14 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         # The normal state of a long-lived installation, and nothing can take that history over.
         retired = Script.objects.create(module=self.synced, name='OldDeploy')
         Script.objects.filter(pk=retired.pk).update(is_executable=False)
-        job = self.script_job(retired)
+        jobs = [self.script_job(retired, status=status) for status in JobStatusChoices.TERMINAL_STATE_CHOICES]
         run = self.repointed()
 
         counts, warnings = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['retained'], 1)
         self.assertEqual(counts['blocked'], 0)
-        self.assertTrue(Job.objects.filter(pk=job.pk).exists())
+        self.assertEqual(Job.objects.filter(pk__in=[job.pk for job in jobs]).count(), len(jobs))
         self.assertTrue(any('left the file' in warning for warning in warnings))
         # The reference pass has to have closed too, or this could never have been reached.
         self.assertTrue(run.step_done(references.HISTORY_STEP))

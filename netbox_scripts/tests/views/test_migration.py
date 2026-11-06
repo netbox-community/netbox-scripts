@@ -805,6 +805,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         for phrase in (
             'module-level Job history or history for classes no longer published by their source are retained',
             'unless you have made a separate retention decision',
+            'A module with waiting or running built-in Jobs is blocked, even when it also holds retained history',
             'Migration completes when no blockers remain, even if some modules are retained',
             'resolve blockers before retrying cleanup',
         ):

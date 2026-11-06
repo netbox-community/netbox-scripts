@@ -263,7 +263,7 @@ def recreate_schedules(run):
         if str(entry['job_pk']) in recreated:
             continue
         # Matched by outcome rather than inverted: 'vanished' and a journal recording none at all
-        # must still replay. Skipped rather than outstanding, or the step could never end.
+        # can still replay. Skipped rather than outstanding, or the step could never end.
         if entry.get('cancellation') in ('executed', 'running'):
             counts['skipped'] += 1
             warnings.append(
@@ -275,7 +275,8 @@ def recreate_schedules(run):
                 ).format(pk=entry['job_pk'], name=entry['name'])
             )
             continue
-        if entry.get('cancellation') == 'cancelled':
+        # Vanished too: a worker's Job.terminate() saves its whole copy, restoring a Job deleted while it ran.
+        if entry.get('cancellation') in ('cancelled', 'vanished'):
             # By key alone: the history pass may already have moved this row to the Script.
             changed = Job.objects.filter(pk=entry['job_pk']).exclude(
                 status=JobStatusChoices.STATUS_FAILED, started__isnull=True
@@ -283,12 +284,18 @@ def recreate_schedules(run):
             # NetBox never starts the failed, unstarted row the cutover left, so any other state may mean a run.
             if changed.exists():
                 counts['skipped'] += 1
-                warnings.append(
-                    _(
+                if entry['cancellation'] == 'cancelled':
+                    message = _(
                         'Schedule "{name}" (Job {pk}) changed after cancellation and has not been recreated. '
                         'Check its execution history and any recurring successor before scheduling it again.'
-                    ).format(pk=entry['job_pk'], name=entry['name'])
-                )
+                    )
+                else:
+                    message = _(
+                        'Schedule "{name}" (Job {pk}) reappeared after the cutover found it missing and has not '
+                        'been recreated. Check its execution history and any recurring successor before '
+                        'scheduling it again.'
+                    )
+                warnings.append(message.format(pk=entry['job_pk'], name=entry['name']))
                 continue
         # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
         if entry.get('legacy_object_type') != 'extras.script':

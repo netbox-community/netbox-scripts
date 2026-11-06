@@ -77,8 +77,8 @@ RQ's scheduler can still queue a task it fetched just before cancellation.
 NetBox does not start its failed Job, and the reference pass considers the run
 for replay. The pass holds back a replacement if it finds the original started,
 or requeued and waiting again. It checks once, so a run requeued after that
-check can execute on both sides. If the original Job row was deleted, the pass
-also considers the run for replay.
+check can execute on both sides. If the original Job row is missing at that
+check, the pass also considers the run for replay.
 
 This depends on every worker running the NetBox release this plugin requires.
 Restart all workers after upgrading NetBox, because a worker started before the
@@ -94,8 +94,9 @@ overlap, not as a guarantee against duplicate execution.
 
 A recurring run that executes queues its next occurrence. Cutover completes
 only when no built-in Custom Script Job is waiting or running after its last
-closure, so a run still executing keeps it incomplete until the run ends. What
-happens to a successor depends on when it was queued:
+closure, so a run still executing keeps it incomplete until the run ends,
+unless its Job is deleted while it runs. What happens to a successor depends
+on when it was queued:
 
 - **While cutover is incomplete:** entering cutover again captures it. The
   reference pass then considers it for replay. Check the results before creating
@@ -110,6 +111,8 @@ finished before it queues the successor, and with several workers cutover can
 complete in that gap. One worker for the queues involved prevents that overlap.
 A cancelled run that is requeued and executes can also queue its successor
 after cutover (see [Cancellation and replay limits](#cancellation-and-replay-limits)).
+So can a run whose Job was deleted while it executed, since cutover no longer
+sees it.
 
 An existing successor is different from a Script run whose worker disappeared.
 For the latter, follow [Stale running Jobs](#stale-running-jobs) before
@@ -426,7 +429,9 @@ Runs recorded as already executing or executed are not automatically
 recreated. Review their outcome. Before arranging a recurring schedule by hand,
 check [Recurring successors](#recurring-successors). Re-entering cutover may
 already have captured the next occurrence. A cancelled run found to have
-started or been requeued is also held back. See
+started or been requeued is also held back. The same check applies when a
+Job reappears after cutover found it missing. A Job deleted while its run
+executes can reappear when the run ends. See
 [Cancellation and replay limits](#cancellation-and-replay-limits) for the
 limits of that check.
 
@@ -521,8 +526,9 @@ work before retrying. See [Cancellation and replay limits](#cancellation-and-rep
 
 Replay uses recorded cancellation outcomes and each Job's state when the
 reference pass runs. It is not exactly once: a run requeued after that check,
-or one that ran and whose Job row was deleted before it, is not detected. Keep
-the maintenance window and review results even when cutover reports completion.
+or one that ran and whose Job row is missing at that check, is not detected.
+Keep the maintenance window and review results even when cutover reports
+completion.
 
 ## Recovery
 

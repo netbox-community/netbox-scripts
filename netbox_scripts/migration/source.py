@@ -221,9 +221,12 @@ def module_references(module):
     live_pks = [pk for pk in script_pks if pk not in retired_pks]
     script_type = _object_type(Script)
     held = Job.objects.filter(object_type=script_type)
+    module_jobs = module.jobs.all()
+    unfinished = unfinished_script_jobs() & (module_jobs | held.filter(object_id__in=script_pks))
     return {
         'scripts': len(script_pks),
-        'module_jobs': module.jobs.exists(),
+        'unfinished_jobs': unfinished.exists(),
+        'module_jobs': module_jobs.exists(),
         'retired_script_jobs': held.filter(object_id__in=retired_pks).exists(),
         'live_script_jobs': held.filter(object_id__in=live_pks).exists(),
         'event_rules': module.event_rules.exists()

@@ -462,11 +462,12 @@ history or history for classes no longer published by their source. There is
 no replacement identity for that history. Keep it unless you have made a
 separate retention decision.
 
-**Blocked** modules keep migration open. They have unresolved or retired
-replacement Scripts, remaining Job history, remaining Event Rule references or
-replacement Projects without an active revision. Follow the reported reason:
-correct the source, activate the required revision or resolve the reference,
-then retry.
+**Blocked** modules keep migration open. They have waiting or running built-in
+Jobs, unresolved or retired replacement Scripts, remaining Job history,
+remaining Event Rule references or replacement Projects without an active
+revision. A module with waiting or running built-in Jobs is blocked, even when
+it also holds retained history. Follow the reported reason: correct the source,
+activate the required revision or resolve the reference, then retry.
 
 Completed reference steps do not scan again, so repeating
 **Repoint references** cannot resolve a remaining reference. Resolve it by hand:

@@ -391,7 +391,7 @@ class ScriptProject(PrimaryModel):
 
         Unfiltered, unlike current_revision.
         """
-        # The newest attempt is what the source state reports on, and a rejected one has no digest.
+        # Include rejected source attempts, which have no digest.
         return self.revisions.using(self._read_alias()).order_by('-created').first()
 
     def latest_stored_revision(self):
@@ -426,7 +426,14 @@ class ScriptProject(PrimaryModel):
         latest = self.latest_revision()
         if latest is None:
             return _('No source has been added yet.')
-        if latest.pk == self.active_revision_id:
+        # Reuse can supersede a newer revision. Keep materialized attempts visible because acceptance may be incomplete.
+        if latest.pk == self.active_revision_id or (
+            latest.digest
+            and latest.status not in UNSTORED_REVISION_STATUSES
+            and latest.status != RevisionStatusChoices.MATERIALIZED
+            and self.active_revision_id is not None
+            and self.source_revision_id == self.active_revision_id
+        ):
             return _('The active revision is the newest source.')
         return _SOURCE_STATE_SUMMARIES.get(latest.status, _('A newer revision exists.'))
 

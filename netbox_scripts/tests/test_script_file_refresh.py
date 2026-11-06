@@ -4,11 +4,13 @@ from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
+from django.db import OperationalError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.choices import JobStatusChoices
 from netbox_scripts import branching
+from netbox_scripts.activation import activate_revision
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
 from netbox_scripts.forms import ScriptProjectScriptFilesForm
@@ -355,3 +357,31 @@ class ScriptFileRefreshPolicyTestCase(TestCase):
         project = self.refresh(project)
         self.assertEqual(project.active_revision_id, original)
         self.assertEqual(project.source_revision_id, original)
+        self.assertEqual(project.source_state, 'The active revision is the newest source.')
+
+    def test_reselecting_the_served_set_on_a_manual_project_reports_it_as_current(self):
+        project = two_script_file_project(key='manual-round-trip', activation_policy=ActivationPolicyChoices.MANUAL)
+        original = activate_revision(project.latest_revision()).revision.pk
+        project.select_script_files(['alpha.py'])
+        project = self.refresh(project)
+        self.assertEqual(project.latest_revision().status, RevisionStatusChoices.VALID)
+        project.select_script_files(['alpha.py', 'beta.py'])
+        project = self.refresh(project)
+        self.assertEqual((project.active_revision_id, project.source_revision_id), (original, original))
+        self.assertEqual(project.latest_revision().status, RevisionStatusChoices.VALID)
+        self.assertEqual(project.source_state, 'The active revision is the newest source.')
+
+    def test_a_refresh_interrupted_before_acceptance_keeps_its_revision_visible(self):
+        project = two_script_file_project(
+            key='interrupted', activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        )
+        served = project.active_revision_id
+        project.select_script_files(['alpha.py'])
+        with mock.patch.object(service, '_accept_source', side_effect=OperationalError('deadlock detected')):
+            job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=project.pk)
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        project = ScriptProject.objects.get(pk=project.pk)
+        self.assertEqual((project.active_revision_id, project.source_revision_id), (served, served))
+        self.assertEqual(project.latest_revision().status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(project.source_state, 'New source is waiting to be validated.')

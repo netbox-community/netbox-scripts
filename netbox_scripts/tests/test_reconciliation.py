@@ -345,6 +345,8 @@ class ReconciliationPolicyTestCase(TestCase):
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertEqual(self.project.active_revision_id, first.pk)
+        self.assertEqual(self.project.source_revision_id, first.pk)
+        self.assertEqual(self.project.source_state, 'The active revision is the newest source.')
         first.refresh_from_db()
         self.assertEqual(first.status, RevisionStatusChoices.ACTIVE)
         # The tree was staged once, so the revert reuses the row rather than adding a third.
@@ -427,4 +429,5 @@ class ReconciliationPolicyTestCase(TestCase):
 
         self.project = ScriptProject.objects.get(pk=self.project.pk)
         self.assertEqual((self.project.active_revision_id, self.project.source_revision_id), (failed.pk, failed.pk))
+        self.assertEqual(self.project.source_state, 'The active revision is the newest source.')
         self.assertTrue(NetBoxScript.objects.get(project=self.project, class_name='Audit').is_executable)

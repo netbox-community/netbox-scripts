@@ -54,9 +54,9 @@ for its request format and permissions.
 The **Revision Files** tab lists each file in the current revision, with its
 size, short checksum and enabled Script File status. It identifies the revision
 being displayed and links to the selection tab. A missing declared path is
-labelled to distinguish a file absent from the source from one waiting in a
-newer, inactive revision. The tab is empty until a revision contains stored
-source.
+labelled to distinguish a file absent from the source from one waiting in the
+accepted source, which is not active yet. The tab is empty until a revision
+contains stored source.
 
 ## Activation policy
 

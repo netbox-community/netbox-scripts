@@ -450,24 +450,26 @@ class ScriptProject(PrimaryModel):
         return self.active_revision or self.latest_stored_revision()
 
     def paths_awaiting_activation(self):
-        """Return the paths the newest activatable-or-pending revision holds that the served tree does not."""
-        # A declared path absent from the served tree is a fault or a wait, and only a revision
-        # that could still be activated makes it a wait. An invalid one never will be.
-        if self.active_revision_id is None:
+        """Return the paths an activatable-or-pending accepted source holds that the served tree does not."""
+        # A declared path absent from the served tree is a fault or a wait, and only accepted source makes it a wait.
+        if self.active_revision_id is None or self.source_revision_id == self.active_revision_id:
             return set()
         current = self.current_revision
-        newest = (
+        candidates = (
             self.revisions.using(self._read_alias())
             .filter(digest__isnull=False)
             .exclude(status__in=UNSTORED_REVISION_STATUSES)
             .exclude(status=RevisionStatusChoices.INVALID)
-            .order_by('-created')
-            .first()
         )
-        if current is None or newest is None or newest.pk == current.pk:
+        if self.source_revision_id is None:
+            # Legacy rows predate the accepted-source pointer.
+            source = candidates.order_by('-created').first()
+        else:
+            source = candidates.filter(pk=self.source_revision_id).first()
+        if current is None or source is None or source.pk == current.pk:
             return set()
         served = {entry['path'] for entry in current.manifest}
-        return {entry['path'] for entry in newest.manifest} - served
+        return {entry['path'] for entry in source.manifest} - served
 
     def _source_paths(self):
         """Return every project-relative path of the source this project currently has."""

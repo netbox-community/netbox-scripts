@@ -3,6 +3,7 @@
 import contextlib
 import datetime
 import decimal
+import logging
 
 import django_rq
 import netaddr
@@ -40,12 +41,10 @@ __all__ = (
     'unservable_projects',
 )
 
+logger = logging.getLogger('netbox.plugins.netbox_scripts.migration')
+
 STEP = 'cutover'
 ACTIVATE_STEP = 'activate'
-
-# Everything activation can refuse with. One project failing must leave the rest to activate, so
-# these are recorded as an outcome rather than allowed to end the pass.
-_ACTIVATION_FAILURES = (ActivationError, RevisionCorruptError, StorageError, OSError)
 
 # Marks an input value that cannot be written to the journal, so it is reported rather than
 # silently replayed as absent.
@@ -235,7 +234,7 @@ def _merged_outcomes(run, results):
 
 
 def _activate_project(project):
-    """Activate the revision one project should serve, reporting rather than raising on refusal."""
+    """Activate the revision one project should serve, reporting a refusal or storage failure rather than raising."""
     # The outcomes below are journal identifiers, not prose: they are persisted, the tests match
     # them literally, and jobs.py substitutes one into a translated sentence. Translating them
     # would both freeze a stored value's language and compose two translated strings.
@@ -270,8 +269,12 @@ def _activate_project(project):
         revision, outcome = candidate, 'activated'
     try:
         activation.activate_revision(revision, repair=revision.pk == project.active_revision_id)
-    except _ACTIVATION_FAILURES as error:
+    except (ActivationError, RevisionCorruptError) as error:
+        # The plugin words these refusals itself, and their text names no server path.
         return _outcome(project, revision.pk, f'could not be activated: {error}')
+    except (StorageError, OSError):
+        logger.exception('Could not activate revision %s of Script Project %s.', revision.pk, project.pk)
+        return _outcome(project, revision.pk, 'could not be activated: a storage error occurred')
     return _outcome(project, revision.pk, outcome)
 
 

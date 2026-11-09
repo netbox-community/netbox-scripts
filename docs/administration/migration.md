@@ -377,6 +377,11 @@ with its published rows repaired, and a Project serving nothing gets its newest
 Check each outcome and active revision before repointing. Repeating activation
 checks the Projects again and can make further changes.
 
+A storage backend error is recorded as a fixed outcome instead of the error's
+own text, which can name server paths. The server log keeps the original error
+with its traceback under the `netbox.plugins.netbox_scripts.migration` logger.
+A missing or damaged stored revision keeps its own outcome.
+
 ## Repoint references
 
 **Repoint references** replays the journal in four steps.

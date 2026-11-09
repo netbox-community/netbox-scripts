@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
@@ -15,6 +17,8 @@ from ..models import ScriptProject, ScriptProjectRevision
 from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..tables import ScriptProjectRevisionProblemTable, ScriptProjectRevisionScriptFileTable
 from ..ui import ScriptProjectRevisionPanel, ScriptProjectRevisionStatePanel
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.views')
 
 
 def activation_message(revision, scripts):
@@ -148,9 +152,12 @@ class ScriptProjectRevisionActivateView(RevisionServiceView):
         revision = self.get_object(**kwargs)
         try:
             result = activation.activate_revision(revision)
-        except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
+        except (ActivationError, RevisionCorruptError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             messages.error(request, _('The revision could not be activated: {error}').format(error=error))
+        except (StorageError, OSError):
+            logger.exception('Could not activate revision %s of Script Project %s.', revision.pk, revision.project_id)
+            messages.error(request, _('The revision could not be activated.'))
         else:
             messages.success(request, activation_message(revision, result.scripts))
         return redirect(self.return_url(revision))
@@ -167,8 +174,11 @@ class ScriptProjectRevisionDeactivateView(RevisionServiceView):
         revision = self.get_object(**kwargs)
         try:
             activation.deactivate_revision(revision)
-        except (ActivationError, StorageError) as error:
+        except ActivationError as error:
             messages.error(request, _('The revision could not be deactivated: {error}').format(error=error))
+        except StorageError:
+            logger.exception('Could not deactivate revision %s of Script Project %s.', revision.pk, revision.project_id)
+            messages.error(request, _('The revision could not be deactivated.'))
         else:
             messages.success(
                 request,

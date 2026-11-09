@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.test import override_settings
 from django.urls import reverse
 
@@ -5,8 +7,8 @@ from core.models import ObjectType
 from netbox_scripts import activation
 from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
-from netbox_scripts.storage import service
-from netbox_scripts.storage.exceptions import ActivationError
+from netbox_scripts.storage import config, service
+from netbox_scripts.storage.exceptions import ActivationError, StorageError
 from netbox_scripts.tables import (
     ScriptProjectRevisionProblemTable,
     ScriptProjectRevisionScriptFileTable,
@@ -76,6 +78,44 @@ class RevisionServiceViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertEqual(revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, revision.pk)
         self.assertTrue(NetBoxScript.objects.get(project=self.project).is_executable)
+
+    def test_a_backend_failure_reports_a_fixed_message_and_logs_its_cause(self):
+        self.grant(ScriptProject, 'view', 'activate')
+        revision = self.valid_revision()
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.views', 'ERROR') as logged,
+        ):
+            response = self.client.post(self.url(revision, 'activate'), follow=True)
+
+            self.assertEqual(str(list(response.context['messages'])[0]), 'The revision could not be activated.')
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+
+    def test_a_missing_stored_tree_keeps_its_own_message(self):
+        self.grant(ScriptProject, 'view', 'activate')
+        revision = self.valid_revision()
+        with mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError):
+            response = self.client.post(self.url(revision, 'activate'), follow=True)
+
+        self.assertEqual(
+            str(list(response.context['messages'])[0]),
+            'The revision could not be activated: The stored revision at '
+            f'netbox-scripts/{self.project.storage_key}/revisions/{revision.digest}/ is missing.',
+        )
+
+    def test_an_unusable_snapshot_keeps_its_own_message(self):
+        self.grant(ScriptProject, 'view', 'activate')
+        revision = self.valid_revision(records=[record(position=1)])
+        response = self.client.post(self.url(revision, 'activate'), follow=True)
+
+        self.assertEqual(
+            str(list(response.context['messages'])[0]),
+            f'The revision could not be activated: Revision {revision.pk} cannot be activated, its recorded '
+            'Scripts are unusable: Entry 0 of the discovered scripts records the wrong position.',
+        )
 
     def test_the_success_message_names_what_the_revision_published(self):
         self.grant(ScriptProject, 'view', 'activate')
@@ -161,10 +201,28 @@ class RevisionServiceViewTestCase(ObjectPermissionTestMixin, TestCase):
     def test_deactivating_a_revision_that_is_not_active_is_refused(self):
         self.grant(ScriptProject, 'view', 'activate')
         revision = self.valid_revision()
-        response = self.client.post(self.url(revision, 'deactivate'))
-        self.assertHttpStatus(response, 302)
+        response = self.client.post(self.url(revision, 'deactivate'), follow=True)
+        self.assertEqual(response.redirect_chain, [(self.tab_url(), 302)])
+        self.assertEqual(
+            str(list(response.context['messages'])[0]),
+            f'The revision could not be deactivated: Revision {revision.pk} is not the active revision of its project.',
+        )
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+
+    def test_a_deactivation_failure_reports_a_fixed_message_and_logs_it(self):
+        self.grant(ScriptProject, 'view', 'activate')
+        revision = self.valid_revision()
+        error = StorageError('Unable to read "/srv/netbox/private/deploy.py"')
+        # Deactivation reads no storage today, so the failure is injected at the service.
+        with (
+            mock.patch.object(activation, 'deactivate_revision', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.views', 'ERROR') as logged,
+        ):
+            response = self.client.post(self.url(revision, 'deactivate'), follow=True)
+
+            self.assertEqual(str(list(response.context['messages'])[0]), 'The revision could not be deactivated.')
+        self.assertIs(logged.records[0].exc_info[1], error)
 
     def test_activating_a_second_revision_retires_the_first(self):
         self.grant(ScriptProject, 'view', 'activate')

@@ -593,7 +593,7 @@ class MaterializeRevisionTestCase(TestCase):
     def test_a_non_directory_occupying_the_slot_is_moved_aside_without_a_chmod(self):
         # The write bit is lent to a directory only. chmod follows a symlink, so lending it to one
         # would change the mode of whatever it points at.
-        self.target.parent.mkdir(parents=True, exist_ok=True)
+        self.target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.target.write_bytes(b'X = 1\n')
         self.target.chmod(0o444)
         self.assertEqual(self.materialize(), self.target)
@@ -753,6 +753,93 @@ class MaterializeRevisionTestCase(TestCase):
         root = base / 'runtime-cache'
         self.materialize(cache_root=root)
         self.assertEqual(stat.S_IMODE(root.stat().st_mode) & 0o077, 0)
+
+    def test_project_and_staging_roots_are_created_private_under_a_permissive_umask(self):
+        self.cache_root.chmod(0o755)
+        original = cache.verify_local_tree
+        staged = []
+
+        def verify(local_dir, manifest):
+            staged.append(tuple(stat.S_IMODE(path.stat().st_mode) for path in (local_dir, local_dir / 'pkg')))
+            original(local_dir, manifest)
+
+        previous = os.umask(0o002)
+        try:
+            with mock.patch.object(cache, 'verify_local_tree', verify):
+                self.materialize()
+        finally:
+            os.umask(previous)
+        self.assertEqual(stat.S_IMODE(self.target.parent.stat().st_mode), 0o700)
+        self.assertEqual(staged, [(0o700, 0o700)])
+
+    def test_a_project_directory_writable_by_other_users_is_refused(self):
+        self.cache_root.chmod(0o1777)
+        project_dir = self.target.parent
+        for mode in (0o775, 0o757, 0o777, 0o1777):
+            with self.subTest(mode=oct(mode)):
+                discard_tree(project_dir)
+                project_dir.mkdir()
+                project_dir.chmod(mode)
+                with self.assertRaises(LocalCacheError) as ctx:
+                    self.materialize()
+                self.assertIn(f'chmod 700 {project_dir}', str(ctx.exception))
+                self.assertEqual(list(project_dir.iterdir()), [])
+
+    def test_a_project_directory_owned_by_another_user_is_refused(self):
+        project_dir = self.target.parent
+        project_dir.mkdir(mode=0o700)
+        original = Path.lstat
+
+        def lstat(path):
+            info = original(path)
+            if path == project_dir:
+                return mock.Mock(st_mode=info.st_mode, st_uid=os.getuid() + 1)
+            return info
+
+        with mock.patch.object(Path, 'lstat', lstat), self.assertRaises(LocalCacheError) as ctx:
+            self.materialize()
+        self.assertIn(f'The cache directory "{project_dir}" belongs to another user', str(ctx.exception))
+        self.assertIn('Remove it while NetBox is stopped', str(ctx.exception))
+        self.assertEqual(list(project_dir.iterdir()), [])
+
+    def test_a_project_directory_owned_by_root_is_accepted(self):
+        project_dir = self.target.parent
+        project_dir.mkdir(mode=0o700)
+        original = Path.lstat
+
+        def lstat(path):
+            info = original(path)
+            if path == project_dir:
+                return mock.Mock(st_mode=info.st_mode, st_uid=0)
+            return info
+
+        with mock.patch.object(Path, 'lstat', lstat):
+            cache._ensure_project_directory(project_dir)
+
+    def test_a_symlink_in_place_of_the_project_directory_is_refused(self):
+        elsewhere = Path(tempfile.mkdtemp(prefix='nbcs-project-link-'))
+        self.addCleanup(discard_tree, elsewhere)
+        project_dir = self.target.parent
+        project_dir.symlink_to(elsewhere)
+        with self.assertRaises(LocalCacheError) as ctx:
+            self.materialize()
+        self.assertIn(f'The cache directory "{project_dir}" is a symbolic link or not a directory.', str(ctx.exception))
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_a_file_in_place_of_the_project_directory_is_reported_as_a_cache_error(self):
+        project_dir = self.target.parent
+        project_dir.write_bytes(b'')
+        with self.assertRaises(LocalCacheError) as ctx:
+            self.materialize()
+        self.assertIn(f'Unable to create the cache directory "{project_dir}"', str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, FileExistsError)
+
+    def test_a_project_directory_only_its_owner_can_write_is_reused(self):
+        self.materialize()
+        self.target.parent.chmod(0o755)
+        watcher = OpenRecordingStorage()
+        self.assertEqual(self.materialize(storage=watcher), self.target)
+        self.assertEqual(watcher.opened, [])
 
 
 @unittest.skipUnless(HAS_S3_STACK, 'moto and the S3 storage backend are not installed')

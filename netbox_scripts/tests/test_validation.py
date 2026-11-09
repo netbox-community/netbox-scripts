@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
+from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rq.timeouts import JobTimeoutException
@@ -17,10 +18,16 @@ from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusCho
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
-from netbox_scripts.runtime.exceptions import DiscoveryError, ScriptFileImportError
+from netbox_scripts.runtime.exceptions import DiscoveryError, LocalCacheError, ScriptFileImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
-from netbox_scripts.storage import service
-from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageError
+from netbox_scripts.storage import config, service
+from netbox_scripts.storage.exceptions import (
+    ActivationError,
+    RevisionCorruptError,
+    StorageConfigurationError,
+    StorageError,
+)
+from netbox_scripts.storage.paths import revision_key
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.validation import (
     ValidationStateError,
@@ -37,6 +44,8 @@ def script_source(class_name):
 
 
 SCRIPT_FILES = {'deploy.py': script_source('Deploy')}
+STORAGE_REASON = 'The revision source could not be accessed. Check source storage and the runtime cache.'
+IO_REASON = 'An I/O error occurred on the server. Check the server logs for details.'
 
 
 class ValidationTestMixin:
@@ -291,6 +300,78 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
 
         working.refresh_from_db()
         self.assertEqual(working.last_validation_failure, '')
+
+    def test_a_storage_read_failure_records_a_fixed_reason_and_logs_its_cause(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.validation', 'ERROR') as logged,
+            self.assertRaises(StorageError),
+        ):
+            validate_revision(revision, job=self.job)
+
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(revision.last_validation_failure, f'StorageError: {STORAGE_REASON}')
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_cache_failure_records_a_fixed_reason(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        occupied = self.cache_root / 'occupied'
+        occupied.write_bytes(b'')
+        plugins_config = {'netbox_scripts': {'runtime_cache_root': str(occupied / 'cache')}}
+
+        with (
+            override_settings(PLUGINS_CONFIG=plugins_config),
+            self.assertLogs('netbox.plugins.netbox_scripts.validation', 'ERROR') as logged,
+            self.assertRaises(LocalCacheError),
+        ):
+            validate_revision(revision, job=self.job)
+
+        revision.refresh_from_db()
+        self.assertEqual(revision.last_validation_failure, f'LocalCacheError: {STORAGE_REASON}')
+        self.assertIn(str(occupied), str(logged.records[0].exc_info[1]))
+
+    def test_an_import_time_io_error_records_its_script_file_and_a_fixed_reason(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/runtime-cache/deploy.py')
+
+        with (
+            mock.patch('netbox_scripts.compat._CompatSourceFileLoader.get_data', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.validation', 'ERROR') as logged,
+            self.assertRaises(ScriptFileImportError),
+        ):
+            validate_revision(revision, job=self.job)
+
+        revision.refresh_from_db()
+        self.assertEqual(
+            revision.last_validation_failure,
+            f'ScriptFileImportError: The script file "deploy.py" failed to import. {IO_REASON}',
+        )
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_stored_file_that_no_longer_matches_keeps_its_reason(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        storage = config.get_storage()
+        key = revision_key(str(self.project.storage_key), revision.digest, 'deploy.py')
+        storage.delete(key)
+        storage.save(key, ContentFile(b'#' * len(SCRIPT_FILES['deploy.py'])))
+
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.validation'), self.assertRaises(RevisionCorruptError):
+            validate_revision(revision, job=self.job)
+
+        revision.refresh_from_db()
+        self.assertEqual(
+            revision.last_validation_failure,
+            'RevisionCorruptError: The stored file "netbox-scripts/<storage>/revisions/<digest>/deploy.py" '
+            'does not match its manifest entry.',
+        )
 
     def test_a_passthrough_exception_reverts_and_escapes_unwrapped(self):
         self.declare('deploy.py')
@@ -719,6 +800,21 @@ class ClassificationTestCase(TestCase):
         self.assertIn('tools.deploy', cleaned)
         self.assertIsNone(sanitize(None))
 
+    def test_the_storage_failure_reason_table(self):
+        cases = (
+            (StorageError('backend text'), STORAGE_REASON),
+            (StorageConfigurationError('backend text'), STORAGE_REASON),
+            (LocalCacheError('/var/cache/netbox-scripts is not a directory'), STORAGE_REASON),
+            (PermissionError(13, 'Permission denied', '/srv/netbox/private'), IO_REASON),
+            (ActivationError('refused'), None),
+            (RevisionCorruptError('damaged'), None),
+            (ModuleNotFoundError("No module named 'netaddr.absent'"), None),
+            (None, None),
+        )
+        for error, expected in cases:
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(validation.storage_failure_reason(error), expected)
+
 
 class ScriptFilePersistenceTestCase(ValidationTestMixin, TestCase):
     def test_a_row_renamed_since_staging_is_skipped(self):
@@ -824,6 +920,62 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+
+    def test_a_storage_failure_reaches_the_job_log_as_a_fixed_reason(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        runner = RevisionValidationJob(self.make_job())
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.validation', 'ERROR'),
+            self.assertRaises(JobFailed),
+        ):
+            runner.run(revision_pk=revision.pk)
+
+        messages = [entry['message'] for entry in runner.job.log_entries]
+        self.assertIn(f'Revision validation could not complete and needs another run: {STORAGE_REASON}', messages)
+        self.assertNotIn('/srv/netbox/private', str(runner.job.log_entries))
+
+    def test_a_script_file_import_failure_keeps_its_job_log_line(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        runner = RevisionValidationJob(self.make_job())
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/runtime-cache/deploy.py')
+
+        with (
+            mock.patch('netbox_scripts.compat._CompatSourceFileLoader.get_data', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.validation', 'ERROR'),
+            self.assertRaises(JobFailed),
+        ):
+            runner.run(revision_pk=revision.pk)
+
+        messages = [entry['message'] for entry in runner.job.log_entries]
+        self.assertIn(
+            'Revision validation could not complete and needs another run: '
+            'The script file "deploy.py" failed to import.',
+            messages,
+        )
+        self.assertNotIn('/srv/netbox/private', str(runner.job.log_entries))
+
+    def test_a_storage_failure_while_activating_reaches_the_job_log_as_a_fixed_reason(self):
+        self.declare('deploy.py')
+        revision = validate_revision(self.stage(SCRIPT_FILES), job=self.job)
+        runner = RevisionValidationJob(self.make_job())
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR') as logged,
+            self.assertRaises(JobFailed),
+        ):
+            runner.run(revision_pk=revision.pk)
+
+        messages = [entry['message'] for entry in runner.job.log_entries]
+        self.assertIn(f'The revision validated but could not be activated: {STORAGE_REASON}', messages)
+        self.assertNotIn('/srv/netbox/private', str(runner.job.log_entries))
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
 
     def test_an_invalid_verdict_completes_the_job(self):
         self.declare('deploy.py')

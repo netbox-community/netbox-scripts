@@ -22,6 +22,7 @@ the job layer routes its log lines through the same sanitizer.
 """
 
 import importlib.util
+import logging
 import uuid
 from datetime import timedelta
 
@@ -41,7 +42,7 @@ from .runtime.introspection import describe_script
 from .runtime.loader import import_script_file, revision_import_session, unload_revision
 from .runtime.naming import PRIVATE_ROOT, project_module_name, revision_module_name
 from .storage import config
-from .storage.exceptions import RevisionCorruptError, StorageError
+from .storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from .storage.manifest import validate_manifest
 from .storage.script_files import validate_script_file_snapshot
 from .storage.service import require_default_database
@@ -51,8 +52,11 @@ __all__ = (
     'ValidationStateError',
     'build_error_sanitizer',
     'classify_script_file_error',
+    'storage_failure_reason',
     'validate_revision',
 )
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.validation')
 
 
 class ValidationStateError(Exception):
@@ -159,7 +163,11 @@ def validate_revision(revision, *, job, passthrough=()):
             finally:
                 unload_revision(storage_key, digest)
     except BaseException as error:
-        _revert_to_materialized(revision, job, sanitize(_failure_reason(error)))
+        cause = error.__cause__ if isinstance(error, ScriptFileImportError) else error
+        replacement = storage_failure_reason(cause)
+        if replacement:
+            logger.exception('Could not validate revision %s of Script Project %s.', revision.pk, revision.project_id)
+        _revert_to_materialized(revision, job, sanitize(_failure_reason(error, replacement)))
         raise
 
     # A revision serving enabled script files and publishing nothing at all cannot run, so it
@@ -270,6 +278,18 @@ def build_error_sanitizer(storage_key, digest):
     return sanitize
 
 
+def storage_failure_reason(error):
+    """Return a fixed reason in place of a storage, cache or host I/O error's text, or None for any other error."""
+    # The plugin words these itself, and their text names no server path.
+    if isinstance(error, (ActivationError, RevisionCorruptError)):
+        return None
+    if isinstance(error, StorageError):
+        return str(_('The revision source could not be accessed. Check source storage and the runtime cache.'))
+    if isinstance(error, OSError):
+        return str(_('An I/O error occurred on the server. Check the server logs for details.'))
+    return None
+
+
 def _top_level_module_names(manifest):
     """Return the top-level module names a revision's own tree makes importable."""
     names = set()
@@ -365,12 +385,14 @@ def _finalize(revision, job, status, validation_errors, discovered_scripts):
     return bool(updated)
 
 
-def _failure_reason(error):
-    """Return one failure as the text an operator can act on."""
+def _failure_reason(error, replacement=None):
+    """Return one failure as the text an operator can act on, with replacement standing in for the cause's text."""
+    if replacement and not isinstance(error, ScriptFileImportError):
+        return f'{type(error).__name__}: {replacement}'
     # ScriptFileImportError's own message names the script file, and its structured record carries
     # the underlying failure, which is the part naming what is actually missing.
     detail = getattr(error, 'detail', None)
-    inner = detail.get('message') if isinstance(detail, dict) else None
+    inner = replacement or (detail.get('message') if isinstance(detail, dict) else None)
     return f'{type(error).__name__}: {error} {inner}'.strip() if inner else f'{type(error).__name__}: {error}'
 
 

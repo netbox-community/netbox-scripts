@@ -120,6 +120,12 @@ def _refusal_for(module, references, stranded):
     stranded is 'unresolved', 'retired' or None, naming what the module's classes resolve to.
     """
     name = module.python_name
+    # Retained history must not hide a run that is still waiting or executing.
+    if references['unfinished_jobs']:
+        return False, _(
+            'Built-in script module {name} still has waiting or running Custom Script Jobs. '
+            'See "Clean up built-in modules" in the migration guide to resolve them, then run Clean up again.'
+        ).format(name=name)
     # Permanent means no operator action clears it, so the run closes with the module in place.
     if references['module_jobs']:
         return True, _(

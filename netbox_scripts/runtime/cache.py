@@ -176,14 +176,7 @@ def materialize_revision(storage, storage_key, digest, manifest, cache_root=None
     project_dir = target.parent
     _guard_path_budget(project_dir, digest, manifest)
     _ensure_private_root(project_dir.parent)
-    try:
-        project_dir.mkdir(parents=True, exist_ok=True)  # cloud-compat: ok, the runtime cache tier
-    except OSError as error:
-        raise LocalCacheError(
-            _('Unable to create the cache directory "{project_dir}": {error}').format(
-                project_dir=project_dir, error=error
-            )
-        ) from error
+    _ensure_project_directory(project_dir)
 
     last_failure = None
     with _slot_lock(project_dir / f'.{digest}.lock'):
@@ -297,6 +290,41 @@ def _ensure_private_root(root):
         # Links are already followed, so ".." steps to the physical parent, as the kernel does.
         component = pending.pop()
         directory = directory.parent if component == '..' else directory / component
+
+
+def _ensure_project_directory(project_dir):
+    """Create one Project's cache directory private to this user, refusing an unsafe existing one."""
+    try:
+        project_dir.mkdir(mode=0o700, exist_ok=True)  # cloud-compat: ok, the runtime cache tier
+        info = project_dir.lstat()
+    except OSError as error:
+        raise LocalCacheError(
+            _('Unable to create the cache directory "{project_dir}": {error}').format(
+                project_dir=project_dir, error=error
+            )
+        ) from error
+    if info.st_uid not in (os.getuid(), 0):
+        raise LocalCacheError(
+            _(
+                'The cache directory "{directory}" belongs to another user, who could substitute the tree the '
+                'loader imports. Remove it while NetBox is stopped, or point runtime_cache_root somewhere private '
+                'to this process.'
+            ).format(directory=project_dir)
+        )
+    if not stat.S_ISDIR(info.st_mode):
+        raise LocalCacheError(
+            _(
+                'The cache directory "{directory}" is a symbolic link or not a directory. Remove it, and the plugin '
+                'recreates it.'
+            ).format(directory=project_dir)
+        )
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise LocalCacheError(
+            _(
+                'The cache directory "{directory}" is writable by other users, so the tree the loader imports '
+                'could be substituted. Restrict it with "chmod 700 {directory}".'
+            ).format(directory=project_dir)
+        )
 
 
 def _guard_path_budget(project_dir, digest, manifest):
@@ -432,7 +460,7 @@ def _purge_bytecode(local_dir):
 def _fill_staging(storage, storage_key, digest, manifest, staging):
     """Pull every manifest entry into the staging tree through the store's bounded verified read."""
     try:
-        staging.mkdir()  # cloud-compat: ok, our own staging tree
+        staging.mkdir(mode=0o700)  # cloud-compat: ok, our own staging tree
     except OSError as error:
         raise LocalCacheError(
             _('Unable to create the staging tree "{staging}": {error}').format(staging=staging, error=error)
@@ -440,7 +468,7 @@ def _fill_staging(storage, storage_key, digest, manifest, staging):
     for entry in manifest:
         destination = staging / entry['path']
         try:
-            destination.parent.mkdir(parents=True, exist_ok=True)  # cloud-compat: ok, our own staging tree
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)  # cloud-compat: ok, our own staging tree
         except OSError as error:
             raise LocalCacheError(
                 _('Unable to create a directory for "{path}": {error}').format(path=entry['path'], error=error)

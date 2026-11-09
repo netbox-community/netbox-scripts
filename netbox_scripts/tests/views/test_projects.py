@@ -16,7 +16,7 @@ from netbox_scripts.models import (
     ScriptProject,
     ScriptProjectRevision,
 )
-from netbox_scripts.storage import service
+from netbox_scripts.storage import config, service
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin, PluginTestCases
 from netbox_scripts.ui import ScriptProjectPanel, ScriptProjectStatePanel
 from netbox_scripts.views import ScriptProjectRepairView
@@ -511,6 +511,44 @@ class ScriptProjectActivateViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertEqual(self.revision.status, RevisionStatusChoices.ACTIVE)
         self.assertEqual(self.project.active_revision_id, self.revision.pk)
 
+    def test_a_backend_failure_reports_a_fixed_message_and_logs_its_cause(self):
+        self.grant('view', 'activate')
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.views', 'ERROR') as logged,
+        ):
+            response = self.client.post(self.url(), {'revision_id': self.revision.pk}, follow=True)
+
+            self.assertEqual(str(list(response.context['messages'])[0]), 'The revision could not be activated.')
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+        self.revision.refresh_from_db()
+        self.project.refresh_from_db()
+        self.assertEqual(self.revision.status, RevisionStatusChoices.VALID)
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_a_refusal_keeps_its_own_message(self):
+        self.grant('view', 'activate')
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(discovered_scripts={})
+        response = self.client.post(self.url(), {'revision_id': self.revision.pk}, follow=True)
+
+        self.assertEqual(
+            str(list(response.context['messages'])[0]),
+            f'The revision could not be activated: Revision {self.revision.pk} cannot be activated, its recorded '
+            'Scripts are unusable: The discovered scripts must be a list.',
+        )
+
+    def test_a_missing_stored_tree_keeps_its_own_message(self):
+        self.grant('view', 'activate')
+        with mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError):
+            response = self.client.post(self.url(), {'revision_id': self.revision.pk}, follow=True)
+
+        self.assertEqual(
+            str(list(response.context['messages'])[0]),
+            'The revision could not be activated: The stored revision at '
+            f'netbox-scripts/{self.project.storage_key}/revisions/{self.revision.digest}/ is missing.',
+        )
+
     def test_an_already_current_project_offers_nothing(self):
         self.grant('view', 'activate')
         self.client.post(self.url(), {'revision_id': self.revision.pk})
@@ -816,6 +854,29 @@ class ScriptProjectRepairViewTestCase(ObjectPermissionTestMixin, TestCase):
 
         self.assertEqual(ScriptProject.objects.get(pk=self.project.pk).active_revision_id, newer.pk)
         self.assertIn('is not the active revision', self.message(response))
+
+    def test_a_backend_failure_reports_a_fixed_message_and_logs_its_cause(self):
+        self.grant('view', 'activate')
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.views', 'ERROR') as logged,
+        ):
+            response = self.client.post(self.url(), follow=True)
+
+            self.assertEqual(self.message(response), 'The Scripts could not be repaired.')
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_missing_stored_tree_keeps_its_own_message(self):
+        self.grant('view', 'activate')
+        with mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError):
+            response = self.client.post(self.url(), follow=True)
+
+        self.assertEqual(
+            self.message(response),
+            'The Scripts could not be repaired: The stored revision at '
+            f'netbox-scripts/{self.project.storage_key}/revisions/{self.revision.digest}/ is missing.',
+        )
 
     def test_the_change_permission_alone_is_not_enough(self):
         self.grant('view', 'change')

@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext_lazy as _
@@ -41,6 +43,8 @@ from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageE
 from ..tables import ScriptProjectFileTable, ScriptProjectRevisionTable, ScriptProjectTable
 from ..ui import ScriptProjectPanel, ScriptProjectSourcePanel, ScriptProjectStatePanel
 from .revisions import activation_message
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.views')
 
 
 @register_model_view(ScriptProject, 'list', path='', detail=False)
@@ -139,10 +143,14 @@ class ScriptProjectActivateView(generic.ObjectView):
         candidate = form.cleaned_data['revision_id']
         try:
             result = activation.activate_revision(candidate)
-        except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
+        except (ActivationError, RevisionCorruptError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             # The project keeps serving whatever it served before.
             messages.error(request, _('The revision could not be activated: {error}').format(error=error))
+            return redirect(project.get_absolute_url())
+        except (StorageError, OSError):
+            logger.exception('Could not activate revision %s of Script Project %s.', candidate.pk, project.pk)
+            messages.error(request, _('The revision could not be activated.'))
             return redirect(project.get_absolute_url())
         messages.success(request, activation_message(candidate, result.scripts))
         return redirect(project.get_absolute_url())
@@ -183,9 +191,13 @@ class ScriptProjectRepairView(generic.ObjectView):
         project = self.get_object(**kwargs)
         try:
             result = activation.activate_revision(project.active_revision, repair=True)
-        except (ActivationError, RevisionCorruptError, StorageError, OSError) as error:
+        except (ActivationError, RevisionCorruptError) as error:
             # Expected refusals: the revision moved on, or its stored tree no longer matches.
             messages.error(request, _('The Scripts could not be repaired: {error}').format(error=error))
+            return redirect(project.get_absolute_url())
+        except (StorageError, OSError):
+            logger.exception('Could not repair the Scripts of Script Project %s.', project.pk)
+            messages.error(request, _('The Scripts could not be repaired.'))
             return redirect(project.get_absolute_url())
         if result.scripts.written:
             messages.success(

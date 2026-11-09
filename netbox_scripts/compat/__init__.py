@@ -82,6 +82,11 @@ class _CompatSourceFileLoader(importlib.machinery.SourceFileLoader):
         module.__dict__.setdefault('__builtins__', _compat_builtins())
         super().exec_module(module)
 
+    def get_code(self, fullname):
+        """Compile the module from its source file, never from cached bytecode."""
+        path = self.get_filename(fullname)
+        return self.source_to_code(self.get_data(path), path)
+
 
 class _RevisionFinder(importlib.abc.MetaPathFinder):
     """Finder that wraps the loader of every module inside the private runtime namespace."""

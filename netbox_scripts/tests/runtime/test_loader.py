@@ -1,14 +1,18 @@
+import importlib.util
+import py_compile
 import sys
 import tempfile
 import threading
 import uuid
 from pathlib import Path
+from unittest import mock
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import InMemoryStorage
 from django.test import TestCase
 
 from netbox_scripts.runtime import loader
+from netbox_scripts.runtime.cache import local_revision_dir
 from netbox_scripts.runtime.exceptions import InvalidModulePathError, ScriptFileImportError
 from netbox_scripts.runtime.naming import project_module_name, revision_module_name
 from netbox_scripts.storage.exceptions import RevisionCorruptError
@@ -65,6 +69,14 @@ class LoaderTestCase(TestCase):
 
 
 class ImportBehaviorTestCase(LoaderTestCase):
+    def redirect_bytecode_cache(self):
+        """Point bytecode caching at a fresh directory for this test, with writes enabled, and return it."""
+        prefix = Path(tempfile.mkdtemp())
+        self.addCleanup(discard_tree, prefix)
+        self.enterContext(mock.patch.object(sys, 'pycache_prefix', str(prefix)))
+        self.enterContext(mock.patch.object(sys, 'dont_write_bytecode', False))
+        return prefix
+
     def test_two_projects_each_import_their_own_utils(self):
         files = {'probe.py': b'from . import utils\nVALUE = utils.VALUE\n'}
         module_a, _, _ = self.load(STORAGE_KEY, {**files, 'utils.py': b'VALUE = "alpha"\n'}, 'probe.py')
@@ -141,6 +153,31 @@ class ImportBehaviorTestCase(LoaderTestCase):
     def test_reimporting_a_script_file_returns_the_same_module(self):
         module, manifest, digest = self.load(STORAGE_KEY, {'probe.py': b'VALUE = 1\n'}, 'probe.py')
         self.assertIs(self.load_again(STORAGE_KEY, digest, 'probe.py', manifest), module)
+
+    def test_bytecode_below_the_pycache_prefix_never_runs(self):
+        planted = self.redirect_bytecode_cache() / 'planted.py'
+        planted.write_bytes(b'ROOT = VALUE = "planted"\n')
+        files = {'__init__.py': b'ROOT = "verified"\n', 'deploy.py': b'from . import ROOT\nVALUE = ROOT\n'}
+        manifest, digest = seed_revision(self.storage, STORAGE_KEY, files)
+        tree = local_revision_dir(STORAGE_KEY, digest, self.cache_root)
+        for name in files:
+            py_compile.compile(
+                str(planted),
+                cfile=importlib.util.cache_from_source(str(tree / name)),
+                doraise=True,
+                invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+            )
+        module = self.load_again(STORAGE_KEY, digest, 'deploy.py', manifest)
+        self.assertEqual(module.VALUE, 'verified')
+
+    def test_an_import_writes_no_bytecode_below_the_pycache_prefix(self):
+        self.redirect_bytecode_cache()
+        files = {'__init__.py': b'ROOT = "verified"\n', 'deploy.py': b'from . import ROOT\nVALUE = ROOT\n'}
+        module, _manifest, digest = self.load(STORAGE_KEY, files, 'deploy.py')
+        tree = local_revision_dir(STORAGE_KEY, digest, self.cache_root)
+        written = [name for name in files if Path(importlib.util.cache_from_source(str(tree / name))).exists()]
+        self.assertEqual(module.VALUE, 'verified')
+        self.assertEqual(written, [])
 
 
 class FailureBoundaryTestCase(LoaderTestCase):

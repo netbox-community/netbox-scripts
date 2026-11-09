@@ -4,9 +4,9 @@ Disposable on-disk materialization of stored revisions.
 Python imports need a real directory tree, and this cache is the one sanctioned local write
 tier that provides it. The authoritative bytes stay behind the Django storage backend, so a
 cached tree is only ever a regenerated copy: every use re-verifies it against the revision
-manifest, compiled files are purged before any verification because a planted one can be
-flagged to skip its own source check, and a tree that fails is set aside and rebuilt through
-the store's bounded verified reads. Losing the cache costs a rebuild, never data.
+manifest, compiled files are purged before any verification, and a tree that fails is set
+aside and rebuilt through the store's bounded verified reads. Losing the cache costs a
+rebuild, never data.
 
 A published tree is immutable. It appears with one rename, is write-protected before
 materialization returns it, and its content is never repaired in place, so a reader that
@@ -426,11 +426,7 @@ def _purge_bytecode(local_dir):
     """
     Remove every compiled Python artifact under one tree.
 
-    A compiled file can be flagged to skip its own source hash check, so a planted one would
-    execute unverified no matter what the manifest proves about the sources. Removing them
-    before verification is what closes that door, the read-only publish only stops the
-    interpreter from recreating them. Raises LocalCacheError when an artifact cannot be
-    removed, because a tree that cannot be cleared cannot be trusted either.
+    Raises LocalCacheError when an artifact cannot be removed.
     """
     info = _lstat_or_none(local_dir)
     if info is None or not stat.S_ISDIR(info.st_mode):

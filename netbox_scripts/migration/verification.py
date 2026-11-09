@@ -236,6 +236,11 @@ def _still_withdrawn(captured):
     return sorted(entry['name'] for entry in captured if entry['pk'] in wanted and not live.get(entry['pk'], True))
 
 
+def _permission_label(name, pk):
+    """Identify a permission by its name and ID."""
+    return _('"{name}" (ID {pk})').format(name=name, pk=pk)
+
+
 def _verify_permissions(run):
     """No permission names the built-in feature, and the ones left by hand are named again."""
     captured = run.journal.get('permissions') or []
@@ -246,9 +251,11 @@ def _verify_permissions(run):
             _('The {count} captured permission(s) have not been repointed yet.').format(count=len(captured)),
         )
     # Same split as the Event Rules check: a constrained one is left withdrawn on purpose.
-    known = {entry['pk']: entry['name'] for entry in captured}
+    known = {entry['pk']: _permission_label(entry['name'], entry['pk']) for entry in captured}
     stranded = list(legacy_source.legacy_permissions())
-    if appeared := sorted(permission.name for permission in stranded if permission.pk not in known):
+    if appeared := sorted(
+        _permission_label(permission.name, permission.pk) for permission in stranded if permission.pk not in known
+    ):
         return _check(
             PERMISSIONS,
             plan.BLOCKING,

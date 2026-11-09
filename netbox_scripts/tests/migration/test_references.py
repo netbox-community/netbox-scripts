@@ -286,11 +286,15 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(counts['split'], 1)
         sibling = ObjectPermission.objects.get(name=f'built-in scripts{references._SIBLING_SUFFIX}')
         self.assertEqual(list(sibling.groups.all()), [])
-        self.assertTrue(any('no longer exist' in warning for warning in warnings))
+        self.assertIn(
+            f'Permission "built-in scripts" (ID {permission.pk}) was split, and 1 of the users and groups it was '
+            f'granted to no longer exist, so the new "{sibling.name}" (ID {sibling.pk}) does not carry them.',
+            warnings,
+        )
 
     def test_a_constrained_permission_is_reported_and_left_untouched(self):
         # Its filters name fields the plugin models do not have, so neither copying nor dropping
-        # them is safe. It stays withdrawn and an operator is told about it by name.
+        # them is safe. It stays withdrawn and an operator is told about it by name and ID.
         permission = self.permission(constraints={'name__startswith': 'Deploy'})
         self.cross_over()
 
@@ -302,6 +306,23 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(counts['constrained'], 1)
         self.assertEqual(counts['swapped'], 0)
         self.assertTrue(any(permission.name in warning for warning in warnings))
+
+    def test_two_constrained_permissions_sharing_a_name_are_each_reported(self):
+        # The run keeps one copy of a repeated warning, so by name alone the run's page would show one.
+        first = self.permission(constraints={'name': 'Deploy'})
+        second = self.permission(constraints={'name': 'Report'})
+        self.cross_over()
+
+        counts, _warnings = references.repoint_permissions(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(counts['constrained'], 2)
+        for permission in (first, second):
+            self.assertIn(
+                f'Permission "built-in scripts" (ID {permission.pk}) carries constraints on the built-in Custom '
+                'Scripts, so it was left withdrawn and untranslated. Recreate it by hand against the plugin models.',
+                self.migration.warnings,
+            )
 
     def test_a_permission_with_nothing_left_to_grant_is_left_withdrawn(self):
         # Swapping it would leave an enabled permission granting nothing, so it is treated the way
@@ -317,7 +338,11 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(permission.actions, ['add', 'delete'])
         self.assertEqual(counts['unmappable'], 1)
         self.assertEqual(counts['swapped'], 0)
-        self.assertTrue(any('none of which' in warning for warning in warnings))
+        self.assertIn(
+            f'Permission "built-in scripts" (ID {permission.pk}) granted only add, delete on the built-in Custom '
+            'Scripts, none of which the plugin separates, so it was left withdrawn.',
+            warnings,
+        )
 
     def test_two_permissions_sharing_a_name_each_get_their_own_sibling(self):
         # ObjectPermission.name is not unique, so keying the sibling on it would make the second
@@ -348,7 +373,11 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         # A derived row is never created or deleted by hand, so neither action has a counterpart.
         self.assertEqual(permission.actions, ['view'])
         self.assertEqual(counts['swapped'], 1)
-        self.assertTrue(any('add' in warning and 'delete' in warning for warning in warnings))
+        self.assertIn(
+            f'Permission "built-in scripts" (ID {permission.pk}) granted add, delete on the built-in Custom Scripts, '
+            'which the plugin does not separate, so that grant was not preserved.',
+            warnings,
+        )
 
     def test_a_second_pass_returns_the_recorded_counts_and_creates_no_second_sibling(self):
         self.permission(extra_type=self.site_type)

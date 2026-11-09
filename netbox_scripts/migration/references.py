@@ -135,9 +135,9 @@ def repoint_permissions(run):
             counts['constrained'] += 1
             warnings.append(
                 _(
-                    'Permission "{name}" carries constraints on the built-in Custom Scripts, so it was '
+                    'Permission "{name}" (ID {pk}) carries constraints on the built-in Custom Scripts, so it was '
                     'left withdrawn and untranslated. Recreate it by hand against the plugin models.'
-                ).format(name=entry['name'])
+                ).format(name=entry['name'], pk=entry['pk'])
             )
             continue
         actions, unmappable = _map_actions(entry)
@@ -147,17 +147,17 @@ def repoint_permissions(run):
             counts['unmappable'] += 1
             warnings.append(
                 _(
-                    'Permission "{name}" granted only {actions} on the built-in Custom Scripts, none of '
+                    'Permission "{name}" (ID {pk}) granted only {actions} on the built-in Custom Scripts, none of '
                     'which the plugin separates, so it was left withdrawn.'
-                ).format(name=entry['name'], actions=', '.join(sorted(unmappable)))
+                ).format(name=entry['name'], pk=entry['pk'], actions=', '.join(sorted(unmappable)))
             )
             continue
         if unmappable:
             warnings.append(
                 _(
-                    'Permission "{name}" granted {actions} on the built-in Custom Scripts, which the plugin '
+                    'Permission "{name}" (ID {pk}) granted {actions} on the built-in Custom Scripts, which the plugin '
                     'does not separate, so that grant was not preserved.'
-                ).format(name=entry['name'], actions=', '.join(sorted(unmappable)))
+                ).format(name=entry['name'], pk=entry['pk'], actions=', '.join(sorted(unmappable)))
             )
         targets = [plugin_types[label].pk for label in entry['legacy_object_types'] if label in plugin_types]
         with transaction.atomic():
@@ -645,9 +645,15 @@ def _split_permission(run, permission, entry, targets, actions):
         return []
     return [
         _(
-            'Permission "{name}" was split, and {count} of the users and groups it was granted to no '
-            'longer exist, so the new "{sibling}" does not carry them.'
-        ).format(name=entry['name'], count=len(lost_users) + len(lost_groups), sibling=sibling.name)
+            'Permission "{name}" (ID {pk}) was split, and {count} of the users and groups it was granted to no '
+            'longer exist, so the new "{sibling}" (ID {sibling_pk}) does not carry them.'
+        ).format(
+            name=entry['name'],
+            pk=entry['pk'],
+            count=len(lost_users) + len(lost_groups),
+            sibling=sibling.name,
+            sibling_pk=sibling.pk,
+        )
     ]
 
 

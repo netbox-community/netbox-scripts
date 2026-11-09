@@ -483,15 +483,62 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
 
     def test_an_occurrence_whose_row_vanished_is_still_recreated(self):
-        # Nothing can execute a Job row that is gone, so its schedule has to come back.
-        self.legacy_schedule(scheduled=self.future())
+        # With no row to check, nothing shows that it ran.
+        job = self.legacy_schedule(scheduled=self.future())
         self.cross_over()
+        Job.objects.filter(pk=job.pk).delete()
         self.migration.journal['schedules'][0]['cancellation'] = 'vanished'
         self.migration.save(update_fields=('journal',))
 
         counts, _warnings = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
+
+    def test_a_vanished_run_whose_job_returns_is_held_back(self):
+        job, task = self.built_in_task(schedule_at=self.past(), interval=60)
+        self.stage_and_validate()
+        # Interrupted between the capture and the cancellations.
+        with patch.object(cutover, '_close', side_effect=RuntimeError('stopped')), self.assertRaises(RuntimeError):
+            cutover.enter_cutover(self.migration)
+        self.migration.refresh_from_db()
+        self.assertNotIn('cancellation', self.migration.journal['schedules'][0])
+        seen = []
+
+        def delete_and_resume(*args, **kwargs):
+            seen.append(Job.objects.values_list('status', 'started').get(pk=job.pk))
+            # Deleted on the Jobs page while a worker runs it, then cutover is entered again.
+            Job.objects.get(pk=job.pk).delete()
+            cutover.enter_cutover(self.migration)
+
+        with patch.object(ScriptJob, 'run', side_effect=delete_and_resume):
+            task.func(*task.args, **task.kwargs)
+
+        # Asserted here, since NetBox's handle() turns an exception raised in the run into an errored Job.
+        self.assertEqual(len(seen), 1)
+        status, started = seen[0]
+        self.assertEqual(status, JobStatusChoices.STATUS_RUNNING)
+        self.assertIsNotNone(started)
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'vanished')
+        self.assertTrue(self.migration.step_done(cutover.STEP))
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertIsNotNone(job.started)
+        cutover.activate_staged(self.migration)
+
+        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
+        self.migration.refresh_from_db()
+        self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
+        self.assertEqual(
+            self.migration.recorded_counts(references.SCHEDULES_STEP),
+            {'recreated': 0, 'skipped': 1, 'shifted': 0, 'outstanding': 0},
+        )
+        self.assertIn(
+            f'(Job {job.pk}) reappeared after the cutover found it missing', self.log_messages(reference_job, 'warning')
+        )
 
     def test_a_cancelled_run_that_started_on_the_built_in_side_is_not_recreated(self):
         running = self.legacy_schedule(scheduled=self.future())

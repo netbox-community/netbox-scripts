@@ -129,6 +129,14 @@ as a content error. This includes an uninstalled distribution and
 `import helpers` when the intended file is the Project's own `helpers.py`.
 Use a relative import for Project-local modules.
 
+When validation meets a storage, cache or host I/O failure, the revision's
+failure reason and the validation Job's log give a fixed message instead of the
+error's own text, which can name server paths. The server log keeps the
+original error with its traceback under the
+`netbox.plugins.netbox_scripts.validation` logger. Such a failure while
+activating the revision after its verdict gets a fixed message in the Job's
+log as well, with the original under `netbox.plugins.netbox_scripts.jobs`.
+
 **An `invalid` verdict does not clear when the host changes.** Identical source
 and Script File selection reuse the revision and its existing verdict.
 Installing a missing distribution and uploading the same content therefore

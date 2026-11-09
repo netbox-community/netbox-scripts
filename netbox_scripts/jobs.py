@@ -1,5 +1,6 @@
 """Background jobs for the NetBox Scripts plugin."""
 
+import logging
 import pickle
 import uuid
 from datetime import timedelta
@@ -36,7 +37,9 @@ from .storage import config, service, store
 from .storage.exceptions import ActivationError, StorageConfigurationError, StorageError
 from .storage.locks import project_lock
 from .storage.service import require_default_database
-from .validation import ValidationStateError, build_error_sanitizer, validate_revision
+from .validation import ValidationStateError, build_error_sanitizer, storage_failure_reason, validate_revision
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.jobs')
 
 
 class ProjectStorageCleanupJob(JobRunner):
@@ -466,7 +469,9 @@ class RevisionValidationJob(JobRunner):
             # is rendered up front, because the job log records it verbatim.
             sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
             detail = sanitize(
-                _('Revision validation could not complete and needs another run: {error}').format(error=error)
+                _('Revision validation could not complete and needs another run: {error}').format(
+                    error=storage_failure_reason(error) or error
+                )
             )
             self.logger.error(detail)
             raise JobFailed() from error
@@ -483,8 +488,14 @@ class RevisionValidationJob(JobRunner):
         try:
             result = activation.activate_revision(revision, automatic=True)
         except (ActivationError, StorageError, OSError) as error:
+            if replacement := storage_failure_reason(error):
+                logger.exception(
+                    'Could not activate revision %s of Script Project %s.', revision.pk, revision.project_id
+                )
             sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
-            detail = sanitize(_('The revision validated but could not be activated: {error}').format(error=error))
+            detail = sanitize(
+                _('The revision validated but could not be activated: {error}').format(error=replacement or error)
+            )
             self.logger.error(detail)
             raise JobFailed() from error
         if result is None:

@@ -226,7 +226,11 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         check = self.named(verification.verify(run), verification.PERMISSIONS)
 
         self.assertEqual(check['level'], plan.BLOCKING)
-        self.assertIn('regranted by hand', str(check['message']))
+        self.assertIn(
+            '1 permission(s) name the built-in feature and this migration never captured them: '
+            f'"regranted by hand" (ID {regranted.pk}).',
+            str(check['message']),
+        )
 
     def test_a_permission_the_repoint_left_withdrawn_warns_rather_than_blocks(self):
         # Left untranslated on purpose, so it names the feature for good and is restated every run.
@@ -238,6 +242,21 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
         self.assertEqual(check['level'], plan.WARNING)
         self.assertIn('built-in scripts', str(check['message']))
         self.assertIn('left withdrawn', str(check['message']))
+
+    def test_permissions_sharing_a_name_left_withdrawn_are_each_named(self):
+        first = self.permission(constraints={'name': 'Deploy'})
+        second = self.permission(constraints={'name': 'Report'})
+        run = self.repoint_all()
+
+        check = self.named(verification.verify(run), verification.PERMISSIONS)
+
+        labels = ', '.join(sorted(f'"built-in scripts" (ID {permission.pk})' for permission in (first, second)))
+        self.assertEqual(check['level'], plan.WARNING)
+        self.assertIn(
+            '2 permission(s) could not be moved onto the plugin and were left withdrawn for you to recreate: '
+            f'{labels}.',
+            str(check['message']),
+        )
 
     def test_an_event_rule_created_after_the_cutover_blocks_its_check(self):
         # Not in the journal, so the migration never saw it and it is a genuine fault.

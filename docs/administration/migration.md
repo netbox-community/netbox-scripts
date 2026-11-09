@@ -395,6 +395,11 @@ old constraints preserves the intended access. Check mixed grants too:
 withdrawal temporarily affects the whole captured permission, including any
 unrelated object types.
 
+The reference pass warnings and the Verify Permissions check name each
+permission by its ID as well as its name, since permissions can share a name.
+The ID is the number in the permission's URL, and **Configure Table** adds an
+**ID** column to the list under *Admin > Authentication > Permissions*.
+
 ### Schedule timing and ownership
 
 Replay applies both checks below.

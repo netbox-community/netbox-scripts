@@ -98,6 +98,78 @@ class ScriptProjectFilesViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertIn('added.py (not in the active revision yet)', body)
         self.assertIn('gone.py (missing from the source)', body)
 
+    def test_a_deselected_path_only_a_superseded_revision_holds_reads_as_missing(self):
+        project, _newer = self.project_serving_an_older_revision(RevisionStatusChoices.RETIRED)
+        ScriptProject.objects.filter(pk=project.pk).update(source_revision_id=project.active_revision_id)
+        ScriptFile.objects.filter(project=project, source_path='added.py').update(enabled=False)
+        self.grant(ScriptProject, 'view')
+        self.grant(ScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (missing from the source)', body)
+        self.assertNotIn('added.py (not in the active revision yet)', body)
+        project.refresh_from_db()
+        with self.assertNumQueries(0):
+            self.assertEqual(project.paths_awaiting_activation(), set())
+
+    def test_a_path_an_older_accepted_revision_holds_reads_as_not_yet_active(self):
+        project = ScriptProject.objects.create(name='Reverted Project', key='reverted-project')
+        accepted = ScriptProjectRevision.objects.create(
+            project=project,
+            digest='d' * 64,
+            status=RevisionStatusChoices.RETIRED,
+            manifest=[
+                {'path': 'deploy.py', 'size': 10, 'sha256': 'e' * 64},
+                {'path': 'added.py', 'size': 20, 'sha256': '1' * 64},
+            ],
+            file_count=2,
+            total_size=30,
+        )
+        active = ScriptProjectRevision.objects.create(
+            project=project,
+            digest='f' * 64,
+            status=RevisionStatusChoices.ACTIVE,
+            manifest=[{'path': 'deploy.py', 'size': 10, 'sha256': 'e' * 64}],
+            file_count=1,
+            total_size=10,
+        )
+        ScriptProjectRevision.objects.filter(pk=accepted.pk).update(created=timezone.now() - timedelta(hours=2))
+        ScriptProject.objects.filter(pk=project.pk).update(active_revision=active, source_revision=accepted)
+        ScriptFile.objects.create(project=project, source_path='added.py', enabled=False)
+        self.grant(ScriptProject, 'view')
+        self.grant(ScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (not in the active revision yet)', body)
+        self.assertNotIn('added.py (missing from the source)', body)
+
+    def test_a_path_a_pending_accepted_source_holds_reads_as_not_yet_active(self):
+        project, newer = self.project_serving_an_older_revision(RevisionStatusChoices.MATERIALIZED)
+        ScriptProject.objects.filter(pk=project.pk).update(source_revision=newer)
+        self.grant(ScriptProject, 'view')
+        self.grant(ScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (not in the active revision yet)', body)
+        self.assertNotIn('added.py (missing from the source)', body)
+
+    def test_a_superseded_valid_revision_does_not_stand_in_for_an_invalid_accepted_source(self):
+        project, _newer = self.project_serving_an_older_revision()
+        invalid = ScriptProjectRevision.objects.create(
+            project=project,
+            digest='2' * 64,
+            status=RevisionStatusChoices.INVALID,
+            manifest=[
+                {'path': 'deploy.py', 'size': 12, 'sha256': '3' * 64},
+                {'path': 'added.py', 'size': 20, 'sha256': '1' * 64},
+            ],
+            file_count=2,
+            total_size=32,
+        )
+        ScriptProject.objects.filter(pk=project.pk).update(source_revision=invalid)
+        self.grant(ScriptProject, 'view')
+        self.grant(ScriptProjectRevision, 'view')
+        body = self.client.get(self.url(project)).content.decode()
+        self.assertIn('added.py (missing from the source)', body)
+        self.assertNotIn('added.py (not in the active revision yet)', body)
+
     @staticmethod
     def project_serving_an_older_revision(newer_status=RevisionStatusChoices.VALID):
         """Return a project whose active revision is older than its newest stored one."""

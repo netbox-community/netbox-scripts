@@ -10,7 +10,7 @@ from netbox_scripts.choices import MigrationStateChoices, ProjectSourceTypeChoic
 from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
-from netbox_scripts.storage import service
+from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import ActivationError
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
@@ -117,6 +117,62 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         # Its sibling still activated, so one project's activation failure does not stop the pass.
         self.assertEqual(len([item for item in results if item['outcome'] == 'activated']), 1)
 
+    def test_a_backend_failure_records_a_fixed_outcome_and_logs_its_cause(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        storage = config.get_storage()
+        real_open = storage.open
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+
+        def fail_for_project(name, mode='rb'):
+            # Only this project's files fail, so the sibling project's real activation still runs.
+            if str(project.storage_key) in name:
+                raise error
+            return real_open(name, mode)
+
+        with (
+            mock.patch.object(storage, 'open', side_effect=fail_for_project),
+            self.assertLogs('netbox.plugins.netbox_scripts.migration', 'ERROR') as logged,
+        ):
+            results = cutover.activate_staged(self.migration)
+
+            self.assertEqual(self.outcome(results, project), 'could not be activated: a storage error occurred')
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+        project.refresh_from_db()
+        self.assertIsNone(project.active_revision_id)
+        self.assertEqual(len([item for item in results if item['outcome'] == 'activated']), 1)
+        self.migration.refresh_from_db()
+        recorded = self.migration.journal['steps'][cutover.ACTIVATE_STEP]['projects']
+        self.assertEqual(self.outcome(recorded, project), 'could not be activated: a storage error occurred')
+
+    def test_a_missing_stored_tree_keeps_its_descriptive_outcome(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        revision = project.revisions.get()
+        with mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError):
+            results = cutover.activate_staged(self.migration)
+
+        self.assertEqual(
+            self.outcome(results, project),
+            'could not be activated: The stored revision at '
+            f'netbox-scripts/{project.storage_key}/revisions/{revision.digest}/ is missing.',
+        )
+
+    def test_an_unwrapped_os_error_records_the_fixed_outcome(self):
+        self.stage_and_validate()
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+        # The store wraps every backend error today, so a raw one is injected at activate_revision().
+        with (
+            mock.patch.object(activation, 'activate_revision', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.migration', 'ERROR') as logged,
+        ):
+            results = cutover.activate_staged(self.migration)
+
+            self.assertEqual(
+                [result['outcome'] for result in results], ['could not be activated: a storage error occurred'] * 2
+            )
+        self.assertIs(logged.records[0].exc_info[1], error)
+
     def test_a_project_holding_no_revision_is_recorded_and_skipped(self):
         self.stage_and_validate()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
@@ -214,6 +270,26 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('2 of 2 Script Project(s) are serving', messages)
         self.assertIn('publishing 2 Script(s)', messages)
+
+    def test_the_job_reports_a_backend_failure_without_its_text(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/deploy.py')
+        with mock.patch.object(config.get_storage(), 'open', side_effect=error):
+            job = MigrationActivationJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        messages = [entry['message'] for entry in job.log_entries]
+        messages_text = '\n'.join(messages)
+        revision = project.revisions.get()
+        for value in ('/srv/netbox/private', str(project.storage_key), revision.digest):
+            self.assertNotIn(value, messages_text)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [result['outcome'] for result in job.data['projects']],
+            ['could not be activated: a storage error occurred'] * 2,
+        )
+        self.assertIn(f'Project {project.key} could not be activated: a storage error occurred.', messages)
 
     def test_the_job_fails_when_the_fence_has_not_been_crossed(self):
         MigrationRun.objects.filter(pk=self.migration.pk).update(state=MigrationStateChoices.STAGING, journal={})

@@ -102,9 +102,9 @@ on when it was queued:
   reference pass then considers it for replay. Check the results before creating
   a manual schedule, so you do not duplicate a replacement already created.
 - **After cutover completes:** it is not captured and still runs the built-in
-  Script, even if repointing has moved its Job onto the replacement Script. It
-  keeps the original owner and interval. Delete the waiting successor on the
-  **Jobs** page before scheduling the replacement Script.
+  Script, so repointing leaves its Job on the built-in Script. It keeps the
+  original owner and interval. Delete the waiting successor on the **Jobs**
+  page before scheduling the replacement Script.
 
 A successor can still follow a completed cutover. NetBox marks a recurring Job
 finished before it queues the successor, and with several workers cutover can
@@ -390,7 +390,7 @@ A missing or damaged stored revision keeps its own outcome.
 |---|---|
 | Event Rules | Replaces supported built-in action targets and source object types. A fully moved rule is re-enabled only if it was enabled when captured. |
 | Permissions | Maps supported actions and object types. Mixed grants are split to preserve unrelated coverage. Constrained grants and unmappable actions are reported. |
-| Job history | Associates supported built-in Script Jobs with their replacement Scripts. Module-level history has no equivalent target. |
+| Job history | Associates finished Jobs of supported built-in Scripts with their replacement Scripts. Waiting and running Jobs stay on the built-in Script. Module-level history has no equivalent target. |
 | Schedules | Recreates eligible captured runs against replacement Scripts. |
 
 The activation pass must be recorded before repointing starts. Event Rules,
@@ -407,6 +407,13 @@ The reference pass warnings and the Verify Permissions check name each
 permission by its ID as well as its name, since permissions can share a name.
 The ID is the number in the permission's URL, and **Configure Table** adds an
 **ID** column to the list under *Admin > Authentication > Permissions*.
+
+A waiting or running Job of a built-in Script that has a replacement also
+keeps the Job history step open, because its queued task still runs the
+built-in Script. Let the run finish, or delete a waiting Job on the **Jobs**
+page, then select **Repoint references** again. For a recurring run, see
+[Recurring successors](#recurring-successors), and for one whose worker
+stopped, see [Stale running Jobs](#stale-running-jobs).
 
 ### Schedule timing and ownership
 
@@ -617,9 +624,14 @@ migration had already captured.
 The reference pass does not recreate a run cleared this way. If cutover had
 already captured it, entering cutover again records it as executed.
 
-After cutover completes, leave stale built-in Script Jobs in place until
-**Repoint references** has completed. Deleting a Job that cutover cancelled can
-let that pass recreate the run.
+After cutover completes, leave stale built-in Script Jobs in place until the
+migration run's **Completed steps** include `recreate_schedules`. Deleting a
+Job that cutover cancelled before then can let **Repoint references** recreate
+the run. A stale Job of a Script that has a replacement also holds that pass's
+Job history step open. Once `recreate_schedules` is listed, follow steps 1 and
+2, delete the Job on the **Jobs** page by the ID that Verify's Jobs check
+names, and select **Repoint references** again. The **State** badge on the
+Migration page opens the run's page.
 
 For a recurring run, follow [Recurring successors](#recurring-successors)
 before scheduling a replacement by hand.
@@ -668,11 +680,11 @@ Warnings can mean a step has not run or manual work remains, such as recreating
 constrained permissions or reviewing retained history. Read each message rather
 than treating warnings as harmless.
 
-After Job history has been repointed, Jobs that still reference the built-in
-feature produce a **blocking** result if they are **Pending**, **Scheduled** or
-**Running**. They may still execute built-in Custom Scripts. Review the listed
-Jobs before scheduling replacement runs. See
-[Recurring successors](#recurring-successors) and
+Once cutover has completed, Jobs that still reference the built-in feature
+produce a **blocking** result if they are **Pending**, **Scheduled** or
+**Running**, even before Job history has been repointed. They may still execute
+built-in Custom Scripts. Review the listed Jobs before scheduling replacement
+runs. See [Recurring successors](#recurring-successors) and
 [Stale running Jobs](#stale-running-jobs). Finished Jobs left on the built-in
 feature produce a warning.
 

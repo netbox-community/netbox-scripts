@@ -179,10 +179,10 @@ def repoint_job_history(run):
     Move the built-in Custom Scripts' Job history onto the Scripts that replaced them.
 
     Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. A job whose script does not resolve is left where it is, reported, and leaves
-    the step incomplete so a later run covers it. A job naming a module, or a class that left its
-    file, has no counterpart at all and does not. Raises CutoverRefused until every migrated
-    Project is serving a revision.
+    step has completed. A job whose script does not resolve, or that is still waiting or running, is
+    left where it is, reported, and leaves the step incomplete so a later run covers it. A job naming
+    a module, or a class that left its file, has no counterpart at all and does not. Raises
+    CutoverRefused until every migrated Project is serving a revision.
     """
     _require_serving(run)
     if run.step_done(HISTORY_STEP):
@@ -191,20 +191,34 @@ def repoint_job_history(run):
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     legacy = _legacy_type('extras.script')
     target = _plugin_types()['extras.script']
-    counts = {'moved': 0, 'unresolved': 0, 'modules': 0, 'outstanding': 0}
+    counts = {'moved': 0, 'unresolved': 0, 'modules': 0, 'outstanding': 0, 'unfinished': 0}
     warnings = []
     for legacy_pk, script in resolved.items():
         # One statement per script rather than one per job. update() fires no signals and skips
         # clean(), which is what this needs: the row is being corrected, not authored.
-        counts['moved'] += Job.objects.filter(object_type=legacy, object_id=legacy_pk).update(
-            object_type_id=target.pk, object_id=script.pk
-        )
-    # Whatever still names the built-in Custom Script type is what did not resolve, because the updates
-    # above moved everything that did. Scoped by object type rather than by key, since a job on a
+        # Finished only: a waiting or running Job's queued task still runs the built-in Script.
+        counts['moved'] += Job.objects.filter(
+            object_type=legacy, object_id=legacy_pk, status__in=JobStatusChoices.TERMINAL_STATE_CHOICES
+        ).update(object_type_id=target.pk, object_id=script.pk)
+    # Whatever still names the built-in Custom Script type did not resolve or has not finished, because
+    # the updates above moved the rest. Scoped by object type rather than by key, since a job on a
     # built-in module can hold a key equal to a Script's and would otherwise be repointed at it.
-    stranded = Job.objects.filter(object_type=legacy).values_list('object_id', flat=True).distinct()
+    # Ordered by key, or Job's default ordering joins the DISTINCT and repeats a key.
+    stranded = (
+        Job.objects.filter(object_type=legacy).order_by('object_id').values_list('object_id', flat=True).distinct()
+    )
     mapped = _mapped_script_keys(run)
     for legacy_pk in stranded:
+        if legacy_pk in resolved:
+            counts['unfinished'] += 1
+            warnings.append(
+                _(
+                    'Waiting or running Jobs of built-in Custom Script {key} were left where they are, because '
+                    'they still run the built-in Script. Verify lists them. See "Repoint references" in the '
+                    'migration guide to resolve them, then run this again.'
+                ).format(key=legacy_pk)
+            )
+            continue
         counts['unresolved'] += 1
         if legacy_pk not in mapped:
             warnings.append(
@@ -229,7 +243,7 @@ def repoint_job_history(run):
                 'Project holds no jobs, so they were left where they are.'
             ).format(count=counts['modules'])
         )
-    if counts['outstanding']:
+    if counts['outstanding'] or counts['unfinished']:
         run.record_warnings(warnings)
         # A module Job and a departed class's history are excluded, because no plugin row will
         # ever hold either one and the step could then never complete.

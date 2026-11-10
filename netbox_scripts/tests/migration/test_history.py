@@ -19,7 +19,7 @@ from dcim.models import Site
 from extras.jobs import ScriptJob
 from extras.models import Script, ScriptModule
 from netbox_scripts.jobs import MigrationReferencesJob
-from netbox_scripts.migration import cutover, references
+from netbox_scripts.migration import cleanup, cutover, references
 from netbox_scripts.models import NetBoxScript
 from netbox_scripts.runtime.exceptions import ScriptFileImportError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
@@ -99,6 +99,24 @@ class LegacyJobMixin(RQQueueTestMixin, ReferenceMigrationMixin):
 
     def plugin_script(self, class_name='Deploy'):
         return NetBoxScript.objects.get(class_name=class_name)
+
+    def log_messages(self, reference_job, level):
+        """Return the messages a completed MigrationReferencesJob logged at one level, joined into one string."""
+        reference_job.refresh_from_db()
+        return ' '.join(entry['message'] for entry in reference_job.log_entries if entry['level'] == level)
+
+    def built_in_task(self, **schedule):
+        """Queue one built-in run through NetBox, and return its Job and the task copy a worker would hold."""
+        with self.captureOnCommitCallbacks(execute=True):
+            job = Job.enqueue(
+                ScriptJob.handle,
+                instance=self.variable_script,
+                name=self.variable_script.name,
+                data={'site': self.site},
+                commit=False,
+                **schedule,
+            )
+        return job, RQJob.fetch(str(job.job_id), connection=self.queue.connection)
 
 
 class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
@@ -213,6 +231,61 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(late.object_type_id, self.script_type.pk)
         self.assertEqual(late.object_id, self.script.pk)
 
+    def test_a_waiting_or_running_job_stays_on_the_built_in_script(self):
+        self.cross_over()
+        finished = [self.legacy_job(status=status) for status in JobStatusChoices.TERMINAL_STATE_CHOICES]
+        unfinished = [self.legacy_job(status=status) for status in JobStatusChoices.ENQUEUED_STATE_CHOICES]
+
+        counts, warnings = references.repoint_job_history(self.migration)
+
+        moved = (ObjectType.objects.get_for_model(NetBoxScript).pk, self.plugin_script().pk)
+        for job in finished:
+            job.refresh_from_db()
+            self.assertEqual((job.object_type_id, job.object_id), moved)
+        for job in unfinished:
+            job.refresh_from_db()
+            self.assertEqual((job.object_type_id, job.object_id), (self.script_type.pk, self.script.pk))
+        self.assertEqual(counts, {'moved': 3, 'unresolved': 0, 'modules': 0, 'outstanding': 0, 'unfinished': 1})
+        # One per Script, though three of its Jobs are unfinished.
+        self.assertEqual(len(warnings), 1)
+        self.assertIn(f'Waiting or running Jobs of built-in Custom Script {self.script.pk} were left', str(warnings[0]))
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(references.HISTORY_STEP))
+
+    def test_a_run_queued_after_cutover_keeps_its_built_in_script_until_it_ends(self):
+        self.cross_over()
+        job, task = self.built_in_task(schedule_at=timezone.now() + timedelta(days=1))
+        kept = (self.script_type.pk, self.variable_script.pk)
+
+        reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual((job.object_type_id, job.object_id), kept)
+        self.assertIn(
+            f'Waiting or running Jobs of built-in Custom Script {self.variable_script.pk} were left',
+            self.log_messages(reference_job, 'warning'),
+        )
+        self.assertIn('1 script(s) with waiting or running Jobs', self.log_messages(reference_job, 'info'))
+        self.migration.refresh_from_db()
+        with self.assertRaises(cutover.CutoverRefused) as refused:
+            cleanup.retire_legacy(self.migration)
+        self.assertIn(references.HISTORY_STEP, str(refused.exception))
+        self.assertTrue(Script.objects.filter(pk=self.variable_script.pk).exists())
+
+        with patch.object(ScriptJob, 'run'):
+            task.func(*task.args, **task.kwargs)
+
+        job.refresh_from_db()
+        self.assertEqual((job.object_type_id, job.object_id, job.status), (*kept, JobStatusChoices.STATUS_COMPLETED))
+
+        MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        moved = (ObjectType.objects.get_for_model(NetBoxScript).pk, self.plugin_script('Retire').pk)
+        self.assertEqual((job.object_type_id, job.object_id), moved)
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.HISTORY_STEP))
+
 
 class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
     """Every schedule the fence cancelled goes back into service against the Script."""
@@ -226,24 +299,6 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
     def new_jobs(self):
         """Return the plugin's own Jobs, which are the ones a recreation produced."""
         return Job.objects.filter(object_type=ObjectType.objects.get_for_model(NetBoxScript))
-
-    def log_messages(self, reference_job, level):
-        """Return the messages a completed MigrationReferencesJob logged at one level, joined into one string."""
-        reference_job.refresh_from_db()
-        return ' '.join(entry['message'] for entry in reference_job.log_entries if entry['level'] == level)
-
-    def built_in_task(self, **schedule):
-        """Queue one built-in run through NetBox, and return its Job and the task copy a worker would hold."""
-        with self.captureOnCommitCallbacks(execute=True):
-            job = Job.enqueue(
-                ScriptJob.handle,
-                instance=self.variable_script,
-                name=self.variable_script.name,
-                data={'site': self.site},
-                commit=False,
-                **schedule,
-            )
-        return job, RQJob.fetch(str(job.job_id), connection=self.queue.connection)
 
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
@@ -571,7 +626,9 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
     def test_a_cancelled_run_that_started_is_held_back_once_history_has_moved(self):
         job = self.legacy_schedule(scheduled=self.future())
         self.cross_over()
-        Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
+        Job.objects.filter(pk=job.pk).update(
+            status=JobStatusChoices.STATUS_COMPLETED, started=timezone.now(), completed=timezone.now()
+        )
 
         reference_job = MigrationReferencesJob.enqueue(immediate=True)
 

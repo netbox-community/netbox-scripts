@@ -240,7 +240,17 @@ Existing cache content is verified on every use:
 - The replacement is built beside its final location, verified, published with
   one rename and write-protected before use. Interrupted protection is restored
   on the next use. Concurrent builds of one revision use a per-slot file lock
-  that the operating system releases if the process dies.
+  that the operating system releases if the process dies. The plugin makes each
+  lock file private to its owner before use, including one an earlier version
+  created. A lock file it cannot open or make private, such as one another
+  account owns, stops that revision from loading. Remove that file while NetBox
+  is stopped.
+
+When upgrading from an earlier version, if other local accounts can traverse
+the cache, stop all NetBox processes using that cache, remove the existing
+`.<digest>.lock` files from its Project directories, and restart NetBox.
+Changing file permissions cannot revoke already-open file descriptors. The
+plugin recreates the lock files as needed.
 
 Provide space for active revisions and their temporary sibling trees on one
 filesystem. There is no automatic eviction or cleanup of stale and failed slots.

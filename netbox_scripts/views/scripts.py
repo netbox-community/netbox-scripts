@@ -1,3 +1,4 @@
+import logging
 from contextlib import ExitStack, contextmanager
 from datetime import datetime
 
@@ -33,6 +34,9 @@ from ..object_actions import RunScript
 from ..scripts.logging import LogLevelChoices
 from ..tables import NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
 from ..ui import NetBoxScriptPanel, NetBoxScriptStatePanel, ScriptFileDiscoveryPanel, ScriptFilePanel
+from ..validation import storage_failure_reason
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.views')
 
 # A scheduled run can be days out, so it is not polled at the rate of one already moving.
 DEFAULT_POLL_INTERVAL = '5s'
@@ -200,7 +204,13 @@ class NetBoxScriptRunView(generic.ObjectView):
             try:
                 script_class = stack.enter_context(script_class_context(script))
             except LOAD_FAILURES as error:
-                yield None, _('The Script could not be loaded from its source: {error}').format(error=error)
+                # script_class_context wraps what resolving the class raised, so the cause is what gets checked.
+                if replacement := storage_failure_reason(error.__cause__):
+                    logger.exception('Could not load Script %s from its source.', script.pk)
+                yield (
+                    None,
+                    _('The Script could not be loaded from its source: {error}').format(error=replacement or error),
+                )
                 return
             instance = script_class()
             instance.scheduling_permitted = self.request.user.has_perm(

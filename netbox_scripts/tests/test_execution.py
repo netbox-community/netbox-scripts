@@ -34,10 +34,11 @@ from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptResolutionE
 from netbox_scripts.runtime.loader import unload_revision
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.scripts import AbortScript, Script
-from netbox_scripts.storage import service
+from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageConfigurationError, StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.tests.test_branching import branching_installed, fake_branching, fake_contextvars
+from netbox_scripts.tests.test_validation import IO_REASON, STORAGE_REASON
 from netbox_scripts.validation import validate_revision
 from utilities.datetime import local_now
 from utilities.exceptions import AbortScript as LegacyAbortScript
@@ -1166,24 +1167,52 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
     def test_a_source_access_failure_is_reported_as_a_source_failure(self):
         self.publish({'deploy.py': MAKES_A_TAG})
         failures = (
-            ('config.get_storage', StorageConfigurationError),
-            ('resolve_script_class', StorageError),
-            ('resolve_script_class', LocalCacheError),
-            ('resolve_script_class', OSError),
+            ('config.get_storage', StorageConfigurationError, STORAGE_REASON),
+            ('resolve_script_class', StorageError, STORAGE_REASON),
+            ('resolve_script_class', LocalCacheError, STORAGE_REASON),
+            ('resolve_script_class', OSError, IO_REASON),
         )
-        for target, exception in failures:
+        for target, exception, reason in failures:
+            error = exception('the source is unavailable')
             with (
                 self.subTest(exception=exception.__name__),
-                patch(f'netbox_scripts.jobs.{target}', side_effect=exception('the source is unavailable')),
+                patch(f'netbox_scripts.jobs.{target}', side_effect=error),
+                self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR') as logged,
             ):
                 job = self.run_job()
                 job.refresh_from_db()
 
                 self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
-                logged = '\n'.join(entry['message'] for entry in job.log_entries)
-                self.assertIn('The run could not reach the source it was pinned to: the source is unavailable', logged)
-                self.assertNotIn('The Script did not finish', logged)
+                job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+                self.assertIn(f'The run could not reach the source it was pinned to: {reason}', job_log)
+                self.assertNotIn('the source is unavailable', job_log)
+                self.assertNotIn('The Script did not finish', job_log)
                 self.assertFalse(Tag.objects.filter(slug='from-revision').exists())
+                self.assertIs(logged.records[0].exc_info[1], error)
+
+    def test_a_backend_read_failure_reaches_the_job_log_as_a_fixed_reason(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        empty_cache = Path(tempfile.mkdtemp())
+        self.addCleanup(discard_tree, empty_cache)
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(empty_cache)}}),
+            patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR') as logged,
+        ):
+            job = self.run_job()
+            job.refresh_from_db()
+
+            self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+            self.assertIn(
+                f'The run could not reach the source it was pinned to: {STORAGE_REASON}',
+                [entry['message'] for entry in job.log_entries],
+            )
+            serialized = json.dumps(job.data) + str(job.log_entries)
+            for private in ('/srv/netbox/private', str(self.project.storage_key)):
+                self.assertNotIn(private, serialized)
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
 
     def test_a_corrupt_revision_is_reported_as_a_resolution_failure(self):
         self.publish({'deploy.py': MAKES_A_TAG})

@@ -136,6 +136,8 @@ original error with its traceback under the
 `netbox.plugins.netbox_scripts.validation` logger. Such a failure while
 activating the revision after its verdict gets a fixed message in the Job's
 log as well, with the original under `netbox.plugins.netbox_scripts.jobs`.
+Reconciliation, Script File refresh and Script run Jobs report such a failure
+the same way. A missing or damaged stored revision keeps its own message.
 
 **An `invalid` verdict does not clear when the host changes.** Identical source
 and Script File selection reuse the revision and its existing verdict.

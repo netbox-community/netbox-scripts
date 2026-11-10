@@ -27,10 +27,11 @@ from netbox_scripts.models import (
     ScriptProject,
     ScriptProjectRevision,
 )
-from netbox_scripts.storage import service, store
+from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
 from netbox_scripts.tests.test_ingestion import SCRIPT, data_file
+from netbox_scripts.tests.test_validation import STORAGE_REASON
 
 SIGNAL_LOGGER = 'netbox.plugins.netbox_scripts.storage'
 
@@ -229,6 +230,42 @@ class ProjectReconciliationJobTestCase(TestCase):
         revision = ScriptProjectRevision.objects.get(project=self.project)
         self.assertEqual(revision.status, RevisionStatusChoices.STORAGE_FAILED)
         self.validated.assert_not_called()
+
+    def test_a_backend_failure_reaches_the_job_log_as_a_fixed_reason(self):
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            mock.patch.object(config.get_storage(), 'save', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR') as logged,
+        ):
+            job = self.run_job()
+
+            self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+            self.assertIn(
+                f'Reconciling the source of "{self.project}" failed and needs another run: {STORAGE_REASON}',
+                [entry['message'] for entry in job.log_entries],
+            )
+            revision = ScriptProjectRevision.objects.get(project=self.project)
+            for private in ('/srv/netbox/private', str(self.project.storage_key), revision.digest):
+                self.assertNotIn(private, str(job.log_entries))
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_missing_stored_tree_keeps_its_own_text_in_the_job_log(self):
+        self.run_job()
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertIn(
+            f'Reconciling the source of "{self.project}" failed and needs another run: The stored revision at '
+            f'netbox-scripts/{self.project.storage_key}/revisions/{revision.digest}/ is missing.',
+            [entry['message'] for entry in job.log_entries],
+        )
 
     def test_a_directory_the_path_policy_refuses_fails_no_job(self):
         # A content problem is a verdict on the revision, not a broken worker, so the job that

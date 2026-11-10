@@ -5,7 +5,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import django_rq
 from django.contrib.auth import get_user_model
@@ -13,16 +13,19 @@ from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, TemporaryUploadedFile
 from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from core.choices import JobNotificationChoices, JobStatusChoices
+from core.events import OBJECT_CREATED
 from core.exceptions import JobFailed
-from core.models import Job, ObjectChange
+from core.models import Job, ObjectChange, ObjectType
 from core.signals import clear_events
-from extras.choices import LogLevelChoices
-from extras.models import Tag
+from extras.choices import EventRuleActionChoices, LogLevelChoices
+from extras.models import EventRule, Tag, Webhook
 from netbox.context import current_request
+from netbox.context_managers import event_tracking
 from netbox_scripts.activation import activate_revision, deactivate_revision
-from netbox_scripts.execution import ScriptNotExecutableError, run_script, script_class_context
+from netbox_scripts.execution import PostCommitError, ScriptNotExecutableError, run_script, script_class_context
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import (
     NetBoxScript,
@@ -94,6 +97,7 @@ def fake_request(user):
             'user': user,
             'method': 'POST',
             'path': '/plugins/netbox-scripts/scripts/1/run/',
+            'path_info': '/plugins/netbox-scripts/scripts/1/run/',
             'id': uuid.uuid4(),
         }
     )
@@ -302,6 +306,25 @@ class RequestProcessorTestCase(ExecutionTestMixin, TestCase):
 
         # A committed run that silently emitted no events would look successful and be wrong.
         self.assertFalse(Tag.objects.filter(slug='created-by-script').exists())
+
+    def test_event_tracking_failing_to_flush_raises_post_commit_error(self):
+        @contextmanager
+        def failing_flush(request):
+            yield
+            raise ConnectionError('the queue refused the events')
+
+        instance = Creating()
+        with (
+            patch('netbox_scripts.execution.event_tracking', new=failing_flush),
+            patch.dict('netbox.registry.registry', {'request_processors': [failing_flush]}, clear=False),
+            self.assertRaises(PostCommitError) as raised,
+        ):
+            run_script(instance, data={}, commit=True)
+
+        self.assertIsInstance(raised.exception.__cause__, ConnectionError)
+        self.assertEqual(str(raised.exception), 'the queue refused the events')
+        self.assertTrue(Tag.objects.filter(slug='created-by-script').exists())
+        self.assertNotIn('reverted', self.messages(instance))
 
 
 class RequestContextTestCase(ExecutionTestMixin, TestCase):
@@ -725,7 +748,7 @@ class EnqueueRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
 # TransactionTestCase: a second session can only observe rows this one has committed, and under
 # TestCase the save is a savepoint a real commit is indistinguishable from.
 class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
-    """The immediate run's Job row is really committed before the script executes."""
+    """Immediate runs commit the Job before execution and Script changes before the request processors exit."""
 
     @staticmethod
     def visible_to_another_session(pk):
@@ -751,6 +774,71 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
 
         self.assertTrue(observed['visible'])
         self.assertTrue(self.visible_to_another_session(job.pk))
+
+    def test_a_run_whose_events_cannot_be_queued_reports_its_committed_changes(self):
+        refused = 'Error 111 connecting to localhost:6379. Connection refused.'
+        self.publish({'deploy.py': MAKES_A_TAG})
+        webhook = Webhook.objects.create(name='Tag hook', payload_url='http://localhost:9/hook')
+        rule = EventRule.objects.create(
+            name='On a new tag',
+            event_types=[OBJECT_CREATED],
+            action_type=EventRuleActionChoices.WEBHOOK,
+            action_object=webhook,
+        )
+        rule.object_types.set([ObjectType.objects.get_for_model(Tag)])
+        queue = MagicMock()
+        queue.enqueue.side_effect = RedisConnectionError(refused)
+
+        with patch('extras.event_rules.get_queue', return_value=queue):
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        self.assertEqual(queue.enqueue.call_count, 1)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn(
+            'The Script finished and its database changes were committed, but post-commit processing failed: '
+            f'{refused}',
+            job_log,
+        )
+        self.assertNotIn('did not finish', job_log)
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('The tag was created.', script_log)
+        self.assertIn(f'The database changes were committed, but post-commit processing failed: {refused}', script_log)
+        self.assertNotIn('reverted', script_log)
+        self.assertTrue(Tag.objects.filter(slug='from-revision').exists())
+
+    def test_a_run_whose_request_processor_fails_on_exit_reports_its_committed_changes(self):
+        @contextmanager
+        def fails_on_exit(request):
+            yield
+            raise ValueError('the other processor failed on exit')
+
+        self.publish({'deploy.py': MAKES_A_TAG})
+
+        with patch.dict(
+            'netbox.registry.registry', {'request_processors': [event_tracking, fails_on_exit]}, clear=False
+        ):
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn(
+            'The Script finished and its database changes were committed, but post-commit processing failed: '
+            'the other processor failed on exit',
+            job_log,
+        )
+        self.assertNotIn('did not finish', job_log)
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('The tag was created.', script_log)
+        self.assertIn(
+            'The database changes were committed, but post-commit processing failed: '
+            'the other processor failed on exit',
+            script_log,
+        )
+        self.assertNotIn('reverted', script_log)
+        self.assertTrue(Tag.objects.filter(slug='from-revision').exists())
 
 
 class ScheduledRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
@@ -1163,6 +1251,34 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
                 self.assertIn('The Script did not finish: the script broke', job_log)
                 self.assertNotIn('could not reach the source', job_log)
                 self.assertEqual(unload_revision(str(self.project.storage_key), revision.digest), ())
+
+    def test_a_post_commit_error_the_script_raises_is_reported_as_unfinished(self):
+        self.publish(
+            {
+                'deploy.py': (
+                    b'from extras.models import Tag\n'
+                    b'from netbox_scripts.execution import PostCommitError\n'
+                    b'from netbox_scripts.scripts import Script\n\n\n'
+                    b'class Forges(Script):\n'
+                    b'    def run(self, data, commit):\n'
+                    b"        Tag.objects.create(name='Forged', slug='forged')\n"
+                    b"        raise PostCommitError('raised by the Script')\n"
+                )
+            }
+        )
+
+        for commit in (True, False):
+            with self.subTest(commit=commit):
+                job = self.run_job(commit=commit, request=fake_request(self.user))
+                job.refresh_from_db()
+
+                self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+                job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+                self.assertIn('The Script did not finish: raised by the Script', job_log)
+                script_log = '\n'.join(record['message'] for record in job.data['log'])
+                self.assertIn('reverted', script_log)
+                self.assertNotIn('were committed', script_log)
+                self.assertFalse(Tag.objects.filter(slug='forged').exists())
 
     def test_a_source_access_failure_is_reported_as_a_source_failure(self):
         self.publish({'deploy.py': MAKES_A_TAG})

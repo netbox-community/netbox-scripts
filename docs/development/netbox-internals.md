@@ -13,8 +13,8 @@ not a list of unsupported APIs alone.
 
 | Symbol | Where we use it | What it gives us |
 |---|---|---|
-| `netbox.registry.registry['request_processors']` | `execution.py` | Applies the registered request context managers around Script execution. |
-| `netbox.context_managers.event_tracking` | `execution.py` | Provides change attribution and event queuing. Skipped for dry runs. |
+| `netbox.registry.registry['request_processors']` | `execution.py` | Applies the registered request context managers around Script execution. They exit after a committed run's transaction, so `execution.py` raises a failure there as `PostCommitError`. This assumes `_execute()` committed successfully. An enclosing processor transaction or a rollback without a propagated exception can invalidate that assumption. |
+| `netbox.context_managers.event_tracking` | `execution.py` | Provides change attribution and event queuing, and flushes the queue as it exits. Skipped for dry runs. |
 | `netbox.context.current_request` | `execution.py`, `forms/model_forms/projects.py`, `forms/model_forms/scripts.py` | Preserves and restores the request context after successful, failed or nested runs. Gives the Project and Script File forms their acting user without storing the request on the instance, which each queued event passes to `EVENTS_PIPELINE` consumers that may pickle it. |
 | `core.signals.clear_events` | `execution.py` | Discards pending events when a run is abandoned. |
 | `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Resolves the database for change-logged writes, including branch routing. `execution.py` checks its probe model with NetBox Branching first, so a model that stopped being branch-aware is reported rather than read as the default alias. |

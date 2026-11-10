@@ -48,6 +48,7 @@ from .validation import build_error_sanitizer
 __all__ = (
     'LOAD_FAILURES',
     'RESOLUTION_FAILURES',
+    'PostCommitError',
     'ScriptNotExecutableError',
     'run_script',
     'script_class_context',
@@ -66,6 +67,10 @@ RESOLUTION_FAILURES = (
 
 # script_class_context also reaches the store and the local cache.
 LOAD_FAILURES = RESOLUTION_FAILURES + (StorageError, OSError)
+
+
+class PostCommitError(Exception):
+    """Raised when a run fails after its database changes were committed."""
 
 
 class ScriptNotExecutableError(Exception):
@@ -96,12 +101,16 @@ def run_script(instance, *, data, commit, request=None):
     Run one Script instance under the transaction, request, and event context a run needs.
 
     Sets output on the instance and appends to its run log, including a final line when the
-    database changes were reverted. Re-raises whatever the script raised, after logging it, so
-    the caller decides what a failed run does to its Job. A dry run reverts the database changes
-    this covers and is not a failure. request may be None, for a run with no request behind it.
+    database changes were reverted or when the run failed after they were committed. Re-raises
+    whatever the script raised, after logging it, so the caller decides what a failed run does
+    to its Job, apart from a PostCommitError, which is re-raised as a RuntimeError.
+    PostCommitError, chained to the cause, therefore means this run failed after it committed.
+    A dry run reverts the database changes this covers and is not a failure. request may be
+    None, for a run with no request behind it.
     """
     # Preserve the caller's request context across all processors and exit paths.
     outer_request = current_request.get()
+    committed = False
     try:
         with ExitStack() as stack:
             for processor in registry['request_processors']:
@@ -127,6 +136,18 @@ def run_script(instance, *, data, commit, request=None):
             # whatever branch the requesting user had, off the request the Job carries a copy of.
             stack.enter_context(branching.main_schema_only())
             _execute(instance, data=data, commit=commit, request=request)
+            # Last in the block, so only the stack's exit can raise after it.
+            committed = commit
+    except Exception as error:
+        if committed:
+            instance.log_failure(
+                _('The database changes were committed, but post-commit processing failed: {error}').format(error=error)
+            )
+            raise PostCommitError(str(error)) from error
+        if isinstance(error, PostCommitError):
+            # From the script or a run nested in it, so this run did not commit.
+            raise RuntimeError(str(error)) from error
+        raise
     finally:
         current_request.set(outer_request)
 

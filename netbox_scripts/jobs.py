@@ -27,7 +27,7 @@ from .constants import (
     STALLED_CLEANUP_GRACE_SECONDS,
     VALIDATION_JOB_TIMEOUT,
 )
-from .execution import RESOLUTION_FAILURES, ScriptNotExecutableError, run_script
+from .execution import RESOLUTION_FAILURES, PostCommitError, ScriptNotExecutableError, run_script
 from .models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from .models.migration import migration_lock
 from .runtime.exceptions import ScriptFileImportError
@@ -778,6 +778,16 @@ class NetBoxScriptJob(JobRunner):
                     unload_revision(storage_key, revision.digest)
         except JobFailed:
             raise
+        except PostCommitError as error:
+            self.logger.error(
+                sanitize(
+                    _(
+                        'The Script finished and its database changes were committed, but post-commit processing '
+                        'failed: {error}'
+                    ).format(error=error)
+                )
+            )
+            raise JobFailed() from error
         except Exception as error:
             # The run log already carries the detail, so this line only fails the Job.
             self.logger.error(sanitize(_('The Script did not finish: {error}').format(error=error)))

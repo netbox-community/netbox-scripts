@@ -54,6 +54,12 @@ object-change events are discarded. The Job fails and records the exception
 and traceback. Raise `AbortScript` to fail with an explanatory message without
 a traceback.
 
+With commit enabled, NetBox processes the run's object-change events after its
+database changes are committed. If that processing fails, for example because a
+Webhook cannot be queued, the changes stay committed and the Job fails with a
+message that says so. Event Rules processed before the failure may already have
+run. Check the changes before running the Script again.
+
 ## Schedule a run
 
 The run form places execution settings below the Script's variables.

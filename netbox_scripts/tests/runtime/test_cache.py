@@ -841,6 +841,67 @@ class MaterializeRevisionTestCase(TestCase):
         self.assertEqual(self.materialize(storage=watcher), self.target)
         self.assertEqual(watcher.opened, [])
 
+    def test_a_new_slot_lock_is_private_in_a_traversable_project_directory(self):
+        self.cache_root.chmod(0o755)
+        project_dir = self.target.parent
+        project_dir.mkdir()
+        project_dir.chmod(0o755)
+        previous = os.umask(0)
+        try:
+            # Stubbed so the assertion sees the mode the lock is created with.
+            with mock.patch.object(cache.os, 'fchmod'):
+                self.materialize()
+        finally:
+            os.umask(previous)
+        lock_path = project_dir / f'.{self.digest}.lock'
+        self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(project_dir.stat().st_mode), 0o755)
+
+    def test_an_existing_readable_slot_lock_is_restricted_before_it_is_taken(self):
+        self.materialize()
+        project_dir = self.target.parent
+        project_dir.chmod(0o755)
+        (project_dir / f'.{self.digest}.lock').chmod(0o644)
+        original = fcntl.flock
+        modes = []
+
+        def record(descriptor, operation):
+            modes.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
+            return original(descriptor, operation)
+
+        with mock.patch.object(cache.fcntl, 'flock', record):
+            self.assertEqual(self.materialize(), self.target)
+        self.assertEqual(modes, [0o600])
+
+    def test_a_symlink_in_place_of_the_slot_lock_is_refused(self):
+        elsewhere = Path(tempfile.mkdtemp(prefix='nbcs-lock-link-'))
+        self.addCleanup(discard_tree, elsewhere)
+        victim = elsewhere / 'victim'
+        victim.write_bytes(b'')
+        victim.chmod(0o644)
+        project_dir = self.target.parent
+        project_dir.mkdir(mode=0o700)
+        (project_dir / f'.{self.digest}.lock').symlink_to(victim)
+        with self.assertRaises(LocalCacheError) as ctx:
+            self.materialize()
+        self.assertIn('Unable to open the cache lock', str(ctx.exception))
+        self.assertEqual(ctx.exception.__cause__.errno, errno.ELOOP)
+        self.assertEqual(stat.S_IMODE(victim.stat().st_mode), 0o644)
+        self.assertEqual(self.slot_residue(), [])
+
+    def test_a_slot_lock_that_cannot_be_restricted_is_refused(self):
+        refusal = PermissionError(errno.EPERM, 'Operation not permitted')
+        with (
+            mock.patch.object(cache.os, 'fchmod', side_effect=refusal),
+            self.assertRaises(LocalCacheError) as ctx,
+        ):
+            self.materialize()
+        lock_path = self.target.parent / f'.{self.digest}.lock'
+        self.assertIn(f'Unable to make the cache lock "{lock_path}" private', str(ctx.exception))
+        self.assertIn('Remove it while NetBox is stopped.', str(ctx.exception))
+        self.assertIs(ctx.exception.__cause__, refusal)
+        self.assertEqual(self.slot_residue(), [])
+
 
 @unittest.skipUnless(HAS_S3_STACK, 'moto and the S3 storage backend are not installed')
 class S3MaterializationTestCase(TestCase):

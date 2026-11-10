@@ -363,21 +363,32 @@ def _slot_lock(lock_path):
     behind, it sits beside the slot rather than inside it, where no verification ever looks.
     """
     try:
-        handle = lock_path.open('ab')  # cloud-compat: ok, the slot lock lives beside the cache it serializes
+        descriptor = os.open(  # cloud-compat: ok, the slot lock lives beside the cache it serializes
+            lock_path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600
+        )
     except OSError as error:
         raise LocalCacheError(
             _('Unable to open the cache lock "{lock_path}": {error}').format(lock_path=lock_path, error=error)
         ) from error
     try:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            # Any reader could hold the lock, and an existing file keeps the mode it was created with.
+            os.fchmod(descriptor, 0o600)
+        except OSError as error:
+            raise LocalCacheError(
+                _(
+                    'Unable to make the cache lock "{lock_path}" private: {error}. Remove it while NetBox is stopped.'
+                ).format(lock_path=lock_path, error=error)
+            ) from error
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
         except OSError as error:
             raise LocalCacheError(
                 _('Unable to take the cache lock "{lock_path}": {error}').format(lock_path=lock_path, error=error)
             ) from error
         yield
     finally:
-        handle.close()
+        os.close(descriptor)
 
 
 def _existing_tree_verifies(target, manifest):

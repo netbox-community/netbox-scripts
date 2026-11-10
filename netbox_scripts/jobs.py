@@ -269,10 +269,10 @@ class ProjectReconciliationJob(JobRunner):
         try:
             staged = ingestion.ingest_data_source(project)
         except (StorageError, StorageConfigurationError, OSError) as error:
-            # The storage key is named deliberately, as in storage cleanup: the audience is an
-            # operator working out why a synchronization produced no revision.
+            if replacement := storage_failure_reason(error):
+                logger.exception('Could not reconcile the source of Script Project %s.', project.pk)
             detail = _('Reconciling the source of "{project}" failed and needs another run: {error}').format(
-                project=project, error=error
+                project=project, error=replacement or error
             )
             self.logger.error(detail)
             raise JobFailed() from error
@@ -384,8 +384,10 @@ class ProjectScriptFileRefreshJob(JobRunner):
                 staged = service.refresh_revision_script_files(source)
                 processing_job = queue_revision_processing(staged.revision)
         except (StorageError, StorageConfigurationError, OSError) as error:
+            if replacement := storage_failure_reason(error):
+                logger.exception('Could not refresh the Script Files of Script Project %s.', project.pk)
             detail = _('Refreshing the script files of "{project}" failed and needs another run: {error}').format(
-                project=project, error=error
+                project=project, error=replacement or error
             )
             self.logger.error(detail)
             raise JobFailed() from error
@@ -831,7 +833,10 @@ class NetBoxScriptJob(JobRunner):
             self.logger.error(detail)
             raise JobFailed() from error
         except (StorageError, OSError) as error:
-            detail = sanitize(_('The run could not reach the source it was pinned to: {error}').format(error=error))
+            logger.exception('Could not load Script %s from revision %s.', self.job.object_id, revision.pk)
+            detail = _('The run could not reach the source it was pinned to: {error}').format(
+                error=storage_failure_reason(error)
+            )
             self.logger.error(detail)
             raise JobFailed() from error
 

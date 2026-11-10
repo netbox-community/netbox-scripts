@@ -22,9 +22,10 @@ from netbox_scripts.models import (
     ScriptProject,
     ScriptProjectRevision,
 )
-from netbox_scripts.storage import service, store
+from netbox_scripts.storage import config, service, store
 from netbox_scripts.storage.exceptions import StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES
+from netbox_scripts.tests.test_validation import STORAGE_REASON
 
 ALPHA = b"""from netbox_scripts.scripts import Script
 
@@ -230,6 +231,43 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
             job = self.run_job()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.validated.assert_not_called()
+
+    def test_a_backend_failure_reaches_the_job_log_as_a_fixed_reason(self):
+        self.project.select_script_files(['alpha.py'])
+        source = self.project.latest_stored_revision()
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR') as logged,
+        ):
+            job = self.run_job()
+
+            self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+            self.assertIn(
+                f'Refreshing the script files of "{self.project}" failed and needs another run: {STORAGE_REASON}',
+                [entry['message'] for entry in job.log_entries],
+            )
+            for private in ('/srv/netbox/private', str(self.project.storage_key), source.digest):
+                self.assertNotIn(private, str(job.log_entries))
+        self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_missing_stored_tree_keeps_its_own_text_in_the_job_log(self):
+        self.project.select_script_files(['alpha.py'])
+        source = self.project.latest_stored_revision()
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertIn(
+            f'Refreshing the script files of "{self.project}" failed and needs another run: The stored revision at '
+            f'netbox-scripts/{self.project.storage_key}/revisions/{source.digest}/ is missing.',
+            [entry['message'] for entry in job.log_entries],
+        )
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)

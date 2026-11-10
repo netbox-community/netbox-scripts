@@ -338,10 +338,11 @@ def _queueless_schedules(recreated, labels):
 def _verify_jobs(run):
     """No Job names the built-in feature, and every captured schedule has a live counterpart."""
     captured = run.journal.get('schedules') or []
-    if not run.step_done(legacy_references.HISTORY_STEP):
-        return _check(JOBS, plan.WARNING, _('The Job history has not been repointed yet.'))
+    # From cutover on rather than after history, since unfinished runs can hold the history step open.
     # Report unfinished built-in runs before recommending replacements for lost tasks.
-    if unfinished := list(legacy_source.unfinished_script_jobs().order_by('pk').values_list('pk', flat=True)):
+    if run.step_done(cutover.STEP) and (
+        unfinished := list(legacy_source.unfinished_script_jobs().order_by('pk').values_list('pk', flat=True))
+    ):
         return _check(
             JOBS,
             plan.BLOCKING,
@@ -351,6 +352,8 @@ def _verify_jobs(run):
             ).format(count=len(unfinished), keys=', '.join(str(key) for key in unfinished)),
             source=_('the built-in rows'),
         )
+    if not run.step_done(legacy_references.HISTORY_STEP):
+        return _check(JOBS, plan.WARNING, _('The Job history has not been repointed yet.'))
     recreated = run.journal.get('recreated_schedules') or {}
     # A recorded number that has simply gone says nothing: a recurring job is re-enqueued as a new
     # row every occurrence and housekeeping deletes by age, so the first one is meant to disappear.

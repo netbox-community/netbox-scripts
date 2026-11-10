@@ -1176,11 +1176,13 @@ class MigrationReferencesJob(JobRunner):
             _(
                 'Moved {moved} Job(s) of history onto the Scripts, leaving '
                 '{unresolved} unresolved script(s), {outstanding} of them '
-                'for a later run, and {modules} module Job(s) where they are.'
+                'for a later run, {unfinished} script(s) with waiting or '
+                'running Jobs, and {modules} module Job(s) where they are.'
             ).format(
                 moved=history.get('moved', 0),
                 unresolved=history.get('unresolved', 0),
                 outstanding=history.get('outstanding', 0),
+                unfinished=history.get('unfinished', 0),
                 modules=history.get('modules', 0),
             )
         )

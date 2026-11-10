@@ -11,7 +11,7 @@ from rq.job import Job as RQJob
 from core.choices import JobStatusChoices
 from core.models import Job
 from extras.models import EventRule, Script, ScriptModule
-from netbox_scripts.migration import cleanup, mapping, plan, verification
+from netbox_scripts.migration import cleanup, mapping, plan, references, verification
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject
 from netbox_scripts.tests.migration.test_cleanup import CleanupMixin
 from users.models import ObjectPermission
@@ -66,7 +66,7 @@ class VerificationBeforeAnythingTestCase(VerificationMixin, TestCase):
         self.assertEqual(report['status'], plan.WARNING)
         self.assertEqual({check['level'] for check in report['checks']}, {plan.WARNING})
 
-    def test_an_unfinished_built_in_job_before_repointing_does_not_block(self):
+    def test_an_unfinished_built_in_job_before_cutover_does_not_block(self):
         job = self.script_job(self.script)
         Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_PENDING)
 
@@ -306,6 +306,18 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
                 )
                 self.assertIn('may still execute built-in Custom Scripts', str(check['message']))
                 self.assertIn('built-in rows', str(check['source']))
+
+    def test_an_unfinished_built_in_job_blocks_once_cutover_has_completed(self):
+        self.cross_over()
+        job = self.script_job(self.script, status=JobStatusChoices.STATUS_SCHEDULED)
+        references.repoint_job_history(self.migration)
+
+        report = verification.verify(self.migration)
+
+        check = self.named(report, verification.JOBS)
+        self.assertEqual(report['status'], plan.BLOCKING)
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn(f'1 built-in Custom Script Job(s) are still waiting or running: {job.pk}.', str(check['message']))
 
     def test_a_finished_recurring_built_in_job_is_history(self):
         run = self.repoint_all()

@@ -11,6 +11,7 @@ from django.urls import reverse
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.models import Tag
+from ipam.models import Prefix
 from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
@@ -87,6 +88,16 @@ SELECTS_A_PREFIX = (
     b"        self.log_info(str(data['prefix']), obj=data['prefix'])\n"
 )
 
+SELECTS_PREFIXES = (
+    b'from ipam.models import Prefix\n\n'
+    b'from netbox_scripts.scripts import MultiObjectVar, ObjectVar, Script\n\n\n'
+    b'class InspectPrefixes(Script):\n'
+    b'    prefix = ObjectVar(model=Prefix, required=False)\n'
+    b'    prefixes = MultiObjectVar(model=Prefix, required=False)\n\n'
+    b'    def run(self, data, commit):\n'
+    b'        pass\n'
+)
+
 
 class RunViewTestMixin(ObjectPermissionTestMixin):
     def grant(self, *actions, model=NetBoxScript, constraints=None):
@@ -113,6 +124,14 @@ class RunViewTestMixin(ObjectPermissionTestMixin):
         activate_revision(revision)
         self.project.refresh_from_db()
         return revision
+
+    def publish_prefix_selection(self):
+        """Publish a Script and grant view access to one of two prefixes."""
+        self.publish(SELECTS_PREFIXES)
+        self.script = NetBoxScript.objects.get(project=self.project, class_name='InspectPrefixes')
+        self.viewable = Prefix.objects.create(prefix='192.0.2.0/24')
+        self.hidden = Prefix.objects.create(prefix='198.51.100.0/24')
+        self.grant('view', model=Prefix, constraints={'pk': self.viewable.pk})
 
     def url(self, name='run', **kwargs):
         return reverse(f'plugins:netbox_scripts:netboxscript_{name}', kwargs={'pk': self.script.pk, **kwargs})
@@ -228,6 +247,64 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertIn('aria-label="Quick add"', content)
         self.assertEqual(content.count('id="htmx-modal"'), 1)
         self.assertEqual(content.count('id="htmx-modal-content"'), 1)
+
+    def test_a_prefilled_object_the_user_cannot_view_is_not_displayed(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+
+        for prefilled, query, name, visible in (
+            ('viewable', {'prefix': self.viewable.pk}, 'prefix', [self.viewable]),
+            ('hidden', {'prefix': self.hidden.pk}, 'prefix', []),
+            ('both', {'prefixes': [self.viewable.pk, self.hidden.pk]}, 'prefixes', [self.viewable]),
+        ):
+            with self.subTest(prefilled=prefilled):
+                response = self.client.get(self.url(), query)
+
+                self.assertHttpStatus(response, 200)
+                form = response.context['form']
+                selected = [str(option.data['value']) for option in form[name] if option.data['selected']]
+                self.assertEqual(selected, [str(prefix.pk) for prefix in visible])
+                content = response.content.decode()
+                for prefix in visible:
+                    self.assertIn(str(prefix), content)
+                self.assertNotIn(str(self.hidden), content)
+
+    def test_an_object_the_user_cannot_view_is_refused(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+
+        response = self.client.post(self.url(), {'prefix': self.hidden.pk, '_commit': 'on'})
+
+        self.assertHttpStatus(response, 200)
+        self.assertEqual(response.context['form'].errors.as_data()['prefix'][0].code, 'invalid_choice')
+        self.assertNotIn(str(self.hidden), response.content.decode())
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_an_object_the_user_can_view_reaches_the_queued_run(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+        captured = {}
+        original = NetBoxScriptJob.enqueue_run
+
+        def record(script, **kwargs):
+            captured.update(kwargs)
+            return original(script, **kwargs)
+
+        with patch.object(NetBoxScriptJob, 'enqueue_run', record):
+            response = self.client.post(self.url(), {'prefix': self.viewable.pk, '_commit': 'on'})
+
+        self.assertHttpStatus(response, 302)
+        self.assertEqual(captured['data']['prefix'], self.viewable)
+
+    def test_a_selection_including_an_object_the_user_cannot_view_is_refused(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+
+        response = self.client.post(self.url(), {'prefixes': [self.viewable.pk, self.hidden.pk], '_commit': 'on'})
+
+        self.assertHttpStatus(response, 200)
+        self.assertEqual(response.context['form'].errors.as_data()['prefixes'][0].code, 'invalid_choice')
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
 
     def test_the_run_page_is_refused_without_the_run_action(self):
         # View alone is not enough, running is its own permission.

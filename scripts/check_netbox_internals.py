@@ -37,6 +37,7 @@ ROWS = (
     ('utilities.exceptions.AbortScript', 'utilities.exceptions:AbortScript'),
     ('utilities.request.copy_safe_request', 'utilities.request:copy_safe_request'),
     ('utilities.querydict.normalize_querydict', 'utilities.querydict:normalize_querydict'),
+    ('utilities.forms.restrict_form_fields', 'utilities.forms:restrict_form_fields'),
     (
         'netbox.api.viewsets.mixins.discard_events_on_rollback',
         'netbox.api.viewsets.mixins:discard_events_on_rollback',

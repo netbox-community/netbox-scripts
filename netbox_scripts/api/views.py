@@ -20,6 +20,7 @@ from netbox.api.authentication import TokenPermissions
 from netbox.api.viewsets import NetBoxModelViewSet, NetBoxReadOnlyModelViewSet
 from netbox.api.viewsets.mixins import discard_events_on_rollback
 from utilities.exceptions import PermissionsViolation, RQWorkerNotRunningException
+from utilities.forms import restrict_form_fields
 from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.rqworker import any_workers_for_queue, get_queue_for_model
@@ -392,8 +393,7 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
         ):
             raise PermissionDenied(_('Scheduling a Script requires the schedule permission.'))
 
-        # The declared variables are the only authority on what is valid, so the class's own form
-        # validates them.
+        # The class's own form validates the declared variables, accepting only objects the user can view.
         form = instance.as_form(
             parameters['data'],
             # A FileVar's value cannot travel in the JSON envelope, so it arrives as its own part.
@@ -401,6 +401,7 @@ class NetBoxScriptViewSet(NetBoxModelViewSet):
             commit_default=script.commit_default,
             notifications_default=script.notifications_default,
         )
+        restrict_form_fields(form, request.user)
         if not form.is_valid():
             raise APIValidationError(form.errors)
         values = dict(form.cleaned_data)

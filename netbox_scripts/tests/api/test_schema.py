@@ -64,6 +64,10 @@ class OpenAPISchemaTestCase(TestCase):
 
     def test_upload_takes_a_file_and_returns_a_revision(self):
         self.assertEqual(
+            set(self.schema['paths'][UPLOAD]['post']['requestBody']['content']),
+            {'multipart/form-data'},
+        )
+        self.assertEqual(
             self.request_ref(UPLOAD, 'post', content='multipart/form-data'),
             '#/components/schemas/ScriptProjectUploadRequest',
         )
@@ -77,6 +81,10 @@ class OpenAPISchemaTestCase(TestCase):
         self.assertEqual(
             self.response_ref(SCRIPT_FILES, 'get', '200'),
             '#/components/schemas/ScriptProjectScriptFiles',
+        )
+        self.assertEqual(
+            set(self.schema['paths'][SCRIPT_FILES]['put']['requestBody']['content']),
+            {'application/json'},
         )
         self.assertEqual(
             self.request_ref(SCRIPT_FILES, 'put'),

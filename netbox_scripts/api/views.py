@@ -178,7 +178,7 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
             self.queryset = type(self).queryset.restrict(request.user, 'change')
 
     @extend_schema(
-        request=ScriptProjectUploadSerializer,
+        request={'multipart/form-data': ScriptProjectUploadSerializer},
         responses={
             201: OpenApiResponse(
                 response=ScriptProjectRevisionSerializer,
@@ -248,7 +248,7 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
     )
     @extend_schema(
         methods=['PUT'],
-        request=SCRIPT_FILE_SELECTION,
+        request={'application/json': SCRIPT_FILE_SELECTION},
         responses={200: OpenApiResponse(response=SCRIPT_FILE_STATE)},
     )
     @action(detail=True, methods=['get', 'put'], url_path='script-files')

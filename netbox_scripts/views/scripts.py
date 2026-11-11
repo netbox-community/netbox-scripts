@@ -14,6 +14,7 @@ from netbox.object_actions import BulkEdit, BulkExport, EditObject
 from netbox.ui import layout
 from netbox.ui.panels import CommentsPanel
 from netbox.views import generic
+from utilities.forms import restrict_form_fields
 from utilities.permissions import get_permission_for_model
 from utilities.querydict import normalize_querydict
 from utilities.request import copy_safe_request
@@ -136,15 +137,16 @@ class NetBoxScriptRunView(generic.ObjectView):
         """Require the run action rather than view, which is what this page actually does."""
         return get_permission_for_model(NetBoxScript, 'run')
 
-    @staticmethod
-    def _build_form(script, instance, *args, **kwargs):
-        """Build the class's own form under the operator's execution defaults."""
-        return instance.as_form(
+    def _build_form(self, script, instance, *args, **kwargs):
+        """Build the run form with the Script's execution defaults, limited to objects the user can view."""
+        form = instance.as_form(
             *args,
             commit_default=script.commit_default,
             notifications_default=script.notifications_default,
             **kwargs,
         )
+        restrict_form_fields(form, self.request.user)
+        return form
 
     def get(self, request, **kwargs):
         """Render the run form while its revision namespace remains loaded."""

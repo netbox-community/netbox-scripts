@@ -236,7 +236,7 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertIs(Job.objects.get(pk=response.data['id']).data['commit'], True)
 
     def test_an_invalid_variable_value_is_refused_by_the_class_form(self):
-        # The declared variables are the only authority on what is valid.
+        # The class's own form validates the declared variables.
         self.grant('view', 'run')
 
         response = self.post_run({'data': {}})
@@ -244,6 +244,36 @@ class RunAPITestCase(RunViewTestMixin, PluginAPIViewTestCase, APITestCase):
         self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
         self.assertIn('label', response.data)
         self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_an_object_the_user_cannot_view_is_refused_like_a_missing_one(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+
+        refused = self.post_run({'data': {'prefix': self.hidden.pk}})
+        missing = self.post_run({'data': {'prefix': 0}})
+
+        self.assertHttpStatus(refused, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(refused.data, missing.data)
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_a_selection_including_an_object_the_user_cannot_view_is_refused(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+
+        response = self.post_run({'data': {'prefixes': [self.viewable.pk, self.hidden.pk]}})
+
+        self.assertHttpStatus(response, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('prefixes', response.data)
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_objects_the_user_can_view_reach_the_queued_run(self):
+        self.grant('view', 'run')
+        self.publish_prefix_selection()
+
+        _job, queued = self.queued_run(self.script, {'prefix': self.viewable.pk, 'prefixes': [self.viewable.pk]})
+
+        self.assertEqual(queued['data']['prefix'], self.viewable)
+        self.assertEqual(list(queued['data']['prefixes']), [self.viewable])
 
     def test_a_file_variable_supplied_over_rest_reaches_the_run(self):
         # The built-in feature binds files on this path, so without it a migrating script loses an input.

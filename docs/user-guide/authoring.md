@@ -158,9 +158,10 @@ prefix without a description then shows a blank label. A prefilled prefix, or
 one chosen through the selector or **Quick add**, shows its usual label until
 the dropdown next loads it.
 
-These filters and labels only shape the dropdown. The form accepts any existing
-interface, so the example checks every interface's site before acting on any.
-With `required=False`, an empty selection reaches `run()` as an empty queryset.
+These filters and labels only shape the dropdown. The form accepts any interface
+the user can view, so the example checks every interface's site before acting on
+any. With `required=False`, an empty selection reaches `run()` as an empty
+queryset.
 
 The advanced selector does not follow `$` references, so this example leaves it
 off the dependent field.
@@ -174,10 +175,14 @@ permissions. These examples need `ipam.view_prefix`, `dcim.view_site` and
 constraints. These permissions are separate from
 [permission to run the Script](../administration/permissions.md#script).
 
-The form does not check view permission on the IDs it receives. A Run link can
-preselect, and a run can receive, an object its user cannot view. Check the
-required permission in `run()` and pass the selected object. For example,
-before changing a prefix, use
+The run form and REST endpoint accept only objects the user can view, applying
+the constraints of their view permissions. A Run link cannot preselect an object
+the user cannot view, and submitting one fails validation without creating a
+Job. `runcustomscript` and Event Rules do not check view permission on their
+inputs.
+
+View permission does not authorize a change. Check the required permission in
+`run()` and pass the selected object. For example, before changing a prefix, use
 `self.request.user.has_perm('ipam.change_prefix', prefix)`. Without the object,
 a permission limited to other prefixes still passes.
 
@@ -369,6 +374,9 @@ The plugin reimplements the built-in authoring API, with these differences:
   occurrences.
 - `TextVar` honors an explicitly supplied widget rather than always using a
   textarea.
+- In the run form and over REST, `ObjectVar` and `MultiObjectVar` accept only
+  objects the user can view, and a Run link preselects only those. The built-in
+  implementation accepts any existing object.
 - A custom `ScriptVariable` can declare `field_attrs` at class level. Each
   instance receives its own copy, preventing labels or defaults from leaking
   between declarations.

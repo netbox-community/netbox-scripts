@@ -89,6 +89,10 @@ at** and **Recurs every**. Over REST, a caller without `schedule` receives
 `403` when submitting `schedule_at` or `interval`. See
 [Schedule a run](../user-guide/execution.md#schedule-a-run) for the execution settings.
 
+For runs through the UI or REST, object variables accept only objects the user
+can view, as described in
+[Object selection](../user-guide/authoring.md#permissions).
+
 ## Event Rule execution permissions
 
 An Event Rule can run a Script without checking `run_netboxscript` for either

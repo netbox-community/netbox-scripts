@@ -17,13 +17,14 @@ from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
 from netbox_scripts.scripts import BaseScript
 from netbox_scripts.scripts.logging import LogLevelChoices
-from netbox_scripts.storage import service
+from netbox_scripts.storage import config, service
 from netbox_scripts.tests.plugin_testing import (
     IN_MEMORY_STORAGES,
     ObjectPermissionTestMixin,
     discard_tree,
     purge_namespace,
 )
+from netbox_scripts.tests.test_validation import IO_REASON, STORAGE_REASON
 from netbox_scripts.validation import validate_revision
 from utilities.datetime import local_now
 from utilities.testing import TestCase
@@ -118,6 +119,12 @@ class RunViewTestMixin(ObjectPermissionTestMixin):
 
 
 class RunViewTestCase(RunViewTestMixin, TestCase):
+    def empty_the_cache(self):
+        """Point the runtime cache at an empty directory for the rest of the test."""
+        cache_root = Path(tempfile.mkdtemp())
+        self.addCleanup(discard_tree, cache_root)
+        self.enterContext(override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(cache_root)}}))
+
     def test_the_run_page_renders_the_form_the_source_declares(self):
         self.grant('view', 'run')
 
@@ -269,20 +276,74 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertHttpStatus(response, 200)
         content = response.content.decode()
         self.assertIn('could not be loaded', content)
+        self.assertIn('deploy imports a module that is not there', content)
         self.assertNotIn('name="label"', content)
 
     def test_a_cache_failure_leaks_no_storage_identity_into_the_page(self):
         self.grant('view', 'run')
         key = str(self.project.storage_key)
-        leaky = LocalCacheError(f'/var/cache/{key}/{self.revision.digest}/deploy.py could not be read')
+        cases = (
+            (LocalCacheError(f'/var/cache/{key}/{self.revision.digest}/deploy.py could not be read'), STORAGE_REASON),
+            (PermissionError(13, 'Permission denied', f'/var/cache/{key}'), IO_REASON),
+        )
 
-        with patch('netbox_scripts.execution.resolve_script_class', side_effect=leaky):
+        for error, reason in cases:
+            with self.subTest(error=type(error).__name__):
+                with (
+                    patch('netbox_scripts.execution.resolve_script_class', side_effect=error),
+                    self.assertLogs('netbox.plugins.netbox_scripts.views', 'ERROR') as logged,
+                ):
+                    response = self.client.get(self.url())
+
+                    self.assertHttpStatus(response, 200)
+                    self.assertEqual(
+                        response.context['reason'], f'The Script could not be loaded from its source: {reason}'
+                    )
+                    content = response.content.decode()
+                    for private in (key, self.revision.digest, '/var/cache'):
+                        self.assertNotIn(private, content)
+                self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_storage_backend_failure_shows_a_fixed_reason_and_logs_its_cause(self):
+        self.grant('view', 'run')
+        self.empty_the_cache()
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        for method, data in (('get', None), ('post', {'label': 'Never made', '_commit': 'on'})):
+            with self.subTest(method=method):
+                with (
+                    patch.object(config.get_storage(), 'open', side_effect=error),
+                    self.assertLogs('netbox.plugins.netbox_scripts.views', 'ERROR') as logged,
+                ):
+                    response = getattr(self.client, method)(self.url(), data)
+
+                    self.assertHttpStatus(response, 200)
+                    self.assertEqual(
+                        response.context['reason'], f'The Script could not be loaded from its source: {STORAGE_REASON}'
+                    )
+                    content = response.content.decode()
+                    for private in ('/srv/netbox/private', 'Permission denied', str(self.project.storage_key)):
+                        self.assertNotIn(private, content)
+                    self.assertNotIn('name="label"', content)
+                self.assertIs(logged.records[0].exc_info[1].__cause__.__cause__, error)
+        self.assertFalse(Job.objects.filter(object_id=self.script.pk).exists())
+
+    def test_a_missing_stored_file_keeps_its_own_message(self):
+        self.grant('view', 'run')
+        self.empty_the_cache()
+
+        with (
+            patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.views', 'ERROR'),
+        ):
             response = self.client.get(self.url())
 
         self.assertHttpStatus(response, 200)
-        content = response.content.decode()
-        self.assertNotIn(key, content)
-        self.assertNotIn(self.revision.digest, content)
+        self.assertEqual(
+            response.context['reason'],
+            'The Script could not be loaded from its source: The stored file '
+            '"netbox-scripts/<storage>/revisions/<digest>/deploy.py" does not match its manifest entry.',
+        )
 
     def test_an_error_raised_by_a_custom_field_escapes_unchanged(self):
         self.publish(CHECKS_A_PATH)

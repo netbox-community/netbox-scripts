@@ -181,7 +181,7 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
 
     def test_a_database_error_releases_the_lock_after_the_rollback(self):
         def fail(instance):
-            # Aborts update()'s transaction on v4.7.4, outside a savepoint, so only an unlock after rollback works.
+            # Aborts update()'s transaction, outside a savepoint, so only an unlock after rollback works.
             with connection.cursor() as cursor:
                 cursor.execute('SELECT 1 / 0')
 

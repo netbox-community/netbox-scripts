@@ -106,11 +106,9 @@ on when it was queued:
   original owner and interval. Delete the waiting successor on the **Jobs**
   page before scheduling the replacement Script.
 
-A successor can still follow a completed cutover. NetBox marks a recurring Job
-finished before it queues the successor, and with several workers cutover can
-complete in that gap. One worker for the queues involved prevents that overlap.
-A cancelled run that is requeued and executes can also queue its successor
-after cutover (see [Cancellation and replay limits](#cancellation-and-replay-limits)).
+A successor can still follow a completed cutover. A cancelled run that is
+requeued and executes can queue its successor after cutover (see
+[Cancellation and replay limits](#cancellation-and-replay-limits)).
 So can a run whose Job was deleted while it executed, since cutover no longer
 sees it.
 

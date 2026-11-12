@@ -45,5 +45,5 @@ A new revision does not replace the active one until activation succeeds.
 
 | Runtime | Supported range |
 |---|---|
-| NetBox | 4.7.0 to 4.7.99 |
+| NetBox | 4.7.5 to 4.7.99 |
 | Python | 3.12+ |

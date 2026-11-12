@@ -40,6 +40,7 @@ not a list of unsupported APIs alone.
 | `drf_spectacular.drainage.GENERATOR_STATS` | `tests/api/test_schema.py` | Suppresses whole-API schema warnings while tests inspect the plugin's operations. NetBox's tests use the same import. |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | Returns 503 when no worker is available, matching NetBox's run endpoint. |
 | `netbox.api.authentication.TokenPermissions` | `api/views.py` | Provides the base permission class for the REST run action, where POST requires `run` rather than `add`. |
+| `core.models.DataSource.sync` | `ingestion.py` | Applies each synchronization in one transaction, under a per-source advisory lock taken before the existing files are read, from NetBox v4.7.4. Reconciliation reads a directory's paths and contents in one query, so each reconciled revision holds one complete synchronization. |
 | `extras.models.ScriptModule` and its manager | `migration/source.py` | Reads built-in modules through a `ManagedFile` proxy whose manager includes both `scripts` and `reports` roots. |
 | `extras.models.Script` through `module.scripts` and its manager | `migration/source.py` | Reads the classes published by built-in modules and distinguishes Report-owned classes by the module file root. |
 | `core.models.ManagedFile` fields `file_root`, `file_path`, `data_path`, `data_source` | `migration/source.py` | Locates stored source and its Data Source path. NetBox marks `ManagedFile` as `_netbox_private`. |
@@ -55,6 +56,7 @@ not a list of unsupported APIs alone.
 | `core.models.Job.terminate` and `extras.models.Notification.get_object_repr` | `migration/cutover.py` | `terminate()` is mirrored rather than called. Cancellation fails a waiting Job with a conditional update, because `terminate()` saves the whole row and would overwrite a start by a worker that took the task first. The guarded update and the owner notification commit together, refreshing any existing notice with the failure outcome, completion time, display text and unread state. |
 | `django_rq.get_queue` and `rq.job.Job.fetch` / `.delete` | `migration/cutover.py`, `migration/verification.py` | Captures input from the RQ task, since `Job.enqueue()` does not store it on the Job row, then deletes the task. The scheduler can re-enqueue a due task fetched before deletion. Verify checks that a recorded replacement still waiting has its task. |
 | `core.models.Job.start` | `migration/references.py` | Starts only a pending or scheduled Job with no recorded start, from NetBox v4.7.5. A task fetched before cancellation cannot run the Job the cancellation failed, so the reference pass considers a cancelled run for replay while its Job is still failed with no recorded start. Requeue and Enqueue return a Job to pending and clear its start, which the pass holds back. |
+| `netbox.jobs.JobRunner.handle` | `migration/cutover.py` | Attempts to queue a recurring Job's next occurrence before marking the Job finished, from NetBox v4.7.5. Cutover completes only when no built-in Custom Script Job is waiting or running after its last closure, and a run that reads finished has already queued any successor. |
 | `rq.exceptions.NoSuchJobError` | `migration/cutover.py` | Handles a missing RQ task. Capture warns and leaves the Job waiting, which keeps cutover incomplete, because `Job.enqueue()` saves the row before `on_commit()` queues the task. Cancellation treats the task as already deleted. |
 | `netaddr.IPAddress` and `.IPNetwork` | `migration/cutover.py` | The values an IP address or network variable cleans to, recorded as text the replacement's form field parses back. `netaddr` arrives with NetBox, which the plugin relies on without declaring. |
 | `core.models.AutoSyncRecord` | `migration/cutover.py` | Removes built-in synchronization registrations. These use the **concrete** `ManagedFile` content type, unlike Job and Event Rule references to the proxy. |
@@ -144,7 +146,7 @@ scope in `extras/jobs.py` and at transaction scope in
 
 NetBox's keys are registered in `ADVISORY_LOCK_KEYS` in `netbox/constants.py` or
 hashed per tree by `utilities/ltree.py` triggers. The registered range recorded
-here is 100100 to 115100, separate from 770100 and 770101. The canary checks every
+here is 100100 to 120100, separate from 770100 and 770101. The canary checks every
 registered key against both plugin namespaces and fails the `feature`-branch
 check on a collision. Check the live constants when upgrading.
 
@@ -187,23 +189,6 @@ returning. The plugin therefore creates the immediate Job itself so revision
 provenance exists before execution. A row-data argument or a documented
 post-save, pre-handler hook would remove that duplication.
 
-**Atomic Data Source synchronization.** `DataSource.sync()` commits its file
-updates, deletions and additions separately and marks the source completed
-afterwards. A reader can see part of a synchronization, and one that fails
-partway, for example on an unreadable new file, keeps the changes it already
-wrote. `ingestion.py` reads a directory's paths and contents in one query, so a
-revision holds one committed state of the inventory, but not necessarily a
-complete synchronization. Applying each synchronization in one transaction, with
-a lock on the Data Source taken before its existing files are read, would make
-every such read a complete synchronization.
-
-**Rescheduling before termination.** `JobRunner.handle()` terminates a recurring
-Job before its `finally` queues the next occurrence, so for a moment the Job
-reads finished while no successor exists. Cutover completes only when no
-built-in Custom Script Job is waiting or running after its last closure, and
-that reading cannot see across the gap. Rescheduling while the Job still reads
-Running would close it.
-
 **A legacy export service.** Migration needs serializable module and class
 records, content checksums, Data Source references, repository paths, source
 streams and the Event Rules, permissions, Job history, schedules and recurrences
@@ -233,13 +218,11 @@ execution, and synchronization has two additional limits:
 - **Storage writes happen separately.** `ManagedFile.sync_data()` writes through
   the storage backend without calling `save()`. `SyncedDataMixin.clean()` calls
   `sync()`, so validation can replace stored content before a save is refused.
-- **Synchronization errors are not isolated per record.** The `auto_sync`
-  receiver on `post_sync` loops over `AutoSyncRecord`s without per-record error
-  handling. An exception stops later records, including config templates,
-  export templates, config contexts and config context profiles. The sync has
-  already recorded `COMPLETED`, but the Job changes it to failed. Raising to
-  refuse one record can therefore disrupt unrelated synchronization. Per-record
-  isolation would address this for other plugins too.
+- **A refusal still fails the synchronization.** From NetBox v4.7.2, the
+  `auto_sync` receiver on `post_sync` isolates each record's error, carries on
+  with the rest and then raises one summary error. The sync has already recorded
+  `COMPLETED`, but the Job changes it to failed, so refusing one record reports
+  the whole synchronization as failed.
 
 **Current migration limits.** The plugin does not provide this complete fence.
 Cutover disables captured Object Permissions and Event Rules, cancels reachable

@@ -1,16 +1,13 @@
 import uuid
 from datetime import timedelta
 from decimal import Decimal
-from unittest import skipIf
 from unittest.mock import patch
 
 import django_rq
 import netaddr
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
-from packaging.version import Version
 from rq.job import Job as RQJob
 
 from core.choices import JobStatusChoices
@@ -25,9 +22,6 @@ from netbox_scripts.runtime.exceptions import ScriptFileImportError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
 from users.models import ObjectPermission
 from utilities.testing.mixins import RQQueueTestMixin
-
-# NetBox claims a Job before running it from v4.7.5, which the stale-task tests rely on.
-BEFORE_JOB_CLAIM = Version(settings.RELEASE.version) < Version('4.7.5')
 
 # A legacy script with a variable, so the journal's primary keys have something to resolve back to.
 VARIABLE_SCRIPT = b"""from extras.scripts import ObjectVar, Script
@@ -638,7 +632,6 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(self.migration.journal.get('recreated_schedules', {}), {})
         self.assertIn('changed after cancellation', self.log_messages(reference_job, 'warning'))
 
-    @skipIf(BEFORE_JOB_CLAIM, 'NetBox before v4.7.5 runs a stale task')
     def test_a_stale_task_neither_runs_nor_recurs_once_its_run_is_recreated(self):
         # A copy of the task held across its deletion by the cutover, then queued again.
         job, stale = self.built_in_task(schedule_at=self.future(), interval=60)
@@ -656,7 +649,6 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(Job.objects.count(), count)
         self.assertEqual(self.new_jobs().exclude(pk=job.pk).count(), 1)
 
-    @skipIf(BEFORE_JOB_CLAIM, 'NetBox before v4.7.5 runs a stale task')
     def test_a_stale_task_cannot_restore_a_cancelled_run_whose_job_was_deleted(self):
         job, stale = self.built_in_task(schedule_at=self.future())
         self.cross_over()

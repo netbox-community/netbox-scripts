@@ -324,8 +324,8 @@ class ScriptFileAPIViewTestCase(PluginAPIViewTestCases.NestedObjectAPIViewTestCa
 
     def test_a_patch_does_not_revert_a_discovery_result(self):
         # read_only keeps a submitted value out and settles nothing about the copy the view
-        # already holds. Before v4.7.4 core closes this window only when the caller sends If-Match,
-        # so the load is patched to reach it and everything past the load stays real.
+        # already holds. Core loads that copy under a row lock, so the load is patched to hand
+        # back a stale one and everything past the load stays real.
         self.add_permissions('netbox_scripts.view_scriptfile', 'netbox_scripts.change_scriptfile')
         script_file = ScriptFile.objects.get(source_path='tools/first.py')
         stale = ScriptFile.objects.get(pk=script_file.pk)
@@ -517,7 +517,7 @@ class ScriptFileSelectionAPITestCase(ObjectPermissionTestMixin, APITestCase):
         stale = ScriptFile.objects.get(pk=self.first.pk)
         ScriptFile.objects.filter(pk=self.first.pk).update(enabled=False)
 
-        # From v4.7.4 a write inside this load would roll back with the refusal.
+        # A write inside this load would roll back with the refusal.
         with mock.patch.object(ScriptFileViewSet, 'get_object_with_snapshot', return_value=stale):
             response = self.patch(self.first, {'description': 'Edited'})
 

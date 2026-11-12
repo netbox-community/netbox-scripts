@@ -71,6 +71,7 @@ ROWS = (
     ('drf_spectacular.drainage.GENERATOR_STATS', 'drf_spectacular.drainage:GENERATOR_STATS'),
     ('utilities.exceptions.RQWorkerNotRunningException', 'utilities.exceptions:RQWorkerNotRunningException'),
     ('netbox.api.authentication.TokenPermissions', 'netbox.api.authentication:TokenPermissions'),
+    ('core.models.DataSource.sync', 'core.models:DataSource.sync'),
     ('extras.models.ScriptModule and its manager', 'extras.models:ScriptModule.objects'),
     (
         'extras.models.Script through module.scripts and its manager',
@@ -114,6 +115,7 @@ ROWS = (
         'rq.job:Job.delete',
     ),
     ('core.models.Job.start', 'core.models:Job.start'),
+    ('netbox.jobs.JobRunner.handle', 'netbox.jobs:JobRunner.handle'),
     ('rq.exceptions.NoSuchJobError', 'rq.exceptions:NoSuchJobError'),
     ('netaddr.IPAddress and .IPNetwork', 'netaddr:IPAddress', 'netaddr:IPNetwork'),
     ('core.models.AutoSyncRecord', 'core.models:AutoSyncRecord'),

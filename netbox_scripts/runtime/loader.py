@@ -14,11 +14,11 @@ including helpers a root __init__ pulled in before dying. Callers name the worke
 exception types that must escape untouched, and everything else project code raises
 arrives as ScriptFileImportError with the original chained.
 
-One process lock guards the shared containers, and one reentrant lock per revision
-serializes import, discovery, and unload. revision_import_session holds the latter across
-a whole validation, because two revision rows can share one source digest and therefore
-one namespace. Cross-process coordination stays with the cache, a namespace is process
-state.
+One process lock guards the shared containers and serializes finder cache invalidation, and
+one reentrant lock per revision serializes import, discovery, and unload.
+revision_import_session holds the latter across a whole validation, because two revision
+rows can share one source digest and therefore one namespace. Cross-process coordination
+stays with the cache, a namespace is process state.
 """
 
 import importlib
@@ -83,7 +83,9 @@ def import_script_file(storage_key, digest, script_file_path, *, storage, manife
     with _revision_lock(storage_key, digest):
         # Inside the lock: materialization can rename a damaged tree out from under an importer.
         revision_dir = materialize_revision(storage, storage_key, digest, manifest, cache_root=cache_root)
-        importlib.invalidate_caches()
+        # Concurrent invalidations can delete the same cached finder entry, and the second raises KeyError.
+        with _namespace_lock:
+            importlib.invalidate_caches()
         before = _loaded_names(revision_name)
         try:
             if revision_name not in sys.modules:
@@ -150,7 +152,8 @@ def _revision_lock(storage_key, digest):
 def _loaded_names(revision_name):
     """Return every sys.modules name inside one revision's namespace."""
     prefix = f'{revision_name}.'
-    return {name for name in sys.modules if name == revision_name or name.startswith(prefix)}
+    # Imports and unloads in other threads can resize sys.modules mid-scan.
+    return {name for name in sys.modules.copy() if name == revision_name or name.startswith(prefix)}
 
 
 def _register_container(name, parent=None):

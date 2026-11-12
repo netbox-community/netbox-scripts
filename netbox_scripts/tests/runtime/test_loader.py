@@ -3,6 +3,7 @@ import py_compile
 import sys
 import tempfile
 import threading
+import types
 import uuid
 from pathlib import Path
 from unittest import mock
@@ -32,6 +33,14 @@ ROOT_INIT = b'from netbox_scripts.tests.runtime.test_loader import ROOT_RUNS\nRO
 
 class FakeTimeout(BaseException):
     """Stands in for a worker timeout, the exception shape passthrough exists for."""
+
+
+class RegistersOnPrefixCheck(str):
+    """A module name whose prefix check registers another module, as an import in another thread can."""
+
+    def startswith(self, *args):
+        self.registry['concurrent_import'] = object()
+        return super().startswith(*args)
 
 
 def seed_revision(storage, storage_key, files):
@@ -389,6 +398,50 @@ class ConcurrencyTestCase(LoaderTestCase):
         self.assertTrue(still_loaded)
         self.assertTrue(competitor_done.is_set())
         self.assertNotIn(revision_name, sys.modules)
+
+    def test_an_import_elsewhere_during_a_namespace_scan_cannot_break_it(self):
+        revision_name = revision_module_name(STORAGE_KEY, 'a' * 64)
+        modules = {revision_name: object(), f'{revision_name}.probe': object()}
+        other = RegistersOnPrefixCheck('another_project')
+        other.registry = modules
+        modules[other] = object()
+        with mock.patch.object(loader, 'sys', types.SimpleNamespace(modules=modules)):
+            names = loader._loaded_names(revision_name)
+        self.assertIn('concurrent_import', modules)
+        self.assertEqual(names, {revision_name, f'{revision_name}.probe'})
+
+    def test_concurrent_imports_never_invalidate_finder_caches_at_once(self):
+        manifest_a, digest_a = seed_revision(self.storage, STORAGE_KEY, {'probe.py': b'VALUE = "alpha"\n'})
+        manifest_b, digest_b = seed_revision(self.storage, OTHER_KEY, {'probe.py': b'VALUE = "beta"\n'})
+        first_inside = threading.Event()
+        release_first = threading.Event()
+        second_started = threading.Event()
+        results = {}
+
+        def invalidate():
+            if first_inside.is_set():
+                second_started.set()
+            else:
+                first_inside.set()
+                release_first.wait(timeout=10)
+
+        first = threading.Thread(
+            target=lambda: results.__setitem__('a', self.load_again(STORAGE_KEY, digest_a, 'probe.py', manifest_a))
+        )
+        second = threading.Thread(
+            target=lambda: results.__setitem__('b', self.load_again(OTHER_KEY, digest_b, 'probe.py', manifest_b))
+        )
+        with mock.patch.object(loader.importlib, 'invalidate_caches', invalidate):
+            first.start()
+            first_inside.wait(timeout=10)
+            second.start()
+            overlapped = second_started.wait(timeout=0.3)
+            release_first.set()
+            first.join(timeout=10)
+            second.join(timeout=10)
+        self.assertFalse(overlapped)
+        self.assertTrue(second_started.is_set())
+        self.assertEqual((results['a'].VALUE, results['b'].VALUE), ('alpha', 'beta'))
 
 
 class UnloadTestCase(LoaderTestCase):

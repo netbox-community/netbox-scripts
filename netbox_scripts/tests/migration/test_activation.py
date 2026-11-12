@@ -154,8 +154,7 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
 
         self.assertEqual(
             self.outcome(results, project),
-            'could not be activated: The stored revision at '
-            f'netbox-scripts/{project.storage_key}/revisions/{revision.digest}/ is missing.',
+            f'could not be activated: The stored revision {revision.short_digest} is missing.',
         )
 
     def test_an_unwrapped_os_error_records_the_fixed_outcome(self):

@@ -369,8 +369,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         revision.refresh_from_db()
         self.assertEqual(
             revision.last_validation_failure,
-            'RevisionCorruptError: The stored file "netbox-scripts/<storage>/revisions/<digest>/deploy.py" '
-            'does not match its manifest entry.',
+            'RevisionCorruptError: The stored file "deploy.py" does not match its manifest entry.',
         )
 
     def test_a_passthrough_exception_reverts_and_escapes_unwrapped(self):

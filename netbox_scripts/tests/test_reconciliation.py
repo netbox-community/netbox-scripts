@@ -262,10 +262,12 @@ class ProjectReconciliationJobTestCase(TestCase):
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.assertIn(
-            f'Reconciling the source of "{self.project}" failed and needs another run: The stored revision at '
-            f'netbox-scripts/{self.project.storage_key}/revisions/{revision.digest}/ is missing.',
+            f'Reconciling the source of "{self.project}" failed and needs another run: The stored revision '
+            f'{revision.short_digest} is missing.',
             [entry['message'] for entry in job.log_entries],
         )
+        for private in (str(self.project.storage_key), revision.digest):
+            self.assertNotIn(private, str(job.log_entries))
 
     def test_a_directory_the_path_policy_refuses_fails_no_job(self):
         # A content problem is a verdict on the revision, not a broken worker, so the job that

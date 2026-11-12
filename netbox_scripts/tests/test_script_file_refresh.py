@@ -264,10 +264,12 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.assertIn(
-            f'Refreshing the script files of "{self.project}" failed and needs another run: The stored revision at '
-            f'netbox-scripts/{self.project.storage_key}/revisions/{source.digest}/ is missing.',
+            f'Refreshing the script files of "{self.project}" failed and needs another run: The stored revision '
+            f'{source.short_digest} is missing.',
             [entry['message'] for entry in job.log_entries],
         )
+        for private in (str(self.project.storage_key), source.digest):
+            self.assertNotIn(private, str(job.log_entries))
 
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)

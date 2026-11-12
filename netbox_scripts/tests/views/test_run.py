@@ -418,8 +418,7 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
         self.assertHttpStatus(response, 200)
         self.assertEqual(
             response.context['reason'],
-            'The Script could not be loaded from its source: The stored file '
-            '"netbox-scripts/<storage>/revisions/<digest>/deploy.py" does not match its manifest entry.',
+            'The Script could not be loaded from its source: The stored file "deploy.py" is missing.',
         )
 
     def test_an_error_raised_by_a_custom_field_escapes_unchanged(self):

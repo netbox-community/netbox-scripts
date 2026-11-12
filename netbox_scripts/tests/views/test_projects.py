@@ -622,8 +622,7 @@ class ScriptProjectActivateViewTestCase(ObjectPermissionTestMixin, TestCase):
 
         self.assertEqual(
             str(list(response.context['messages'])[0]),
-            'The revision could not be activated: The stored revision at '
-            f'netbox-scripts/{self.project.storage_key}/revisions/{self.revision.digest}/ is missing.',
+            f'The revision could not be activated: The stored revision {self.revision.short_digest} is missing.',
         )
 
     def test_an_already_current_project_offers_nothing(self):
@@ -951,8 +950,7 @@ class ScriptProjectRepairViewTestCase(ObjectPermissionTestMixin, TestCase):
 
         self.assertEqual(
             self.message(response),
-            'The Scripts could not be repaired: The stored revision at '
-            f'netbox-scripts/{self.project.storage_key}/revisions/{self.revision.digest}/ is missing.',
+            f'The Scripts could not be repaired: The stored revision {self.revision.short_digest} is missing.',
         )
 
     def test_the_change_permission_alone_is_not_enough(self):

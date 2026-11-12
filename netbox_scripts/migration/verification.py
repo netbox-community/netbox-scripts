@@ -119,16 +119,19 @@ def _verify_scripts(run, live_modules):
         # The frozen map where there is one, so a partial cleanup cannot move the comparison.
         plugin_map = mapping.recorded(run) or mapping.build_map(modules=live_modules, resolve_existing=True)
         resolved, unresolved = mapping.resolve_scripts(plugin_map)
-        if unresolved:
+        # Use runcustomscript identifiers to distinguish Scripts with the same class name.
+        if missing := sorted(
+            f'{entry["project_key"]}:{entry["module_path"]}.{entry["class_name"]}' for entry in unresolved
+        ):
             return _check(
                 SCRIPTS,
                 plan.BLOCKING,
                 _('{count} built-in Custom Script(s) resolve to no Script: {names}.').format(
-                    count=len(unresolved), names=', '.join(sorted(entry['legacy_name'] for entry in unresolved))
+                    count=len(missing), names=', '.join(missing)
                 ),
                 source=_('the built-in rows'),
             )
-        if retired := sorted(row.class_name for row in resolved.values() if row.is_retired):
+        if retired := sorted(f'{row.project.key}:{row.full_name}' for row in resolved.values() if row.is_retired):
             return _check(
                 SCRIPTS,
                 plan.BLOCKING,

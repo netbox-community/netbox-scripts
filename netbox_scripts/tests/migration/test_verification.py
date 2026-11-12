@@ -14,6 +14,7 @@ from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.migration import cleanup, mapping, plan, references, verification
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject
 from netbox_scripts.tests.migration.test_cleanup import CleanupMixin
+from netbox_scripts.tests.migration.test_staging import LEGACY_SCRIPT
 from users.models import ObjectPermission
 from utilities.testing.mixins import RQQueueTestMixin
 
@@ -217,6 +218,33 @@ class VerificationFailureTestCase(VerificationMixin, TestCase):
 
         self.assertEqual(check['level'], plan.READY)
         self.assertNotIn('OldDeploy', str(check['message']))
+
+    def test_retired_scripts_sharing_a_class_name_are_each_named(self):
+        # An upload stages into a Project of its own, beside the synced Deploy's.
+        self.legacy_uploaded_module('deploy_again.py', LEGACY_SCRIPT)
+        run = self.repoint_all()
+        scripts = NetBoxScript.objects.filter(class_name='Deploy')
+        synced, uploaded = scripts.order_by('module_path').values_list('project__key', flat=True)
+        scripts.update(is_retired=True)
+
+        check = self.named(verification.verify(run), verification.SCRIPTS)
+
+        labels = ', '.join(sorted((f'{synced}:deploy.Deploy', f'{uploaded}:deploy_again.Deploy')))
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn(f'2 Script(s) that replace a built-in one are retired: {labels}.', str(check['message']))
+
+    def test_unresolved_scripts_sharing_a_class_name_are_each_named(self):
+        self.legacy_uploaded_module('deploy_again.py', LEGACY_SCRIPT)
+        run = self.repoint_all()
+        scripts = NetBoxScript.objects.filter(class_name='Deploy')
+        synced, uploaded = scripts.order_by('module_path').values_list('project__key', flat=True)
+        scripts.delete()
+
+        check = self.named(verification.verify(run), verification.SCRIPTS)
+
+        labels = ', '.join(sorted((f'{synced}:deploy.Deploy', f'{uploaded}:deploy_again.Deploy')))
+        self.assertEqual(check['level'], plan.BLOCKING)
+        self.assertIn(f'2 built-in Custom Script(s) resolve to no Script: {labels}.', str(check['message']))
 
     def test_a_permission_regranted_on_the_built_in_feature_blocks_its_check(self):
         run = self.repoint_all()

@@ -163,6 +163,7 @@ class Command(BaseCommand):
                 'user': user,
                 'method': 'POST',
                 'path': '',
+                'path_info': '',
                 'id': uuid.uuid4(),
             }
         )

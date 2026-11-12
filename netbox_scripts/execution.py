@@ -16,6 +16,7 @@ last of them belongs to the feature NetBox retires at v5.0.
 """
 
 import logging
+import threading
 import traceback
 from contextlib import ExitStack, contextmanager
 
@@ -104,6 +105,7 @@ def run_script(instance, *, data, commit, request=None):
     database changes were reverted or when the run failed after they were committed. Re-raises
     whatever the script raised, after logging it, so the caller decides what a failed run does
     to its Job, apart from a PostCommitError, which is re-raised as a RuntimeError.
+    An exception from a commit callback is raised as PostCommitError.
     PostCommitError, chained to the cause, therefore means this run failed after it committed.
     A dry run reverts the database changes this covers and is not a failure. request may be
     None, for a run with no request behind it.
@@ -111,6 +113,7 @@ def run_script(instance, *, data, commit, request=None):
     # Preserve the caller's request context across all processors and exit paths.
     outer_request = current_request.get()
     committed = False
+    callback_error = None
     try:
         with ExitStack() as stack:
             for processor in registry['request_processors']:
@@ -135,9 +138,12 @@ def run_script(instance, *, data, commit, request=None):
             # Innermost, and after the processors on purpose: one of them has just reactivated
             # whatever branch the requesting user had, off the request the Job carries a copy of.
             stack.enter_context(branching.main_schema_only())
-            _execute(instance, data=data, commit=commit, request=request)
-            # Last in the block, so only the stack's exit can raise after it.
+            callback_error = _execute(instance, data=data, commit=commit, request=request)
+            # Last in the block, so only post-commit processing can raise after it.
             committed = commit
+        # Let event tracking finish before reporting the callback error.
+        if callback_error is not None:
+            raise callback_error
     except Exception as error:
         if committed:
             instance.log_failure(
@@ -198,7 +204,12 @@ def script_class_context(script):
 
 
 def _execute(instance, *, data, commit, request):
-    """Call the script inside its transactions, converting whatever escapes into log records."""
+    """
+    Call the script inside its transactions, converting whatever escapes into log records.
+
+    Returns what an on_commit() callback raised after the commit, or None.
+    """
+    commit_succeeded = threading.Event()
     try:
         try:
             probe = apps.get_model(*CHANGELOGGED_PROBE_MODEL)
@@ -221,29 +232,34 @@ def _execute(instance, *, data, commit, request):
                 # database while the routed ones rolled back.
                 if changelogged_alias != DEFAULT_DB_ALIAS:
                     with transaction.atomic(using=changelogged_alias):
-                        _call(instance, data, commit)
+                        _call(instance, data, commit, commit_succeeded)
                 else:
-                    _call(instance, data, commit)
+                    _call(instance, data, commit, commit_succeeded)
         except _DryRunRollback:
             instance.log_info(_('Database changes have been reverted, this was a dry run.'))
     except Exception as error:
         _log_failure(instance, error)
-        instance.log_info(_('Database changes have been reverted because the run did not finish.'))
+        if commit_succeeded.is_set():
+            return error
+        instance.log_info(_('Database changes have been reverted.'))
         # The queue is request-scoped, and this run is abandoning changes the events describe.
         if request is not None:
             clear_events.send(request)
         raise
+    return None
 
 
-def _call(instance, data, commit):
+def _call(instance, data, commit, commit_succeeded):
     """Run the script once, ending a dry run with the exception that reverts it."""
+    # Register before the Script's callbacks so their failures cannot skip the commit marker.
+    transaction.on_commit(commit_succeeded.set, using=DEFAULT_DB_ALIAS)
     instance.output = instance.run(data, commit)
     if not commit:
         raise _DryRunRollback()
 
 
 def _log_failure(instance, error):
-    """Record one unfinished run on the script's own log, with detail matched to the cause."""
+    """Record one failed run on the script's own log, with detail matched to the cause."""
     if isinstance(error, ABORT_EXCEPTIONS):
         # A deliberate stop. The author already said why, so a traceback would only bury it.
         instance.log_failure(_('The script stopped with an error: {error}').format(error=error))

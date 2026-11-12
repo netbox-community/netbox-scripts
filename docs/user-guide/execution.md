@@ -60,6 +60,14 @@ Webhook cannot be queued, the changes stay committed and the Job fails with a
 message that says so. Event Rules processed before the failure may already have
 run. Check the changes before running the Script again.
 
+Callbacks registered with `transaction.on_commit()` run after a successful
+commit. If a callback registered with the default `robust=False` raises, the
+changes stay committed and the Job fails. NetBox still attempts to process their
+queued object-change events. Django skips later callbacks for that transaction.
+Pass `robust=True` when a callback's failure should not fail the run or stop
+later callbacks. Django then logs the error to `django.db.backends.base`,
+not the Script run log.
+
 ## Schedule a run
 
 The run form places execution settings below the Script's variables.

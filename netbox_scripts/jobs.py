@@ -791,7 +791,7 @@ class NetBoxScriptJob(JobRunner):
             raise JobFailed() from error
         except Exception as error:
             # The run log already carries the detail, so this line only fails the Job.
-            self.logger.error(sanitize(_('The Script did not finish: {error}').format(error=error)))
+            self.logger.error(sanitize(_('The Script run failed: {error}').format(error=error)))
             raise JobFailed() from error
 
     def _revision_for(self, revision_id, script, module_path, class_name):

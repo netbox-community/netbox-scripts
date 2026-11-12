@@ -442,6 +442,31 @@ RAISES = (
     b"        raise RuntimeError('the script broke')\n"
 )
 
+FAILS_AFTER_ITS_COMMIT = (
+    b'from django.db import transaction\n'
+    b'from extras.models import Tag\n'
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'def fail():\n'
+    b"    raise RuntimeError('the cache write failed after the commit')\n\n\n"
+    b'class CommitThenFail(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        Tag.objects.create(name='Kept By Commit', slug='kept-by-commit')\n"
+    b'        transaction.on_commit(fail)\n'
+    b"        return 'done'\n"
+)
+
+# PostgreSQL checks these foreign keys at the commit, so run() returns and the commit fails.
+FAILS_AT_ITS_COMMIT = (
+    b'from extras.models import Tag, TaggedItem\n'
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class DanglingReference(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        Tag.objects.create(name='Undone At Commit', slug='undone-at-commit')\n"
+    b'        TaggedItem.objects.create(tag_id=2147483647, content_type_id=2147483647, object_id=1)\n'
+    b"        self.log_info('The Script reached the end of run().')\n"
+    b"        return 'done'\n"
+)
+
 # Returns what it was handed, so the binding is asserted through a real run rather than
 # by reaching into the instance.
 REPORTS_ITS_EVENT = (
@@ -801,7 +826,7 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
             f'{refused}',
             job_log,
         )
-        self.assertNotIn('did not finish', job_log)
+        self.assertNotIn('The Script run failed', job_log)
         script_log = '\n'.join(record['message'] for record in job.data['log'])
         self.assertIn('The tag was created.', script_log)
         self.assertIn(f'The database changes were committed, but post-commit processing failed: {refused}', script_log)
@@ -829,7 +854,7 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
             'the other processor failed on exit',
             job_log,
         )
-        self.assertNotIn('did not finish', job_log)
+        self.assertNotIn('The Script run failed', job_log)
         script_log = '\n'.join(record['message'] for record in job.data['log'])
         self.assertIn('The tag was created.', script_log)
         self.assertIn(
@@ -839,6 +864,85 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
         )
         self.assertNotIn('reverted', script_log)
         self.assertTrue(Tag.objects.filter(slug='from-revision').exists())
+
+    def test_a_failed_commit_callback_keeps_the_changes_and_publishes_their_events(self):
+        self.publish({'deploy.py': FAILS_AFTER_ITS_COMMIT})
+        webhook = Webhook.objects.create(name='Tag hook', payload_url='http://localhost:9/hook')
+        rule = EventRule.objects.create(
+            name='On a new tag',
+            event_types=[OBJECT_CREATED],
+            action_type=EventRuleActionChoices.WEBHOOK,
+            action_object=webhook,
+        )
+        rule.object_types.set([ObjectType.objects.get_for_model(Tag)])
+        queue = MagicMock()
+
+        with patch('extras.event_rules.get_queue', return_value=queue):
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        tag = Tag.objects.get(slug='kept-by-commit')
+        self.assertEqual(queue.enqueue.call_count, 1)
+        enqueued = queue.enqueue.call_args.kwargs
+        self.assertEqual(enqueued['event_rule'], rule)
+        self.assertEqual(enqueued['event_type'], OBJECT_CREATED)
+        self.assertEqual(enqueued['data']['id'], tag.pk)
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('RuntimeError: the cache write failed after the commit', script_log)
+        self.assertIn(
+            'The database changes were committed, but post-commit processing failed: '
+            'the cache write failed after the commit',
+            script_log,
+        )
+        self.assertNotIn('reverted', script_log)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn(
+            'The Script finished and its database changes were committed, but post-commit processing failed: '
+            'the cache write failed after the commit',
+            job_log,
+        )
+        self.assertNotIn('The Script run failed', job_log)
+
+    def test_a_refused_commit_is_reported_as_reverted(self):
+        self.publish({'deploy.py': FAILS_AT_ITS_COMMIT})
+
+        with patch('netbox.context_managers.flush_events') as flush:
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertFalse(Tag.objects.filter(slug='undone-at-commit').exists())
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('The Script reached the end of run().', script_log)
+        self.assertIn('IntegrityError', script_log)
+        self.assertIn('reverted', script_log)
+        self.assertNotIn('were committed', script_log)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('The Script run failed: ', job_log)
+        self.assertNotIn('were committed', job_log)
+        flush.assert_not_called()
+
+    def test_a_callback_and_event_processing_failure_are_both_logged(self):
+        self.publish({'deploy.py': FAILS_AFTER_ITS_COMMIT})
+
+        with patch(
+            'netbox.context_managers.flush_events',
+            side_effect=RuntimeError('event processing failed'),
+        ) as flush:
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        self.assertTrue(Tag.objects.filter(slug='kept-by-commit').exists())
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        flush.assert_called_once()
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('RuntimeError: the cache write failed after the commit', script_log)
+        self.assertIn('post-commit processing failed: event processing failed', script_log)
+        self.assertNotIn('reverted', script_log)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('post-commit processing failed: event processing failed', job_log)
+        self.assertNotIn('The Script run failed', job_log)
 
 
 class ScheduledRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
@@ -1222,7 +1326,7 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         logged = '\n'.join(entry['message'] for entry in job.log_entries)
         self.assertIn('cannot supply deploy.Vanished', logged)
-        self.assertNotIn('The Script did not finish', logged)
+        self.assertNotIn('The Script run failed', logged)
 
     def test_a_script_that_raises_fails_the_job_and_keeps_its_log(self):
         sources = (
@@ -1248,7 +1352,7 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
                 self.assertIn(f'{exception}: the script broke', logged)
                 self.assertIn('Traceback (most recent call last)', logged)
                 job_log = '\n'.join(entry['message'] for entry in job.log_entries)
-                self.assertIn('The Script did not finish: the script broke', job_log)
+                self.assertIn('The Script run failed: the script broke', job_log)
                 self.assertNotIn('could not reach the source', job_log)
                 self.assertEqual(unload_revision(str(self.project.storage_key), revision.digest), ())
 
@@ -1274,7 +1378,7 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
 
                 self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
                 job_log = '\n'.join(entry['message'] for entry in job.log_entries)
-                self.assertIn('The Script did not finish: raised by the Script', job_log)
+                self.assertIn('The Script run failed: raised by the Script', job_log)
                 script_log = '\n'.join(record['message'] for record in job.data['log'])
                 self.assertIn('reverted', script_log)
                 self.assertNotIn('were committed', script_log)
@@ -1302,7 +1406,7 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
                 job_log = '\n'.join(entry['message'] for entry in job.log_entries)
                 self.assertIn(f'The run could not reach the source it was pinned to: {reason}', job_log)
                 self.assertNotIn('the source is unavailable', job_log)
-                self.assertNotIn('The Script did not finish', job_log)
+                self.assertNotIn('The Script run failed', job_log)
                 self.assertFalse(Tag.objects.filter(slug='from-revision').exists())
                 self.assertIs(logged.records[0].exc_info[1], error)
 

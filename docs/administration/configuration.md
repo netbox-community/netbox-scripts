@@ -184,6 +184,15 @@ Compiled Python files and `__pycache__` directories are rejected with
 `compiled_artifact`. Project source must remain available for review rather than
 being supplied only as executable bytecode.
 
+Project revisions store relative paths and file contents, not filesystem
+entries. Symbolic links, device files and other special files are therefore not
+preserved as such. Uploads provide file contents, Data Source Projects read
+synchronized files from NetBox's database, and migration copies the stored
+contents of uploaded built-in modules. The symbolic link rules in
+[Runtime cache](#runtime-cache) and
+[Storage backend guarantees and limits](#storage-backend-guarantees-and-limits)
+apply to the plugin's own directories, not to Project source.
+
 ## Runtime cache
 
 Python imports require a directory tree. Before loading a revision, the plugin

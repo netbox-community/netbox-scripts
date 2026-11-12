@@ -240,11 +240,11 @@ addresses.
 Webhooks use the object's REST representation. A revision's stored manifest and
 Script File snapshot are not included.
 
-Changes made through UI or REST requests can trigger matching rules. A successful
-committed Script run also publishes its queued object-change events, even without
-a request. Dry runs and runs whose Script raises do not publish those events. If
-event processing fails after a run commits, Event Rules processed before the
-failure may already have run. See
+Changes made through UI or REST requests can trigger matching rules. After a
+Script run commits, NetBox attempts to process its queued object-change events,
+even when a commit callback fails. Dry runs and runs that fail before their
+changes are committed do not publish those events. If event processing fails,
+Event Rules processed before the failure may already have run. See
 [Commit and dry run](../user-guide/execution.md#commit-and-dry-run).
 
 Background staging, validation, migration and job-driven activation do not deliver

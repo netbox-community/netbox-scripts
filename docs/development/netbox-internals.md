@@ -14,7 +14,7 @@ not a list of unsupported APIs alone.
 | Symbol | Where we use it | What it gives us |
 |---|---|---|
 | `netbox.registry.registry['request_processors']` | `execution.py` | Applies the registered request context managers around Script execution. They exit after a committed run's transaction, so `execution.py` raises a failure there as `PostCommitError`. This assumes `_execute()` committed successfully. An enclosing processor transaction or a rollback without a propagated exception can invalidate that assumption. |
-| `netbox.context_managers.event_tracking` | `execution.py` | Provides change attribution and event queuing, and flushes the queue as it exits. Skipped for dry runs. |
+| `netbox.context_managers.event_tracking` | `execution.py` | Provides change attribution and event queuing, and attempts to flush events when the context body completes normally. Skipped for dry runs. |
 | `netbox.context.current_request` | `execution.py`, `forms/model_forms/projects.py`, `forms/model_forms/scripts.py` | Preserves and restores the request context after successful, failed or nested runs. Gives the Project and Script File forms their acting user without storing the request on the instance, which each queued event passes to `EVENTS_PIPELINE` consumers that may pickle it. |
 | `core.signals.clear_events` | `execution.py` | Discards pending events when a run is abandoned. |
 | `django.db.router.db_for_write` on a change-logged core model | `execution.py` | Resolves the database for change-logged writes, including branch routing. `execution.py` checks its probe model with NetBox Branching first, so a model that stopped being branch-aware is reported rather than read as the default alias. |
@@ -158,9 +158,10 @@ rather than declared separately by this plugin.
 **A documented execution context.** The upstream request is for an API that
 owns transactions on the default and routed aliases, applies request processors
 according to commit intent, defines processor startup failures, rolls back dry
-runs, clears pending events on failure and restores request context on every
-exit. It would replace the execution dependencies above except `AbortScript`.
-These requirements also apply to other plugins executing user-supplied code.
+runs, clears pending events on a failure before the commit and restores request
+context on every exit. It would replace the execution dependencies above except
+`AbortScript`. These requirements also apply to other plugins executing
+user-supplied code.
 
 **Legacy abort compatibility.** `AbortScript` belongs to the built-in Custom
 Scripts feature and is expected to leave with it at v5.0. Until then, unchanged

@@ -5,12 +5,12 @@ version. Use a Python version supported by both the plugin and your NetBox relea
 
 | Plugin Version | Minimum NetBox Version | Maximum NetBox Version | Minimum Python |
 |----------------|------------------------|------------------------|----------------|
-| 0.0.1 | 4.7.0 | 4.7.99 | 3.12 |
+| 0.1.0 | 4.7.5 | 4.7.99 | 3.12 |
 
 > [!WARNING]
-> NetBox Scripts is in alpha and is not recommended for production use. Test
+> NetBox Scripts is in beta and is not recommended for production use. Test
 > installation, migration and upgrades in a non-production environment first.
-> The compatibility range is not a guarantee of a seamless alpha upgrade.
+> The compatibility range is not a guarantee of a seamless beta upgrade.
 
 ## Notes
 

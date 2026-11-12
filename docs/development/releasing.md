@@ -25,10 +25,11 @@ the checklist below. Hotfixes use the same process.
 
 2. **Update the change log.** Add a `## vX.Y.Z (YYYY-MM-DD)` section above the
     previous release in `docs/releases.md`, separated by `---`. Group entries under
-    `### Enhancements` and `### Bug Fixes`, using
-    `* [#<issue>](<url>) - <summary>`. The first release lists only
-    `* Initial release`, without subsections. An alpha release adds a warning
-    that states its upgrade limits and links the open bug reports.
+    `### Enhancements`, `### Bug Fixes` and `### Other Changes`, using
+    `* [#<issue>](<url>) - <summary>`. Add `### Upgrading from vX.Y.Z` and
+    `### Known Issues` after them when needed. The first release lists only
+    `* Initial release`, without subsections. An alpha or beta release adds a
+    warning that states its upgrade limits and links the open bug reports.
 
 3. **Set the version.** Update `version = "X.Y.Z"` in `pyproject.toml` and
     `__version__ = "X.Y.Z"` in `netbox_scripts/__init__.py`. Both must match the

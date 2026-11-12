@@ -5,9 +5,9 @@ It checks your installation, stages source as Script Projects and moves
 supported references. Review each pass's results for items that need manual
 attention.
 
-!!! warning "Alpha migration"
+!!! warning "Beta migration"
 
-    NetBox Scripts is in alpha and is not recommended for production use.
+    NetBox Scripts is in beta and is not recommended for production use.
     Rehearse the migration in a test environment using copies of your database
     and source storage. Keep test workers isolated from production queues.
 

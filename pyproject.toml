@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-scripts"
-version = "0.0.1"
+version = "0.1.0"
 description = "Custom Scripts for NetBox"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"
@@ -30,7 +30,7 @@ maintainers = [
 ]
 keywords = ["netbox", "netbox-plugin"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Framework :: Django",
     "Framework :: Django :: 6.1",
     "Intended Audience :: Developers",

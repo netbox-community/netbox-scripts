@@ -331,7 +331,7 @@ by itself authorize a release.
 
 Keep the plugin usable on deployments with multiple web and worker processes,
 including NetBox Cloud and NetBox Enterprise. These are design constraints, not
-a statement that an alpha release is approved for either platform.
+a statement that a beta release is approved for either platform.
 
 - **Write authoritative source through Django storage.** Resolve
   `STORAGES['netbox_scripts']` in `storage/config.py`. A `FileSystemStorage`

@@ -6,9 +6,9 @@ Upload scripts or connect a Project to a directory in a NetBox Data Source.
 The plugin keeps source in immutable revisions, validates changes before
 activation and lets each Project serve one active revision at a time.
 
-!!! warning "Alpha release"
+!!! warning "Beta release"
 
-    **NetBox Scripts is in alpha and is not recommended for production use.**
+    **NetBox Scripts is in beta and is not recommended for production use.**
     Expect bugs and changes to features, APIs and upgrade procedures before a
     stable release. Please try it in a test environment and back up your data
     before upgrading or migrating from NetBox's built-in Custom Scripts.

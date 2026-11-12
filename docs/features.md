@@ -58,7 +58,7 @@ and [activation](reference/runtime.md#what-activation-does).
 
 For existing built-in Custom Scripts, the [migration workflow](administration/migration.md)
 starts with inventory and staging without activation, followed by cutover.
-Read its alpha warnings and recovery requirements before beginning.
+Read its beta warnings and recovery requirements before beginning.
 
 ## Write Scripts
 
@@ -91,3 +91,10 @@ explain which operations produce those events.
 | Recurring runs carrying an upload | An uploaded file can be used for a one-shot run, not a recurrence. |
 | Legacy Reports | Classes with `test_*` methods and no `run()` are rejected. Rewrite them as Scripts with a `run()` method. |
 | A permanent `extras.scripts` layer | Legacy imports are transitional and are expected to stop working with NetBox v5.0. Move to the plugin's authoring API before that upgrade. |
+| Failed and errored runs | A run whose Script raises an exception ends as Failed. Built-in Custom Scripts report it as Errored. |
+| Revision source in the UI | Revision Files lists paths, sizes and checksums but does not display source. |
+| Downloading run output | The run result shows the output but offers no download. |
+| A Data Source root as Project directory | A Data Source Project needs a directory below the Data Source root. |
+| Scripts grouped by Project and module | The Scripts list shows one row per Script, without grouping. |
+| Script results from the Jobs tab on NetBox v4.7 | A Job opens NetBox's Job page rather than the Script result page. NetBox v4.8 adds the interface this needs. |
+| A Last Run column | The Scripts list has no Last Run column. |

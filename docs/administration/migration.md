@@ -432,8 +432,9 @@ Replay applies both checks below.
 
 | Owner | Replay behavior |
 |---|---|
-| Owner still active and permitted to run the Script | Runs under that account. |
+| Owner still active, permitted to run the Script and able to view the objects the run selects | Runs under that account. |
 | Owner lacks run permission | Remains outstanding. Grant permission and retry the reference pass. |
+| Owner can run the Script but cannot view an object the run selects | Is skipped. Recreate it with objects the owner can view, or have another authorized user schedule it. |
 | Recorded owner was deleted after capture, or is deactivated | Is skipped. Recreate it under an appropriate account. |
 | No owner recorded at capture | Remains ownerless. Migration does not assign a new owner. |
 
@@ -459,9 +460,9 @@ recorded result rather than scanning for new references.
 **Permanently skipped** means migration will not retry the item, not that you
 cannot resolve it manually. Examples include classes absent from the captured
 map, module-level references, constrained permissions, overdue one-shot runs,
-invalid input, input the cutover could not record and deleted or deactivated
-recorded owners. Review the warnings separately. These items do not all keep
-migration open.
+invalid input, selected objects the owner cannot view, input the cutover could
+not record and deleted or deactivated recorded owners. Review the warnings
+separately. These items do not all keep migration open.
 
 Retained built-in rows may lose their pages when NetBox removes the feature.
 Export or reconcile history you need before that upgrade. Retaining rows does

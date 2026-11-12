@@ -300,6 +300,13 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         """Return the plugin's own Jobs, which are the ones a recreation produced."""
         return Job.objects.filter(object_type=ObjectType.objects.get_for_model(NetBoxScript))
 
+    def grant_site_view(self, user, constraints):
+        """Give one account permission to view the sites its constraints match."""
+        permission = ObjectPermission(name='view sites', actions=['view'], constraints=constraints)
+        permission.save()
+        permission.users.add(user)
+        permission.object_types.add(self.site_type)
+
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
         # ObjectVar hands the script.
@@ -794,10 +801,10 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(replacement.scheduled, due + timedelta(hours=1))
         self.assertEqual(replacement.interval, 60)
 
-    def owned_schedule(self, username='scheduler'):
+    def owned_schedule(self, username='scheduler', **schedule):
         """Capture one schedule owned by a named account, and return the account."""
         user = get_user_model().objects.create_user(username=username)
-        job = self.legacy_schedule()
+        job = self.legacy_schedule(**schedule)
         Job.objects.filter(pk=job.pk).update(user=user)
         return user
 
@@ -872,6 +879,47 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(self.new_jobs().get().user, user)
         self.migration.refresh_from_db()
         self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_schedule_selecting_an_object_its_owner_cannot_view_is_skipped(self):
+        user = self.owned_schedule(script=self.variable_script, data={'site': self.site}, scheduled=self.future())
+        self.grant_run(user)
+        self.cross_over()
+
+        counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 0)
+        self.assertFalse(self.new_jobs().exists())
+        self.assertTrue(any('its owner cannot view' in warning and 'site: ' in warning for warning in warnings))
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_view_grant_whose_constraints_exclude_the_object_skips_the_schedule(self):
+        user = self.owned_schedule(script=self.variable_script, data={'site': self.site}, scheduled=self.future())
+        self.grant_run(user)
+        self.grant_site_view(user, {'slug': 'branch'})
+        self.cross_over()
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 0)
+        self.assertEqual(counts['skipped'], 1)
+        self.assertEqual(counts['outstanding'], 0)
+        self.assertFalse(self.new_jobs().exists())
+
+    def test_an_owner_who_can_view_the_object_has_the_schedule_replayed(self):
+        user = self.owned_schedule(script=self.variable_script, data={'site': self.site})
+        self.grant_run(user)
+        self.grant_site_view(user, {'slug': 'hq'})
+        self.cross_over()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+        self.assertEqual(self.new_jobs().get().user, user)
+        self.assertEqual(self.queue.jobs[0].kwargs['data'], {'site': self.site})
 
     def test_a_schedule_that_never_had_an_owner_is_replayed_as_it_was(self):
         # Unowned before the migration and unowned after, so no permission stands in the way.

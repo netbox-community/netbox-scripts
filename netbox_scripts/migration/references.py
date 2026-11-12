@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from core.choices import JobStatusChoices
 from core.models import Job
+from utilities.forms import restrict_form_fields
 
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from . import cutover, mapping
@@ -408,8 +409,8 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             warnings.append(
                 _(
-                    'Schedule "{name}" (Job {pk}) no longer supplies valid input for {script}, so it was not '
-                    'recreated: {errors}'
+                    'Schedule "{name}" (Job {pk}) has invalid input for {script} or selects an object its owner '
+                    'cannot view, so it was not recreated: {errors}'
                 ).format(pk=entry['job_pk'], name=entry['name'], script=script, errors=invalid.messages)
             )
             continue
@@ -461,6 +462,8 @@ def _recreate(run, entry, script, schedule_at, user, recreated):
         # Through the form, because that is what turns the journal's keys back into the model instances
         # an ObjectVar resolves to.
         form = instance.as_form({**entry['data'], '_commit': entry['commit']})
+        if user is not None:
+            restrict_form_fields(form, user)
         if not form.is_valid():
             raise ValidationError([f'{field}: {", ".join(errors)}' for field, errors in form.errors.items()])
         data = dict(form.cleaned_data)

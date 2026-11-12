@@ -8,13 +8,16 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 
 from core.choices import JobNotificationChoices, JobStatusChoices
-from core.models import Job, ObjectChange
-from extras.models import Tag
+from core.events import OBJECT_CREATED
+from core.models import Job, ObjectChange, ObjectType
+from extras.choices import EventRuleActionChoices
+from extras.models import EventRule, Tag, Webhook
+from netbox_scripts.event_rules import RunNetBoxScriptAction
 from netbox_scripts.management.commands.runcustomscript import Command
 from netbox_scripts.models import NetBoxScript, ScriptProject
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
 from netbox_scripts.scripts import BaseScript
-from netbox_scripts.tests.test_execution import MAKES_A_TAG, RAISES, ScriptJobTestMixin
+from netbox_scripts.tests.test_execution import MAKES_A_TAG, RAISES, REPORTS_ITS_EVENT, ScriptJobTestMixin
 from netbox_scripts.tests.views.test_run import CHECKS_A_PATH
 
 
@@ -181,6 +184,44 @@ class RunCustomScriptCommandTestCase(ScriptJobTestMixin, TestCase):
         # A run with no request writes no ObjectChange at all, so this is what proves one.
         change = ObjectChange.objects.get(changed_object_id=Tag.objects.get(slug='from-revision').pk)
         self.assertEqual(change.user.username, 'operator')
+
+    def test_a_committed_run_enqueues_a_matching_webhook(self):
+        self.publish({'deploy.py': MAKES_A_TAG})
+        webhook = Webhook.objects.create(name='Tag hook', payload_url='http://localhost:9/hook')
+        rule = EventRule.objects.create(
+            name='On a new tag',
+            event_types=[OBJECT_CREATED],
+            action_type=EventRuleActionChoices.WEBHOOK,
+            action_object=webhook,
+        )
+        rule.object_types.set([ObjectType.objects.get_for_model(Tag)])
+
+        with patch('extras.event_rules.get_queue') as get_queue:
+            self.run_command('deploy.MakeTag', commit=True)
+
+        self.assertTrue(Tag.objects.filter(slug='from-revision').exists())
+        self.assertEqual(self.script().jobs.first().status, JobStatusChoices.STATUS_COMPLETED)
+        enqueue = get_queue.return_value.enqueue
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs['event_rule'], rule)
+        self.assertEqual(enqueue.call_args.kwargs['request'].path_info, '')
+
+    def test_a_committed_run_queues_the_script_of_a_matching_rule(self):
+        self.publish(
+            {'deploy.py': MAKES_A_TAG, 'report.py': REPORTS_ITS_EVENT}, script_files=('deploy.py', 'report.py')
+        )
+        triggered = NetBoxScript.objects.get(module_path='report', class_name='ReportEvent')
+        rule = EventRule.objects.create(
+            name='On a new tag, run a Script',
+            event_types=[OBJECT_CREATED],
+            action_type=RunNetBoxScriptAction.slug,
+            action_object=triggered,
+        )
+        rule.object_types.set([ObjectType.objects.get_for_model(Tag)])
+
+        self.run_command('deploy.MakeTag', commit=True)
+
+        self.assertEqual(triggered.jobs.count(), 1)
 
     def test_the_notification_setting_is_forwarded_to_the_job(self):
         self.publish({'deploy.py': MAKES_A_TAG})

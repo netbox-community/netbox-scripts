@@ -30,7 +30,7 @@ Please include:
 For a dependency alert, explain how the affected code can be reached through the
 plugin. A scanner result alone may not provide enough information to reproduce it.
 
-NetBox Scripts is in alpha. Reports about alpha versions are welcome. Check the
+NetBox Scripts is in beta. Reports about beta versions are welcome. Check the
 [compatibility matrix](COMPATIBILITY.md) and state the versions you tested.
 
 ## Script execution and trust
@@ -53,7 +53,7 @@ for the plugin's controls. NetBox's own
 and [threat model](https://github.com/netbox-community/netbox/blob/main/THREAT_MODEL.md)
 provide the host application's security guidance.
 
-## Operating an alpha release
+## Operating a beta release
 
 NetBox Scripts is not recommended for production use. Test it with non-production
 data and keep test workers separate from production queues. Review Script source

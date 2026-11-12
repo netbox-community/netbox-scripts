@@ -92,13 +92,8 @@ nullability changes and large-table indexes before implementing them.
 
 ### Initial schema
 
-The first beta can regenerate the migration history into one `0001_initial.py`,
-and it ships no upgrade path from an alpha. The alpha release notes say so.
-Coordinate regeneration with a maintainer and agree how to handle development
-databases that have already applied it. Do not assume those databases can be
-discarded.
-
-Apart from that one reset, do not regenerate migration history already
+`0001_initial.py` shipped in v0.0.1 and was kept for the first beta, so v0.0.1
+installations upgrade in place. Do not regenerate migration history already
 distributed in a release. Schema changes after publication need an upgrade path
 from the published migrations.
 
@@ -116,8 +111,8 @@ dependencies = [
 ```
 
 Review generated dependencies rather than accepting the heads selected by a
-newer development checkout. Preserve these entries when regenerating the
-initial migration. They describe schema dependencies, not the plugin's supported
+newer development checkout. Preserve these entries in the published initial
+migration. They describe schema dependencies, not the plugin's supported
 NetBox version range.
 
 Resolve inherited-field differences rather than accepting a persistent
@@ -191,7 +186,7 @@ Link to shared explanations instead of maintaining competing copies.
 
 Breaking API changes require at least one minor release of deprecation warning
 before removal. Discuss incompatible changes first rather than assuming the
-alpha label waives that rule.
+beta label waives that rule.
 
 When changing NetBox support, update the plugin's version bounds,
 `COMPATIBILITY.md` and CI refs together. Check whether the Python requirement also

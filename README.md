@@ -7,7 +7,7 @@ The plugin keeps source in immutable revisions, validates changes before
 activation and lets each Project serve one active revision at a time.
 
 > [!WARNING]
-> **NetBox Scripts is in alpha and is not recommended for production use.**
+> **NetBox Scripts is in beta and is not recommended for production use.**
 > Expect bugs and changes to features, APIs and upgrade procedures before a
 > stable release. Please try it in a test environment and back up your data
 > before upgrading or migrating from NetBox's built-in Custom Scripts.
@@ -34,7 +34,7 @@ for supported functionality and current limitations.
 
 | Plugin version | Minimum NetBox | Maximum NetBox | Minimum Python |
 |----------------|----------------|----------------|----------------|
-| 0.0.1 | 4.7.0 | 4.7.99 | 3.12 |
+| 0.1.0 | 4.7.5 | 4.7.99 | 3.12 |
 
 See [COMPATIBILITY.md](https://github.com/netbox-community/netbox-scripts/blob/main/COMPATIBILITY.md)
 for the per-release compatibility matrix.
@@ -101,7 +101,7 @@ Found a bug or something that is hard to use? Please
 [open an issue](https://github.com/netbox-community/netbox-scripts/issues).
 Include your NetBox and plugin versions, what you expected and what happened.
 Feedback on installation, migration and documentation is especially helpful
-during the alpha. Remove credentials and private data from reports and logs.
+during the beta. Remove credentials and private data from reports and logs.
 
 **Report suspected vulnerabilities privately.** Follow
 [SECURITY.md](https://github.com/netbox-community/netbox-scripts/blob/main/SECURITY.md)

@@ -139,7 +139,13 @@ log as well, with the original under `netbox.plugins.netbox_scripts.jobs`.
 Reconciliation, Script File refresh and Script run Jobs report such a failure
 the same way. The run page does too when it cannot load a Script, with the
 original under `netbox.plugins.netbox_scripts.views`. A missing or damaged
-stored revision keeps its own message.
+stored revision keeps its own message. A missing revision is identified by the
+first 12 characters of its digest. A damaged revision also lists up to three
+affected Project-relative file paths, shortening long ones in the middle, with
+a count of any remaining files. Individual file errors name the
+Project-relative path. The server log records the full storage location under
+`netbox.plugins.netbox_scripts.storage`, including all mismatch details for
+damaged revisions.
 
 **An `invalid` verdict does not clear when the host changes.** Identical source
 and Script File selection reuse the revision and its existing verdict.

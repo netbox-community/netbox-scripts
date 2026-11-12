@@ -28,6 +28,7 @@ from pathlib import Path
 
 from django.core.files.base import ContentFile
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext
 
 from .exceptions import RevisionCorruptError, StorageError, UnsafePathError
 from .manifest import validate_manifest
@@ -44,6 +45,8 @@ __all__ = (
 )
 
 _HASH_CHUNK = 1024 * 1024
+_MAX_DISPLAYED_MISMATCHES = 3
+_MAX_DISPLAYED_PATH_LENGTH = 96
 
 logger = logging.getLogger('netbox.plugins.netbox_scripts.storage')
 
@@ -112,13 +115,29 @@ def _verify_tree(storage, storage_key, digest, manifest):
     if expected and len(reasons) == len(expected) and all(reason.startswith('missing:') for reason in reasons):
         # One reason rather than one per entry, because a revision that is entirely absent is a
         # different situation for an operator than a revision with damaged files in it.
+        logger.warning('The stored revision at %s is missing.', prefix)
         raise RevisionCorruptError(
-            _('The stored revision at {prefix} is missing.').format(prefix=prefix), ['prefix_missing']
+            _('The stored revision {digest} is missing.').format(digest=digest[:12]), ['prefix_missing']
         )
     if reasons:
-        raise RevisionCorruptError(
-            _('The stored revision at {prefix} does not match its manifest.').format(prefix=prefix), reasons
-        )
+        logger.warning('The stored revision at %s does not match its manifest: %s', prefix, ', '.join(reasons))
+        listed = []
+        for reason in reasons[:_MAX_DISPLAYED_MISMATCHES]:
+            path = reason.partition(':')[2]
+            if len(path) > _MAX_DISPLAYED_PATH_LENGTH:
+                path = f'{path[: _MAX_DISPLAYED_PATH_LENGTH // 2 - 3]}...{path[-(_MAX_DISPLAYED_PATH_LENGTH // 2) :]}'
+            listed.append(f'"{path}"')
+        paths = ', '.join(listed)
+        rest = len(reasons) - _MAX_DISPLAYED_MISMATCHES
+        if rest > 0:
+            message = ngettext(
+                'The stored revision {digest} does not match its manifest: {paths} and {count} more file.',
+                'The stored revision {digest} does not match its manifest: {paths} and {count} more files.',
+                rest,
+            )
+        else:
+            message = _('The stored revision {digest} does not match its manifest: {paths}.')
+        raise RevisionCorruptError(message.format(digest=digest[:12], paths=paths, count=rest), reasons)
     return prefix
 
 
@@ -177,11 +196,15 @@ def copy_verified(storage, key, entry, destination=None):
     StorageError when the backend cannot be read, and the original OSError when the
     destination cannot accept the bytes.
     """
-    if destination is None:
-        _stream_verified(storage, key, entry, None)
-        return
-    with Path(destination).open('wb') as sink:  # cloud-compat: ok, the runtime cache's staging destination
-        _stream_verified(storage, key, entry, _DestinationWriter(sink))
+    try:
+        if destination is None:
+            _stream_verified(storage, key, entry, None)
+            return
+        with Path(destination).open('wb') as sink:  # cloud-compat: ok, the runtime cache's staging destination
+            _stream_verified(storage, key, entry, _DestinationWriter(sink))
+    except RevisionCorruptError as error:
+        logger.warning('The stored file "%s" does not match its manifest entry: %s', key, ', '.join(error.reasons))
+        raise
 
 
 def read_verified(storage, key, entry):
@@ -196,7 +219,11 @@ def read_verified(storage, key, entry):
     StorageError when the backend cannot be read.
     """
     sink = io.BytesIO()
-    _stream_verified(storage, key, entry, sink)
+    try:
+        _stream_verified(storage, key, entry, sink)
+    except RevisionCorruptError as error:
+        logger.warning('The stored file "%s" does not match its manifest entry: %s', key, ', '.join(error.reasons))
+        raise
     return sink.getvalue()
 
 
@@ -282,7 +309,8 @@ def _write_one(storage, key, content, entry):
 def _verify_entry(storage, key, entry):
     """Return the mismatch reasons for one manifest entry, or an empty list when it is intact."""
     try:
-        copy_verified(storage, key, entry)
+        # Quiet, unlike copy_verified(): each caller reports or repairs the mismatch itself.
+        _stream_verified(storage, key, entry, None)
     except RevisionCorruptError as error:
         return list(error.reasons)
     return []
@@ -291,7 +319,7 @@ def _verify_entry(storage, key, entry):
 def _stream_verified(storage, key, entry, sink):
     """Verify one stored object against its manifest entry, streaming the bytes to sink when given."""
     path = entry['path']
-    mismatch = _('The stored file "{key}" does not match its manifest entry.').format(key=key)
+    mismatch = _('The stored file "{path}" does not match its manifest entry.').format(path=path)
     try:
         reported = _size(storage, key)
         if reported is not None and reported != entry['size']:
@@ -299,7 +327,9 @@ def _stream_verified(storage, key, entry, sink):
         with storage.open(key, 'rb') as handle:
             size, checksum = _measure(handle, entry['size'], sink)
     except FileNotFoundError as error:
-        raise RevisionCorruptError(mismatch, [f'missing:{path}']) from error
+        raise RevisionCorruptError(
+            _('The stored file "{path}" is missing.').format(path=path), [f'missing:{path}']
+        ) from error
     except _DestinationError as error:
         raise error.original from None
     except (RevisionCorruptError, StorageError):

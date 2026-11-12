@@ -226,10 +226,9 @@ existing one is checked before every use. It must be a directory rather than a
 symbolic link, belong to the NetBox process account or root, and not be
 writable by other users. A sticky Project directory is refused too, since
 other users could still add entries to it. Its name is the Project's storage
-key, shown on the Project's page and as `<storage>` in stored validation
-failures and job logs. If only its mode is wrong, restrict it with `chmod 700`.
-Otherwise, or if other users could have written to it, remove it as root while
-NetBox is stopped. The plugin recreates it on the next use.
+key, shown on the Project's page. If only its mode is wrong, restrict it with
+`chmod 700`. Otherwise, or if other users could have written to it, remove it
+as root while NetBox is stopped. The plugin recreates it on the next use.
 
 Existing cache content is verified on every use:
 

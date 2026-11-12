@@ -15,6 +15,7 @@ from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_prefix
 
 STORAGE_KEY = uuid.UUID('9f1c6d24-0b2a-4d3e-8f57-2c9a4b6e1d80')
+STORE_WARNING = 'WARNING:netbox.plugins.netbox_scripts.storage:'
 
 
 def manifest_for(files):
@@ -230,7 +231,8 @@ class RevisionStoreTestCase(TestCase):
 
     def test_a_retry_replaces_a_key_holding_the_wrong_content(self):
         self.storage.save(f'{self.prefix}hello.py', ContentFile(b'something else entirely'))
-        self.write()
+        with self.assertNoLogs(store.logger, 'WARNING'):
+            self.write()
         self.assertEqual(self.stored_keys(), set(self.files))
         with self.storage.open(f'{self.prefix}hello.py', 'rb') as handle:
             self.assertEqual(handle.read(), self.files['hello.py'])
@@ -347,7 +349,11 @@ class RevisionVerificationTestCase(TestCase):
         # An operator whose revision has vanished should not read one line per file to learn it.
         for path in self.files:
             self.storage.delete(f'{self.prefix}{path}')
-        self.assert_reasons('prefix_missing')
+        with self.assertLogs(store.logger, 'WARNING') as logged, self.assertRaises(RevisionCorruptError) as ctx:
+            self.verify()
+        self.assertEqual(ctx.exception.reasons, ('prefix_missing',))
+        self.assertEqual(str(ctx.exception), f'The stored revision {self.digest[:12]} is missing.')
+        self.assertEqual(logged.output, [f'{STORE_WARNING}The stored revision at {self.prefix} is missing.'])
 
     def test_a_missing_file_is_reported(self):
         self.storage.delete(f'{self.prefix}hello.py')
@@ -375,7 +381,65 @@ class RevisionVerificationTestCase(TestCase):
         self.storage.delete(f'{self.prefix}hello.py')
         self.storage.delete(f'{self.prefix}pkg/util.py')
         self.storage.save(f'{self.prefix}pkg/util.py', ContentFile(b'X' * len(self.files['pkg/util.py'])))
-        self.assert_reasons('missing:hello.py', 'checksum_mismatch:pkg/util.py')
+        with self.assertLogs(store.logger, 'WARNING') as logged, self.assertRaises(RevisionCorruptError) as ctx:
+            self.verify()
+        self.assertEqual(ctx.exception.reasons, ('missing:hello.py', 'checksum_mismatch:pkg/util.py'))
+        self.assertEqual(
+            str(ctx.exception),
+            f'The stored revision {self.digest[:12]} does not match its manifest: "hello.py", "pkg/util.py".',
+        )
+        self.assertEqual(
+            logged.output,
+            [
+                (
+                    f'{STORE_WARNING}The stored revision at {self.prefix} does not match its manifest: '
+                    'missing:hello.py, checksum_mismatch:pkg/util.py'
+                )
+            ],
+        )
+
+    def test_a_long_mismatch_list_names_three_files_and_counts_the_rest(self):
+        for count, rest in ((3, ''), (4, ' and 1 more file'), (5, ' and 2 more files')):
+            with self.subTest(count=count):
+                files = {f'm{index}.py': b'VALUE = 1' for index in range(count + 1)}
+                manifest = manifest_for(files)
+                digest = compute_digest(manifest)
+                prefix = store.write_revision(self.storage, STORAGE_KEY, digest, files, manifest)
+                for index in range(count):
+                    self.storage.delete(f'{prefix}m{index}.py')
+                with self.assertLogs(store.logger, 'WARNING') as logged, self.assertRaises(RevisionCorruptError) as ctx:
+                    store.verify_revision_tree(self.storage, STORAGE_KEY, digest, manifest)
+                self.assertEqual(len(ctx.exception.reasons), count)
+                self.assertEqual(
+                    str(ctx.exception),
+                    f'The stored revision {digest[:12]} does not match its manifest: "m0.py", "m1.py", "m2.py"{rest}.',
+                )
+                self.assertEqual(
+                    logged.output,
+                    [
+                        f'{STORE_WARNING}The stored revision at {prefix} does not match its manifest: '
+                        + ', '.join(f'missing:m{index}.py' for index in range(count))
+                    ],
+                )
+
+    def test_a_long_path_is_shortened_in_the_message_only(self):
+        exact = f'a/{"x" * 91}.py'
+        longer = f'b/{"y" * 92}.py'
+        files = {exact: b'VALUE = 1', longer: b'VALUE = 2', 'keep.py': b'VALUE = 3'}
+        manifest = manifest_for(files)
+        digest = compute_digest(manifest)
+        prefix = store.write_revision(self.storage, STORAGE_KEY, digest, files, manifest)
+        self.storage.delete(f'{prefix}{exact}')
+        self.storage.delete(f'{prefix}{longer}')
+        with self.assertLogs(store.logger, 'WARNING') as logged, self.assertRaises(RevisionCorruptError) as ctx:
+            store.verify_revision_tree(self.storage, STORAGE_KEY, digest, manifest)
+        self.assertEqual(ctx.exception.reasons, (f'missing:{exact}', f'missing:{longer}'))
+        self.assertEqual(
+            str(ctx.exception),
+            f'The stored revision {digest[:12]} does not match its manifest: "{exact}", '
+            f'"b/{"y" * 43}...{"y" * 45}.py".',
+        )
+        self.assertIn(f'missing:{longer}', logged.output[0])
 
     def test_verification_reads_no_further_than_the_recorded_size(self):
         # The backend reports the recorded size here, so the metadata preflight passes and
@@ -447,15 +511,26 @@ class ReadVerifiedTestCase(TestCase):
 
     def test_a_missing_key_is_reported_as_corrupt(self):
         entry = self.entry('hello.py')
-        with self.assertRaises(RevisionCorruptError) as ctx:
+        with self.assertLogs(store.logger, 'WARNING') as logged, self.assertRaises(RevisionCorruptError) as ctx:
             store.read_verified(self.storage, f'{self.prefix}absent.py', entry)
-        self.assertIn('missing:hello.py', ctx.exception.reasons)
+        self.assertEqual(ctx.exception.reasons, ('missing:hello.py',))
+        self.assertEqual(str(ctx.exception), 'The stored file "hello.py" is missing.')
+        self.assertEqual(
+            logged.output,
+            [
+                (
+                    f'{STORE_WARNING}The stored file "{self.prefix}absent.py" does not match its manifest entry: '
+                    'missing:hello.py'
+                )
+            ],
+        )
 
     def test_a_size_mismatch_is_reported(self):
         entry = dict(self.entry('hello.py'), size=self.entry('hello.py')['size'] + 1)
         with self.assertRaises(RevisionCorruptError) as ctx:
             store.read_verified(self.storage, f'{self.prefix}hello.py', entry)
         self.assertIn('size_mismatch:hello.py', ctx.exception.reasons)
+        self.assertEqual(str(ctx.exception), 'The stored file "hello.py" does not match its manifest entry.')
 
     def test_a_checksum_mismatch_is_reported(self):
         entry = dict(self.entry('hello.py'), sha256='b' * 64)
@@ -516,9 +591,19 @@ class CopyVerifiedTestCase(TestCase):
     def test_a_checksum_mismatch_is_rejected(self):
         self.storage.delete(f'{self.prefix}hello.py')
         self.storage.save(f'{self.prefix}hello.py', ContentFile(b'X' * len(self.files['hello.py'])))
-        with self.assertRaises(RevisionCorruptError) as ctx:
+        with self.assertLogs(store.logger, 'WARNING') as logged, self.assertRaises(RevisionCorruptError) as ctx:
             self.copy(destination=self.workdir / 'out')
         self.assertEqual(ctx.exception.reasons, ('checksum_mismatch:hello.py',))
+        self.assertEqual(str(ctx.exception), 'The stored file "hello.py" does not match its manifest entry.')
+        self.assertEqual(
+            logged.output,
+            [
+                (
+                    f'{STORE_WARNING}The stored file "{self.prefix}hello.py" does not match its manifest entry: '
+                    'checksum_mismatch:hello.py'
+                )
+            ],
+        )
 
     def test_an_oversized_object_is_rejected_from_metadata_without_being_opened(self):
         storage = OpenRecordingStorage()

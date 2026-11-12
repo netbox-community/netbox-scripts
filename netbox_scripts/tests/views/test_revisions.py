@@ -102,8 +102,7 @@ class RevisionServiceViewTestCase(ObjectPermissionTestMixin, TestCase):
 
         self.assertEqual(
             str(list(response.context['messages'])[0]),
-            'The revision could not be activated: The stored revision at '
-            f'netbox-scripts/{self.project.storage_key}/revisions/{revision.digest}/ is missing.',
+            f'The revision could not be activated: The stored revision {revision.short_digest} is missing.',
         )
 
     def test_an_unusable_snapshot_keeps_its_own_message(self):

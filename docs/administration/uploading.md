@@ -128,7 +128,8 @@ activation is refused and the current revision remains in service.
 ## Review source and revision status
 
 **Source state**, on the **Project** panel, explains what is happening to the newest
-source, such as waiting for validation or failing it.
+source, such as waiting for validation or failing it. When a reselection or revert
+reuses an earlier revision that is not active, it may describe that revision instead.
 
 **Current revision** describes the active revision or, before the first activation,
 the newest stored revision. It shows the date, status, digest, file count, size and

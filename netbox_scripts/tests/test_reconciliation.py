@@ -424,7 +424,8 @@ class ReconciliationPolicyTestCase(TestCase):
         job = self.run_reconciliation()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertIn('waiting for an operator', str(job.log_entries))
-        self.assertEqual(self.project.active_revision_id, with_helper.pk)
+        self.assertEqual((self.project.active_revision_id, self.project.source_revision_id), (with_helper.pk, first.pk))
+        self.assertEqual(self.project.source_state, 'Reused source is valid and waiting to be activated.')
         # Retired, so the Activate button offers it.
         self.assertEqual(self.project.activatable_revision().pk, first.pk)
 

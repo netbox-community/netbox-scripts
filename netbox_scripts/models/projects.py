@@ -37,6 +37,15 @@ _SOURCE_STATE_SUMMARIES = {
     RevisionStatusChoices.RETIRED: _('The newest revision has been retired.'),
 }
 
+# What the detail view says instead when a reuse made an older revision the accepted source and it is not active.
+_REUSED_SOURCE_STATE_SUMMARIES = {
+    RevisionStatusChoices.MATERIALIZED: _('Reused source is waiting to be validated.'),
+    RevisionStatusChoices.VALIDATING: _('Reused source is being validated.'),
+    RevisionStatusChoices.VALID: _('Reused source is valid and waiting to be activated.'),
+    RevisionStatusChoices.INVALID: _('Reused source failed validation.'),
+    RevisionStatusChoices.RETIRED: _('Reused source is valid and waiting to be activated.'),
+}
+
 
 class ScriptProject(PrimaryModel):
     """
@@ -373,16 +382,21 @@ class ScriptProject(PrimaryModel):
 
     def activatable_revision(self):
         """
-        Return the newest revision this project could be pointed at, or None.
+        Return the revision this project could be pointed at next, or None.
 
-        A revision that passed validation and is not already the active one. Retired revisions
-        qualify, so pointing back at a previous one is a matter of choosing it rather than of
-        the lifecycle allowing it. Activation re-checks everything under its own lock, so this
-        answers "is there anything to offer" and never decides the outcome.
+        A revision that passed validation and is not already the active one, the accepted source
+        first and otherwise the newest. Retired revisions qualify, so pointing back at a previous
+        one is a matter of choosing it rather than of the lifecycle allowing it. Activation
+        re-checks everything under its own lock, so this answers "is there anything to offer" and
+        never decides the outcome.
         """
         candidates = self.revisions.using(self._read_alias()).filter(status__in=ACTIVATABLE_REVISION_STATUSES)
         if self.active_revision_id:
             candidates = candidates.exclude(pk=self.active_revision_id)
+        # The accepted source is usually the active revision, which the candidates exclude.
+        if self.source_revision_id not in (None, self.active_revision_id):
+            if accepted := candidates.filter(pk=self.source_revision_id).first():
+                return accepted
         return candidates.order_by('-created').first()
 
     def latest_revision(self):
@@ -427,13 +441,23 @@ class ScriptProject(PrimaryModel):
         if latest is None:
             return _('No source has been added yet.')
         # Reuse can supersede a newer revision. Keep materialized attempts visible because acceptance may be incomplete.
-        if latest.pk == self.active_revision_id or (
+        if (
             latest.digest
             and latest.status not in UNSTORED_REVISION_STATUSES
             and latest.status != RevisionStatusChoices.MATERIALIZED
-            and self.active_revision_id is not None
-            and self.source_revision_id == self.active_revision_id
+            and self.source_revision_id not in (None, latest.pk)
         ):
+            if self.source_revision_id == self.active_revision_id:
+                return _('The active revision is the newest source.')
+            status = (
+                self.revisions.using(self._read_alias())
+                .filter(pk=self.source_revision_id)
+                .values_list('status', flat=True)
+                .first()
+            )
+            if status in _REUSED_SOURCE_STATE_SUMMARIES:
+                return _REUSED_SOURCE_STATE_SUMMARIES[status]
+        if latest.pk == self.active_revision_id:
             return _('The active revision is the newest source.')
         if latest.status == RevisionStatusChoices.INVALID and not latest.digest:
             return _('New source was rejected before storage.')

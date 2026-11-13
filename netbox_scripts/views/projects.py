@@ -102,8 +102,9 @@ class ScriptProjectActivateView(generic.ObjectView):
     """
     Confirm and activate a particular validated revision of a Script Project.
 
-    GET offers the newest eligible revision. POST uses only the revision identity submitted
-    with that confirmation and refuses a missing, foreign or no-longer-eligible revision.
+    GET offers the accepted source when it is eligible, otherwise the newest eligible revision.
+    POST uses only the revision identity submitted with that confirmation and refuses a missing,
+    foreign or no-longer-eligible revision.
 
     The service re-reads and re-verifies everything under the project lock, so this view chooses
     a candidate and reports the outcome rather than deciding anything itself.

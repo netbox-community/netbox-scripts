@@ -983,6 +983,71 @@ class ScriptProjectSourceStateTestCase(TestCase):
                 with self.assertNumQueries(1):
                     self.assertEqual(self.project.source_state, 'The active revision is the newest source.')
 
+    def test_a_reused_revision_behind_the_active_one_is_reported_as_waiting(self):
+        older = self.revision(RevisionStatusChoices.RETIRED, digest='c' * 64)
+        reused = self.revision(RevisionStatusChoices.RETIRED)
+        active = self.revision(RevisionStatusChoices.ACTIVE, digest=DIGEST_B)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active, source_revision=reused)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.latest_revision(), active)
+        for status, summary, offered in (
+            (RevisionStatusChoices.RETIRED, 'Reused source is valid and waiting to be activated.', reused),
+            (RevisionStatusChoices.VALID, 'Reused source is valid and waiting to be activated.', reused),
+            (RevisionStatusChoices.MATERIALIZED, 'Reused source is waiting to be validated.', older),
+            (RevisionStatusChoices.VALIDATING, 'Reused source is being validated.', older),
+            (RevisionStatusChoices.INVALID, 'Reused source failed validation.', older),
+        ):
+            with self.subTest(status=status):
+                ScriptProjectRevision.objects.filter(pk=reused.pk).update(status=status)
+                with self.assertNumQueries(2):
+                    self.assertEqual(self.project.source_state, summary)
+                self.assertEqual(self.project.activatable_revision(), offered)
+
+    def test_a_reused_revision_is_reported_over_a_newer_superseded_one(self):
+        reused = self.revision(RevisionStatusChoices.RETIRED)
+        active = self.revision(RevisionStatusChoices.ACTIVE, digest=DIGEST_B)
+        newer = self.revision(RevisionStatusChoices.VALID, digest='c' * 64)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active, source_revision=reused)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.latest_revision(), newer)
+        for status, summary in (
+            (RevisionStatusChoices.VALID, 'Reused source is valid and waiting to be activated.'),
+            (RevisionStatusChoices.VALIDATING, 'Reused source is valid and waiting to be activated.'),
+            (RevisionStatusChoices.INVALID, 'Reused source is valid and waiting to be activated.'),
+            (RevisionStatusChoices.RETIRED, 'Reused source is valid and waiting to be activated.'),
+            (RevisionStatusChoices.MATERIALIZED, 'New source is waiting to be validated.'),
+            (RevisionStatusChoices.STAGING, 'New source is being stored.'),
+            (RevisionStatusChoices.STORAGE_FAILED, 'New source could not be stored.'),
+        ):
+            with self.subTest(status=status):
+                ScriptProjectRevision.objects.filter(pk=newer.pk).update(status=status)
+                self.assertEqual(self.project.source_state, summary)
+                self.assertEqual(self.project.activatable_revision(), reused)
+
+        self.revision(RevisionStatusChoices.INVALID, digest=None)
+        self.assertEqual(self.project.source_state, 'New source was rejected before storage.')
+        self.assertEqual(self.project.activatable_revision(), reused)
+
+    def test_a_reused_revision_without_an_active_revision_is_reported(self):
+        reused = self.revision(RevisionStatusChoices.RETIRED)
+        self.revision(RevisionStatusChoices.RETIRED, digest=DIGEST_B)
+        ScriptProject.objects.filter(pk=self.project.pk).update(source_revision=reused)
+        self.project.refresh_from_db()
+
+        self.assertEqual(self.project.source_state, 'Reused source is valid and waiting to be activated.')
+        self.assertEqual(self.project.activatable_revision(), reused)
+
+    def test_an_active_accepted_source_still_offers_the_newest_other_revision(self):
+        older = self.revision(RevisionStatusChoices.RETIRED)
+        active = self.revision(RevisionStatusChoices.ACTIVE, digest=DIGEST_B)
+        ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=active, source_revision=active)
+        self.project.refresh_from_db()
+
+        with self.assertNumQueries(1):
+            self.assertEqual(self.project.activatable_revision(), older)
+
     def test_an_explicit_rollback_keeps_the_retired_revision_summary(self):
         active = self.revision(RevisionStatusChoices.ACTIVE)
         accepted = self.revision(RevisionStatusChoices.RETIRED, digest=DIGEST_B)

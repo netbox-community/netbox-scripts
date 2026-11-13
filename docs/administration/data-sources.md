@@ -106,8 +106,8 @@ The previous active revision is retired in the same step.
 Returning to previous source with the same Script File selection reuses its
 revision. If it already holds a successful validation result, it can be activated
 without repeating validation. An automatic policy can put it back into service.
-Under Manual policy, choose the eligible revision from the **Revisions** tab
-and activate it.
+Under Manual policy, choose **Activate** on the Project's page, which offers the
+reused revision, or activate it from the **Revisions** tab.
 
 Retired revisions keep their content, so you can return to a known-good version
 without rebuilding it. Other reused revisions may still need processing, as

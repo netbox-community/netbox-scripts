@@ -1014,7 +1014,7 @@ class ScriptProjectSourceStateTestCase(TestCase):
         cases = (
             (RevisionStatusChoices.STAGING, 'b' * 64, False, 'New source is being stored.'),
             (RevisionStatusChoices.STORAGE_FAILED, 'c' * 64, False, 'New source could not be stored.'),
-            (RevisionStatusChoices.INVALID, None, False, 'New source failed validation.'),
+            (RevisionStatusChoices.INVALID, None, False, 'New source was rejected before storage.'),
             (RevisionStatusChoices.MATERIALIZED, '1' * 64, False, 'New source is waiting to be validated.'),
             (RevisionStatusChoices.MATERIALIZED, 'd' * 64, True, 'New source is waiting to be validated.'),
             (RevisionStatusChoices.VALIDATING, 'e' * 64, True, 'New source is being validated.'),
@@ -1036,8 +1036,8 @@ class ScriptProjectSourceStateTestCase(TestCase):
         self.assertIn('waiting to be activated', str(self.project.source_state))
 
     def test_a_failed_validation_is_reported(self):
-        self.revision(RevisionStatusChoices.INVALID, digest=None)
-        self.assertIn('failed validation', str(self.project.source_state))
+        self.revision(RevisionStatusChoices.INVALID)
+        self.assertEqual(self.project.source_state, 'New source failed validation.')
 
     def test_every_status_that_can_be_newest_and_not_active_has_a_summary(self):
         # A status with no summary falls through to the generic phrase, which tells an operator

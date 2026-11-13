@@ -435,6 +435,8 @@ class ScriptProject(PrimaryModel):
             and self.source_revision_id == self.active_revision_id
         ):
             return _('The active revision is the newest source.')
+        if latest.status == RevisionStatusChoices.INVALID and not latest.digest:
+            return _('New source was rejected before storage.')
         return _SOURCE_STATE_SUMMARIES.get(latest.status, _('A newer revision exists.'))
 
     @cached_property

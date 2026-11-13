@@ -280,6 +280,11 @@ class ProjectReconciliationJobTestCase(TestCase):
         self.assertIn('The synchronized source cannot be stored, 1 problem(s) recorded.', str(job.log_entries))
         self.validated.assert_not_called()
 
+    def test_a_case_conflict_reaches_source_state_as_rejected_before_storage(self):
+        data_file(self.source, 'scripts/Deploy.py', SCRIPT)
+        self.run_job()
+        self.assertEqual(self.project.source_state, 'New source was rejected before storage.')
+
     def test_a_recurring_source_reconciles_after_each_run(self):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, True)

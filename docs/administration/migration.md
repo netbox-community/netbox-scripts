@@ -455,6 +455,13 @@ A reference step completes when no retryable work remains. A missing
 replacement Script can leave it open. Once complete, the step returns its
 recorded result rather than scanning for new references.
 
+When a storage, cache or host I/O failure stops a schedule from being
+recreated, its warning gives a fixed reason instead of the error's own text,
+which can name server paths, and the step stays open. The server log keeps the
+original error with its traceback under the
+`netbox.plugins.netbox_scripts.migration` logger. A missing or damaged stored
+revision keeps its own message.
+
 **Permanently skipped** means migration will not retry the item, not that you
 cannot resolve it manually. Examples include classes absent from the captured
 map, module-level references, constrained permissions, overdue one-shot runs,

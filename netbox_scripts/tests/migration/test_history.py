@@ -18,8 +18,14 @@ from extras.models import Script, ScriptModule
 from netbox_scripts.jobs import MigrationReferencesJob
 from netbox_scripts.migration import cleanup, cutover, references
 from netbox_scripts.models import NetBoxScript
+from netbox_scripts.runtime.cache import local_revision_dir
 from netbox_scripts.runtime.exceptions import ScriptFileImportError
+from netbox_scripts.scripts import BaseScript
+from netbox_scripts.storage import config
+from netbox_scripts.storage.exceptions import RevisionCorruptError
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
+from netbox_scripts.tests.plugin_testing import discard_tree
+from netbox_scripts.tests.test_validation import IO_REASON, STORAGE_REASON
 from users.models import ObjectPermission
 from utilities.testing.mixins import RQQueueTestMixin
 
@@ -301,6 +307,11 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         permission.users.add(user)
         permission.object_types.add(self.site_type)
 
+    def cached_revision_dir(self):
+        """Return the runtime cache directory of the revision the migrated Project serves."""
+        project = self.plugin_script().project
+        return local_revision_dir(project.storage_key, project.active_revision.digest)
+
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
         # ObjectVar hands the script.
@@ -487,6 +498,95 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertTrue(any('not there' in warning for warning in warnings))
         self.migration.refresh_from_db()
         self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_an_unsafe_cache_directory_is_warned_without_its_path(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        project_dir = self.cached_revision_dir().parent
+        project_dir.chmod(0o770)
+
+        with self.assertLogs('netbox.plugins.netbox_scripts.migration', 'ERROR') as logged:
+            reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        warning = (
+            f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {STORAGE_REASON}'
+        )
+        job_warnings = self.log_messages(reference_job, 'warning')
+        self.assertEqual(reference_job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertIn(warning, job_warnings)
+        self.assertNotIn(str(self.cache_root), job_warnings)
+        self.migration.refresh_from_db()
+        self.assertIn(warning, self.migration.warnings)
+        self.assertNotIn(str(self.cache_root), ' '.join(self.migration.warnings))
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+        self.assertIn(str(project_dir), '\n'.join(logged.output))
+
+    def test_a_source_storage_failure_is_warned_without_its_location(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        # Only a cache miss reads the stored source.
+        discard_tree(self.cached_revision_dir())
+        error = PermissionError(13, 'Permission denied', '/srv/netbox/private/netbox-scripts/deploy.py')
+
+        with (
+            patch.object(config.get_storage(), 'open', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.migration', 'ERROR') as logged,
+        ):
+            counts, warnings = references.recreate_schedules(self.migration)
+
+        warning = (
+            f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {STORAGE_REASON}'
+        )
+        self.assertEqual(counts, {'recreated': 0, 'skipped': 1, 'shifted': 0, 'outstanding': 1})
+        self.assertEqual(warnings, [warning])
+        self.assertIn(error.filename, '\n'.join(logged.output))
+
+    def test_an_io_error_from_the_script_itself_is_warned_with_a_fixed_reason(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        private_path = '/srv/netbox/private/settings.yaml'
+        error = PermissionError(13, 'Permission denied', private_path)
+
+        # Validation constructs the class too, so the failure is injected after the cutover.
+        with (
+            patch.object(BaseScript, '__init__', side_effect=error),
+            self.assertLogs('netbox.plugins.netbox_scripts.migration', 'ERROR') as logged,
+        ):
+            reference_job = MigrationReferencesJob.enqueue(immediate=True)
+
+        warning = f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {IO_REASON}'
+        job_warnings = self.log_messages(reference_job, 'warning')
+        self.assertIn(warning, job_warnings)
+        self.assertNotIn(private_path, job_warnings)
+        self.migration.refresh_from_db()
+        self.assertIn(warning, self.migration.warnings)
+        self.assertNotIn(private_path, ' '.join(self.migration.warnings))
+        self.assertIs(logged.records[0].exc_info[1], error)
+        self.assertIn(private_path, '\n'.join(logged.output))
+
+        counts, _warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['recreated'], 1)
+
+    def test_a_missing_stored_revision_keeps_its_own_warning(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        reason = f'The stored revision {self.plugin_script().project.active_revision.digest[:12]} is missing.'
+
+        with (
+            patch(
+                'netbox_scripts.execution.resolve_script_class',
+                side_effect=RevisionCorruptError(reason, ['prefix_missing']),
+            ),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.migration', 'ERROR'),
+        ):
+            counts, warnings = references.recreate_schedules(self.migration)
+
+        self.assertEqual(counts['outstanding'], 1)
+        self.assertEqual(
+            warnings,
+            [f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {reason}'],
+        )
 
     def test_a_repaired_script_gets_its_schedule_recreated_on_the_next_pass(self):
         self.legacy_schedule(scheduled=self.future())

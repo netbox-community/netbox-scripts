@@ -6,6 +6,7 @@ Cutover confirmation.
 
 Context:
   - form:         MigrationCutoverForm, whose backup checkbox the pass will not run without
+  - guide_url:    The published migration guide
   - report_count: Built-in report modules, which this migration does not cover
   - return_url:   Where Cancel goes, the migration page
 {% endcomment %}
@@ -25,6 +26,11 @@ Context:
     {% trans "Nothing that carries history is deleted, and every reference is recorded first so the next steps can move it onto the plugin." %}
     {% trans "The cutover refuses while any built-in Custom Script job is still running, so wait for those to finish first." %}
     {% trans "If a stopped worker left one marked running, follow the steps for stale running Jobs in the migration guide." %}
+  </p>
+  <p class="text-secondary">
+    {% trans "Cutover disables each captured permission in full, including access to unrelated object types." %}
+    {% trans "Repointing restores supported grants, but constrained or unsupported grants may require manual recreation." %}
+    <a href="{{ guide_url }}#repoint-references" target="_blank">{% trans "Migration guide" %}</a>
   </p>
   {% if report_count %}
     <p class="text-secondary">

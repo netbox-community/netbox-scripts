@@ -11,6 +11,7 @@ from utilities.permissions import get_permission_for_model
 from utilities.views import ContentTypePermissionRequiredMixin, register_model_view
 
 from ..choices import MigrationStateChoices
+from ..constants import MIGRATION_GUIDE_URL
 from ..forms import MigrationCutoverForm
 from ..jobs import (
     MigrationActivationJob,
@@ -189,8 +190,12 @@ class MigrationView(BaseMigrationView):
         can_cut_over = crossable and not unservable
         # Read from the run, since a worker can stop before core marks the cleanup Job completed.
         migrated = run is None and closed is not None
+        # A new run or its closing cleanup can make an earlier verification report stale.
+        since = run.created if run else closed.completed if closed else None
+        current = _completed(verification_job) and (since is None or verification_job.created > since)
         # Offered at every state, so a verification from before the run closed leaves this step outstanding.
-        verified = migrated and _completed(verification_job) and verification_job.created > closed.completed
+        verified = migrated and current
+        report = verification_job.data if current else None
         # The passes in the order they run, each paired with the button's own render condition and
         # with what would make that pass complete. Two of the refusals the page reports need a
         # clause: a blocking finding withholds staging, and a Project that stopped serving reopens
@@ -242,6 +247,9 @@ class MigrationView(BaseMigrationView):
                 'cleanup_queued': _queued(MigrationCleanupJob),
                 'cleanup_running': _running(MigrationCleanupJob),
                 'verification_job': verification_job,
+                # The report's own verdict, which a completed Job does not imply.
+                'verification_status': report.get('status') if isinstance(report, dict) else None,
+                'guide_url': MIGRATION_GUIDE_URL,
                 'can_activate': can_activate,
                 'can_repoint': can_repoint,
                 'can_clean_up': can_clean_up,
@@ -321,7 +329,7 @@ class MigrationStagingView(BaseMigrationView):
         return render(
             request,
             self.template_name,
-            {'return_url': reverse('plugins:netbox_scripts:migration')},
+            {'guide_url': MIGRATION_GUIDE_URL, 'return_url': reverse('plugins:netbox_scripts:migration')},
         )
 
     def post(self, request):
@@ -348,6 +356,7 @@ class MigrationCutoverView(DestructiveMigrationView):
             self.template_name,
             {
                 'form': MigrationCutoverForm(),
+                'guide_url': MIGRATION_GUIDE_URL,
                 'report_count': source.legacy_report_count(),
                 'return_url': reverse('plugins:netbox_scripts:migration'),
             },
@@ -366,6 +375,7 @@ class MigrationCutoverView(DestructiveMigrationView):
                 self.template_name,
                 {
                     'form': form,
+                    'guide_url': MIGRATION_GUIDE_URL,
                     'report_count': source.legacy_report_count(),
                     'return_url': reverse('plugins:netbox_scripts:migration'),
                 },

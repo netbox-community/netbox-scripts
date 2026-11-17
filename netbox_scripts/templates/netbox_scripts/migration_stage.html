@@ -4,6 +4,7 @@
 Staging confirmation.
 
 Context:
+  - guide_url:  The published migration guide
   - return_url: Where Cancel goes, the migration page
 {% endcomment %}
 {% block title %}
@@ -15,8 +16,10 @@ Context:
 {% block message %}
   <p>{% trans "Create a Script Project for every folder the inventory proposes?" %}</p>
   <p class="text-secondary">
-    {% trans "Every Project takes the manual activation policy, so nothing it stages serves anything until you activate a revision." %}
+    {% trans "Every Project takes the manual activation policy, so staging activates nothing. After the cutover, Activate Projects puts eligible revisions into service." %}
     {% trans "The built-in Custom Scripts stay authoritative and keep running." %}
     {% trans "The pass refuses if the inventory reports any blocking finding, so run the inventory first." %}
+    {% trans "Validation runs separately, so a completed staging Job does not mean its revisions are valid. Check their status on the Migration page before the cutover." %}
+    <a href="{{ guide_url }}#staging" target="_blank">{% trans "Migration guide" %}</a>
   </p>
 {% endblock message %}

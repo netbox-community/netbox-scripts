@@ -144,7 +144,9 @@ preparation before selecting **Enter cutover**.
    further synchronization while staging and reviewing its revisions. On a
    first migration, staging creates the Projects. Afterwards, check each
    Project's revision list. Use **Reconcile Source** to restage a directory that
-   changed, then wait for validation again.
+   changed, then wait for validation again. On each Data Source, keep scripts in
+   a directory below the root, such as `scripts/`. See
+   [How modules become Projects](#how-modules-become-projects).
 5. **Resolve inventory blockers and review warnings.** Check existing Project
    conflicts, Reports, constrained permissions and scheduled inputs. Confirm
    that staged Projects have usable revisions before cutover. A successful
@@ -152,9 +154,12 @@ preparation before selecting **Enter cutover**.
 
 ## Run a migration pass
 
-Open *Scripts > Migration*. The page shows the latest Job for each pass and the
-current state of proposed or staged Projects. **Not staged** means inventory
-proposed a Project that staging has not created.
+Open *Scripts > Migration*. The page shows the latest Job for each pass, the
+latest verification's result and the current state of proposed or staged
+Projects. **Revision status** is the status of the revision a Project serves,
+or of its newest stored revision while it serves none. A revision waiting for
+validation has no verdict yet. **Not staged** means inventory proposed a
+Project that staging has not created.
 
 Buttons are numbered in workflow order. The highlighted button suggests the
 next action. If a Project stops serving a revision, activation may be suggested
@@ -182,9 +187,10 @@ Projects, unresolved references or an incomplete cutover.
 
 Inventory, staging and verification require permission to **add** a Script
 Project. Cutover, activation, repointing and cleanup require the separate Script
-Project **`migrate`** action. The page itself requires `add`, and reading Job
-results requires *Core > Jobs* view permission. See
-[Permissions](permissions.md#migration-permissions).
+Project **`migrate`** action. The page itself requires `add`. It summarizes
+each pass's latest Job, including inventory blockers and the verification
+result. Opening a Job's full results requires *Core > Jobs* view permission.
+See [Permissions](permissions.md#migration-permissions).
 
 ## Reports are not covered
 
@@ -279,6 +285,10 @@ A nested script-holding directory joins the Project above it. The parent tree
 already includes its subdirectories, so migration does not create overlapping
 Projects.
 
+A script at the Data Source root therefore pulls every script on that source
+into one Project at the root. Inventory reports this as `data_source_root`,
+which blocks staging, so keep scripts in a directory such as `scripts/`.
+
 For a Data Source Project, staging copies the whole directory, not only the
 files the built-in feature registered as scripts. Helpers and resources in that
 tree are available to the migrated scripts. Use relative imports for
@@ -330,7 +340,7 @@ Cutover affects four areas:
 
 | Area | Effect |
 |---|---|
-| Permissions | Disables captured Object Permissions. Shared Report coverage is affected too. |
+| Permissions | Disables each captured Object Permission as a whole, including object types unrelated to Scripts. Repointing restores the unconstrained ones it can map. Shared Report coverage is affected too. |
 | Event Rules | Disables captured rules. Rules whose action runs a Report are excluded. |
 | Queued runs | Deletes captured waiting tasks and marks their Jobs failed, unless a worker has already started one. Records cancellation outcomes and warns when input or execution outcomes prevent automatic replay. |
 | Synchronization | Removes synchronization registrations for the built-in Custom Script modules. |
@@ -396,10 +406,18 @@ history and schedules also require every remaining mapped Project to serve a
 revision. Permissions map object types rather than individual Scripts, so that
 additional requirement does not apply to them.
 
+Repointing does not move or edit files in a Data Source or its repository.
+
+A supported, unconstrained permission naming only the built-in feature is
+moved in place. A mixed one keeps its other object types and gains a sibling
+named `<name> (Scripts)` that holds the plugin types. Both return to the
+enabled state recorded at cutover.
+
 Recreate constrained permissions manually. Neither copying nor dropping their
 old constraints preserves the intended access. Check mixed grants too:
-withdrawal temporarily affects the whole captured permission, including any
-unrelated object types.
+withdrawal affects the whole captured permission, including any unrelated
+object types. A constrained or unsupported permission stays disabled in full,
+unrelated object types included.
 
 The reference pass warnings and the Verify Permissions check name each
 permission by its ID as well as its name, since permissions can share a name.
@@ -667,6 +685,15 @@ it is still needed.
 source. The overall status is the highest level reported. If no migration run
 exists, the report says there is nothing to verify.
 
+The Migration page shows that status as the **Verification result**, apart
+from the Job's own status. A **Completed** Job means the checks ran, not that
+the migration passed. Any other Job status, or a Job that recorded no report,
+shows **No result available**. A verification queued before the open
+migration run started also shows **No result available**. Once the latest
+run reaches `migrated`, the same applies to one queued before then. Such a
+report may describe an earlier state, so run **Verify** again for a current
+result.
+
 | Check | What it examines |
 |---|---|
 | Modules | Recorded Projects, their active revisions and unmapped built-in modules. |
@@ -703,9 +730,10 @@ that pass's Job **Running**, see [Stale running Jobs](#stale-running-jobs). Run
 verification again once the queue is reachable and repointing is complete.
 
 Job records may be removed after execution by retention cleanup. A missing ID
-alone does not prove a recurrence was lost. Verification does not trace every
-recurring occurrence, test every Script or confirm its external actions.
-Use Job history and your operational checks alongside the report.
+alone does not prove a recurrence was lost. Verification reads records, the
+journal and the queue. It does not run Scripts, check stored source files,
+trace every recurring occurrence or confirm external actions. Use Job history
+and your operational checks alongside the report.
 
 ## Limitations
 

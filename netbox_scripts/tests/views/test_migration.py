@@ -1,4 +1,5 @@
 import ast
+import re
 import shutil
 import tempfile
 import uuid
@@ -23,6 +24,7 @@ from netbox_scripts.choices import (
     ProjectSourceTypeChoices,
     RevisionStatusChoices,
 )
+from netbox_scripts.constants import MIGRATION_GUIDE_URL
 from netbox_scripts.jobs import (
     MigrationActivationJob,
     MigrationCleanupJob,
@@ -37,6 +39,11 @@ from netbox_scripts.models import MigrationRun, ScriptProject, ScriptProjectRevi
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
 from netbox_scripts.views import migration as migration_views
 from utilities.testing import TestCase, create_test_user
+
+GUIDE = Path(__file__).resolve().parents[3] / 'docs' / 'administration' / 'migration.md'
+READY_BADGE = '<span class="badge text-bg-green">Ready</span>'
+WARNING_BADGE = '<span class="badge text-bg-yellow">Warning</span>'
+BLOCKING_BADGE = '<span class="badge text-bg-red">Blocking</span>'
 
 
 class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
@@ -1074,3 +1081,170 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         self.grant('add')
         job = self.record(MigrationVerificationJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
+
+    def verified(self, data, status=JobStatusChoices.STATUS_COMPLETED):
+        """Record a verification Job carrying the supplied report data."""
+        job = self.record(MigrationVerificationJob, status=status)
+        job.data = data
+        job.save()
+        return job
+
+    def test_the_verification_result_is_shown_apart_from_the_job_status(self):
+        self.grant('add')
+        job = self.verified(None)
+
+        for status, badge in (('ready', READY_BADGE), ('warning', WARNING_BADGE), ('blocking', BLOCKING_BADGE)):
+            with self.subTest(status=status):
+                job.data = {'status': status, 'checks': []}
+                job.save()
+                response = self.client.get(self.url('migration'))
+                body = response.content.decode()
+
+                self.assertEqual(response.context['verification_status'], status)
+                self.assertInHTML(badge, body)
+                self.assertInHTML('<span class="badge text-bg-green">Completed</span>', body)
+
+    def test_a_verification_without_a_report_shows_no_result(self):
+        self.grant('add')
+        job = self.verified(None)
+        cases = (
+            (JobStatusChoices.STATUS_COMPLETED, None),
+            (JobStatusChoices.STATUS_COMPLETED, []),
+            (JobStatusChoices.STATUS_COMPLETED, ['ready']),
+            (JobStatusChoices.STATUS_COMPLETED, {'status': 'unknown'}),
+            (JobStatusChoices.STATUS_RUNNING, None),
+            (JobStatusChoices.STATUS_ERRORED, None),
+        )
+
+        for status, data in cases:
+            with self.subTest(status=status, data=data):
+                job.status = status
+                job.data = data
+                job.save()
+                body = self.client.get(self.url('migration')).content.decode()
+
+                self.assertIn('No result available', body)
+                for badge in (READY_BADGE, WARNING_BADGE, BLOCKING_BADGE):
+                    self.assertInHTML(badge, body, count=0)
+
+    def test_an_unfinished_verification_shows_no_result_from_its_data(self):
+        # A requeued Job keeps its last report until the new run ends.
+        self.grant('add')
+        job = self.verified({'status': 'ready', 'checks': []})
+        statuses = (
+            JobStatusChoices.STATUS_PENDING,
+            JobStatusChoices.STATUS_RUNNING,
+            JobStatusChoices.STATUS_FAILED,
+            JobStatusChoices.STATUS_ERRORED,
+        )
+
+        for status in statuses:
+            with self.subTest(status=status):
+                Job.objects.filter(pk=job.pk).update(status=status)
+                response = self.client.get(self.url('migration'))
+
+                self.assertIsNone(response.context['verification_status'])
+                self.assertIn('No result available', response.content.decode())
+                self.assertInHTML(READY_BADGE, response.content.decode(), count=0)
+
+    def test_the_result_row_is_absent_before_any_verification(self):
+        self.grant('add')
+        response = self.client.get(self.url('migration'))
+
+        self.assertNotIn('Verification result', response.content.decode())
+        self.assertIsNone(response.context['verification_status'])
+
+    def test_the_result_follows_the_newest_verification(self):
+        self.grant('add')
+        older = self.verified({'status': 'ready', 'checks': []})
+        Job.objects.filter(pk=older.pk).update(created=timezone.now() - timedelta(hours=1))
+        self.verified(None, status=JobStatusChoices.STATUS_FAILED)
+
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertIn('No result available', body)
+        self.assertInHTML(READY_BADGE, body, count=0)
+
+    def verification_status(self):
+        """Return the verification status the Migration page shows."""
+        return self.client.get(self.url('migration')).context['verification_status']
+
+    def test_a_new_run_withholds_the_result_of_an_earlier_verification(self):
+        self.grant('add')
+        self.closed_run()
+        job = self.verified({'status': 'ready', 'checks': []})
+        self.assertEqual(self.verification_status(), 'ready')
+
+        run = self.open_run(MigrationStateChoices.STAGING)
+        response = self.client.get(self.url('migration'))
+        self.assertIsNone(response.context['verification_status'])
+        self.assertIn(job.get_absolute_url(), response.content.decode())
+
+        run.advance(MigrationStateChoices.CUTOVER)
+        run.advance(MigrationStateChoices.MIGRATED)
+        self.assertIsNone(self.verification_status())
+
+    def test_the_close_withholds_a_result_from_before_the_cleanup(self):
+        self.grant('add', 'migrate')
+        self.record_early_passes()
+        run = self.open_run(MigrationStateChoices.STAGING)
+        self.verified({'status': 'ready', 'checks': []})
+        self.assertEqual(self.verification_status(), 'ready')
+
+        run.advance(MigrationStateChoices.CUTOVER)
+        run.advance(MigrationStateChoices.MIGRATED)
+        self.assertIsNone(self.verification_status())
+        self.assertEqual(self.next_action(), 'verify')
+
+        self.verified({'status': 'ready', 'checks': []})
+        self.assertEqual(self.verification_status(), 'ready')
+        self.assertIsNone(self.next_action())
+
+    @staticmethod
+    def guide_anchors(body):
+        """Return the guide sections a page links to."""
+        return set(re.findall(re.escape(MIGRATION_GUIDE_URL) + r'#([\w-]+)', body))
+
+    def guide_pages(self):
+        """Return the Migration page, the staging confirmation and both renders of the cutover confirmation."""
+        self.grant('add', 'migrate')
+        # A row and a verification, so the Projects paragraph and the result row render.
+        self.inventoried('guided')
+        self.verified({'status': 'ready', 'checks': []})
+        # Posted without the backup acknowledged, so the confirmation renders again.
+        refused = self.client.post(self.url('migration_cutover'), {'confirm': 'true'})
+        self.assertHttpStatus(refused, 200)
+        return {
+            'migration': self.client.get(self.url('migration')).content.decode(),
+            'stage': self.client.get(self.url('migration_stage')).content.decode(),
+            'cutover': self.client.get(self.url('migration_cutover')).content.decode(),
+            'cutover refused': refused.content.decode(),
+        }
+
+    def test_each_migration_page_links_its_sections_of_the_guide(self):
+        expected = {
+            'migration': {'how-modules-become-projects', 'repoint-references', 'verify-the-migration', 'enter-cutover'},
+            'stage': {'staging'},
+            'cutover': {'repoint-references'},
+            'cutover refused': {'repoint-references'},
+        }
+        for page, body in self.guide_pages().items():
+            with self.subTest(page=page):
+                self.assertEqual(self.guide_anchors(body), expected[page])
+
+    def test_every_guide_link_names_a_heading_of_the_guide(self):
+        if not GUIDE.is_file():
+            self.skipTest('the guide ships with the repository, not inside the package')
+        headings = re.findall(r'^#+ (.+)$', GUIDE.read_text(), flags=re.MULTILINE)
+        slugs = {re.sub(r'[\s-]+', '-', re.sub(r'[^\w\s-]', '', heading).strip().lower()) for heading in headings}
+        linked = set().union(*(self.guide_anchors(body) for body in self.guide_pages().values()))
+
+        self.assertTrue(linked)
+        self.assertEqual(linked - slugs, set())
+
+    def test_no_template_syntax_reaches_the_migration_pages(self):
+        # Django renders a {# #} or {{ }} that spans a line break as text.
+        for page, body in self.guide_pages().items():
+            for token in ('{#', '#}', '{{', '}}', '{%', '%}'):
+                with self.subTest(page=page, token=token):
+                    self.assertNotIn(token, body)

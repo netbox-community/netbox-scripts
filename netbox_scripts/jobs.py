@@ -1114,7 +1114,7 @@ class MigrationActivationJob(JobRunner):
         for result in results:
             self.logger.info(
                 _('Project {project_key} {outcome}.').format(
-                    project_key=result['project_key'], outcome=result['outcome']
+                    project_key=result['project_key'], outcome=result['outcome'].rstrip('.')
                 )
             )
         keys = [result['project_key'] for result in results]

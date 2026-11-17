@@ -11,7 +11,7 @@ import django_rq
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, TemporaryUploadedFile
-from django.db import DEFAULT_DB_ALIAS, connections, transaction
+from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from redis.exceptions import ConnectionError as RedisConnectionError
 
@@ -78,6 +78,40 @@ class Failing(Script):
 
     def run(self, data, commit):
         raise ValueError('the value was wrong')
+
+
+class CatchingADatabaseError(Script):
+    """Catches a duplicate tag's error and carries on, leaving its transaction unable to commit."""
+
+    def run(self, data, commit):
+        Tag.objects.create(name='Fresh', slug='fresh')
+        try:
+            Tag.objects.create(name='Existing', slug='existing')
+        except IntegrityError:
+            self.log_warning('Tag Existing is already there.')
+        return 'done'
+
+
+class CatchingInASavepoint(Script):
+    """Catches the same error around its own atomic block, so its transaction can still commit."""
+
+    def run(self, data, commit):
+        Tag.objects.create(name='Fresh', slug='fresh')
+        try:
+            with transaction.atomic():
+                Tag.objects.create(name='Existing', slug='existing')
+        except IntegrityError:
+            self.log_warning('Tag Existing is already there.')
+        return 'done'
+
+
+class MarkingForRollback(Script):
+    """Sets only Django's rollback flag, so PostgreSQL's transaction stays healthy."""
+
+    def run(self, data, commit):
+        Tag.objects.create(name='Fresh', slug='fresh')
+        transaction.set_rollback(True)
+        return 'done'
 
 
 def fake_request(user):
@@ -163,6 +197,17 @@ class CommitBehaviourTestCase(ExecutionTestMixin, TestCase):
 
         self.assertNotIn('reverted', self.messages(instance))
 
+    def test_a_database_error_caught_around_a_savepoint_keeps_the_other_changes(self):
+        Tag.objects.create(name='Existing', slug='existing')
+
+        instance = self.run_one(CatchingInASavepoint, commit=True)
+
+        self.assertTrue(Tag.objects.filter(slug='fresh').exists())
+        self.assertFalse(instance.failed)
+        logged = self.messages(instance)
+        self.assertIn('Tag Existing is already there.', logged)
+        self.assertNotIn('reverted', logged)
+
 
 class AbortTestCase(ExecutionTestMixin, TestCase):
     def test_an_abort_is_logged_as_a_failure_and_propagates(self):
@@ -226,6 +271,42 @@ class FailureTestCase(ExecutionTestMixin, TestCase):
             run_script(instance, data={}, commit=True)
 
         self.assertIn('reverted', self.messages(instance))
+
+    def test_a_caught_database_error_fails_the_run_and_reverts_it(self):
+        Tag.objects.create(name='Existing', slug='existing')
+        instance = CatchingADatabaseError()
+
+        with self.assertRaises(transaction.TransactionManagementError):
+            run_script(instance, data={}, commit=True)
+
+        self.assertFalse(Tag.objects.filter(slug='fresh').exists())
+        self.assertTrue(instance.failed)
+        logged = self.messages(instance)
+        self.assertIn('Tag Existing is already there.', logged)
+        self.assertIn('unable to commit', logged)
+        self.assertIn('reverted', logged)
+
+    def test_a_dry_run_that_caught_a_database_error_fails_too(self):
+        Tag.objects.create(name='Existing', slug='existing')
+        instance = CatchingADatabaseError()
+
+        with self.assertRaises(transaction.TransactionManagementError):
+            run_script(instance, data={}, commit=False)
+
+        self.assertTrue(instance.failed)
+        self.assertNotIn('this was a dry run', self.messages(instance))
+
+    def test_a_run_that_marked_its_transaction_for_rollback_fails_and_reverts_it(self):
+        instance = MarkingForRollback()
+
+        with self.assertRaises(transaction.TransactionManagementError):
+            run_script(instance, data={}, commit=True)
+
+        self.assertFalse(Tag.objects.filter(slug='fresh').exists())
+        self.assertTrue(instance.failed)
+        logged = self.messages(instance)
+        self.assertIn('unable to commit', logged)
+        self.assertIn('reverted', logged)
 
 
 class RequestProcessorTestCase(ExecutionTestMixin, TestCase):
@@ -464,6 +545,35 @@ FAILS_AT_ITS_COMMIT = (
     b"        Tag.objects.create(name='Undone At Commit', slug='undone-at-commit')\n"
     b'        TaggedItem.objects.create(tag_id=2147483647, content_type_id=2147483647, object_id=1)\n'
     b"        self.log_info('The Script reached the end of run().')\n"
+    b"        return 'done'\n"
+)
+
+CATCHES_A_DATABASE_ERROR = (
+    b'from django.db import IntegrityError\n'
+    b'from extras.models import Tag\n'
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class CatchesADatabaseError(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        Tag.objects.create(name='Fresh', slug='fresh')\n"
+    b'        try:\n'
+    b"            Tag.objects.create(name='Existing', slug='existing')\n"
+    b'        except IntegrityError:\n'
+    b"            self.log_warning('Tag Existing is already there.')\n"
+    b"        return 'done'\n"
+)
+
+# PostgreSQL aborts the transaction at the failed lookup, which Django does not mark for rollback.
+CATCHES_A_FAILED_QUERY = (
+    b'from django.db import DatabaseError\n'
+    b'from extras.models import Tag\n'
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class CatchesAFailedQuery(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        Tag.objects.create(name='Fresh', slug='fresh')\n"
+    b'        try:\n'
+    b"            Tag.objects.filter(name__regex='(').exists()\n"
+    b'        except DatabaseError:\n'
+    b"            self.log_warning('The lookup failed.')\n"
     b"        return 'done'\n"
 )
 
@@ -943,6 +1053,47 @@ class ImmediateRunCommitTestCase(ScriptJobTestMixin, TransactionTestCase):
         job_log = '\n'.join(entry['message'] for entry in job.log_entries)
         self.assertIn('post-commit processing failed: event processing failed', job_log)
         self.assertNotIn('The Script run failed', job_log)
+
+    def test_a_run_that_caught_a_database_error_fails_and_publishes_nothing(self):
+        self.publish({'deploy.py': CATCHES_A_DATABASE_ERROR})
+        Tag.objects.create(name='Existing', slug='existing')
+        webhook = Webhook.objects.create(name='Tag hook', payload_url='http://localhost:9/hook')
+        rule = EventRule.objects.create(
+            name='On a new tag',
+            event_types=[OBJECT_CREATED],
+            action_type=EventRuleActionChoices.WEBHOOK,
+            action_object=webhook,
+        )
+        rule.object_types.set([ObjectType.objects.get_for_model(Tag)])
+        queue = MagicMock()
+
+        with patch('extras.event_rules.get_queue', return_value=queue):
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertFalse(Tag.objects.filter(slug='fresh').exists())
+        queue.enqueue.assert_not_called()
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('Tag Existing is already there.', script_log)
+        self.assertIn('unable to commit', script_log)
+        self.assertIn('reverted', script_log)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('The Script run failed: ', job_log)
+
+    def test_a_run_that_caught_a_failed_query_fails_and_publishes_nothing(self):
+        self.publish({'deploy.py': CATCHES_A_FAILED_QUERY})
+
+        with patch('netbox.context_managers.flush_events') as flush:
+            job = self.run_job(request=fake_request(self.user))
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertFalse(Tag.objects.filter(slug='fresh').exists())
+        flush.assert_not_called()
+        script_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('The lookup failed.', script_log)
+        self.assertIn('unable to commit', script_log)
 
 
 class ScheduledRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):

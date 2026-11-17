@@ -34,6 +34,12 @@ ROWS = (
     ('netbox.context.current_request', 'netbox.context:current_request'),
     ('core.signals.clear_events', 'core.signals:clear_events'),
     ('django.db.router.db_for_write on a change-logged core model', 'dcim.models:Device'),
+    (
+        'django.db.transaction.get_rollback and psycopg.ConnectionInfo.transaction_status',
+        'django.db.transaction:get_rollback',
+        'psycopg:ConnectionInfo.transaction_status',
+        'psycopg.pq:TransactionStatus.INERROR',
+    ),
     ('utilities.exceptions.AbortScript', 'utilities.exceptions:AbortScript'),
     ('utilities.request.copy_safe_request', 'utilities.request:copy_safe_request'),
     ('utilities.querydict.normalize_querydict', 'utilities.querydict:normalize_querydict'),

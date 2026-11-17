@@ -10,12 +10,13 @@ import hashlib
 import os
 import unittest
 import uuid
+from contextlib import nullcontext
 from unittest import mock
 
 import django_rq
 from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.db import connection, connections
+from django.db import IntegrityError, connection, connections, router, transaction
 from django.test import RequestFactory, SimpleTestCase, TransactionTestCase
 from django.urls import reverse
 
@@ -336,6 +337,18 @@ class WritesASite(Script):
         Site.objects.create(name='Written By A Run', slug='written-by-a-run')
 
 
+class CatchesABranchError(Script):
+    """Creates a site twice and catches the second error, recording where its writes went."""
+
+    def run(self, data, commit):
+        self.routed_to = router.db_for_write(Site)
+        Site.objects.create(name='Written By A Run', slug='written-by-a-run')
+        try:
+            Site.objects.create(name='Written By A Run', slug='written-by-a-run')
+        except IntegrityError:
+            self.log_warning('The site is already there.')
+
+
 class ExecutionTargetsMainTestCase(BranchingTestCase):
     def sites(self):
         return Site.objects.filter(slug='written-by-a-run')
@@ -363,3 +376,21 @@ class ExecutionTargetsMainTestCase(BranchingTestCase):
         with activate_branch(branch):
             run_script(WritesASite(), data={}, commit=False)
         self.assertFalse(self.sites().exists())
+
+    def test_a_run_left_inside_a_branch_fails_when_the_branch_cannot_commit(self):
+        branch = self.branch('StaysActive')
+        instance = CatchesABranchError()
+        with (
+            activate_branch(branch),
+            # A deactivation that does nothing leaves the run inside the branch, on its own connection.
+            mock.patch('netbox_branching.utilities.deactivate_branch', return_value=nullcontext()),
+            self.assertRaises(transaction.TransactionManagementError),
+        ):
+            run_script(instance, data={}, commit=True)
+        self.assertEqual(instance.routed_to, branch.connection_name)
+        self.assertTrue(instance.failed)
+        logged = '\n'.join(record['message'] for record in instance.messages)
+        self.assertIn('The site is already there.', logged)
+        self.assertIn('unable to commit', logged)
+        with activate_branch(branch):
+            self.assertFalse(self.sites().exists())

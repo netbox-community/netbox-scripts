@@ -290,6 +290,18 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         )
         self.assertIn(f'Project {project.key} could not be activated: a storage error occurred.', messages)
 
+    def test_the_job_reports_a_missing_stored_tree_with_one_period(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        revision = project.revisions.get()
+        with mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError):
+            job = MigrationActivationJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        outcome = f'could not be activated: The stored revision {revision.short_digest} is missing.'
+        self.assertEqual(self.outcome(job.data['projects'], project), outcome)
+        self.assertIn(f'Project {project.key} {outcome}', [entry['message'] for entry in job.log_entries])
+
     def test_the_job_fails_when_the_fence_has_not_been_crossed(self):
         MigrationRun.objects.filter(pk=self.migration.pk).update(state=MigrationStateChoices.STAGING, journal={})
 

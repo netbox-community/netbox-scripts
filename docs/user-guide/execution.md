@@ -54,6 +54,27 @@ object-change events are discarded. The Job fails and records the exception
 and traceback. Raise `AbortScript` to fail with an explanatory message without
 a traceback.
 
+A run fails the same way when its Script returns while its database
+transaction can no longer commit, for example after catching an
+`IntegrityError` without a protecting savepoint. This applies to dry runs too.
+To handle a database error and keep the run's other changes, run the query
+that can fail in its own `transaction.atomic()` block and catch the error
+outside it:
+
+```python
+from django.db import IntegrityError, transaction
+
+from extras.models import Tag
+
+
+def run(self, data, commit):
+    try:
+        with transaction.atomic():
+            Tag.objects.create(name='Example', slug='example')
+    except IntegrityError:
+        self.log_warning('Tag Example already exists.')
+```
+
 With commit enabled, NetBox processes the run's object-change events after its
 database changes are committed. If that processing fails, for example because a
 Webhook cannot be queued, the changes stay committed and the Job fails with a

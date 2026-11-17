@@ -22,8 +22,9 @@ from contextlib import ExitStack, contextmanager
 
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
-from django.db import DEFAULT_DB_ALIAS, router, transaction
+from django.db import DEFAULT_DB_ALIAS, connections, router, transaction
 from django.utils.translation import gettext as _
+from psycopg.pq import TransactionStatus
 
 from core.signals import clear_events
 from netbox.context import current_request
@@ -107,8 +108,9 @@ def run_script(instance, *, data, commit, request=None):
     to its Job, apart from a PostCommitError, which is re-raised as a RuntimeError.
     An exception from a commit callback is raised as PostCommitError.
     PostCommitError, chained to the cause, therefore means this run failed after it committed.
-    A dry run reverts the database changes this covers and is not a failure. request may be
-    None, for a run with no request behind it.
+    A Script that returns with its transaction unable to commit fails with TransactionManagementError,
+    dry runs included. Otherwise a dry run reverts the database changes this covers and is not a failure.
+    request may be None, for a run with no request behind it.
     """
     # Preserve the caller's request context across all processors and exit paths.
     outer_request = current_request.get()
@@ -232,9 +234,9 @@ def _execute(instance, *, data, commit, request):
                 # database while the routed ones rolled back.
                 if changelogged_alias != DEFAULT_DB_ALIAS:
                     with transaction.atomic(using=changelogged_alias):
-                        _call(instance, data, commit, commit_succeeded)
+                        _call(instance, data, commit, commit_succeeded, changelogged_alias)
                 else:
-                    _call(instance, data, commit, commit_succeeded)
+                    _call(instance, data, commit, commit_succeeded, changelogged_alias)
         except _DryRunRollback:
             instance.log_info(_('Database changes have been reverted, this was a dry run.'))
     except Exception as error:
@@ -249,11 +251,22 @@ def _execute(instance, *, data, commit, request):
     return None
 
 
-def _call(instance, data, commit, commit_succeeded):
-    """Run the script once, ending a dry run with the exception that reverts it."""
+def _call(instance, data, commit, commit_succeeded, changelogged_alias):
+    """Run the script once, failing a run whose transaction cannot commit and ending a dry run with its rollback."""
     # Register before the Script's callbacks so their failures cannot skip the commit marker.
     transaction.on_commit(commit_succeeded.set, using=DEFAULT_DB_ALIAS)
     instance.output = instance.run(data, commit)
+    for alias in {DEFAULT_DB_ALIAS, changelogged_alias}:
+        # Caught read or raw-SQL errors can abort PostgreSQL's transaction without setting Django's rollback flag.
+        if transaction.get_rollback(using=alias) or (
+            connections[alias].connection.info.transaction_status == TransactionStatus.INERROR
+        ):
+            raise transaction.TransactionManagementError(
+                _(
+                    'The Script left its database transaction unable to commit. To handle a database error, run the '
+                    'operation in its own transaction.atomic() block and catch the error outside it.'
+                )
+            )
     if not commit:
         raise _DryRunRollback()
 

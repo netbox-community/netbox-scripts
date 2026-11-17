@@ -372,6 +372,9 @@ The plugin reimplements the built-in authoring API, with these differences:
 - Each recurring occurrence receives its own copy of the queued inputs. The
   built-in implementation passes changes a Script makes to `data` on to later
   occurrences.
+- A run fails if its Script leaves its transaction unable to commit, for
+  example after catching an `IntegrityError` without a protecting savepoint.
+  The built-in implementation reports such a run as completed.
 - `TextVar` honors an explicitly supplied widget rather than always using a
   textarea.
 - In the run form and over REST, `ObjectVar` and `MultiObjectVar` accept only

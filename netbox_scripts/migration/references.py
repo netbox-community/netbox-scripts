@@ -1,5 +1,7 @@
 """Moving the references an installation holds off the built-in Custom Scripts onto plugin rows."""
 
+import logging
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -12,6 +14,8 @@ from core.models import Job
 from utilities.forms import restrict_form_fields
 
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
+from ..runtime.exceptions import ScriptResolutionError
+from ..validation import storage_failure_reason
 from . import cutover, mapping
 from .locking import serialized_migration_step
 
@@ -26,6 +30,8 @@ __all__ = (
     'repoint_job_history',
     'repoint_permissions',
 )
+
+logger = logging.getLogger('netbox.plugins.netbox_scripts.migration')
 
 # Declared here rather than imported from event_rules.py, so this tier does not become a second
 # loader of a module PluginConfig is meant to resolve on its own.
@@ -399,9 +405,15 @@ def recreate_schedules(run):
         except _REPLAY_FAILURES as error:
             counts['skipped'] += 1
             counts['outstanding'] += 1
+            # script_class_context wraps load failures, and the Script's constructor and form code raise unwrapped.
+            cause = error.__cause__ if isinstance(error, ScriptResolutionError) else error
+            if replacement := storage_failure_reason(cause):
+                logger.exception(
+                    'Could not recreate schedule for built-in Job %s against Script %s.', entry['job_pk'], script.pk
+                )
             warnings.append(
                 _('Schedule "{name}" (Job {pk}) could not be recreated against {script}: {error}').format(
-                    pk=entry['job_pk'], name=entry['name'], script=script, error=error
+                    pk=entry['job_pk'], name=entry['name'], script=script, error=replacement or error
                 )
             )
             continue

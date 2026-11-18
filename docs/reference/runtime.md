@@ -147,6 +147,12 @@ Project-relative path. The server log records the full storage location under
 `netbox.plugins.netbox_scripts.storage`, including all mismatch details for
 damaged revisions.
 
+A Job that reaches its timeout while it reads, writes or removes a stored
+revision is not reported as a storage failure. NetBox ends it as **Errored**
+with the timeout as its error, and a validation Job interrupted before its
+verdict also returns its revision to `materialized`. A Script run ends as
+**Failed** instead, with the timeout in its Job log.
+
 **An `invalid` verdict does not clear when the host changes.** Identical source
 and Script File selection reuse the revision and its existing verdict.
 Installing a missing distribution and uploading the same content therefore

@@ -2,6 +2,7 @@ from datetime import timedelta
 from unittest import mock
 
 from django.test import TestCase
+from rq.timeouts import JobTimeoutException
 
 from core.choices import JobStatusChoices
 from extras.models import ScriptModule
@@ -310,3 +311,59 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
         self.assertIn('cutover has not been entered', ' '.join(e['message'] for e in job.log_entries))
+
+    def test_the_job_stops_at_a_job_timeout_without_recording_the_pass(self):
+        self.stage_and_validate()
+        first = ScriptProject.objects.order_by('key').first()
+        storage = config.get_storage()
+        real_open = storage.open
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        def time_out_for_project(name, mode='rb'):
+            # Only the first Project times out, so the next one would activate if the pass went on.
+            if str(first.storage_key) in name:
+                raise timeout
+            return real_open(name, mode)
+
+        with mock.patch.object(storage, 'open', side_effect=time_out_for_project):
+            job = MigrationActivationJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(timeout))
+        self.assertFalse(ScriptProject.objects.filter(active_revision__isnull=False).exists())
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(cutover.ACTIVATE_STEP))
+        for private in (str(first.storage_key), first.revisions.get().digest):
+            self.assertNotIn(private, str(job.log_entries))
+
+    def test_a_job_timeout_on_a_later_project_keeps_the_earlier_activation(self):
+        self.stage_and_validate()
+        first, second = ScriptProject.objects.order_by('key')
+        storage = config.get_storage()
+        real_open = storage.open
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        def time_out_for_project(name, mode='rb'):
+            if str(second.storage_key) in name:
+                raise timeout
+            return real_open(name, mode)
+
+        with mock.patch.object(storage, 'open', side_effect=time_out_for_project):
+            interrupted = MigrationActivationJob.enqueue(immediate=True)
+
+        interrupted.refresh_from_db()
+        self.assertEqual(interrupted.status, JobStatusChoices.STATUS_ERRORED)
+        serving = ScriptProject.objects.filter(active_revision__isnull=False)
+        self.assertEqual(list(serving.values_list('pk', flat=True)), [first.pk])
+        self.migration.refresh_from_db()
+        self.assertFalse(self.migration.step_done(cutover.ACTIVATE_STEP))
+
+        repeated = MigrationActivationJob.enqueue(immediate=True)
+
+        repeated.refresh_from_db()
+        self.assertEqual(repeated.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [result['outcome'] for result in repeated.data['projects']],
+            ['was already serving this revision', 'activated'],
+        )

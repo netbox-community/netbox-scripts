@@ -7,6 +7,7 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from rq.timeouts import JobTimeoutException
 
 from core.choices import DataSourceStatusChoices, JobStatusChoices
 from core.exceptions import JobFailed
@@ -249,6 +250,18 @@ class ProjectReconciliationJobTestCase(TestCase):
             for private in ('/srv/netbox/private', str(self.project.storage_key), revision.digest):
                 self.assertNotIn(private, str(job.log_entries))
         self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_job_timeout_while_storing_ends_the_job_as_errored(self):
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with mock.patch.object(config.get_storage(), 'save', side_effect=timeout):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(timeout))
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        self.assertEqual(revision.status, RevisionStatusChoices.STAGING)
+        self.validated.assert_not_called()
 
     def test_a_missing_stored_tree_keeps_its_own_text_in_the_job_log(self):
         self.run_job()

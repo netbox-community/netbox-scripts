@@ -467,3 +467,20 @@ class ScriptProjectBulkImportView(generic.BulkImportView):
             submitted = {field.name: getattr(instance, field.attname) for field in fields}
             refuse_unpermitted_source_change(request.user, instance, submitted)
         return super().save_object(object_form, request)
+
+    def create_and_update_objects(self, form, request):
+        """Lock every Project the import updates for the rest of NetBox's transaction, before NetBox reads the rows."""
+        using = router.db_for_write(self.queryset.model)
+        storage_keys = (
+            ScriptProject.objects.using(using)
+            # Only what NetBox reads: the ids are unchecked input, and the view admits any user with add.
+            .restrict(request.user, 'change')
+            .filter(pk__in=[int(record['id']) for record in form.cleaned_data['data'] if record.get('id')])
+            # The REST lock-order mixin's order, which a bulk import has to share.
+            .order_by('name', 'pk')
+            .values_list('storage_key', flat=True)
+        )
+        for storage_key in storage_keys:
+            with project_write_lock(storage_key, using=using):
+                pass
+        return super().create_and_update_objects(form, request)

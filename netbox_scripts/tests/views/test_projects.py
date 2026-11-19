@@ -10,6 +10,7 @@ from django.test import RequestFactory, override_settings
 from django.urls import reverse
 
 from core.models import DataSource, ObjectChange, ObjectType
+from netbox.choices import CSVDelimiterChoices, ImportFormatChoices
 from netbox.context_managers import event_tracking
 from netbox_scripts import activation
 from netbox_scripts.choices import ActivationPolicyChoices, ProjectSourceTypeChoices, RevisionStatusChoices
@@ -104,6 +105,12 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         data = {'pk': [project.pk for project in projects], '_apply': True, **post_data({'description': 'bulk'})}
         return self.client.post(self._get_url('bulk_edit'), data)
 
+    def bulk_import(self, *projects):
+        """Post a CSV import that sets these Projects' description to 'bulk'."""
+        rows = ('id,description', *(f'{project.pk},bulk' for project in projects))
+        data = {'data': '\n'.join(rows), 'format': ImportFormatChoices.CSV, 'csv_delimiter': CSVDelimiterChoices.AUTO}
+        return self.client.post(self._get_url('bulk_import'), data)
+
     @contextmanager
     def while_waiting_for(self, project, change):
         """Run change once, just before the request asks for this Project's write lock."""
@@ -191,6 +198,75 @@ class ScriptProjectTestCase(PluginTestCases.PrimaryObjectViewTestCase):
         self.assertFalse(ScriptProject.objects.filter(pk=bravo.pk).exists())
         alpha.refresh_from_db()
         self.assertEqual(alpha.description, 'bulk')
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_import_keeps_changes_made_while_it_waits_for_a_lock(self):
+        self.add_permissions('netbox_scripts.add_scriptproject', 'netbox_scripts.change_scriptproject')
+        change = {'name': 'Bravo Devices Renamed', 'comments': 'Edited during the wait'}
+        for waiting_for in ('first', 'last'):
+            with self.subTest(waiting_for=waiting_for):
+                alpha = ScriptProject.objects.create(name=f'Alpha Devices {waiting_for}', key=f'alpha-{waiting_for}')
+                bravo = ScriptProject.objects.create(name=f'Bravo Devices {waiting_for}', key=f'bravo-{waiting_for}')
+                edit = partial(ScriptProject.objects.filter(pk=bravo.pk).update, **change)
+                with self.while_waiting_for(alpha if waiting_for == 'first' else bravo, edit):
+                    response = self.bulk_import(alpha, bravo)
+
+                self.assertHttpStatus(response, 302)
+                alpha.refresh_from_db()
+                bravo.refresh_from_db()
+                self.assertEqual(
+                    (alpha.description, bravo.description, bravo.name, bravo.comments),
+                    ('bulk', 'bulk', change['name'], change['comments']),
+                )
+                record = ObjectChange.objects.get(
+                    changed_object_type=ObjectType.objects.get_for_model(ScriptProject), changed_object_id=bravo.pk
+                )
+                # Snapshotted after the wait, so neither field reads as changed.
+                for data in (record.prechange_data, record.postchange_data):
+                    self.assertEqual({field: data[field] for field in change}, change)
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_import_takes_project_locks_in_name_order(self):
+        self.add_permissions('netbox_scripts.add_scriptproject', 'netbox_scripts.change_scriptproject')
+        # Zulu comes first by pk, key, storage key, advisory key and CSV row, and last only by name.
+        keys = sorted((uuid.UUID(int=2), uuid.UUID(int=3)), key=advisory_key)
+        self.assertEqual(keys, sorted(keys))
+        zulu = ScriptProject.objects.create(name='Zulu Devices', key='devices-1', storage_key=keys[0])
+        alpha = ScriptProject.objects.create(name='Alpha Devices', key='devices-2', storage_key=keys[1])
+
+        with mock.patch('netbox_scripts.views.projects.project_write_lock', wraps=project_write_lock) as acquire:
+            response = self.bulk_import(zulu, alpha)
+
+        self.assertHttpStatus(response, 302)
+        self.assertEqual([call.args[0] for call in acquire.call_args_list], [alpha.storage_key, zulu.storage_key])
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_import_without_the_change_permission_takes_no_project_lock(self):
+        self.add_permissions('netbox_scripts.add_scriptproject')
+        project = ScriptProject.objects.get(key='project-1')
+
+        with mock.patch('netbox_scripts.views.projects.project_write_lock', wraps=project_write_lock) as acquire:
+            response = self.bulk_import(project)
+
+        self.assertContains(response, 'Remove the ID column to create new objects instead.')
+        acquire.assert_not_called()
+
+    @override_settings(EXEMPT_VIEW_PERMISSIONS=['*'], EXEMPT_EXCLUDE_MODELS=[])
+    def test_a_bulk_import_locks_only_the_projects_the_user_may_change(self):
+        self.add_permissions('netbox_scripts.add_scriptproject')
+        permission = ObjectPermission.objects.create(
+            name='Change project-1', actions=['change'], constraints={'key': 'project-1'}
+        )
+        permission.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+        permission.users.add(self.user)
+        permitted = ScriptProject.objects.get(key='project-1')
+        refused = ScriptProject.objects.get(key='project-2')
+
+        with mock.patch('netbox_scripts.views.projects.project_write_lock', wraps=project_write_lock) as acquire:
+            response = self.bulk_import(permitted, refused)
+
+        self.assertContains(response, f'Object with ID {refused.pk} does not exist')
+        self.assertEqual([call.args[0] for call in acquire.call_args_list], [permitted.storage_key])
 
 
 class ScriptProjectScriptFilesViewTestCase(ObjectPermissionTestMixin, TestCase):

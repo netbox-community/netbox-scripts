@@ -1,5 +1,5 @@
 """
-Lock ordering for the REST write paths and the Project bulk edit.
+Lock ordering for the REST write paths and the Project bulk edit and import.
 
 Every statement that locks or writes a target row is observed from a second session, which must find the owning
 Projects' locks already taken. A probe at save() runs after NetBox's own row lock, so it cannot see the order.
@@ -19,6 +19,7 @@ from django.test import Client, TransactionTestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from netbox.choices import CSVDelimiterChoices, ImportFormatChoices
 from netbox_scripts.models import ScriptFile, ScriptProject
 from netbox_scripts.storage.locks import advisory_key, project_lock
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, ObjectPermissionTestMixin, SecondSession
@@ -28,7 +29,7 @@ from utilities.testing import post_data
 
 
 class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
-    """REST writes and the Project bulk edit take the owning Projects' locks before NetBox locks or writes a row."""
+    """REST writes and Project bulk edits and imports lock the owning Projects before NetBox locks or writes a row."""
 
     client_class = APIClient
 
@@ -89,6 +90,14 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
         self.assertTrue(observed, 'The request neither locked nor wrote a row.')
         self.assert_locks_released(projects)
 
+    def bulk_import(self, *projects):
+        """Post a UI CSV import that sets these Projects' description to 'edited'."""
+        client = Client()
+        client.force_login(self.user)
+        rows = ('id,description', *(f'{project.pk},edited' for project in projects))
+        data = {'data': '\n'.join(rows), 'format': ImportFormatChoices.CSV, 'csv_delimiter': CSVDelimiterChoices.AUTO}
+        return client.post(reverse('plugins:netbox_scripts:scriptproject_bulk_import'), data)
+
     def test_single_updates_lock_the_project_before_the_row(self):
         for instance in (self.project, self.script_file):
             for method in ('patch', 'put'):
@@ -146,6 +155,35 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
             response = client.post(reverse('plugins:netbox_scripts:scriptproject_bulk_edit'), data)
 
         self.assertEqual(response.status_code, 302)
+
+    def test_a_project_bulk_import_holds_every_lock_through_its_writes(self):
+        self.grant(ScriptProject, 'add')
+        bravo = ScriptProject.objects.create(name='Bravo Devices', key='bravo-devices')
+
+        with self.observe_row_writes(ScriptProject, (self.project, bravo)):
+            response = self.bulk_import(self.project, bravo)
+
+        self.assertEqual(response.status_code, 302)
+
+    def test_a_project_bulk_import_does_not_recreate_a_project_deleted_while_it_waits(self):
+        self.grant(ScriptProject, 'add')
+        bravo = ScriptProject.objects.create(name='Bravo Devices', key='bravo-devices')
+        pending = [bravo.pk]
+
+        def delete_first(execute, sql, params, many, context):
+            # Committed by another session just before the import asks for its first Project lock.
+            if pending and 'pg_advisory_xact_lock' in sql:
+                with SecondSession() as other, other.connection.cursor() as cursor:
+                    cursor.execute(f'DELETE FROM {ScriptProject._meta.db_table} WHERE id = %s', (pending.pop(),))
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(delete_first):
+            response = self.bulk_import(self.project, bravo)
+
+        self.assertContains(response, f'Object with ID {bravo.pk} does not exist')
+        self.assertFalse(ScriptProject.objects.filter(pk=bravo.pk).exists())
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.description, '')
 
     def test_a_conditional_project_delete_holds_the_project_lock_first(self):
         etag = self.etag(self.project)

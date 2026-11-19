@@ -18,8 +18,8 @@ Context:
 {% block message %}
   {% if candidate %}
     <p>
-      {% blocktrans with revision=candidate.short_digest project=object %}
-        Make revision {{ revision }} the active source of {{ project }}?
+      {% blocktrans with revision=candidate.short_digest revision_id=candidate.pk project=object %}
+        Make revision {{ revision }} (ID {{ revision_id }}) the active source of {{ project }}?
       {% endblocktrans %}
     </p>
     <p class="text-secondary">
@@ -28,9 +28,16 @@ Context:
       {% plural %}
         It holds {{ counter }} files.
       {% endblocktrans %}
+      {% blocktrans count counter=candidate.script_file_snapshot|length %}
+        It selects {{ counter }} Script File.
+      {% plural %}
+        It selects {{ counter }} Script Files.
+      {% endblocktrans %}
       {% if object.active_revision %}
-        {% blocktrans with previous=object.active_revision.short_digest %}
-          Revision {{ previous }} is retired in the same step.
+        {% blocktrans with previous=object.active_revision.short_digest previous_id=object.active_revision.pk count counter=object.active_revision.script_file_snapshot|length %}
+          Revision {{ previous }} (ID {{ previous_id }}), which selects {{ counter }} Script File, is retired in the same step.
+        {% plural %}
+          Revision {{ previous }} (ID {{ previous_id }}), which selects {{ counter }} Script Files, is retired in the same step.
         {% endblocktrans %}
       {% endif %}
     </p>

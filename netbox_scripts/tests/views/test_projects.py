@@ -653,7 +653,81 @@ class ScriptProjectActivateViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.grant('view', 'activate')
         response = self.client.get(self.url())
         self.assertHttpStatus(response, 200)
-        self.assertIn(self.revision.short_digest, response.content.decode())
+        body = response.content.decode()
+        self.assertIn(
+            f'Make revision {self.revision.short_digest} (ID {self.revision.pk}) the active source of Manual Project?',
+            body,
+        )
+        self.assertIn('It selects 0 Script Files.', body)
+        self.assertNotIn('is retired in the same step', body)
+
+    def test_the_confirmation_tells_apart_revisions_sharing_a_digest(self):
+        self.grant('view', 'activate')
+        ScriptFile.objects.create(project=self.project, source_path='a.py')
+        deselected = ScriptFile.objects.create(project=self.project, source_path='b.py')
+        files = {'a.py': b'A = 1\n', 'b.py': b'B = 1\n', 'helpers.py': b'H = 1\n'}
+        both = service.stage_revision(self.project, files).revision
+        ScriptFile.objects.filter(pk=deselected.pk).update(enabled=False)
+        narrowed = service.refresh_revision_script_files(both).revision
+        ScriptProjectRevision.objects.filter(pk__in=(both.pk, narrowed.pk)).update(status=RevisionStatusChoices.VALID)
+        self.client.post(self.url(), {'revision_id': narrowed.pk})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, narrowed.pk)
+
+        body = self.client.get(self.url()).content.decode()
+
+        self.assertEqual((both.digest, both.file_count), (narrowed.digest, narrowed.file_count))
+        self.assertIn(f'Make revision {both.short_digest} (ID {both.pk}) the active source of Manual Project?', body)
+        self.assertIn('It holds 3 files.', body)
+        self.assertIn('It selects 2 Script Files.', body)
+        self.assertIn(
+            f'Revision {narrowed.short_digest} (ID {narrowed.pk}), which selects 1 Script File, is retired in the '
+            'same step.',
+            body,
+        )
+
+        self.client.post(self.url(), {'revision_id': both.pk})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, both.pk)
+        body = self.client.get(self.url()).content.decode()
+        self.assertIn(
+            f'Make revision {narrowed.short_digest} (ID {narrowed.pk}) the active source of Manual Project?',
+            body,
+        )
+        self.assertIn('It selects 1 Script File.', body)
+        self.assertIn(
+            f'Revision {both.short_digest} (ID {both.pk}), which selects 2 Script Files, is retired in the same step.',
+            body,
+        )
+
+    def test_the_confirmation_tells_apart_revisions_selecting_as_many_script_files(self):
+        self.grant('view', 'activate')
+        a_py = ScriptFile.objects.create(project=self.project, source_path='a.py')
+        b_py = ScriptFile.objects.create(project=self.project, source_path='b.py')
+        ScriptFile.objects.filter(pk=b_py.pk).update(enabled=False)
+        only_a = service.stage_revision(self.project, {'a.py': b'A = 1\n', 'b.py': b'B = 1\n'}).revision
+        ScriptFile.objects.filter(pk=a_py.pk).update(enabled=False)
+        ScriptFile.objects.filter(pk=b_py.pk).update(enabled=True)
+        only_b = service.refresh_revision_script_files(only_a).revision
+        ScriptProjectRevision.objects.filter(pk__in=(only_a.pk, only_b.pk)).update(status=RevisionStatusChoices.VALID)
+        self.client.post(self.url(), {'revision_id': only_a.pk})
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, only_a.pk)
+
+        body = self.client.get(self.url()).content.decode()
+
+        self.assertEqual(only_a.digest, only_b.digest)
+        self.assertNotEqual(only_a.script_file_snapshot, only_b.script_file_snapshot)
+        self.assertIn(
+            f'Make revision {only_b.short_digest} (ID {only_b.pk}) the active source of Manual Project?',
+            body,
+        )
+        self.assertIn('It selects 1 Script File.', body)
+        self.assertIn(
+            f'Revision {only_a.short_digest} (ID {only_a.pk}), which selects 1 Script File, is retired in the '
+            'same step.',
+            body,
+        )
 
     def test_posting_activates_the_revision(self):
         self.grant('view', 'activate')
@@ -883,6 +957,11 @@ class ScriptProjectActivateViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.client.post(self.url(), {'revision_id': self.revision.pk})
         self.project.refresh_from_db()
         self.assertEqual(self.project.active_revision_id, self.revision.pk)
+        body = self.client.get(self.url()).content.decode()
+        self.assertIn(
+            f'Revision {self.revision.short_digest} (ID {self.revision.pk}), which selects 0 Script Files, is retired',
+            body,
+        )
 
     def test_posting_without_a_revision_does_not_choose_one(self):
         self.grant('view', 'activate')

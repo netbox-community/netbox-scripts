@@ -16,8 +16,8 @@ Context:
 {% endblock confirmation_title %}
 {% block message %}
   <p>
-    {% blocktrans with revision=object.short_digest project=project %}
-      Make revision {{ revision }} the active source of {{ project }}?
+    {% blocktrans with revision=object.short_digest revision_id=object.pk project=project %}
+      Make revision {{ revision }} (ID {{ revision_id }}) the active source of {{ project }}?
     {% endblocktrans %}
   </p>
   <p class="text-secondary">
@@ -26,9 +26,16 @@ Context:
     {% plural %}
       It holds {{ counter }} files.
     {% endblocktrans %}
+    {% blocktrans count counter=object.script_file_snapshot|length %}
+      It selects {{ counter }} Script File.
+    {% plural %}
+      It selects {{ counter }} Script Files.
+    {% endblocktrans %}
     {% if project.active_revision %}
-      {% blocktrans with previous=project.active_revision.short_digest %}
-        Revision {{ previous }} is retired in the same step.
+      {% blocktrans with previous=project.active_revision.short_digest previous_id=project.active_revision.pk count counter=project.active_revision.script_file_snapshot|length %}
+        Revision {{ previous }} (ID {{ previous_id }}), which selects {{ counter }} Script File, is retired in the same step.
+      {% plural %}
+        Revision {{ previous }} (ID {{ previous_id }}), which selects {{ counter }} Script Files, is retired in the same step.
       {% endblocktrans %}
     {% endif %}
     {% trans "Its Scripts are published, and any the new revision no longer publishes are retired." %}

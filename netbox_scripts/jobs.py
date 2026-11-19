@@ -34,12 +34,26 @@ from .runtime.exceptions import ScriptFileImportError
 from .runtime.loader import revision_import_session, unload_revision
 from .runtime.resolution import resolve_script_class
 from .storage import config, service, store
-from .storage.exceptions import ActivationError, StorageConfigurationError, StorageError
+from .storage.exceptions import (
+    ActivationError,
+    ProjectVanishedError,
+    RevisionVanishedError,
+    StorageConfigurationError,
+    StorageError,
+)
 from .storage.locks import project_lock
 from .storage.service import require_default_database
 from .validation import ValidationStateError, build_error_sanitizer, storage_failure_reason, validate_revision
 
 logger = logging.getLogger('netbox.plugins.netbox_scripts.jobs')
+
+# Storage operations raise typed deletion errors, and direct ORM reads raise DoesNotExist.
+VANISHED_EXCEPTIONS = (
+    ProjectVanishedError,
+    RevisionVanishedError,
+    ScriptProject.DoesNotExist,
+    ScriptProjectRevision.DoesNotExist,
+)
 
 
 class ProjectStorageCleanupJob(JobRunner):
@@ -259,14 +273,19 @@ class ProjectReconciliationJob(JobRunner):
             detail = _('Refusing Script Project reconciliation, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
-        project = ScriptProject.objects.filter(pk=project_id).first()
-        if project is None:
+        try:
+            project = ScriptProject.objects.get(pk=project_id)
+            staged = ingestion.ingest_data_source(project)
+            # _accept_source() moves the pointer and the intent flag with a queryset update, which
+            # leaves this instance behind, and the branches below read both.
+            project.refresh_from_db()
+        except VANISHED_EXCEPTIONS:
+            if ScriptProject.objects.filter(pk=project_id).exists():
+                raise
             self.logger.info(
                 _('Script Project {project_id} no longer exists, nothing to reconcile.').format(project_id=project_id)
             )
             return
-        try:
-            staged = ingestion.ingest_data_source(project)
         except (StorageError, StorageConfigurationError, OSError) as error:
             if replacement := storage_failure_reason(error):
                 logger.exception('Could not reconcile the source of Script Project %s.', project.pk)
@@ -277,9 +296,6 @@ class ProjectReconciliationJob(JobRunner):
             raise JobFailed() from error
 
         revision = staged.revision
-        # _accept_source() moves the pointer and the intent flag with a queryset update, which
-        # leaves this instance behind, and the branches below read both.
-        project.refresh_from_db()
         # Only a rejected staging attempt lacks a digest, so any other INVALID revision failed validation.
         if revision.status == RevisionStatusChoices.INVALID and not revision.digest:
             self.logger.warning(
@@ -362,16 +378,13 @@ class ProjectScriptFileRefreshJob(JobRunner):
             detail = _('Refusing a Script Project script file refresh, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
-        project = ScriptProject.objects.filter(pk=project_id).first()
-        if project is None:
-            self.logger.info(
-                _('Script Project {project_id} no longer exists, nothing to refresh.').format(project_id=project_id)
-            )
-            return
         from .ingestion import queue_revision_processing
 
         try:
+            project = ScriptProject.objects.get(pk=project_id)
             with project_lock(project.storage_key, using=require_default_database(project)):
+                # latest_stored_revision() reads a project deleted while this waited as one holding no source.
+                project.refresh_from_db()
                 source = project.latest_stored_revision()
                 if source is None:
                     self.logger.info(
@@ -382,6 +395,13 @@ class ProjectScriptFileRefreshJob(JobRunner):
                     return
                 staged = service.refresh_revision_script_files(source)
                 processing_job = queue_revision_processing(staged.revision)
+        except VANISHED_EXCEPTIONS:
+            if ScriptProject.objects.filter(pk=project_id).exists():
+                raise
+            self.logger.info(
+                _('Script Project {project_id} no longer exists, nothing to refresh.').format(project_id=project_id)
+            )
+            return
         except (StorageError, StorageConfigurationError, OSError) as error:
             if replacement := storage_failure_reason(error):
                 logger.exception('Could not refresh the Script Files of Script Project %s.', project.pk)
@@ -446,29 +466,45 @@ class RevisionValidationJob(JobRunner):
         return job
 
     def run(self, revision_pk=None, **kwargs):
-        """Recheck routing safety, then validate, failing the job on anything but a verdict."""
+        """Recheck routing safety, then validate. Anything but a verdict or a deleted revision fails the job."""
         # Enqueue-time safety does not carry, the job may run much later on another pod.
         if reason := branching.unsafe_routing_reason():
             detail = _('Refusing revision validation, because {reason}').format(reason=reason)
             self.logger.error(detail)
             raise JobFailed()
-        revision = ScriptProjectRevision.objects.filter(pk=revision_pk).first()
-        if revision is None:
+        try:
+            revision = ScriptProjectRevision.objects.select_related('project').get(pk=revision_pk)
+            # Kept for the error handlers, which must not re-read a project deleted in the meantime.
+            storage_key = str(revision.project.storage_key)
+            if revision.status not in (*ACTIVATABLE_REVISION_STATUSES, RevisionStatusChoices.ACTIVE):
+                revision = validate_revision(revision, job=self.job, passthrough=(JobTimeoutException,))
+        except VANISHED_EXCEPTIONS:
+            if ScriptProjectRevision.objects.filter(pk=revision_pk).exists():
+                raise
             self.logger.info(
                 _('Revision {revision_pk} no longer exists, nothing to validate.').format(revision_pk=revision_pk)
             )
             return
-        try:
-            if revision.status not in (*ACTIVATABLE_REVISION_STATUSES, RevisionStatusChoices.ACTIVE):
-                revision = validate_revision(revision, job=self.job, passthrough=(JobTimeoutException,))
         except ValidationStateError as error:
+            # A revision deleted after the read above fails its claim too.
+            if not ScriptProjectRevision.objects.filter(pk=revision_pk).exists():
+                self.logger.info(
+                    _('Revision {revision_pk} no longer exists, nothing to validate.').format(revision_pk=revision_pk)
+                )
+                return
             self.logger.error(str(error))
             raise JobFailed() from error
         except (ScriptFileImportError, StorageError, OSError) as error:
+            # A deleted project's cleanup job can reclaim the stored tree before this run reads it.
+            if not ScriptProjectRevision.objects.filter(pk=revision_pk).exists():
+                self.logger.info(
+                    _('Revision {revision_pk} no longer exists, nothing to validate.').format(revision_pk=revision_pk)
+                )
+                return
             # An expected environment failure: the claim was rolled back, the revision is
             # claimable again, and the failed job carries the sanitized reason. The message
             # is rendered up front, because the job log records it verbatim.
-            sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
+            sanitize = build_error_sanitizer(storage_key, revision.digest)
             detail = sanitize(
                 _('Revision validation could not complete and needs another run: {error}').format(
                     error=storage_failure_reason(error) or error
@@ -482,18 +518,31 @@ class RevisionValidationJob(JobRunner):
             )
             return
         self.logger.info(_('The revision validated as {status}.').format(status=revision.status))
-        self._activate_if_requested(revision)
+        self._activate_if_requested(revision, storage_key)
 
-    def _activate_if_requested(self, revision):
+    def _activate_if_requested(self, revision, storage_key):
         """Activate only the currently accepted source under its current policy and declaration snapshot."""
         try:
             result = activation.activate_revision(revision, automatic=True)
+        except VANISHED_EXCEPTIONS:
+            if ScriptProjectRevision.objects.filter(pk=revision.pk).exists():
+                raise
+            self.logger.info(
+                _('Revision {revision_pk} no longer exists, nothing to activate.').format(revision_pk=revision.pk)
+            )
+            return
         except (ActivationError, StorageError, OSError) as error:
             if replacement := storage_failure_reason(error):
                 logger.exception(
                     'Could not activate revision %s of Script Project %s.', revision.pk, revision.project_id
                 )
-            sanitize = build_error_sanitizer(str(revision.project.storage_key), revision.digest)
+            # A deleted project's cleanup job can reclaim the stored tree before activation takes the project lock.
+            if not ScriptProjectRevision.objects.filter(pk=revision.pk).exists():
+                self.logger.info(
+                    _('Revision {revision_pk} no longer exists, nothing to activate.').format(revision_pk=revision.pk)
+                )
+                return
+            sanitize = build_error_sanitizer(storage_key, revision.digest)
             detail = sanitize(
                 _('The revision validated but could not be activated: {error}').format(error=replacement or error)
             )

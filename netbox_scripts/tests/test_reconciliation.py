@@ -13,7 +13,7 @@ from core.exceptions import JobFailed
 from core.jobs import SyncDataSourceJob
 from core.models import DataFile, DataSource, Job
 from core.signals import post_sync
-from netbox_scripts import jobs
+from netbox_scripts import ingestion, jobs
 from netbox_scripts.choices import (
     ActivationPolicyChoices,
     ProjectSourceTypeChoices,
@@ -207,9 +207,62 @@ class ProjectReconciliationJobTestCase(TestCase):
     def test_a_project_deleted_before_the_job_runs_completes_with_nothing_to_do(self):
         deleted_pk = self.project.pk
         self.project.delete()
-        job = self.run_job(project_id=deleted_pk)
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'):
+            job = self.run_job(project_id=deleted_pk)
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertIn('no longer exists', str(job.log_entries))
+
+    def test_a_project_deleted_while_its_source_is_staged_completes_with_nothing_to_do(self):
+        pk = self.project.pk
+        original = ingestion._data_source_tree
+
+        def read_then_delete(project):
+            tree = original(project)
+            self.project.delete()
+            return tree
+
+        with (
+            mock.patch.object(ingestion, '_data_source_tree', read_then_delete),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Script Project {pk} no longer exists, nothing to reconcile.'],
+        )
+
+    def test_a_project_deleted_after_its_source_is_staged_completes_with_nothing_to_do(self):
+        pk = self.project.pk
+        original = ingestion.ingest_data_source
+
+        def stage_then_delete(project):
+            staged = original(project)
+            self.project.delete()
+            return staged
+
+        with (
+            mock.patch.object(ingestion, 'ingest_data_source', stage_then_delete),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Script Project {pk} no longer exists, nothing to reconcile.'],
+        )
+
+    def test_a_does_not_exist_for_a_surviving_project_escapes_unchanged(self):
+        error = ScriptProject.DoesNotExist('ScriptProject matching query does not exist.')
+
+        with mock.patch.object(ingestion, 'ingest_data_source', side_effect=error):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(error))
+        self.assertNotIn('no longer exists', str(job.log_entries))
 
     def test_unsafe_routing_fails_the_job_before_any_work(self):
         # Enqueue-time safety does not carry, the job may run much later on another pod.

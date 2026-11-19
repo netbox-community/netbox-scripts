@@ -3,6 +3,7 @@
 import logging
 import pickle
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
@@ -1021,6 +1022,20 @@ class MigrationStagingJob(JobRunner):
         )
 
 
+@contextmanager
+def _logging_added_warnings(logger, run):
+    """Log each warning the enclosed passes add to the run, also when one of them raises."""
+    recorded = set(run.warnings) if run else set()
+    try:
+        yield
+    finally:
+        if run is not None:
+            run.refresh_from_db(fields=('warnings',))
+            for warning in run.warnings:
+                if warning not in recorded:
+                    logger.warning(warning)
+
+
 class MigrationCutoverJob(JobRunner):
     """
     Cross the migration fence: capture every reference to replay, then close what a plugin can.
@@ -1044,14 +1059,15 @@ class MigrationCutoverJob(JobRunner):
 
         run = MigrationRun.current()
         try:
-            counts = cutover.enter_cutover(run, accept_concurrent_workers=bool(kwargs.get('accept_concurrent_workers')))
+            with _logging_added_warnings(self.logger, run):
+                counts = cutover.enter_cutover(
+                    run, accept_concurrent_workers=bool(kwargs.get('accept_concurrent_workers'))
+                )
         except cutover.CutoverRefused as refusal:
             self.logger.error(str(refusal))
             raise JobFailed() from refusal
 
         run.refresh_from_db()
-        for warning in run.warnings:
-            self.logger.warning(warning)
         self.logger.info(
             _(
                 'Withdrew {permissions} permission(s) on the built-in feature, disabled '
@@ -1068,9 +1084,9 @@ class MigrationCutoverJob(JobRunner):
             # Everything but the queue is closed, so the honest report is what is still open.
             self.logger.warning(
                 _(
-                    'The cutover is incomplete and the warnings above name what is still open. Run '
-                    'this job again once they are resolved, and keep built-in Script submissions '
-                    'stopped in the meantime.'
+                    "The cutover is incomplete. Review the warnings recorded on the migration run's page, resolve "
+                    'any outstanding issues, then run this job again. Keep built-in Script submissions stopped in '
+                    'the meantime.'
                 )
             )
             return
@@ -1153,18 +1169,17 @@ class MigrationReferencesJob(JobRunner):
 
         run = MigrationRun.current()
         try:
-            rules, rule_warnings = references.repoint_event_rules(run)
-            permissions, permission_warnings = references.repoint_permissions(run)
-            # History before schedules, so preservation happens before anything new is created, and
-            # both before the built-in rows are deleted, since a Script's jobs go with it.
-            history, history_warnings = references.repoint_job_history(run)
-            schedules, schedule_warnings = references.recreate_schedules(run)
+            with _logging_added_warnings(self.logger, run):
+                rules = references.repoint_event_rules(run)
+                permissions = references.repoint_permissions(run)
+                # History before schedules, so preservation happens before anything new is created, and
+                # both before the built-in rows are deleted, since a Script's jobs go with it.
+                history = references.repoint_job_history(run)
+                schedules = references.recreate_schedules(run)
         except cutover.CutoverRefused as refusal:
             self.logger.error(str(refusal))
             raise JobFailed() from refusal
 
-        for warning in (*rule_warnings, *permission_warnings, *history_warnings, *schedule_warnings):
-            self.logger.warning(warning)
         self.logger.info(
             _(
                 'Repointed {actions} Event Rule action(s) and {sources} '
@@ -1212,6 +1227,13 @@ class MigrationReferencesJob(JobRunner):
                 outstanding=schedules.get('outstanding', 0),
             )
         )
+        if run.warnings:
+            self.logger.info(
+                _(
+                    "See the migration run's page for the complete warning history, including warnings recorded by "
+                    'earlier passes.'
+                )
+            )
 
 
 class MigrationCleanupJob(JobRunner):
@@ -1237,14 +1259,13 @@ class MigrationCleanupJob(JobRunner):
 
         run = MigrationRun.current()
         try:
-            counts, warnings = cleanup.retire_legacy(run)
+            with _logging_added_warnings(self.logger, run):
+                counts = cleanup.retire_legacy(run)
         except cutover.CutoverRefused as refusal:
             self.logger.error(str(refusal))
             raise JobFailed() from refusal
 
         self.job.data = counts
-        for warning in warnings:
-            self.logger.warning(warning)
         self.logger.info(
             _(
                 'Deleted {modules} built-in script module(s) and the '
@@ -1254,15 +1275,16 @@ class MigrationCleanupJob(JobRunner):
         if counts.get('retained'):
             self.logger.info(
                 _(
-                    '{retained} module(s) stay in place for good, because they hold history or a '
-                    'reference no Script row can take over. Each one is named above.'
+                    '{retained} module(s) remain in place to preserve Job history that no replacement '
+                    "Script can own. The migration run's page records the reasons."
                 ).format(retained=counts['retained'])
             )
         if counts.get('blocked') or counts.get('unserved'):
             self.logger.info(
                 _(
-                    '{count} module(s) were left for now and '
-                    'the migration is still open. Clear what each warning above names, then run this again.'
+                    '{count} module(s) were left in place for now, and the migration remains open. Review the '
+                    "warnings recorded on the migration run's page, resolve the outstanding issues, then run this "
+                    'again.'
                 ).format(count=counts.get('blocked', 0) + counts.get('unserved', 0))
             )
             return

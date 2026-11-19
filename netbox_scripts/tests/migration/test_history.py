@@ -126,7 +126,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         job = self.legacy_job()
         self.cross_over()
 
-        counts, warnings = references.repoint_job_history(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_job_history, self.migration)
 
         script = self.plugin_script()
         job.refresh_from_db()
@@ -151,7 +151,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         jobs = [self.legacy_job() for _ in range(3)]
         self.cross_over()
 
-        counts, _warnings = references.repoint_job_history(self.migration)
+        counts = references.repoint_job_history(self.migration)
 
         self.assertEqual(counts['moved'], 3)
         script = self.plugin_script()
@@ -165,7 +165,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         # An orphaned history row beats a wrong one, so this is reported rather than guessed at.
         self.plugin_script().delete()
 
-        counts, warnings = references.repoint_job_history(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_job_history, self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.object_id, self.script.pk)
@@ -186,7 +186,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         # Activation is re-runnable, and its promotion callback recreates the derived rows.
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
-        counts, _warnings = references.repoint_job_history(self.migration)
+        counts = references.repoint_job_history(self.migration)
 
         self.assertEqual(counts['unresolved'], 0)
         job.refresh_from_db()
@@ -208,7 +208,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         )
         self.cross_over()
 
-        counts, warnings = references.repoint_job_history(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_job_history, self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.object_type_id, module_type.pk)
@@ -219,11 +219,11 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
     def test_a_second_pass_returns_the_recorded_counts_and_leaves_a_later_job(self):
         self.legacy_job()
         self.cross_over()
-        first, _warnings = references.repoint_job_history(self.migration)
+        first = references.repoint_job_history(self.migration)
         self.migration.refresh_from_db()
         late = self.legacy_job()
 
-        second, warnings = references.repoint_job_history(self.migration)
+        second, warnings = self.warnings_added(references.repoint_job_history, self.migration)
 
         self.assertEqual(second, first)
         self.assertEqual(warnings, [])
@@ -236,7 +236,7 @@ class RepointJobHistoryTestCase(LegacyJobMixin, TestCase):
         finished = [self.legacy_job(status=status) for status in JobStatusChoices.TERMINAL_STATE_CHOICES]
         unfinished = [self.legacy_job(status=status) for status in JobStatusChoices.ENQUEUED_STATE_CHOICES]
 
-        counts, warnings = references.repoint_job_history(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_job_history, self.migration)
 
         moved = (ObjectType.objects.get_for_model(NetBoxScript).pk, self.plugin_script().pk)
         for job in finished:
@@ -319,7 +319,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
 
         with self.captureOnCommitCallbacks(execute=True):
-            counts, warnings = references.recreate_schedules(self.migration)
+            counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         # Warned rather than silent: a queued run has no time to keep, so it is replayed at once.
@@ -343,7 +343,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
 
         with self.captureOnCommitCallbacks(execute=True):
-            counts, _warnings = references.recreate_schedules(self.migration)
+            counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(self.queue.jobs[0].kwargs['data'], data)
@@ -352,7 +352,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.legacy_schedule(script=self.variable_script, data={'site': self.site, 'upload': object()})
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts, {'recreated': 0, 'skipped': 1, 'shifted': 0, 'outstanding': 0})
         self.assertFalse(self.new_jobs().exists())
@@ -363,7 +363,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.legacy_schedule(scheduled=due)
         self.cross_over()
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         job = self.new_jobs().get()
@@ -379,7 +379,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         Job.objects.filter(pk=job.pk).update(object_type=module_type, object_id=self.plugin_script_pk())
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 1)
@@ -395,7 +395,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.legacy_schedule()
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         job = self.new_jobs().get()
@@ -403,12 +403,33 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertIsNone(job.interval)
         self.assertTrue(any('run at once' in warning for warning in warnings))
 
+    def test_a_recreated_schedule_keeps_its_note_when_a_later_replay_fails(self):
+        failing = self.legacy_schedule()
+        queued = self.legacy_schedule()
+        self.cross_over()
+        self.assertEqual([entry['job_pk'] for entry in self.migration.journal['schedules']], [queued.pk, failing.pk])
+        recreate = references._recreate
+
+        def fail_the_older(run, entry, *args):
+            if entry['job_pk'] == failing.pk:
+                raise RuntimeError('queue unavailable')
+            return recreate(run, entry, *args)
+
+        with patch.object(references, '_recreate', side_effect=fail_the_older), self.assertRaises(RuntimeError):
+            references.recreate_schedules(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertEqual(list(self.migration.journal['recreated_schedules']), [str(queued.pk)])
+        self.assertTrue(
+            any(f'(Job {queued.pk})' in warning and 'run at once' in warning for warning in self.migration.warnings)
+        )
+
     def test_a_recurrence_keeps_its_interval_and_pins_nothing(self):
         # A recurrence resolves the active revision per occurrence, so a pin would freeze it.
         self.legacy_schedule(scheduled=self.future(), interval=60)
         self.cross_over()
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         job = self.new_jobs().get()
         self.assertEqual(job.interval, 60)
@@ -421,7 +442,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.legacy_schedule(scheduled=self.past())
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts, {'recreated': 0, 'skipped': 1, 'shifted': 0, 'outstanding': 0})
         self.assertFalse(self.new_jobs().exists())
@@ -434,7 +455,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.legacy_schedule(scheduled=self.past(), interval=30)
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         job = self.new_jobs().get()
         self.assertIsNone(job.scheduled)
@@ -448,7 +469,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         # An operator deleted the object the schedule named, which is their decision, not ours.
         self.site.delete()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['skipped'], 1)
         self.assertEqual(counts['outstanding'], 0)
@@ -463,7 +484,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
         NetBoxScript.objects.filter(pk=self.plugin_script().pk).update(is_retired=True)
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['skipped'], 1)
         self.assertFalse(self.new_jobs().exists())
@@ -474,7 +495,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
         self.plugin_script().delete()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['skipped'], 1)
         self.assertEqual(counts['outstanding'], 1)
@@ -491,7 +512,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
             'netbox_scripts.migration.references.script_class_context',
             side_effect=ScriptFileImportError('deploy imports a module that is not there', {}),
         ):
-            counts, warnings = references.recreate_schedules(self.migration)
+            counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['skipped'], 1)
         self.assertEqual(counts['outstanding'], 1)
@@ -532,7 +553,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
             patch.object(config.get_storage(), 'open', side_effect=error),
             self.assertLogs('netbox.plugins.netbox_scripts.migration', 'ERROR') as logged,
         ):
-            counts, warnings = references.recreate_schedules(self.migration)
+            counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         warning = (
             f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {STORAGE_REASON}'
@@ -564,7 +585,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertIs(logged.records[0].exc_info[1], error)
         self.assertIn(private_path, '\n'.join(logged.output))
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
 
@@ -580,7 +601,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
             ),
             self.assertNoLogs('netbox.plugins.netbox_scripts.migration', 'ERROR'),
         ):
-            counts, warnings = references.recreate_schedules(self.migration)
+            counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['outstanding'], 1)
         self.assertEqual(
@@ -597,7 +618,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(counts['outstanding'], 0)
@@ -613,7 +634,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         Script.objects.filter(pk=departed.pk).update(is_executable=False)
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['skipped'], 1)
         self.assertEqual(counts['outstanding'], 0)
@@ -627,7 +648,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.journal['schedules'][0]['cancellation'] = 'executed'
         self.migration.save(update_fields=('journal',))
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 1)
@@ -646,7 +667,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.journal['schedules'][0]['cancellation'] = 'vanished'
         self.migration.save(update_fields=('journal',))
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
 
@@ -704,7 +725,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         # A run requeued after the cutover that failed again keeps its start.
         Job.objects.filter(pk=failed.pk).update(started=timezone.now())
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 2)
@@ -719,7 +740,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
             func='netbox.jobs.JobRunner.handle', kwargs={}, connection=self.queue.connection, id=str(job.job_id)
         ).save()
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(self.new_jobs().count(), 1)
@@ -779,7 +800,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
         references.repoint_job_history(self.migration)
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         job.refresh_from_db()
         self.assertEqual(job.object_type_id, ObjectType.objects.get_for_model(NetBoxScript).pk)
@@ -827,7 +848,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         del self.migration.journal['schedules'][0]['cancellation']
         self.migration.save(update_fields=('journal',))
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
 
@@ -838,14 +859,13 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         capture = cutover._capture
 
         def run_it(run):
-            warnings = capture(run)
+            capture(run)
             Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_COMPLETED)
-            return warnings
 
         with patch.object(cutover, '_capture', run_it):
             self.cross_over()
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(self.migration.journal['schedules'][0]['cancellation'], 'executed')
         self.assertEqual(counts['recreated'], 0)
@@ -885,7 +905,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.refresh_from_db()
         references.repoint_job_history(self.migration)
         with self.captureOnCommitCallbacks(execute=True):
-            counts, _warnings = references.recreate_schedules(self.migration)
+            counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(counts['skipped'], 1)
@@ -912,7 +932,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
         user.delete()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 1)
@@ -931,7 +951,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         user.is_active = False
         user.save()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 1)
@@ -945,7 +965,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.owned_schedule()
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['outstanding'], 1)
@@ -965,7 +985,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         self.grant_run(user)
         with self.captureOnCommitCallbacks(execute=True):
-            counts, _warnings = references.recreate_schedules(self.migration)
+            counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(self.new_jobs().get().user, user)
@@ -977,7 +997,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.grant_run(user)
         self.cross_over()
 
-        counts, warnings = references.recreate_schedules(self.migration)
+        counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 1)
@@ -993,7 +1013,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.grant_site_view(user, {'slug': 'branch'})
         self.cross_over()
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual(counts['skipped'], 1)
@@ -1007,7 +1027,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
 
         with self.captureOnCommitCallbacks(execute=True):
-            counts, _warnings = references.recreate_schedules(self.migration)
+            counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(self.new_jobs().get().user, user)
@@ -1019,7 +1039,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.cross_over()
 
         with self.captureOnCommitCallbacks(execute=True):
-            counts, _warnings = references.recreate_schedules(self.migration)
+            counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 1)
         self.assertIsNone(self.new_jobs().get().user)
@@ -1035,7 +1055,7 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.migration.journal['steps'].pop(references.SCHEDULES_STEP)
         self.migration.save(update_fields=('journal',))
 
-        counts, _warnings = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
 
         self.assertEqual(counts['recreated'], 0)
         self.assertEqual([job.pk for job in self.new_jobs()], [created.pk])
@@ -1046,9 +1066,9 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.legacy_schedule(scheduled=self.future())
         self.cross_over()
         stale = type(self.migration).objects.get(pk=self.migration.pk)
-        counts, _ = references.recreate_schedules(self.migration)
+        counts = references.recreate_schedules(self.migration)
         first = list(self.new_jobs().values_list('pk', flat=True))
-        repeated, _ = references.recreate_schedules(stale)
+        repeated = references.recreate_schedules(stale)
         self.assertEqual(list(self.new_jobs().values_list('pk', flat=True)), first)
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(repeated['recreated'], 1)

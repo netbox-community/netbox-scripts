@@ -246,11 +246,6 @@ class MigrationRun(ChangeLoggedModel):
         """Return one field as the database currently holds it, without disturbing this object."""
         return type(self).objects.filter(pk=self.pk).values_list(field, flat=True).first()
 
-    def complete_step(self, name, counts, warnings=()):
-        """Record one step's warnings on the run, then mark it complete with its counts."""
-        self.record_warnings(warnings)
-        self.record_step(name, counts=counts)
-
     def step_done(self, name):
         """Whether the named step has already completed in this run."""
         return name in self.journal.get('steps', {})

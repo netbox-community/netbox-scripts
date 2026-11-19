@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.test import TestCase
 
 from core.choices import JobStatusChoices
@@ -32,6 +34,14 @@ class ReferenceMigrationMixin(LegacySourceMixin):
         self.migration.refresh_from_db()
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
+
+    def warnings_added(self, operation, run):
+        """Run one migration pass, returning its result and the warnings it added to the run."""
+        run.refresh_from_db(fields=('warnings',))
+        recorded = set(run.warnings)
+        result = operation(run)
+        run.refresh_from_db(fields=('warnings',))
+        return result, [warning for warning in run.warnings if warning not in recorded]
 
     def plugin_script(self):
         """Return the Script the built-in Deploy migrated to."""
@@ -82,7 +92,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         rule = self.action_rule()
         self.cross_over()
 
-        counts, warnings = references.repoint_event_rules(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         rule.refresh_from_db()
         self.assertEqual(rule.action_type, references.ACTION_SLUG)
@@ -107,7 +117,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         rule = self.source_rule()
         self.cross_over()
 
-        counts, _warnings = references.repoint_event_rules(self.migration)
+        counts = references.repoint_event_rules(self.migration)
 
         types = set(rule.object_types.values_list('pk', flat=True))
         self.assertIn(ObjectType.objects.get_for_model(NetBoxScript).pk, types)
@@ -122,7 +132,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         rule.object_types.add(self.script_type.pk)
         self.cross_over()
 
-        counts, _warnings = references.repoint_event_rules(self.migration)
+        counts = references.repoint_event_rules(self.migration)
 
         rule.refresh_from_db()
         types = set(rule.object_types.values_list('pk', flat=True))
@@ -142,7 +152,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         # The fence withdrew both, so neither is firing when the repoint starts.
         self.assertEqual(EventRule.objects.filter(enabled=True).count(), 0)
 
-        counts, _warnings = references.repoint_event_rules(self.migration)
+        counts = references.repoint_event_rules(self.migration)
 
         enabled.refresh_from_db()
         disabled.refresh_from_db()
@@ -156,7 +166,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         # What a project that never activated, or a class that stopped publishing, looks like.
         self.plugin_script().delete()
 
-        counts, warnings = references.repoint_event_rules(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         rule.refresh_from_db()
         self.assertFalse(rule.enabled)
@@ -170,7 +180,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.cross_over()
         NetBoxScript.objects.filter(pk=self.plugin_script().pk).update(is_retired=True)
 
-        counts, warnings = references.repoint_event_rules(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         rule.refresh_from_db()
         self.assertFalse(rule.enabled)
@@ -184,7 +194,7 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.cross_over()
         EventRule.objects.filter(pk=broken.pk).update(conditions={'nonsense': True})
 
-        counts, warnings = references.repoint_event_rules(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         broken.refresh_from_db()
         healthy.refresh_from_db()
@@ -195,16 +205,41 @@ class RepointEventRulesTestCase(ReferenceMigrationMixin, TestCase):
         self.assertEqual(healthy.action_type, references.ACTION_SLUG)
         self.assertEqual(counts['actions'], 1)
 
+    def test_a_refusal_survives_a_later_rule_that_fails(self):
+        refused = EventRule.objects.create(
+            name='alpha on module change',
+            event_types=[OBJECT_UPDATED],
+            action_type='script',
+            action_object_type=ObjectType.objects.get_for_model(ScriptModule, for_concrete_model=False),
+            action_object_id=self.script.pk,
+        )
+        refused.object_types.add(self.site_type)
+        self.action_rule('bravo on device change')
+        self.cross_over()
+        self.assertEqual(
+            [entry['name'] for entry in self.migration.journal['event_rules']],
+            ['alpha on module change', 'bravo on device change'],
+        )
+
+        with (
+            mock.patch.object(EventRule, 'save', side_effect=RuntimeError('database unavailable')),
+            self.assertRaises(RuntimeError),
+        ):
+            references.repoint_event_rules(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(any('alpha on module change' in warning for warning in self.migration.warnings))
+
     def test_a_second_pass_returns_the_recorded_counts_and_changes_nothing(self):
         rule = self.action_rule()
         self.cross_over()
-        first, _warnings = references.repoint_event_rules(self.migration)
+        first = references.repoint_event_rules(self.migration)
         self.migration.refresh_from_db()
         rule.refresh_from_db()
         rule.enabled = False
         rule.save(update_fields=('enabled',))
 
-        second, warnings = references.repoint_event_rules(self.migration)
+        second, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         self.assertEqual(second, first)
         self.assertEqual(warnings, [])
@@ -222,7 +257,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         permission.groups.add(group)
         self.cross_over()
 
-        counts, warnings = references.repoint_permissions(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_permissions, self.migration)
 
         permission.refresh_from_db()
         self.assertEqual(
@@ -256,7 +291,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         permission.groups.add(group)
         self.cross_over()
 
-        counts, _warnings = references.repoint_permissions(self.migration)
+        counts = references.repoint_permissions(self.migration)
 
         permission.refresh_from_db()
         # The original keeps what was never part of this migration, and goes back into service.
@@ -281,7 +316,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         self.cross_over()
         group.delete()
 
-        counts, warnings = references.repoint_permissions(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_permissions, self.migration)
 
         self.assertEqual(counts['split'], 1)
         sibling = ObjectPermission.objects.get(name=f'built-in scripts{references._SIBLING_SUFFIX}')
@@ -292,13 +327,74 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
             warnings,
         )
 
+    def test_a_split_warning_survives_a_later_failure_and_its_resume(self):
+        group = Group.objects.create(name='operators')
+        split = self.permission(extra_type=self.site_type)
+        split.groups.add(group)
+        swapped = self.permission()
+        ObjectPermission.objects.filter(pk=swapped.pk).update(name='zulu scripts')
+        self.cross_over()
+        group.delete()
+        self.assertEqual([entry['pk'] for entry in self.migration.journal['permissions']], [split.pk, swapped.pk])
+        lost = f'Permission "built-in scripts" (ID {split.pk}) was split'
+
+        with (
+            mock.patch.object(references, '_swap_permission', side_effect=RuntimeError('database unavailable')),
+            self.assertRaises(RuntimeError),
+        ):
+            references.repoint_permissions(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(any(warning.startswith(lost) for warning in self.migration.warnings))
+
+        references.repoint_permissions(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(self.migration.step_done(references.PERMISSIONS_STEP))
+        self.assertEqual(sum(warning.startswith(lost) for warning in self.migration.warnings), 1)
+
+    def test_a_split_warning_rolls_back_with_its_sibling(self):
+        group = Group.objects.create(name='operators')
+        split = self.permission(extra_type=self.site_type)
+        split.groups.add(group)
+        self.cross_over()
+        group.delete()
+        lost = f'Permission "built-in scripts" (ID {split.pk}) was split'
+        record = MigrationRun.record_warnings
+
+        def record_then_fail(run, warnings):
+            record(run, warnings)
+            raise RuntimeError('stopped inside the split')
+
+        with (
+            mock.patch.object(MigrationRun, 'record_warnings', record_then_fail),
+            self.assertRaises(RuntimeError),
+        ):
+            references.repoint_permissions(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertFalse(ObjectPermission.objects.filter(name__endswith=references._SIBLING_SUFFIX).exists())
+        self.assertNotIn(str(split.pk), self.migration.journal.get('split_permissions', {}))
+        self.assertFalse(any(warning.startswith(lost) for warning in self.migration.warnings))
+
+        references.repoint_permissions(self.migration)
+
+        self.migration.refresh_from_db()
+        sibling = ObjectPermission.objects.get(name__endswith=references._SIBLING_SUFFIX)
+        self.assertEqual(self.migration.journal['split_permissions'], {str(split.pk): sibling.pk})
+        expected = (
+            f'{lost}, and 1 of the users and groups it was granted to no longer exist, so the new '
+            f'"{sibling.name}" (ID {sibling.pk}) does not carry them.'
+        )
+        self.assertEqual([warning for warning in self.migration.warnings if warning.startswith(lost)], [expected])
+
     def test_a_constrained_permission_is_reported_and_left_untouched(self):
         # Its filters name fields the plugin models do not have, so neither copying nor dropping
         # them is safe. It stays withdrawn and an operator is told about it by name and ID.
         permission = self.permission(constraints={'name__startswith': 'Deploy'})
         self.cross_over()
 
-        counts, warnings = references.repoint_permissions(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_permissions, self.migration)
 
         permission.refresh_from_db()
         self.assertEqual(set(permission.object_types.values_list('pk', flat=True)), {self.script_type.pk})
@@ -313,7 +409,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         second = self.permission(constraints={'name': 'Report'})
         self.cross_over()
 
-        counts, _warnings = references.repoint_permissions(self.migration)
+        counts = references.repoint_permissions(self.migration)
 
         self.migration.refresh_from_db()
         self.assertEqual(counts['constrained'], 2)
@@ -330,7 +426,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         permission = self.permission(actions=('add', 'delete'))
         self.cross_over()
 
-        counts, warnings = references.repoint_permissions(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_permissions, self.migration)
 
         permission.refresh_from_db()
         self.assertEqual(set(permission.object_types.values_list('pk', flat=True)), {self.script_type.pk})
@@ -353,7 +449,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         second.groups.add(group)
         self.cross_over()
 
-        counts, _warnings = references.repoint_permissions(self.migration)
+        counts = references.repoint_permissions(self.migration)
 
         self.assertEqual(counts['split'], 2)
         siblings = ObjectPermission.objects.filter(name__endswith=references._SIBLING_SUFFIX)
@@ -367,7 +463,7 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
         permission = self.permission(actions=('view', 'add', 'delete'))
         self.cross_over()
 
-        counts, warnings = references.repoint_permissions(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_permissions, self.migration)
 
         permission.refresh_from_db()
         # A derived row is never created or deleted by hand, so neither action has a counterpart.
@@ -382,10 +478,10 @@ class RepointPermissionsTestCase(ReferenceMigrationMixin, TestCase):
     def test_a_second_pass_returns_the_recorded_counts_and_creates_no_second_sibling(self):
         self.permission(extra_type=self.site_type)
         self.cross_over()
-        first, _warnings = references.repoint_permissions(self.migration)
+        first = references.repoint_permissions(self.migration)
         self.migration.refresh_from_db()
 
-        second, _warnings = references.repoint_permissions(self.migration)
+        second = references.repoint_permissions(self.migration)
 
         self.assertEqual(second, first)
         self.assertEqual(ObjectPermission.objects.filter(name__endswith=references._SIBLING_SUFFIX).count(), 1)
@@ -433,6 +529,7 @@ class MigrationReferencesJobTestCase(ReferenceMigrationMixin, TestCase):
         # One button does all four repoints, so the job speaks for every one of them.
         self.assertIn('Job(s) of history', messages)
         self.assertIn('Recreated 0 schedule(s)', messages)
+        self.assertNotIn("See the migration run's page", messages)
 
     def test_the_job_records_all_four_steps_so_a_re_run_repeats_none(self):
         self.action_rule()
@@ -459,6 +556,38 @@ class MigrationReferencesJobTestCase(ReferenceMigrationMixin, TestCase):
         job.refresh_from_db()
         warnings = [entry['message'] for entry in job.log_entries if entry['level'] == 'warning']
         self.assertTrue(any(permission.name in message for message in warnings))
+
+    def test_the_job_logs_earlier_warnings_when_a_later_pass_errors(self):
+        permission = self.permission(constraints={'name': 'Deploy'})
+        self.cross_over()
+
+        with mock.patch.object(references, 'repoint_job_history', side_effect=RuntimeError('database unavailable')):
+            job = MigrationReferencesJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        warnings = [entry['message'] for entry in job.log_entries if entry['level'] == 'warning']
+        self.assertTrue(any(f'(ID {permission.pk}) carries constraints' in warning for warning in warnings))
+
+    def test_a_repeated_job_logs_no_recorded_warning_again(self):
+        rule = self.action_rule()
+        self.cross_over()
+        self.plugin_script().delete()
+        pointer = (
+            "See the migration run's page for the complete warning history, including warnings recorded by "
+            'earlier passes.'
+        )
+
+        first = MigrationReferencesJob.enqueue(immediate=True)
+        retry = MigrationReferencesJob.enqueue(immediate=True)
+
+        first.refresh_from_db()
+        retry.refresh_from_db()
+        first_warnings = [entry['message'] for entry in first.log_entries if entry['level'] == 'warning']
+        self.assertTrue(any(rule.name in warning for warning in first_warnings))
+        self.assertFalse([entry for entry in retry.log_entries if entry['level'] == 'warning'])
+        for pass_job in (first, retry):
+            self.assertIn(pointer, [entry['message'] for entry in pass_job.log_entries if entry['level'] == 'info'])
 
     def test_the_job_fails_before_activation(self):
         job = MigrationReferencesJob.enqueue(immediate=True)
@@ -504,7 +633,7 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
         self.permission()
         self.cross_without_activating()
 
-        counts, _warnings = references.repoint_permissions(self.migration)
+        counts = references.repoint_permissions(self.migration)
 
         self.assertEqual(counts['swapped'], 1)
         self.migration.refresh_from_db()
@@ -516,7 +645,7 @@ class ActivationGateTestCase(ReferenceMigrationMixin, TestCase):
         cutover.activate_staged(self.migration)
         self.migration.refresh_from_db()
 
-        counts, _warnings = references.repoint_event_rules(self.migration)
+        counts = references.repoint_event_rules(self.migration)
 
         self.assertIn('actions', counts)
         self.migration.refresh_from_db()
@@ -539,7 +668,7 @@ class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
         rule.object_types.add(self.site_type)
         self.cross_over()
 
-        _counts, warnings = references.repoint_event_rules(self.migration)
+        _counts, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         rule.refresh_from_db()
         self.assertFalse(rule.enabled)
@@ -548,16 +677,15 @@ class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
         self.assertTrue(any('on module change' in str(warning) for warning in warnings))
 
     def test_a_pass_that_leaves_work_open_still_records_its_warnings(self):
-        # complete_step is skipped on this path, and it used to be the only writer of warnings.
-        self.action_rule()
+        rule = self.action_rule()
         self.cross_over()
         self.plugin_script().delete()
 
-        _counts, warnings = references.repoint_event_rules(self.migration)
+        references.repoint_event_rules(self.migration)
 
         self.migration.refresh_from_db()
         self.assertFalse(self.migration.step_done(references.EVENT_RULES_STEP))
-        self.assertEqual(self.migration.warnings, [str(warning) for warning in warnings])
+        self.assertTrue(any(rule.name in warning for warning in self.migration.warnings))
 
     def test_an_unmoved_event_rule_leaves_the_step_open_and_moves_on_a_re_run(self):
         rule = self.action_rule()
@@ -565,7 +693,7 @@ class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
         # The map was frozen at the fence, so its entry survives and no longer resolves.
         self.plugin_script().delete()
 
-        counts, _warnings = references.repoint_event_rules(self.migration)
+        counts = references.repoint_event_rules(self.migration)
 
         self.assertEqual(counts['unresolved'], 1)
         self.migration.refresh_from_db()
@@ -591,7 +719,7 @@ class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
         Script.objects.filter(pk=departed.pk).update(is_executable=False)
         self.cross_over()
 
-        counts, warnings = references.repoint_event_rules(self.migration)
+        counts, warnings = self.warnings_added(references.repoint_event_rules, self.migration)
 
         self.assertEqual(counts['withdrawn'], 1)
         self.assertEqual(counts['unresolved'], 0)
@@ -604,7 +732,7 @@ class ReferenceLatchTestCase(ReferenceMigrationMixin, TestCase):
         self.permission(constraints={'name': 'x'})
         self.cross_over()
 
-        counts, _warnings = references.repoint_permissions(self.migration)
+        counts = references.repoint_permissions(self.migration)
 
         self.assertEqual(counts['constrained'], 1)
         self.migration.refresh_from_db()

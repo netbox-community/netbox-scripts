@@ -136,14 +136,13 @@ class MigrationRunTestCase(TestCase):
         self.assertTrue(run.journal['steps']['cutover']['completed'])
         self.assertFalse(run.step_done('repoint'))
 
-    def test_completing_a_step_records_its_counts_and_its_warnings(self):
+    def test_a_completed_step_reads_back_its_counts(self):
         run = MigrationRun.objects.create()
 
-        run.complete_step('cleanup', {'modules': 2}, ['one module was left in place'])
+        run.record_step('cleanup', counts={'modules': 2})
 
         run.refresh_from_db()
         self.assertEqual(run.recorded_counts('cleanup'), {'modules': 2})
-        self.assertEqual(run.warnings, ['one module was left in place'])
 
     def test_warnings_are_recorded_without_completing_a_step(self):
         run = MigrationRun.objects.create()

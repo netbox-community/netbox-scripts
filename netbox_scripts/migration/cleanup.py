@@ -36,7 +36,7 @@ def retire_legacy(run):
     """
     Delete the built-in modules this migration replaced, skipping any whose deletion would lose data.
 
-    Returns the counts and the warnings naming what was left behind, and returns the recorded counts
+    Records a warning for what it leaves behind, and returns the counts, or the recorded counts
     unchanged without touching anything once the step has completed. A refusal is either retained,
     which the state ignores, or blocked, which leaves the run open. Raises CutoverRefused unless
     every reference step has completed.
@@ -44,7 +44,7 @@ def retire_legacy(run):
     if run is None:
         raise cutover.CutoverRefused(_('No migration is open, so there is nothing left to retire.'))
     if run.step_done(STEP):
-        return run.recorded_counts(STEP), []
+        return run.recorded_counts(STEP)
     cutover.require_staged(run)
     if not ready(run):
         outstanding = [name for name in _REQUIRED_STEPS if not run.step_done(name)]
@@ -56,18 +56,17 @@ def retire_legacy(run):
             ).format(steps=', '.join(outstanding))
         )
 
-    counts, warnings = _delete_modules(run)
+    counts = _delete_modules(run)
     counts.update(legacy_source.reference_counts())
     if counts['blocked'] or counts['unserved']:
-        run.record_warnings(warnings)
         # Left open on purpose: the operator clears what each warning names and runs this again.
-        return counts, warnings
+        return counts
     # Retained does not hold the run open, because nothing an operator does would ever clear it.
     # Together, so a crash cannot leave a closed run without the record that closed it.
     with transaction.atomic():
         run.advance(MigrationStateChoices.MIGRATED)
-        run.complete_step(STEP, counts, warnings)
-    return counts, warnings
+        run.record_step(STEP, counts=counts)
+    return counts
 
 
 def _delete_modules(run):
@@ -77,13 +76,14 @@ def _delete_modules(run):
     waiting = set(cutover.projects_not_serving(run))
     keys = [entry['legacy_pk'] for entry in mine if entry['project_key'] not in waiting]
     counts = {'modules': 0, 'scripts': 0, 'blocked': 0, 'retained': 0, 'unserved': len(mine) - len(keys)}
-    warnings = []
     if counts['unserved']:
-        warnings.append(
-            _(
-                'Built-in modules were left in place because these Projects are not serving a revision: '
-                '{keys}. Activate them, then run this again.'
-            ).format(keys=', '.join(sorted(waiting)))
+        run.record_warnings(
+            [
+                _(
+                    'Built-in modules were left in place because these Projects are not serving a revision: '
+                    '{keys}. Activate them, then run this again.'
+                ).format(keys=', '.join(sorted(waiting)))
+            ]
         )
     resolved, unresolved = mapping.resolve_scripts(plugin_map)
     # Deleting a migrated Project destroys the plugin-side Job history with it, so it is the
@@ -102,62 +102,69 @@ def _delete_modules(run):
     # Instance by instance: QuerySet.delete() skips the delete() that removes the stored file.
     for module in legacy_source.legacy_modules_by_pk(keys):
         references = legacy_source.module_references(module)
-        permanent, held = _refusal_for(module, references, stranded.get(module.pk))
-        if held:
-            counts['retained' if permanent else 'blocked'] += 1
-            warnings.append(held)
+        if refusal := _refusal_for(run, module, references, stranded.get(module.pk)):
+            counts[refusal] += 1
             continue
         counts['scripts'] += references['scripts']
         counts['modules'] += 1
         module.delete()
-    return counts, warnings
+    return counts
 
 
-def _refusal_for(module, references, stranded):
+def _refusal_for(run, module, references, stranded):
     """
-    Return whether a refusal is permanent and why one module cannot be deleted, or (False, None).
+    Record why one module cannot be deleted, and return 'retained' or 'blocked', or None when it can be.
 
     stranded is 'unresolved', 'retired' or None, naming what the module's classes resolve to.
     """
-    name = module.python_name
     # Retained history must not hide a run that is still waiting or executing.
     if references['unfinished_jobs']:
-        return False, _(
+        refusal = 'blocked'
+        message = _(
             'Built-in script module {name} still has waiting or running Custom Script Jobs. '
             'See "Clean up built-in modules" in the migration guide to resolve them, then run Clean up again.'
-        ).format(name=name)
-    # Permanent means no operator action clears it, so the run closes with the module in place.
-    if references['module_jobs']:
-        return True, _(
+        )
+    # Retained means no operator action clears it, so the run closes with the module in place.
+    elif references['module_jobs']:
+        refusal = 'retained'
+        message = _(
             'Built-in script module {name} holds Job history of its own, which no Script Project '
             'can hold, so it stays where it is.'
-        ).format(name=name)
-    if references['retired_script_jobs']:
-        return True, _(
+        )
+    elif references['retired_script_jobs']:
+        refusal = 'retained'
+        message = _(
             'Built-in script module {name} holds Job history for a class that left the file, which no '
             'Script replaces, so it stays where it is.'
-        ).format(name=name)
+        )
     # Ahead of the reference refusals, so nobody deletes Jobs for a module that still cannot be deleted.
-    if stranded == 'unresolved':
-        return False, _(
+    elif stranded == 'unresolved':
+        refusal = 'blocked'
+        message = _(
             'Built-in script module {name} publishes a class no Script resolves to, so deleting it '
             'would leave that script unable to run at all. Fix the source and stage it again.'
-        ).format(name=name)
-    if stranded == 'retired':
-        return False, _(
+        )
+    elif stranded == 'retired':
+        refusal = 'blocked'
+        message = _(
             'Built-in script module {name} publishes a class whose Script is retired, so deleting it '
             'would leave that script unable to run at all. Activate a revision that publishes it, then run '
             'this again.'
-        ).format(name=name)
-    if references['live_script_jobs']:
-        return False, _(
+        )
+    elif references['live_script_jobs']:
+        refusal = 'blocked'
+        message = _(
             'Built-in script module {name} still has Custom Script Jobs. The reference pass has completed and '
             'will not move them. Once you no longer need those Jobs, see "Clean up built-in modules" in the '
             'migration guide before deleting them, then run Clean up again.'
-        ).format(name=name)
-    if references['event_rules']:
-        return False, _(
+        )
+    elif references['event_rules']:
+        refusal = 'blocked'
+        message = _(
             'Built-in script module {name} is still named by an Event Rule. The reference pass has completed '
             'and will not move it. Repoint the rule or delete it by hand, then run Clean up again.'
-        ).format(name=name)
-    return False, None
+        )
+    else:
+        return None
+    run.record_warnings([message.format(name=module.python_name)])
+    return refusal

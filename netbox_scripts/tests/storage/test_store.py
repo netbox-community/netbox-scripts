@@ -4,10 +4,12 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from unittest import mock
 
 from django.core.files.base import ContentFile
 from django.core.files.storage import InMemoryStorage
 from django.test import TestCase
+from rq.timeouts import JobTimeoutException
 
 from netbox_scripts.storage import store
 from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageError, UnsafePathError
@@ -81,6 +83,10 @@ class RefusingStorage(InMemoryStorage):
     def listdir(self, path):
         self._fail('listdir')
         return super().listdir(path)
+
+    def size(self, name):
+        self._fail('size')
+        return super().size(name)
 
 
 class RenamingStorage(InMemoryStorage):
@@ -320,6 +326,40 @@ class RevisionStoreTestCase(TestCase):
         with self.assertRaises(StorageError) as ctx:
             store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
         self.assertIn('hello.py', str(ctx.exception))
+
+    def test_a_job_timeout_on_exists_escapes_unwrapped(self):
+        with self.assertRaises(JobTimeoutException):
+            self.write(storage=RefusingStorage(failing={'exists'}, error=JobTimeoutException()))
+
+    def test_a_job_timeout_on_save_escapes_unwrapped(self):
+        with self.assertRaises(JobTimeoutException):
+            self.write(storage=RefusingStorage(failing={'save'}, error=JobTimeoutException()))
+
+    def test_a_job_timeout_while_replacing_a_key_escapes_unwrapped(self):
+        storage = RefusingStorage(failing={'delete'}, error=JobTimeoutException())
+        storage.save(f'{self.prefix}hello.py', ContentFile(b'something else entirely'))
+        with self.assertRaises(JobTimeoutException):
+            self.write(storage=storage)
+
+    def test_a_job_timeout_while_removing_a_stray_escapes_unwrapped(self):
+        storage = RenamingStorage(divert=f'{self.prefix}hello.py', plant=self.files['hello.py'])
+        with (
+            mock.patch.object(storage, 'delete', side_effect=JobTimeoutException()),
+            self.assertRaises(JobTimeoutException),
+        ):
+            self.write(storage=storage)
+
+    def test_a_job_timeout_on_a_size_probe_escapes_unwrapped(self):
+        storage = RefusingStorage(failing={'size'}, error=JobTimeoutException())
+        storage.save(f'{self.prefix}hello.py', ContentFile(self.files['hello.py']))
+        with self.assertRaises(JobTimeoutException):
+            store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
+
+    def test_a_job_timeout_on_read_escapes_unwrapped(self):
+        storage = RefusingStorage(failing={'open'}, error=JobTimeoutException())
+        storage.save(f'{self.prefix}hello.py', ContentFile(self.files['hello.py']))
+        with self.assertRaises(JobTimeoutException):
+            store.verify_revision_tree(storage, STORAGE_KEY, self.digest, self.manifest)
 
 
 class RevisionVerificationTestCase(TestCase):
@@ -712,6 +752,14 @@ class RevisionRemovalTestCase(TestCase):
             self.delete(digest, storage=storage)
         self.assertIn('pkg/c.py', str(ctx.exception))
         self.assertEqual(stored_paths(storage, revision_prefix(STORAGE_KEY, digest)), {'pkg/c.py'})
+
+    def test_a_job_timeout_stops_the_removal_and_escapes_unwrapped(self):
+        with (
+            mock.patch.object(self.storage, 'delete', side_effect=JobTimeoutException()) as delete,
+            self.assertRaises(JobTimeoutException),
+        ):
+            self.delete(self.second)
+        delete.assert_called_once()
 
     def test_an_unusable_path_is_reported_and_the_rest_are_still_removed(self):
         # A payload edited by hand or left by an older release can carry a path no key can

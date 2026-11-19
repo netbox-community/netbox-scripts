@@ -937,6 +937,22 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
         self.assertIn(f'Revision validation could not complete and needs another run: {STORAGE_REASON}', messages)
         self.assertNotIn('/srv/netbox/private', str(runner.job.log_entries))
 
+    def test_a_job_timeout_while_reading_escapes_and_releases_the_claim(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        runner = RevisionValidationJob(self.make_job())
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=timeout),
+            self.assertRaises(JobTimeoutException),
+        ):
+            runner.run(revision_pk=revision.pk)
+
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(revision.last_validation_failure, f'JobTimeoutException: {timeout}')
+
     def test_a_script_file_import_failure_keeps_its_job_log_line(self):
         self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)

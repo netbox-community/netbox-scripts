@@ -73,32 +73,29 @@ def repoint_event_rules(run):
     """
     Point every captured Event Rule at the plugin, and re-enable the ones fully moved.
 
-    Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. A rule that cannot be moved is left disabled, named in a warning, and leaves
-    the step incomplete so a later run covers it. Raises CutoverRefused until every migrated Project
-    is serving a revision.
+    Records each warning on the run as it arises, and returns the counts, or the recorded counts
+    unchanged once the step has completed. A rule that cannot be moved is left disabled, named in a
+    warning, and leaves the step incomplete so a later run covers it. Raises CutoverRefused until
+    every migrated Project is serving a revision.
     """
     from extras.models import EventRule
 
     _require_serving(run)
     if run.step_done(EVENT_RULES_STEP):
-        return run.recorded_counts(EVENT_RULES_STEP), []
+        return run.recorded_counts(EVENT_RULES_STEP)
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     plugin_types = _plugin_types()
     mapped = _mapped_script_keys(run)
     counts = {'actions': 0, 'sources': 0, 'restored': 0, 'unresolved': 0, 'withdrawn': 0}
-    warnings = []
     for entry in run.journal.get('event_rules', []):
         rule = EventRule.objects.filter(pk=entry['pk']).first()
         if rule is None:
             continue
         with transaction.atomic():
-            moved, counted, refusal = _repoint_action(rule, entry, resolved, plugin_types, mapped)
+            moved, counted = _repoint_action(run, rule, entry, resolved, plugin_types, mapped)
             if counted:
                 counts[counted] += 1
-            if refusal:
-                warnings.append(refusal)
             _repoint_sources(rule, entry, plugin_types, counts)
             # Only a fully moved rule: re-enabling one pointing at nothing would fail at dispatch.
             if moved and entry['enabled'] and not rule.enabled:
@@ -106,11 +103,10 @@ def repoint_event_rules(run):
                 rule.save(update_fields=('enabled',))
                 counts['restored'] += 1
     if counts['unresolved']:
-        run.record_warnings(warnings)
         # Left open on purpose: the operator repairs what each warning names and runs this again.
-        return counts, warnings
-    run.complete_step(EVENT_RULES_STEP, counts, warnings)
-    return counts, warnings
+        return counts
+    run.record_step(EVENT_RULES_STEP, counts=counts)
+    return counts
 
 
 @serialized_migration_step
@@ -118,20 +114,19 @@ def repoint_permissions(run):
     """
     Move every captured grant on the built-in feature onto the plugin's own object types.
 
-    Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. A permission naming only the built-in feature is swapped in place, one that
-    also names unrelated types keeps those and gains a sibling for the plugin, and one carrying
-    constraints is reported and left alone. Raises CutoverRefused before activation.
+    Records each warning on the run as it arises, and returns the counts, or the recorded counts
+    unchanged once the step has completed. A permission naming only the built-in feature is swapped in
+    place, one that also names unrelated types keeps those and gains a sibling for the plugin, and one
+    carrying constraints is reported and left alone. Raises CutoverRefused before activation.
     """
     from users.models import ObjectPermission
 
     _require_activated(run)
     if run.step_done(PERMISSIONS_STEP):
-        return run.recorded_counts(PERMISSIONS_STEP), []
+        return run.recorded_counts(PERMISSIONS_STEP)
 
     plugin_types = _plugin_types()
     counts = {'swapped': 0, 'split': 0, 'constrained': 0, 'unmappable': 0}
-    warnings = []
     for entry in run.journal.get('permissions', []):
         permission = ObjectPermission.objects.filter(pk=entry['pk']).first()
         if permission is None:
@@ -140,11 +135,13 @@ def repoint_permissions(run):
             # Its filters name fields the plugin models do not have, so copying it would make
             # restrict() raise on every page that uses it and dropping them would widen access.
             counts['constrained'] += 1
-            warnings.append(
-                _(
-                    'Permission "{name}" (ID {pk}) carries constraints on the built-in Custom Scripts, so it was '
-                    'left withdrawn and untranslated. Recreate it by hand against the plugin models.'
-                ).format(name=entry['name'], pk=entry['pk'])
+            run.record_warnings(
+                [
+                    _(
+                        'Permission "{name}" (ID {pk}) carries constraints on the built-in Custom Scripts, so it was '
+                        'left withdrawn and untranslated. Recreate it by hand against the plugin models.'
+                    ).format(name=entry['name'], pk=entry['pk'])
+                ]
             )
             continue
         actions, unmappable = _map_actions(entry)
@@ -152,32 +149,36 @@ def repoint_permissions(run):
             # Moving it would leave an enabled permission granting nothing, so it is treated like a
             # constrained one: left withdrawn, and named.
             counts['unmappable'] += 1
-            warnings.append(
-                _(
-                    'Permission "{name}" (ID {pk}) granted only {actions} on the built-in Custom Scripts, none of '
-                    'which the plugin separates, so it was left withdrawn.'
-                ).format(name=entry['name'], pk=entry['pk'], actions=', '.join(sorted(unmappable)))
+            run.record_warnings(
+                [
+                    _(
+                        'Permission "{name}" (ID {pk}) granted only {actions} on the built-in Custom Scripts, none of '
+                        'which the plugin separates, so it was left withdrawn.'
+                    ).format(name=entry['name'], pk=entry['pk'], actions=', '.join(sorted(unmappable)))
+                ]
             )
             continue
         if unmappable:
-            warnings.append(
-                _(
-                    'Permission "{name}" (ID {pk}) granted {actions} on the built-in Custom Scripts, which the plugin '
-                    'does not separate, so that grant was not preserved.'
-                ).format(name=entry['name'], pk=entry['pk'], actions=', '.join(sorted(unmappable)))
+            run.record_warnings(
+                [
+                    _(
+                        'Permission "{name}" (ID {pk}) granted {actions} on the built-in Custom Scripts, which the '
+                        'plugin does not separate, so that grant was not preserved.'
+                    ).format(name=entry['name'], pk=entry['pk'], actions=', '.join(sorted(unmappable)))
+                ]
             )
         targets = [plugin_types[label].pk for label in entry['legacy_object_types'] if label in plugin_types]
         with transaction.atomic():
             if entry['other_object_types']:
-                warnings.extend(_split_permission(run, permission, entry, targets, actions))
+                _split_permission(run, permission, entry, targets, actions)
                 counts['split'] += 1
             else:
                 _swap_permission(permission, entry, targets, actions)
                 counts['swapped'] += 1
     # Recorded whatever it left behind, unlike the other three: a constrained or unmappable
     # permission is withdrawn for a person to recreate, and no re-run of this pass changes that.
-    run.complete_step(PERMISSIONS_STEP, counts, warnings)
-    return counts, warnings
+    run.record_step(PERMISSIONS_STEP, counts=counts)
+    return counts
 
 
 @serialized_migration_step
@@ -185,21 +186,20 @@ def repoint_job_history(run):
     """
     Move the built-in Custom Scripts' Job history onto the Scripts that replaced them.
 
-    Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. A job whose script does not resolve, or that is still waiting or running, is
-    left where it is, reported, and leaves the step incomplete so a later run covers it. A job naming
-    a module, or a class that left its file, has no counterpart at all and does not. Raises
-    CutoverRefused until every migrated Project is serving a revision.
+    Records each warning on the run as it arises, and returns the counts, or the recorded counts
+    unchanged once the step has completed. A job whose script does not resolve, or that is still
+    waiting or running, is left where it is, reported, and leaves the step incomplete so a later run
+    covers it. A job naming a module, or a class that left its file, has no counterpart at all and
+    does not. Raises CutoverRefused until every migrated Project is serving a revision.
     """
     _require_serving(run)
     if run.step_done(HISTORY_STEP):
-        return run.recorded_counts(HISTORY_STEP), []
+        return run.recorded_counts(HISTORY_STEP)
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     legacy = _legacy_type('extras.script')
     target = _plugin_types()['extras.script']
     counts = {'moved': 0, 'unresolved': 0, 'modules': 0, 'outstanding': 0, 'unfinished': 0}
-    warnings = []
     for legacy_pk, script in resolved.items():
         # One statement per script rather than one per job. update() fires no signals and skips
         # clean(), which is what this needs: the row is being corrected, not authored.
@@ -218,45 +218,52 @@ def repoint_job_history(run):
     for legacy_pk in stranded:
         if legacy_pk in resolved:
             counts['unfinished'] += 1
-            warnings.append(
-                _(
-                    'Waiting or running Jobs of built-in Custom Script {key} were left where they are, because '
-                    'they still run the built-in Script. Verify lists them. See "Repoint references" in the '
-                    'migration guide to resolve them, then run this again.'
-                ).format(key=legacy_pk)
+            run.record_warnings(
+                [
+                    _(
+                        'Waiting or running Jobs of built-in Custom Script {key} were left where they are, because '
+                        'they still run the built-in Script. Verify lists them. See "Repoint references" in the '
+                        'migration guide to resolve them, then run this again.'
+                    ).format(key=legacy_pk)
+                ]
             )
             continue
         counts['unresolved'] += 1
         if legacy_pk not in mapped:
-            warnings.append(
-                _(
-                    'Job history for built-in Custom Script {key} was left where it is, because that class '
-                    'left its file and no Script replaces it.'
-                ).format(key=legacy_pk)
+            run.record_warnings(
+                [
+                    _(
+                        'Job history for built-in Custom Script {key} was left where it is, because that class '
+                        'left its file and no Script replaces it.'
+                    ).format(key=legacy_pk)
+                ]
             )
             continue
         counts['outstanding'] += 1
-        warnings.append(
-            _(
-                'Job history for built-in Custom Script {key} was left where it is, because no Script '
-                'resolves to it. Deleting that built-in row would take its jobs with it.'
-            ).format(key=legacy_pk)
+        run.record_warnings(
+            [
+                _(
+                    'Job history for built-in Custom Script {key} was left where it is, because no Script '
+                    'resolves to it. Deleting that built-in row would take its jobs with it.'
+                ).format(key=legacy_pk)
+            ]
         )
     counts['modules'] = Job.objects.filter(object_type=_legacy_type('extras.scriptmodule')).count()
     if counts['modules']:
-        warnings.append(
-            _(
-                '{count} Job(s) name a built-in script module rather than a Custom Script, and a Script '
-                'Project holds no jobs, so they were left where they are.'
-            ).format(count=counts['modules'])
+        run.record_warnings(
+            [
+                _(
+                    '{count} Job(s) name a built-in script module rather than a Custom Script, and a Script '
+                    'Project holds no jobs, so they were left where they are.'
+                ).format(count=counts['modules'])
+            ]
         )
     if counts['outstanding'] or counts['unfinished']:
-        run.record_warnings(warnings)
         # A module Job and a departed class's history are excluded, because no plugin row will
         # ever hold either one and the step could then never complete.
-        return counts, warnings
-    run.complete_step(HISTORY_STEP, counts, warnings)
-    return counts, warnings
+        return counts
+    run.record_step(HISTORY_STEP, counts=counts)
+    return counts
 
 
 @serialized_migration_step
@@ -264,22 +271,21 @@ def recreate_schedules(run):
     """
     Put every schedule the fence cancelled back into service against the Script.
 
-    Returns the counts and the warnings raised, and returns the recorded counts unchanged once the
-    step has completed. Each recreated job is recorded against the captured one inside the
-    transaction that creates it. Anything that cannot be replayed is reported and skipped, and the
-    part of that a later pass is meant to pick up once the operator has fixed it counts as
-    outstanding, which leaves the step incomplete. Raises CutoverRefused until every migrated
-    Project is serving a revision.
+    Records each warning on the run as it arises, and returns the counts, or the recorded counts
+    unchanged once the step has completed. Each recreated job is recorded against the captured one
+    inside the transaction that creates it. Anything that cannot be replayed is reported and
+    skipped, and the part of that a later pass is meant to pick up once the operator has fixed it
+    counts as outstanding, which leaves the step incomplete. Raises CutoverRefused until every
+    migrated Project is serving a revision.
     """
     _require_serving(run)
     if run.step_done(SCHEDULES_STEP):
-        return run.recorded_counts(SCHEDULES_STEP), []
+        return run.recorded_counts(SCHEDULES_STEP)
 
     resolved, _unresolved = mapping.resolve_scripts(mapping.recorded(run))
     mapped = _mapped_script_keys(run)
     recreated = run.journal.setdefault('recreated_schedules', {})
     counts = {'recreated': 0, 'skipped': 0, 'shifted': 0, 'outstanding': 0}
-    warnings = []
     for entry in run.journal.get('schedules', []):
         if str(entry['job_pk']) in recreated:
             continue
@@ -287,13 +293,15 @@ def recreate_schedules(run):
         # can still replay. Skipped rather than outstanding, or the step could never end.
         if entry.get('cancellation') in ('executed', 'running'):
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) was not cancelled by the cutover, because a worker had '
-                    'already taken it, so it has not been recreated. Check whether it ran, and run it again '
-                    'by hand if it did not. If it recurs, see "Recurring successors" in the migration guide '
-                    'before scheduling it again, since its next run may already exist.'
-                ).format(pk=entry['job_pk'], name=entry['name'])
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) was not cancelled by the cutover, because a worker had '
+                        'already taken it, so it has not been recreated. Check whether it ran, and run it again '
+                        'by hand if it did not. If it recurs, see "Recurring successors" in the migration guide '
+                        'before scheduling it again, since its next run may already exist.'
+                    ).format(pk=entry['job_pk'], name=entry['name'])
+                ]
             )
             continue
         # Vanished too: a worker's Job.terminate() saves its whole copy, restoring a Job deleted while it ran.
@@ -316,25 +324,29 @@ def recreate_schedules(run):
                         'been recreated. Check its execution history and any recurring successor before '
                         'scheduling it again.'
                     )
-                warnings.append(message.format(pk=entry['job_pk'], name=entry['name']))
+                run.record_warnings([message.format(pk=entry['job_pk'], name=entry['name'])])
                 continue
         # By type too: a module key can equal a Script's, so a bare lookup can hit the wrong row.
         if entry.get('legacy_object_type') != 'extras.script':
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) ran a built-in script module rather than a Custom Script, which no '
-                    'Script corresponds to, so it was not recreated.'
-                ).format(pk=entry['job_pk'], name=entry['name'])
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) ran a built-in script module rather than a Custom Script, which '
+                        'no Script corresponds to, so it was not recreated.'
+                    ).format(pk=entry['job_pk'], name=entry['name'])
+                ]
             )
             continue
         if entry.get('dropped'):
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) had input the cutover could not record ({dropped}), so it was not '
-                    'recreated rather than run without it. Schedule it again by hand.'
-                ).format(pk=entry['job_pk'], name=entry['name'], dropped=', '.join(entry['dropped']))
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) had input the cutover could not record ({dropped}), so it was '
+                        'not recreated rather than run without it. Schedule it again by hand.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], dropped=', '.join(entry['dropped']))
+                ]
             )
             continue
         script = resolved.get(entry['legacy_script_pk'])
@@ -342,50 +354,60 @@ def recreate_schedules(run):
             counts['skipped'] += 1
             if entry['legacy_script_pk'] in mapped:
                 counts['outstanding'] += 1
-                warnings.append(
-                    _(
-                        'Schedule "{name}" (Job {pk}) ran built-in Custom Script {key}, which no Script '
-                        'resolves to, so it was not recreated.'
-                    ).format(pk=entry['job_pk'], name=entry['name'], key=entry['legacy_script_pk'])
+                run.record_warnings(
+                    [
+                        _(
+                            'Schedule "{name}" (Job {pk}) ran built-in Custom Script {key}, which no Script '
+                            'resolves to, so it was not recreated.'
+                        ).format(pk=entry['job_pk'], name=entry['name'], key=entry['legacy_script_pk'])
+                    ]
                 )
                 continue
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) ran built-in Custom Script {key}, whose class left its file, so no '
-                    'Script will ever replace it and it was not recreated. Schedule it again by '
-                    'hand against whatever replaces it.'
-                ).format(pk=entry['job_pk'], name=entry['name'], key=entry['legacy_script_pk'])
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) ran built-in Custom Script {key}, whose class left its file, so '
+                        'no Script will ever replace it and it was not recreated. Schedule it again by '
+                        'hand against whatever replaces it.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], key=entry['legacy_script_pk'])
+                ]
             )
             continue
         schedule_at, shifted = _replay_schedule(entry)
         if schedule_at is _UNSCHEDULABLE:
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) was due at {due}, which has passed, so it was not recreated rather '
-                    'than run at once. Schedule it again by hand.'
-                ).format(pk=entry['job_pk'], name=entry['name'], due=entry['scheduled'])
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) was due at {due}, which has passed, so it was not recreated '
+                        'rather than run at once. Schedule it again by hand.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], due=entry['scheduled'])
+                ]
             )
             continue
         user = get_user_model().objects.filter(pk=entry['user_pk']).first() if entry['user_pk'] else None
         if entry['user_pk'] and user is None:
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) belonged to a user who no longer exists, so it was not recreated. '
-                    'Schedule it again by hand against {script} under an account that should own it.'
-                ).format(pk=entry['job_pk'], name=entry['name'], script=script)
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) belonged to a user who no longer exists, so it was not '
+                        'recreated. Schedule it again by hand against {script} under an account that should own it.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], script=script)
+                ]
             )
             continue
         # Deactivated is treated like deleted: no grant lets this account run anything, and
         # reactivating a person for a migration's sake is not a remedy to hand an operator.
         if user is not None and not user.is_active:
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) belonged to {user}, whose account is deactivated, so it was not '
-                    'recreated. Schedule it again by hand against {script} under an account that should own it.'
-                ).format(pk=entry['job_pk'], name=entry['name'], user=user, script=script)
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) belonged to {user}, whose account is deactivated, so it was not '
+                        'recreated. Schedule it again by hand against {script} under an account that should own it.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], user=user, script=script)
+                ]
             )
             continue
         # Against the script, because a grant can name particular ones and the run view honours
@@ -393,11 +415,13 @@ def recreate_schedules(run):
         if user is not None and not user.has_perm('netbox_scripts.run_netboxscript', script):
             counts['skipped'] += 1
             counts['outstanding'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) belonged to {user}, who can no longer run {script}, so it was not '
-                    'recreated. Grant them the permission to run it and run this pass again.'
-                ).format(pk=entry['job_pk'], name=entry['name'], user=user, script=script)
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) belonged to {user}, who can no longer run {script}, so it was '
+                        'not recreated. Grant them the permission to run it and run this pass again.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], user=user, script=script)
+                ]
             )
             continue
         try:
@@ -411,44 +435,51 @@ def recreate_schedules(run):
                 logger.exception(
                     'Could not recreate schedule for built-in Job %s against Script %s.', entry['job_pk'], script.pk
                 )
-            warnings.append(
-                _('Schedule "{name}" (Job {pk}) could not be recreated against {script}: {error}').format(
-                    pk=entry['job_pk'], name=entry['name'], script=script, error=replacement or error
-                )
+            run.record_warnings(
+                [
+                    _('Schedule "{name}" (Job {pk}) could not be recreated against {script}: {error}').format(
+                        pk=entry['job_pk'], name=entry['name'], script=script, error=replacement or error
+                    )
+                ]
             )
             continue
         except ValidationError as invalid:
             counts['skipped'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) has invalid input for {script} or selects an object its owner '
-                    'cannot view, so it was not recreated: {errors}'
-                ).format(pk=entry['job_pk'], name=entry['name'], script=script, errors=invalid.messages)
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) has invalid input for {script} or selects an object its owner '
+                        'cannot view, so it was not recreated: {errors}'
+                    ).format(pk=entry['job_pk'], name=entry['name'], script=script, errors=invalid.messages)
+                ]
             )
             continue
         counts['recreated'] += 1
         if entry['scheduled'] is None:
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) was queued rather than scheduled, so it was recreated to run at once '
-                    'against {script}, with the commit setting it was queued with.'
-                ).format(pk=entry['job_pk'], name=entry['name'], script=script)
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) was queued rather than scheduled, so it was recreated to run at '
+                        'once against {script}, with the commit setting it was queued with.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], script=script)
+                ]
             )
         if shifted:
             counts['shifted'] += 1
-            warnings.append(
-                _(
-                    'Schedule "{name}" (Job {pk}) was due at {due}, which has passed, so its recurrence starts now '
-                    'and keeps its {interval} minute interval.'
-                ).format(pk=entry['job_pk'], name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
+            run.record_warnings(
+                [
+                    _(
+                        'Schedule "{name}" (Job {pk}) was due at {due}, which has passed, so its recurrence starts now '
+                        'and keeps its {interval} minute interval.'
+                    ).format(pk=entry['job_pk'], name=entry['name'], due=entry['scheduled'], interval=entry['interval'])
+                ]
             )
     if counts['outstanding']:
-        run.record_warnings(warnings)
         # A past-due one-shot, or a schedule whose owner is gone or deactivated or whose input names
         # something deleted, is skipped rather than outstanding, or the step could never complete.
-        return counts, warnings
-    run.complete_step(SCHEDULES_STEP, counts, warnings)
-    return counts, warnings
+        return counts
+    run.record_step(SCHEDULES_STEP, counts=counts)
+    return counts
 
 
 def _replay_schedule(entry):
@@ -547,44 +578,60 @@ def _plugin_types():
     return {label: ObjectType.objects.get_for_model(models[name]) for label, name in _TYPE_MAP.items()}
 
 
-def _repoint_action(rule, entry, resolved, plugin_types, mapped):
+def _repoint_action(run, rule, entry, resolved, plugin_types, mapped):
     """
     Point one rule's action at the plugin, writing nothing it cannot move.
 
-    Returns whether the action needs nothing further, the count key to increment, and the refusal to
-    report, so the caller owns its own counts and warnings as the other three passes do.
+    Records the refusal when it cannot, and returns whether the action needs nothing further and the
+    count key to increment.
     """
     if entry['action_object_id'] is None or rule.action_type == ACTION_SLUG:
-        return True, None, None
+        return True, None
     # .get, because a run captured before this key existed must keep its old behaviour.
     if entry.get('action_object_type') not in (None, LEGACY_SCRIPT_TYPE):
-        refusal = _(
-            'Event rule "{name}" runs a built-in script module rather than a built-in Custom Script, which '
-            "NetBox's own conversion to those rows was meant to rewrite and did not. It was left withdrawn, so "
-            'repoint it or delete it by hand.'
-        ).format(name=entry['name'])
-        return False, 'withdrawn', refusal
+        run.record_warnings(
+            [
+                _(
+                    'Event rule "{name}" runs a built-in script module rather than a built-in Custom Script, which '
+                    "NetBox's own conversion to those rows was meant to rewrite and did not. It was left withdrawn, so "
+                    'repoint it or delete it by hand.'
+                ).format(name=entry['name'])
+            ]
+        )
+        return False, 'withdrawn'
     script = resolved.get(entry['action_object_id'])
     if script is None:
         if entry['action_object_id'] not in mapped:
-            refusal = _(
-                'Event rule "{name}" runs built-in Custom Script {key}, whose class left its file, so no '
-                'Script will ever replace it and the rule was left withdrawn. Delete it, or point '
-                'it at a script yourself.'
-            ).format(name=entry['name'], key=entry['action_object_id'])
-            return False, 'withdrawn', refusal
-        refusal = _(
-            'Event rule "{name}" runs built-in Custom Script {key}, which no Script resolves to, '
-            'so it was left withdrawn.'
-        ).format(name=entry['name'], key=entry['action_object_id'])
-        return False, 'unresolved', refusal
+            run.record_warnings(
+                [
+                    _(
+                        'Event rule "{name}" runs built-in Custom Script {key}, whose class left its file, so no '
+                        'Script will ever replace it and the rule was left withdrawn. Delete it, or point '
+                        'it at a script yourself.'
+                    ).format(name=entry['name'], key=entry['action_object_id'])
+                ]
+            )
+            return False, 'withdrawn'
+        run.record_warnings(
+            [
+                _(
+                    'Event rule "{name}" runs built-in Custom Script {key}, which no Script resolves to, '
+                    'so it was left withdrawn.'
+                ).format(name=entry['name'], key=entry['action_object_id'])
+            ]
+        )
+        return False, 'unresolved'
     if script.is_retired:
         # The action refuses a retired script at save time, so this would raise rather than write.
-        refusal = _(
-            'Event rule "{name}" resolves to {script}, which is retired and can never run again, so the '
-            'rule was left withdrawn.'
-        ).format(name=entry['name'], script=script)
-        return False, 'unresolved', refusal
+        run.record_warnings(
+            [
+                _(
+                    'Event rule "{name}" resolves to {script}, which is retired and can never run again, so the '
+                    'rule was left withdrawn.'
+                ).format(name=entry['name'], script=script)
+            ]
+        )
+        return False, 'unresolved'
     rule.action_type = ACTION_SLUG
     rule.action_object_type = plugin_types['extras.script']
     rule.action_object_id = script.pk
@@ -593,13 +640,17 @@ def _repoint_action(rule, entry, resolved, plugin_types, mapped):
     except ValidationError as invalid:
         # A rule can be invalid for reasons that predate this migration, an event type its own
         # plugin stopped registering being the likely one. One rule must not end the pass.
-        refusal = _(
-            'Event rule "{name}" cannot be saved, so it was left withdrawn: {errors}. Correct or delete '
-            'the rule, then run this pass again.'
-        ).format(name=entry['name'], errors=invalid.messages)
-        return False, 'unresolved', refusal
+        run.record_warnings(
+            [
+                _(
+                    'Event rule "{name}" cannot be saved, so it was left withdrawn: {errors}. Correct or delete '
+                    'the rule, then run this pass again.'
+                ).format(name=entry['name'], errors=invalid.messages)
+            ]
+        )
+        return False, 'unresolved'
     rule.save(update_fields=('action_type', 'action_object_type', 'action_object_id'))
-    return True, 'actions', None
+    return True, 'actions'
 
 
 def _repoint_sources(rule, entry, plugin_types, counts):
@@ -648,7 +699,7 @@ def _split_permission(run, permission, entry, targets, actions):
     # silently drop a set of users and groups.
     split = run.journal.setdefault('split_permissions', {})
     if str(entry['pk']) in split:
-        return []
+        return
     legacy = [_legacy_type(label).pk for label in entry['legacy_object_types']]
     permission.object_types.remove(*legacy)
     # Its remaining types were never part of this migration, so the fence's withdrawal is undone.
@@ -670,20 +721,21 @@ def _split_permission(run, permission, entry, targets, actions):
     sibling.groups.set(groups)
     split[str(entry['pk'])] = sibling.pk
     run.record_mapping('split_permissions', {str(entry['pk']): sibling.pk})
-    if not (lost_users or lost_groups):
-        return []
-    return [
-        _(
-            'Permission "{name}" (ID {pk}) was split, and {count} of the users and groups it was granted to no '
-            'longer exist, so the new "{sibling}" (ID {sibling_pk}) does not carry them.'
-        ).format(
-            name=entry['name'],
-            pk=entry['pk'],
-            count=len(lost_users) + len(lost_groups),
-            sibling=sibling.name,
-            sibling_pk=sibling.pk,
+    if lost_users or lost_groups:
+        run.record_warnings(
+            [
+                _(
+                    'Permission "{name}" (ID {pk}) was split, and {count} of the users and groups it was granted to no '
+                    'longer exist, so the new "{sibling}" (ID {sibling_pk}) does not carry them.'
+                ).format(
+                    name=entry['name'],
+                    pk=entry['pk'],
+                    count=len(lost_users) + len(lost_groups),
+                    sibling=sibling.name,
+                    sibling_pk=sibling.pk,
+                )
+            ]
         )
-    ]
 
 
 def _live_keys(model, keys):

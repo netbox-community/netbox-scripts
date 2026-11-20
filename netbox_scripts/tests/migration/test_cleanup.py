@@ -8,6 +8,7 @@ from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.models import EventRule, Script, ScriptModule
 from netbox_scripts.choices import MigrationStateChoices
+from netbox_scripts.jobs import MigrationCleanupJob
 from netbox_scripts.migration import cleanup, cutover, references
 from netbox_scripts.models import MigrationRun, ScriptProject
 from netbox_scripts.tests.migration.test_references import ReferenceMigrationMixin
@@ -69,6 +70,15 @@ class CleanupRefusalTestCase(CleanupMixin, TestCase):
         with self.assertRaises(cutover.CutoverRefused):
             cleanup.retire_legacy(None)
 
+    def test_the_job_fails_when_no_migration_is_open(self):
+        MigrationRun.objects.filter(pk=self.migration.pk).update(state=MigrationStateChoices.MIGRATED)
+
+        job = MigrationCleanupJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertIn('nothing left to retire', ' '.join(entry['message'] for entry in job.log_entries))
+
     def test_it_refuses_before_the_fence_has_been_recorded(self):
         with self.assertRaises(cutover.CutoverRefused):
             cleanup.retire_legacy(self.migration)
@@ -119,7 +129,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
     def test_it_deletes_every_mapped_module_and_its_scripts(self):
         run = self.repointed()
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['modules'], 2)
         self.assertEqual(counts['blocked'], 0)
@@ -151,7 +161,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
     def test_an_interrupted_completion_leaves_the_run_open_for_a_retry(self):
         run = self.repointed()
         with (
-            mock.patch.object(MigrationRun, 'complete_step', side_effect=RuntimeError('stopped')),
+            mock.patch.object(MigrationRun, 'record_step', side_effect=RuntimeError('stopped')),
             self.assertRaises(RuntimeError),
         ):
             cleanup.retire_legacy(run)
@@ -168,10 +178,10 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
 
     def test_a_second_pass_changes_nothing_and_returns_what_the_first_recorded(self):
         run = self.repointed()
-        first, _unused = cleanup.retire_legacy(run)
+        first = cleanup.retire_legacy(run)
         run.refresh_from_db()
 
-        second, warnings = cleanup.retire_legacy(run)
+        second, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(second, first)
         self.assertEqual(warnings, [])
@@ -181,7 +191,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         other = self.legacy_uploaded_module('unrelated.py', b'x = 1\n')
 
-        counts, _unused = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertTrue(ScriptModule.objects.filter(pk=other.pk).exists())
         self.assertEqual(counts['unserved'], 0)
@@ -202,7 +212,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         project.active_revision = None
         project.save(update_fields=('active_revision',))
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['unserved'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
@@ -216,7 +226,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         ScriptProject.objects.get(key__startswith='automation').delete()
 
-        counts, _warnings = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 0)
         self.assertFalse(ScriptModule.objects.filter(pk=helper.pk).exists())
@@ -230,7 +240,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
         self.module_job(self.synced)
         ScriptProject.objects.get(key__startswith='automation').delete()
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['retained'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
@@ -249,7 +259,7 @@ class CleanupDeletionTestCase(CleanupMixin, TestCase):
     def test_the_sweep_reports_what_still_names_the_built_in_feature(self):
         run = self.repointed()
 
-        counts, _unused = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['jobs'], 0)
         self.assertIn('event_rules', counts)
@@ -262,7 +272,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
     def assert_unfinished_job_blocks(self, run, job):
         reference = (job.object_type_id, job.object_id, job.status)
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertEqual(counts['retained'], 0)
@@ -271,16 +281,17 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertTrue(storages['scripts'].exists(self.synced.file_path))
         job.refresh_from_db()
         self.assertEqual((job.object_type_id, job.object_id, job.status), reference)
-        self.assertTrue(
-            any('waiting or running' in warning and 'Clean up built-in modules' in warning for warning in warnings)
-        )
         run.refresh_from_db()
+        # The run keeps a repeated warning once, so a later status reads the first status's refusal.
+        self.assertTrue(
+            any('waiting or running' in warning and 'Clean up built-in modules' in warning for warning in run.warnings)
+        )
+        # A status missing from unfinished_script_jobs() would fall through to these refusals instead.
+        self.assertFalse(any('The reference pass has completed' in warning for warning in run.warnings))
         self.assertEqual(run.state, MigrationStateChoices.CUTOVER)
         self.assertIsNone(run.completed)
         self.assertFalse(run.step_done(cleanup.STEP))
         self.assertEqual(MigrationRun.current(), run)
-        for warning in warnings:
-            self.assertIn(str(warning), run.warnings)
 
     def assert_retained_history_does_not_hide_unfinished_jobs(self, run):
         job = self.script_job(self.script)
@@ -293,7 +304,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         job.status = JobStatusChoices.STATUS_COMPLETED
         job.save(update_fields=('status',))
 
-        counts, _warnings = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 0)
         self.assertEqual(counts['retained'], 1)
@@ -356,7 +367,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         stranded = Script.objects.create(module=self.synced, name='Removed')
         job = self.script_job(stranded)
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertEqual(counts['modules'], 1)
@@ -369,7 +380,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         self.script_job(self.script)
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertTrue(
@@ -385,7 +396,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         jobs = [self.module_job(self.synced, status=status) for status in JobStatusChoices.TERMINAL_STATE_CHOICES]
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['retained'], 1)
         self.assertEqual(counts['blocked'], 0)
@@ -403,7 +414,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         jobs = [self.script_job(retired, status=status) for status in JobStatusChoices.TERMINAL_STATE_CHOICES]
         run = self.repointed()
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['retained'], 1)
         self.assertEqual(counts['blocked'], 0)
@@ -419,7 +430,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         self.plugin_script().delete()
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
@@ -434,7 +445,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         script.is_retired = True
         script.save(update_fields=('is_retired',))
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=self.synced.pk).exists())
@@ -452,7 +463,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
 
         script.is_retired = False
         script.save(update_fields=('is_retired',))
-        counts, _unused = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 0)
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
@@ -462,11 +473,57 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         self.blocked_module(self.synced)
 
-        _counts, warnings = cleanup.retire_legacy(run)
+        cleanup.retire_legacy(run)
 
         run.refresh_from_db()
-        self.assertTrue(run.warnings)
-        self.assertEqual(run.warnings, [str(warning) for warning in warnings])
+        self.assertTrue(any(self.synced.python_name in warning for warning in run.warnings))
+
+    def test_a_refusal_survives_a_later_failed_deletion(self):
+        # The synced module sorts first by path, so its refusal is recorded before the upload is deleted.
+        run = self.repointed()
+        self.blocked_module(self.synced)
+
+        with (
+            mock.patch.object(ScriptModule, 'delete', side_effect=OSError('storage unavailable')),
+            self.assertRaises(OSError),
+        ):
+            cleanup.retire_legacy(run)
+
+        run.refresh_from_db()
+        self.assertTrue(ScriptModule.objects.filter(pk=self.uploaded.pk).exists())
+        self.assertTrue(
+            any(
+                self.synced.python_name in warning and 'still has Custom Script Jobs' in warning
+                for warning in run.warnings
+            )
+        )
+
+    def test_a_repeated_cleanup_job_logs_no_recorded_warning_again(self):
+        self.repointed()
+        self.module_job(self.synced)
+        self.blocked_module(self.uploaded)
+        retained = (
+            '1 module(s) remain in place to preserve Job history that no replacement Script can own. The '
+            "migration run's page records the reasons."
+        )
+        blocked = (
+            '1 module(s) were left in place for now, and the migration remains open. Review the warnings recorded '
+            "on the migration run's page, resolve the outstanding issues, then run this again."
+        )
+
+        first = MigrationCleanupJob.enqueue(immediate=True)
+        retry = MigrationCleanupJob.enqueue(immediate=True)
+
+        first.refresh_from_db()
+        retry.refresh_from_db()
+        first_warnings = [entry['message'] for entry in first.log_entries if entry['level'] == 'warning']
+        self.assertTrue(any(self.synced.python_name in warning for warning in first_warnings))
+        self.assertTrue(any(self.uploaded.python_name in warning for warning in first_warnings))
+        self.assertFalse([entry for entry in retry.log_entries if entry['level'] == 'warning'])
+        for pass_job in (first, retry):
+            info = [entry['message'] for entry in pass_job.log_entries if entry['level'] == 'info']
+            self.assertIn(retained, info)
+            self.assertIn(blocked, info)
 
     def test_a_blocked_pass_stays_resumable(self):
         run = self.repointed()
@@ -480,7 +537,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.assertEqual(MigrationRun.current(), run)
 
         job.delete()
-        counts, _unused = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 0)
         run.refresh_from_db()
@@ -492,13 +549,13 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         held = self.blocked_module(deep)
 
-        first, _unused = cleanup.retire_legacy(run)
+        first = cleanup.retire_legacy(run)
         self.assertEqual(first['blocked'], 1)
         self.assertTrue(ScriptModule.objects.filter(pk=deep.pk).exists())
         self.assertFalse(ScriptModule.objects.filter(pk=self.synced.pk).exists())
 
         held.delete()
-        second, _unused = cleanup.retire_legacy(run)
+        second = cleanup.retire_legacy(run)
 
         self.assertEqual(second['unserved'], 0)
         self.assertEqual(second['modules'], 1)
@@ -512,7 +569,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         self.script_job(self.script)
         self.plugin_script().delete()
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertTrue(any('stage it again' in str(warning) for warning in warnings))
@@ -524,7 +581,7 @@ class CleanupHistoryGuardTestCase(CleanupMixin, TestCase):
         helper = self.legacy_synced_module('shared/util.py', b'def describe():\n    return 1\n')
         run = self.repointed()
 
-        counts, _warnings = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['unserved'], 0)
         self.assertFalse(ScriptModule.objects.filter(pk=helper.pk).exists())
@@ -587,7 +644,7 @@ class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
         rule = self.action_rule()
         run = self.repointed()
 
-        counts, _unused = cleanup.retire_legacy(run)
+        counts = cleanup.retire_legacy(run)
 
         self.assertEqual(counts['blocked'], 0)
         self.assertTrue(EventRule.objects.filter(pk=rule.pk).exists())
@@ -598,7 +655,7 @@ class CleanupAfterActionRepointTestCase(CleanupMixin, TestCase):
         run = self.repointed()
         rule = self.action_rule()
 
-        counts, warnings = cleanup.retire_legacy(run)
+        counts, warnings = self.warnings_added(cleanup.retire_legacy, run)
 
         self.assertEqual(counts['blocked'], 1)
         self.assertEqual(counts['retained'], 0)

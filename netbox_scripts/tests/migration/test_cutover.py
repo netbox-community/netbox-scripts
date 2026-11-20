@@ -631,6 +631,47 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(reloaded.journal['schedules'][0]['cancellation'], 'executed')
         self.assertIn('taken by a worker', ' '.join(reloaded.warnings))
 
+    def test_a_taken_job_is_warned_before_its_outcome_is_journalled(self):
+        job = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        original = cutover._fail_closed
+
+        def interrupt(failed, error):
+            original(failed, error)
+            raise RuntimeError('stopped before the outcome was recorded')
+
+        with mock.patch.object(cutover, '_fail_closed', interrupt), self.assertRaises(RuntimeError):
+            cutover._close(self.migration)
+        Job.objects.filter(pk=job.pk).update(started=timezone.now())
+        reloaded = MigrationRun.objects.get(pk=self.migration.pk)
+
+        with (
+            mock.patch.object(MigrationRun, 'record_journal', side_effect=RuntimeError('stopped')),
+            self.assertRaises(RuntimeError),
+        ):
+            cutover._close(reloaded)
+
+        reloaded.refresh_from_db()
+        self.assertIn('taken by a worker', ' '.join(reloaded.warnings))
+
+    def test_a_cancellation_warning_survives_a_later_failure(self):
+        waiting = self.legacy_job(task_kwargs={})
+        started = self.legacy_job(task_kwargs={})
+        cutover._capture(self.migration)
+        self.assertEqual([entry['job_pk'] for entry in self.migration.journal['schedules']], [started.pk, waiting.pk])
+        Job.objects.filter(pk=started.pk).update(status=JobStatusChoices.STATUS_RUNNING)
+
+        with (
+            mock.patch.object(cutover, '_fail_closed', side_effect=RuntimeError('queue unavailable')),
+            self.assertRaises(RuntimeError),
+        ):
+            cutover._close(self.migration)
+
+        self.migration.refresh_from_db()
+        self.assertTrue(
+            any(f'Job {started.pk} ("Deploy") started before' in warning for warning in self.migration.warnings)
+        )
+
     def test_a_run_a_worker_starts_while_it_is_cancelled_is_left_to_run(self):
         # In the cancellation, RQJob.fetch runs after the row is read and before it is failed.
         owner = get_user_model().objects.create_user(username='owner')
@@ -761,9 +802,8 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         captured = cutover._capture
 
         def start_it(run):
-            warnings = captured(run)
+            captured(run)
             Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING)
-            return warnings
 
         with mock.patch.object(cutover, '_capture', start_it):
             counts = cutover.enter_cutover(self.migration)
@@ -781,7 +821,7 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
 
         def take_it_first(run):
             Job.objects.filter(pk=job.pk).update(status=JobStatusChoices.STATUS_RUNNING, started=timezone.now())
-            return capture(run)
+            capture(run)
 
         with mock.patch.object(cutover, '_capture', take_it_first):
             cutover.enter_cutover(self.migration)
@@ -1100,9 +1140,16 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
     def test_the_pass_job_reports_a_step_an_earlier_version_completed(self):
         # Recorded before the unreadable and uncaptured counts were dropped.
         self.migration.advance(MigrationStateChoices.CUTOVER)
-        self.migration.complete_step(
+        self.migration.record_step(
             cutover.STEP,
-            {'permissions': 1, 'event_rules': 0, 'schedules': 2, 'unreadable': 1, 'uncaptured': 0, 'auto_sync': 1},
+            counts={
+                'permissions': 1,
+                'event_rules': 0,
+                'schedules': 2,
+                'unreadable': 1,
+                'uncaptured': 0,
+                'auto_sync': 1,
+            },
         )
 
         job = MigrationCutoverJob.enqueue(immediate=True)
@@ -1111,6 +1158,28 @@ class CutoverTestCase(RQQueueTestMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         messages = ' '.join(entry['message'] for entry in job.log_entries)
         self.assertIn('cancelled 2 queued job(s), and deregistered 1 synchronization record(s)', messages)
+
+    def test_the_pass_job_logs_only_the_warnings_its_pass_added(self):
+        self.migration.record_warnings(['Recorded by an earlier pass.'])
+        job = self.legacy_job(task_kwargs=None)
+        incomplete = (
+            "The cutover is incomplete. Review the warnings recorded on the migration run's page, resolve any "
+            'outstanding issues, then run this job again. Keep built-in Script submissions stopped in the meantime.'
+        )
+
+        first = MigrationCutoverJob.enqueue(immediate=True)
+        retry = MigrationCutoverJob.enqueue(immediate=True)
+
+        first.refresh_from_db()
+        retry.refresh_from_db()
+        first_warnings = [entry['message'] for entry in first.log_entries if entry['level'] == 'warning']
+        retry_warnings = [entry['message'] for entry in retry.log_entries if entry['level'] == 'warning']
+        self.assertNotIn('Recorded by an earlier pass.', first_warnings)
+        self.assertTrue(
+            any(f'Job {job.pk} ' in warning and 'not in the queue' in warning for warning in first_warnings)
+        )
+        self.assertIn(incomplete, first_warnings)
+        self.assertEqual(retry_warnings, [incomplete])
 
     def test_an_interrupted_fence_finishes_the_closures_without_recapturing(self):
         permission = self.legacy_permission()
@@ -1286,7 +1355,7 @@ class CutoverServabilityTestCase(LegacySourceMixin, TestCase):
         self.assertTrue(self.migration.step_done(cutover.STEP))
 
     def test_a_resumed_crossing_is_not_refused_by_the_guard(self):
-        # complete_step() is the last statement, so a crash before it leaves the closures done and
+        # record_step() is the last statement, so a crash before it leaves the closures done and
         # the map frozen. Re-checking servability there would refuse a fence already half crossed.
         self.stage_and_validate()
         cutover.enter_cutover(self.migration)

@@ -185,6 +185,13 @@ Each action returns to the Migration page with a link to its Job. Read the log
 and results even when the Job finishes successfully. It may report skipped
 Projects, unresolved references or an incomplete cutover.
 
+Cutover, reference and cleanup warnings are recorded on the migration run as
+each pass raises them, so a pass that fails later keeps what it already
+reported. The run's page, which the **State** badge opens while the migration
+is open, lists every warning under **Outstanding after this migration**,
+including any since resolved. A Job log shows only the warnings its own pass
+added, so a repeated pass does not log one that is already recorded.
+
 Inventory, staging and verification require permission to **add** a Script
 Project. Cutover, activation, repointing and cleanup require the separate Script
 Project **`migrate`** action. The page itself requires `add`. It summarizes
@@ -543,9 +550,10 @@ Completed reference steps do not scan again, so repeating
 - **Event Rules:** repoint the rule at a Script, or delete it, then select
   **Clean up** again.
 
-The run reaches `migrated` when cleanup has no blocking work left. Retained
-modules are listed in the cleanup results and migration warnings. Verification
-is useful afterwards, but does not replace that detailed retention record.
+The run reaches `migrated` when cleanup has no blocking work left. Each
+retained module is named by the cleanup Job that first left it in place, and on
+the migration run's page. Verification is useful afterwards, but does not
+replace that detailed retention record.
 
 ## Finish the migration
 

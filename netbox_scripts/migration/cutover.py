@@ -112,7 +112,7 @@ def enter_cutover(run, *, accept_concurrent_workers=False):
     if len(competing) > 1:
         # A flag would not say which workers the risk was accepted against.
         run.record_journal(concurrent_workers_accepted=competing)
-    run.record_warnings(_capture(run))
+    _capture(run)
     # After the capture and before the closures. Before the capture too, a crash here would leave
     # a run that unservable_projects() can still refuse and staging will not take back.
     if run.state == MigrationStateChoices.STAGING:
@@ -131,7 +131,7 @@ def enter_cutover(run, *, accept_concurrent_workers=False):
             ]
         )
         return counts
-    run.complete_step(STEP, counts)
+    run.record_step(STEP, counts=counts)
     return counts
 
 
@@ -297,11 +297,10 @@ def _capture(run):
     seen = [entry['job_pk'] for entry in journal.get('schedules', [])]
     # Extended rather than skipped: a second capture adds only the waiting jobs it has not recorded,
     # a recurring run's successor among them.
-    fresh, warnings = _capture_schedules(exclude=seen)
+    fresh = _capture_schedules(run, exclude=seen)
     if fresh or 'schedules' not in journal:
         entries['schedules'] = journal.get('schedules', []) + fresh
     run.record_journal(**entries)
-    return warnings
 
 
 def _capture_permissions():
@@ -350,30 +349,34 @@ def _capture_event_rules():
     return captured
 
 
-def _capture_schedules(exclude=()):
+def _capture_schedules(run, exclude=()):
     """Record every waiting built-in Custom Script job with what a replay needs, warning about any it cannot read."""
-    captured, warnings = [], []
+    captured = []
     for job in legacy_source.enqueued_script_jobs().exclude(pk__in=exclude).select_related('object_type'):
         entry, dropped = _capture_schedule(job)
         if entry is None:
             # NetBox saves the row before it queues the task, so a later pass may still read it.
-            warnings.append(
-                _(
-                    'Job {pk} ("{name}") is waiting but its task is not in the queue, so its input '
-                    'could not be read. Enter the cutover again to retry. If the Job still shows Pending '
-                    'or Scheduled after that, see "Missing queue tasks" in the migration guide.'
-                ).format(pk=job.pk, name=job.name)
+            run.record_warnings(
+                [
+                    _(
+                        'Job {pk} ("{name}") is waiting but its task is not in the queue, so its input '
+                        'could not be read. Enter the cutover again to retry. If the Job still shows Pending '
+                        'or Scheduled after that, see "Missing queue tasks" in the migration guide.'
+                    ).format(pk=job.pk, name=job.name)
+                ]
             )
             continue
         if dropped:
-            warnings.append(
-                _(
-                    'Job {pk} ("{name}") has input that cannot be recorded ({dropped}), so it will not '
-                    'be recreated. Schedule it again by hand after the migration.'
-                ).format(pk=job.pk, name=job.name, dropped=', '.join(dropped))
+            run.record_warnings(
+                [
+                    _(
+                        'Job {pk} ("{name}") has input that cannot be recorded ({dropped}), so it will not '
+                        'be recreated. Schedule it again by hand after the migration.'
+                    ).format(pk=job.pk, name=job.name, dropped=', '.join(dropped))
+                ]
             )
         captured.append(entry)
-    return captured, warnings
+    return captured
 
 
 def _capture_schedule(job):
@@ -448,10 +451,9 @@ def _close(run):
     # First, so a run that slips past the cancellations below meets no captured grant or rule.
     permissions = _disable_permissions(journal['permissions'])
     event_rules = _disable_event_rules(journal['event_rules'])
-    cancelled, warnings = _cancel_schedules(run, journal['schedules'])
+    cancelled = _cancel_schedules(run, journal['schedules'])
     # The outcomes it resolved from a job's own state, which it does not record as it goes.
     run.record_journal(schedules=journal['schedules'])
-    run.record_warnings(warnings)
     return {
         'permissions': permissions,
         'event_rules': event_rules,
@@ -483,9 +485,9 @@ def _cancel_schedules(run, captured):
 
     Annotates every entry with a 'cancellation' of 'cancelled', 'executed', 'running' or 'vanished',
     recording 'cancelling' before it touches a row so an interrupted pass can resolve it.
-    Returns the number cancelled and the warnings raised.
+    Records a warning for each job a worker reached first, and returns the number cancelled.
     """
-    cancelled, warnings = 0, []
+    cancelled = 0
     for entry in captured:
         if entry.get('cancellation') == 'cancelled':
             # This cutover failed its row, which reads as executed below, so this stays the first check.
@@ -503,12 +505,14 @@ def _cancel_schedules(run, captured):
                 cancelled += 1
             else:
                 entry['cancellation'] = 'executed'
-                warnings.append(
-                    _(
-                        'Job {pk} ("{name}") was taken by a worker while the cutover was cancelling it, '
-                        'so it ran and will not be recreated. If it recurs, see "Recurring successors" in '
-                        'the migration guide before scheduling it again, since its next run may already exist.'
-                    ).format(pk=entry['job_pk'], name=entry['name'])
+                run.record_warnings(
+                    [
+                        _(
+                            'Job {pk} ("{name}") was taken by a worker while the cutover was cancelling it, '
+                            'so it ran and will not be recreated. If it recurs, see "Recurring successors" in '
+                            'the migration guide before scheduling it again, since its next run may already exist.'
+                        ).format(pk=entry['job_pk'], name=entry['name'])
+                    ]
                 )
             run.record_journal(schedules=captured)
             continue
@@ -537,23 +541,27 @@ def _cancel_schedules(run, captured):
         # Never terminated underneath the worker that owns it, so the outcome is recorded instead.
         if job.status == JobStatusChoices.STATUS_RUNNING:
             entry['cancellation'] = 'running'
-            warnings.append(
-                _(
-                    'Job {pk} ("{name}") started before the cutover could cancel it, so it was left '
-                    'to finish rather than terminated. Wait for it, then enter the cutover again. If it '
-                    'still shows Running after its execution stops, see "Stale running Jobs" in the migration guide.'
-                ).format(pk=entry['job_pk'], name=entry['name'])
+            run.record_warnings(
+                [
+                    _(
+                        'Job {pk} ("{name}") started before the cutover could cancel it, so it was left '
+                        'to finish rather than terminated. Wait for it, then enter the cutover again. If it still '
+                        'shows Running after its execution stops, see "Stale running Jobs" in the migration guide.'
+                    ).format(pk=entry['job_pk'], name=entry['name'])
+                ]
             )
         else:
             entry['cancellation'] = 'executed'
-            warnings.append(
-                _(
-                    'Job {pk} ("{name}") had already run by the time the cutover reached it, so it '
-                    'was not cancelled and will not be recreated. If it recurs, see "Recurring successors" '
-                    'in the migration guide before scheduling it again, since its next run may already exist.'
-                ).format(pk=entry['job_pk'], name=entry['name'])
+            run.record_warnings(
+                [
+                    _(
+                        'Job {pk} ("{name}") had already run by the time the cutover reached it, so it '
+                        'was not cancelled and will not be recreated. If it recurs, see "Recurring successors" '
+                        'in the migration guide before scheduling it again, since its next run may already exist.'
+                    ).format(pk=entry['job_pk'], name=entry['name'])
+                ]
             )
-    return cancelled, warnings
+    return cancelled
 
 
 def _fail_closed(job, error):

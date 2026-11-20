@@ -118,9 +118,11 @@ A valid revision is activated according to the Project's policy:
 | Manual | Leaves the revision `valid` until an operator activates it. |
 
 For manual activation, choose **Activate** on the Project's page. The confirmation
-names the exact revision. The action appears when an eligible revision other than
-the active one exists, including a retired revision available for rollback.
-Activating another revision retires the previous active one in the same step.
+names the exact revision by its digest and ID, with the number of Script Files it
+selects, and describes the active revision it retires the same way. The action
+appears when an eligible revision other than the active one exists, including a
+retired revision available for rollback. Activating another revision retires the
+previous active one in the same step.
 
 Activation verifies stored source again. If it no longer matches the manifest,
 activation is refused and the current revision remains in service.
@@ -137,9 +139,10 @@ activation time. The two panels may describe different revisions when newer sour
 is not active yet.
 
 The **Revisions** tab lists revision history. Rows can share a content digest but
-have different Script File selections. The **Script Files** column distinguishes
-these snapshots, and each revision's page lists its selected paths. The Project's
-**Script Files** tab shows declarations and their discovery results.
+have different Script File selections. The **Script Files** column shows how many
+Script Files each revision selects. Each revision's page shows its ID and lists
+its selected paths. The Project's **Script Files** tab shows declarations and
+their discovery results.
 
 ### Select Script Files
 

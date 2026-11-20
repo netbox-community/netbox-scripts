@@ -10,7 +10,7 @@ from django.utils import timezone
 from rq.timeouts import JobTimeoutException
 
 from core.choices import JobStatusChoices
-from netbox_scripts import branching
+from netbox_scripts import branching, jobs
 from netbox_scripts.activation import activate_revision
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
@@ -213,9 +213,41 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
     def test_a_project_deleted_before_the_job_runs_completes_with_nothing_to_do(self):
         pk = self.project.pk
         self.project.delete()
-        job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'):
+            job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+
+    def test_a_project_deleted_before_the_job_takes_its_lock_completes_with_nothing_to_do(self):
+        pk = self.project.pk
+        original = jobs.project_lock
+
+        def delete_then_lock(*args, **kwargs):
+            self.project.delete()
+            return original(*args, **kwargs)
+
+        with (
+            mock.patch.object(jobs, 'project_lock', delete_then_lock),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Script Project {pk} no longer exists, nothing to refresh.'],
+        )
+
+    def test_a_does_not_exist_for_a_surviving_project_escapes_unchanged(self):
+        error = ScriptProjectRevision.DoesNotExist('ScriptProjectRevision matching query does not exist.')
+
+        with mock.patch.object(service, 'refresh_revision_script_files', side_effect=error):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(error))
+        self.assertNotIn('no longer exists', str(job.log_entries))
 
     def test_unsafe_routing_fails_the_job_before_any_work(self):
         with (

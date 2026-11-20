@@ -14,6 +14,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile, TemporaryUploaded
 from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
 from django.test import TestCase, TransactionTestCase, override_settings
 from redis.exceptions import ConnectionError as RedisConnectionError
+from rq.timeouts import JobTimeoutException
 
 from core.choices import JobNotificationChoices, JobStatusChoices
 from core.events import OBJECT_CREATED
@@ -521,6 +522,14 @@ RAISES = (
     b'class Boom(Script):\n'
     b'    def run(self, data, commit):\n'
     b"        raise RuntimeError('the script broke')\n"
+)
+
+TIMES_OUT = (
+    b'from rq.timeouts import JobTimeoutException\n'
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class TimedOutDeploy(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b"        raise JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')\n"
 )
 
 FAILS_AFTER_ITS_COMMIT = (
@@ -1584,6 +1593,48 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
             for private in ('/srv/netbox/private', str(self.project.storage_key)):
                 self.assertNotIn(private, serialized)
         self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_job_timeout_while_reading_the_source_is_logged_as_the_timeout(self):
+        revision = self.publish({'deploy.py': MAKES_A_TAG})
+        empty_cache = Path(tempfile.mkdtemp())
+        self.addCleanup(discard_tree, empty_cache)
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with (
+            override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(empty_cache)}}),
+            patch.object(config.get_storage(), 'open', side_effect=timeout),
+        ):
+            job = self.run_job()
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn(f'The Script run failed: {timeout}', job_log)
+        self.assertNotIn('could not reach the source', job_log)
+        self.assertNotIn(revision.digest, job_log)
+        self.assertFalse(Tag.objects.filter(slug='from-revision').exists())
+        storage_key = str(self.project.storage_key)
+        serialized = json.dumps(job.data) + job_log
+        for private in (storage_key, uuid.UUID(storage_key).hex, PRIVATE_ROOT, str(empty_cache)):
+            self.assertNotIn(private, serialized)
+
+    def test_a_job_timeout_inside_the_script_fails_the_run_without_storage_identities(self):
+        revision = self.publish({'deploy.py': TIMES_OUT})
+
+        job = self.run_job()
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn('The Script run failed: Task exceeded maximum timeout value (300 seconds)', job_log)
+        run_log = '\n'.join(record['message'] for record in job.data['log'])
+        self.assertIn('JobTimeoutException: Task exceeded maximum timeout value (300 seconds)', run_log)
+        self.assertIn('Traceback (most recent call last)', run_log)
+        self.assertNotIn(revision.digest, run_log + job_log)
+        storage_key = str(self.project.storage_key)
+        serialized = json.dumps(job.data) + job_log
+        for private in (storage_key, uuid.UUID(storage_key).hex, PRIVATE_ROOT, str(self.cache_root)):
+            self.assertNotIn(private, serialized)
 
     def test_a_corrupt_revision_is_reported_as_a_resolution_failure(self):
         self.publish({'deploy.py': MAKES_A_TAG})

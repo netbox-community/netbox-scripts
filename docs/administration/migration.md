@@ -397,6 +397,13 @@ own text, which can name server paths. The server log keeps the original error
 with its traceback under the `netbox.plugins.netbox_scripts.migration` logger.
 A missing or damaged stored revision keeps its own outcome.
 
+A pass that reaches its Job timeout stops there, and its Job ends as
+**Errored**. Projects it finished before the timeout keep the changes it made,
+but the pass records no outcomes, so check the active revisions before
+repeating it. Each pass verifies the stored revision of every Project it
+activates or repairs, so raise `RQ_DEFAULT_TIMEOUT` before repeating a pass
+that ran out of time.
+
 ## Repoint references
 
 **Repoint references** replays the journal in four steps.
@@ -437,6 +444,9 @@ built-in Script. Let the run finish, or delete a waiting Job on the **Jobs**
 page, then select **Repoint references** again. For a recurring run, see
 [Recurring successors](#recurring-successors), and for one whose worker
 stopped, see [Stale running Jobs](#stale-running-jobs).
+
+If a pass ends **Errored** at its Job timeout, the schedules it already
+recreated stay recorded, so the next pass continues with the rest.
 
 ### Schedule timing and ownership
 

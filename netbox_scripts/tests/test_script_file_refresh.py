@@ -7,9 +7,10 @@ from unittest import mock
 from django.db import OperationalError
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from rq.timeouts import JobTimeoutException
 
 from core.choices import JobStatusChoices
-from netbox_scripts import branching
+from netbox_scripts import branching, jobs
 from netbox_scripts.activation import activate_revision
 from netbox_scripts.choices import ActivationPolicyChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_LEASE_SECONDS
@@ -212,9 +213,41 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
     def test_a_project_deleted_before_the_job_runs_completes_with_nothing_to_do(self):
         pk = self.project.pk
         self.project.delete()
-        job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'):
+            job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+
+    def test_a_project_deleted_before_the_job_takes_its_lock_completes_with_nothing_to_do(self):
+        pk = self.project.pk
+        original = jobs.project_lock
+
+        def delete_then_lock(*args, **kwargs):
+            self.project.delete()
+            return original(*args, **kwargs)
+
+        with (
+            mock.patch.object(jobs, 'project_lock', delete_then_lock),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = ProjectScriptFileRefreshJob.enqueue(immediate=True, project_id=pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Script Project {pk} no longer exists, nothing to refresh.'],
+        )
+
+    def test_a_does_not_exist_for_a_surviving_project_escapes_unchanged(self):
+        error = ScriptProjectRevision.DoesNotExist('ScriptProjectRevision matching query does not exist.')
+
+        with mock.patch.object(service, 'refresh_revision_script_files', side_effect=error):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(error))
+        self.assertNotIn('no longer exists', str(job.log_entries))
 
     def test_unsafe_routing_fails_the_job_before_any_work(self):
         with (
@@ -251,6 +284,17 @@ class ProjectScriptFileRefreshJobTestCase(TestCase):
             for private in ('/srv/netbox/private', str(self.project.storage_key), source.digest):
                 self.assertNotIn(private, str(job.log_entries))
         self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_job_timeout_while_reading_ends_the_job_as_errored(self):
+        self.project.select_script_files(['alpha.py'])
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with mock.patch.object(config.get_storage(), 'open', side_effect=timeout):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(timeout))
+        self.validated.assert_not_called()
 
     def test_a_missing_stored_tree_keeps_its_own_text_in_the_job_log(self):
         self.project.select_script_files(['alpha.py'])

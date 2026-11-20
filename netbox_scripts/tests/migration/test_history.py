@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rq.job import Job as RQJob
+from rq.timeouts import JobTimeoutException
 
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
@@ -54,6 +55,15 @@ class Allocate(Script):
 
     def run(self, data, commit):
         pass
+"""
+
+# In a directory of its own, so it migrates into a Project apart from Deploy's.
+AUDIT_SCRIPT = b"""from extras.scripts import Script
+
+
+class Audit(Script):
+    def run(self, data, commit):
+        return 'audited'
 """
 
 
@@ -1072,3 +1082,47 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(list(self.new_jobs().values_list('pk', flat=True)), first)
         self.assertEqual(counts['recreated'], 1)
         self.assertEqual(repeated['recreated'], 1)
+
+    def test_a_stored_source_timeout_preserves_recreated_schedules(self):
+        audit = Script.objects.get(module=self.legacy_synced_module('network/audit.py', AUDIT_SCRIPT), name='Audit')
+        # Captured newest first, by the Job model's ordering, so Deploy's schedule replays before Audit's.
+        audit_schedule = self.legacy_schedule(script=audit, scheduled=self.future())
+        deploy_schedule = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        self.assertEqual(
+            [entry['job_pk'] for entry in self.migration.journal['schedules']], [deploy_schedule.pk, audit_schedule.pk]
+        )
+        storage = config.get_storage()
+        real_open = storage.open
+        held_back = str(self.plugin_script('Audit').project.storage_key)
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+        cold_cache = self.cache_root / 'cold'
+        cold_cache.mkdir(mode=0o700)
+
+        def time_out_for_project(name, mode='rb'):
+            if held_back in name:
+                raise timeout
+            return real_open(name, mode)
+
+        with (
+            override_settings(PLUGINS_CONFIG={'netbox_scripts': {'runtime_cache_root': str(cold_cache)}}),
+            patch.object(storage, 'open', side_effect=time_out_for_project),
+        ):
+            interrupted = MigrationReferencesJob.enqueue(immediate=True)
+
+        interrupted.refresh_from_db()
+        self.assertEqual(interrupted.status, JobStatusChoices.STATUS_ERRORED)
+        self.migration.refresh_from_db()
+        kept = dict(self.migration.journal['recreated_schedules'])
+        self.assertEqual(list(kept), [str(deploy_schedule.pk)])
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+        repeated = MigrationReferencesJob.enqueue(immediate=True)
+
+        repeated.refresh_from_db()
+        self.assertEqual(repeated.status, JobStatusChoices.STATUS_COMPLETED)
+        self.migration.refresh_from_db()
+        replayed = self.migration.journal['recreated_schedules']
+        self.assertEqual(sorted(replayed), sorted([str(deploy_schedule.pk), str(audit_schedule.pk)]))
+        self.assertEqual(replayed[str(deploy_schedule.pk)], kept[str(deploy_schedule.pk)])
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))

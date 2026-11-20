@@ -1,6 +1,7 @@
 import json
 import tempfile
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from unittest import mock
@@ -14,9 +15,9 @@ from core.choices import JobStatusChoices
 from core.exceptions import JobFailed
 from core.models import Job
 from netbox_scripts import jobs, validation
-from netbox_scripts.choices import FileDiscoveryStatusChoices, RevisionStatusChoices
+from netbox_scripts.choices import ActivationPolicyChoices, FileDiscoveryStatusChoices, RevisionStatusChoices
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
-from netbox_scripts.jobs import RevisionValidationJob
+from netbox_scripts.jobs import ProjectStorageCleanupJob, RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.runtime.exceptions import DiscoveryError, LocalCacheError, ScriptFileImportError
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
@@ -24,10 +25,11 @@ from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import (
     ActivationError,
     RevisionCorruptError,
+    RevisionVanishedError,
     StorageConfigurationError,
     StorageError,
 )
-from netbox_scripts.storage.paths import revision_key
+from netbox_scripts.storage.paths import revision_key, revision_prefix
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
 from netbox_scripts.validation import (
     ValidationStateError,
@@ -46,6 +48,7 @@ def script_source(class_name):
 SCRIPT_FILES = {'deploy.py': script_source('Deploy')}
 STORAGE_REASON = 'The revision source could not be accessed. Check source storage and the runtime cache.'
 IO_REASON = 'An I/O error occurred on the server. Check the server logs for details.'
+STORE_WARNING = 'WARNING:netbox.plugins.netbox_scripts.storage:'
 
 
 class ValidationTestMixin:
@@ -873,6 +876,11 @@ class ScriptFilePersistenceTestCase(ValidationTestMixin, TestCase):
 
 
 class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
+    def delete_and_clean_up(self):
+        self.project.delete()
+        cleanup = Job.objects.get(name=ProjectStorageCleanupJob.name)
+        ProjectStorageCleanupJob(cleanup).run(**cleanup.data)
+
     def test_an_immediate_enqueue_validates_the_revision(self):
         script_file = self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)
@@ -907,9 +915,226 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
         revision = self.stage(SCRIPT_FILES)
         missing_pk = revision.pk
         revision.delete()
-        job = RevisionValidationJob.enqueue(immediate=True, revision_pk=missing_pk)
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=missing_pk)
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+
+    def test_a_project_deleted_before_the_claim_completes_with_nothing_to_do(self):
+        revision = self.stage(SCRIPT_FILES)
+
+        def delete_then_validate(target, **kwargs):
+            self.project.delete()
+            return validate_revision(target, **kwargs)
+
+        with (
+            mock.patch.object(jobs, 'validate_revision', delete_then_validate),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Revision {revision.pk} no longer exists, nothing to validate.'],
+        )
+
+    def test_a_revision_claimed_by_another_job_still_fails(self):
+        revision = self.stage(SCRIPT_FILES)
+        other = self.make_job()
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALIDATING, validation_job=other, validation_started=timezone.now()
+        )
+
+        job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [
+                (
+                    'The revision is not claimable for validation. Only a materialized revision or a '
+                    'validation whose lease has expired can be claimed.'
+                )
+            ],
+        )
+
+    def test_a_project_deleted_during_validation_completes_with_nothing_to_do(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        original = validation._finalize
+
+        def delete_then_finalize(target, job, status, validation_errors, discovered_scripts):
+            self.project.delete()
+            return original(target, job, status, validation_errors, discovered_scripts)
+
+        with (
+            mock.patch.object(validation, '_finalize', delete_then_finalize),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Revision {revision.pk} no longer exists, nothing to validate.'],
+        )
+
+    def test_a_project_deleted_after_its_verdict_completes_with_nothing_to_activate(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        ScriptProject.objects.filter(pk=self.project.pk).update(
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        )
+
+        def validate_then_delete(target, **kwargs):
+            validated = validate_revision(target, **kwargs)
+            self.project.delete()
+            return validated
+
+        with (
+            mock.patch.object(jobs, 'validate_revision', validate_then_delete),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            ['The revision validated as valid.', f'Revision {revision.pk} no longer exists, nothing to activate.'],
+        )
+
+    def test_a_project_deleted_and_cleaned_up_before_its_import_completes_with_nothing_to_do(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        key = revision_key(str(self.project.storage_key), revision.digest, 'deploy.py')
+        original = validation.import_script_file
+
+        def clean_up_then_import(*args, **kwargs):
+            self.delete_and_clean_up()
+            return original(*args, **kwargs)
+
+        with (
+            mock.patch.object(validation, 'import_script_file', clean_up_then_import),
+            self.assertNoLogs('netbox.plugins.netbox_scripts', 'ERROR'),
+            self.assertLogs('netbox.plugins.netbox_scripts.storage', 'WARNING') as stored,
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Revision {revision.pk} no longer exists, nothing to validate.'],
+        )
+        self.assertEqual(
+            stored.output,
+            [f'{STORE_WARNING}The stored file "{key}" does not match its manifest entry: missing:deploy.py'],
+        )
+        self.assertFalse(config.get_storage().exists(key))
+
+    def test_a_project_deleted_and_cleaned_up_before_activation_completes_with_nothing_to_activate(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        key = revision_key(str(self.project.storage_key), revision.digest, 'deploy.py')
+        prefix = revision_prefix(str(self.project.storage_key), revision.digest)
+        ScriptProject.objects.filter(pk=self.project.pk).update(
+            activation_policy=ActivationPolicyChoices.AUTOMATIC_IF_VALID
+        )
+        original = service.project_lock
+
+        @contextmanager
+        def clean_up_then_lock(*args, **kwargs):
+            self.delete_and_clean_up()
+            with original(*args, **kwargs):
+                yield
+
+        with (
+            mock.patch.object(service, 'project_lock', clean_up_then_lock),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+            self.assertLogs('netbox.plugins.netbox_scripts.storage', 'WARNING') as stored,
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            ['The revision validated as valid.', f'Revision {revision.pk} no longer exists, nothing to activate.'],
+        )
+        self.assertEqual(stored.output, [f'{STORE_WARNING}The stored revision at {prefix} is missing.'])
+        self.assertFalse(config.get_storage().exists(key))
+
+    def test_a_storage_failure_while_activating_a_deleted_project_completes_with_nothing_to_activate(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+
+        def delete_then_fail(target, **kwargs):
+            self.project.delete()
+            raise StorageError('the backend refused')
+
+        with (
+            mock.patch.object(jobs.activation, 'activate_revision', delete_then_fail),
+            self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            ['The revision validated as valid.', f'Revision {revision.pk} no longer exists, nothing to activate.'],
+        )
+
+    def test_a_damaged_revision_of_a_deleted_project_completes_with_nothing_to_do(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+
+        def delete_then_refuse(manifest, digest):
+            self.project.delete()
+            raise RevisionCorruptError('The stored revision is damaged.')
+
+        with (
+            mock.patch.object(validation, 'validate_manifest', delete_then_refuse),
+            self.assertNoLogs('netbox.plugins.netbox_scripts', 'ERROR'),
+        ):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Revision {revision.pk} no longer exists, nothing to validate.'],
+        )
+
+    def test_a_does_not_exist_for_a_surviving_revision_escapes_unchanged(self):
+        revision = self.stage(SCRIPT_FILES)
+        error = ScriptProjectRevision.DoesNotExist('ScriptProjectRevision matching query does not exist.')
+
+        with mock.patch.object(jobs, 'validate_revision', side_effect=error):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(error))
+        self.assertNotIn('no longer exists', str(job.log_entries))
+
+    def test_a_vanished_error_while_activating_a_surviving_revision_escapes_unchanged(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        error = RevisionVanishedError(f'Revision {revision.pk} was deleted while its content was being changed.')
+
+        with mock.patch.object(jobs.activation, 'activate_revision', side_effect=error):
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(error))
+        self.assertNotIn('no longer exists', str(job.log_entries))
 
     def test_an_environment_failure_fails_the_job_and_releases_the_claim(self):
         self.declare('deploy.py')
@@ -936,6 +1161,22 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
         messages = [entry['message'] for entry in runner.job.log_entries]
         self.assertIn(f'Revision validation could not complete and needs another run: {STORAGE_REASON}', messages)
         self.assertNotIn('/srv/netbox/private', str(runner.job.log_entries))
+
+    def test_a_job_timeout_while_reading_escapes_and_releases_the_claim(self):
+        self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        runner = RevisionValidationJob(self.make_job())
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=timeout),
+            self.assertRaises(JobTimeoutException),
+        ):
+            runner.run(revision_pk=revision.pk)
+
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(revision.last_validation_failure, f'JobTimeoutException: {timeout}')
 
     def test_a_script_file_import_failure_keeps_its_job_log_line(self):
         self.declare('deploy.py')

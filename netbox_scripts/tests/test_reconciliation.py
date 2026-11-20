@@ -7,13 +7,14 @@ from unittest import mock
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from rq.timeouts import JobTimeoutException
 
 from core.choices import DataSourceStatusChoices, JobStatusChoices
 from core.exceptions import JobFailed
 from core.jobs import SyncDataSourceJob
 from core.models import DataFile, DataSource, Job
 from core.signals import post_sync
-from netbox_scripts import jobs
+from netbox_scripts import ingestion, jobs
 from netbox_scripts.choices import (
     ActivationPolicyChoices,
     ProjectSourceTypeChoices,
@@ -207,9 +208,62 @@ class ProjectReconciliationJobTestCase(TestCase):
     def test_a_project_deleted_before_the_job_runs_completes_with_nothing_to_do(self):
         deleted_pk = self.project.pk
         self.project.delete()
-        job = self.run_job(project_id=deleted_pk)
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'):
+            job = self.run_job(project_id=deleted_pk)
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertIn('no longer exists', str(job.log_entries))
+
+    def test_a_project_deleted_while_its_source_is_staged_completes_with_nothing_to_do(self):
+        pk = self.project.pk
+        original = ingestion._data_source_tree
+
+        def read_then_delete(project):
+            tree = original(project)
+            self.project.delete()
+            return tree
+
+        with (
+            mock.patch.object(ingestion, '_data_source_tree', read_then_delete),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Script Project {pk} no longer exists, nothing to reconcile.'],
+        )
+
+    def test_a_project_deleted_after_its_source_is_staged_completes_with_nothing_to_do(self):
+        pk = self.project.pk
+        original = ingestion.ingest_data_source
+
+        def stage_then_delete(project):
+            staged = original(project)
+            self.project.delete()
+            return staged
+
+        with (
+            mock.patch.object(ingestion, 'ingest_data_source', stage_then_delete),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR'),
+        ):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries],
+            [f'Script Project {pk} no longer exists, nothing to reconcile.'],
+        )
+
+    def test_a_does_not_exist_for_a_surviving_project_escapes_unchanged(self):
+        error = ScriptProject.DoesNotExist('ScriptProject matching query does not exist.')
+
+        with mock.patch.object(ingestion, 'ingest_data_source', side_effect=error):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(error))
+        self.assertNotIn('no longer exists', str(job.log_entries))
 
     def test_unsafe_routing_fails_the_job_before_any_work(self):
         # Enqueue-time safety does not carry, the job may run much later on another pod.
@@ -249,6 +303,18 @@ class ProjectReconciliationJobTestCase(TestCase):
             for private in ('/srv/netbox/private', str(self.project.storage_key), revision.digest):
                 self.assertNotIn(private, str(job.log_entries))
         self.assertIs(logged.records[0].exc_info[1].__cause__, error)
+
+    def test_a_job_timeout_while_storing_ends_the_job_as_errored(self):
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with mock.patch.object(config.get_storage(), 'save', side_effect=timeout):
+            job = self.run_job()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, repr(timeout))
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        self.assertEqual(revision.status, RevisionStatusChoices.STAGING)
+        self.validated.assert_not_called()
 
     def test_a_missing_stored_tree_keeps_its_own_text_in_the_job_log(self):
         self.run_job()

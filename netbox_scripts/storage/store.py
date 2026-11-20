@@ -19,6 +19,9 @@ holding the recorded size and checksum is left alone and one holding anything el
 replaced, so an interrupted write is completed by the next attempt rather than blocking it.
 The same read discipline is exported as copy_verified, so the runtime cache pulls bytes
 under exactly the contract verification enforces and the two can never drift apart.
+
+RQ's Job timeout passes through every backend call unchanged, because RQ raises it only
+once and a caller treating it as a storage failure would carry on past the deadline.
 """
 
 import hashlib
@@ -29,6 +32,7 @@ from pathlib import Path
 from django.core.files.base import ContentFile
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
+from rq.timeouts import JobTimeoutException
 
 from .exceptions import RevisionCorruptError, StorageError, UnsafePathError
 from .manifest import validate_manifest
@@ -162,6 +166,8 @@ def delete_revision(storage, storage_key, digest, paths):
             storage.delete(key)
         except FileNotFoundError:
             continue
+        except JobTimeoutException:
+            raise
         except Exception as error:
             failures.append(f'{path}: {error}')
     if failures:
@@ -284,6 +290,8 @@ def _write_one(storage, key, content, entry):
 
     try:
         stored = storage.save(key, ContentFile(content))
+    except JobTimeoutException:
+        raise
     except Exception as error:
         raise StorageError(_('Unable to store "{key}": {error}').format(key=key, error=error)) from error
     if stored != key:
@@ -294,6 +302,8 @@ def _write_one(storage, key, content, entry):
         # exists. Anything else at the key is a real failure.
         try:
             storage.delete(stored)
+        except JobTimeoutException:
+            raise
         except Exception as error:
             # The stray sits in no manifest, so nothing can rediscover it later and this log
             # line is its only record.
@@ -332,7 +342,7 @@ def _stream_verified(storage, key, entry, sink):
         ) from error
     except _DestinationError as error:
         raise error.original from None
-    except (RevisionCorruptError, StorageError):
+    except (JobTimeoutException, RevisionCorruptError, StorageError):
         raise
     except Exception as error:
         raise StorageError(_('Unable to read the stored file "{key}": {error}').format(key=key, error=error)) from error
@@ -393,6 +403,8 @@ def _exists(storage, key):
     """Report whether a key is occupied, as a StorageError when the backend cannot say."""
     try:
         return storage.exists(key)
+    except JobTimeoutException:
+        raise
     except Exception as error:
         raise StorageError(
             _('Unable to inspect whether "{key}" exists: {error}').format(key=key, error=error)
@@ -410,7 +422,7 @@ def _size(storage, key):
         return storage.size(key)
     except (NotImplementedError, AttributeError):
         return None
-    except FileNotFoundError:
+    except (FileNotFoundError, JobTimeoutException):
         raise
     except Exception as error:
         raise StorageError(_('Unable to inspect the size of "{key}": {error}').format(key=key, error=error)) from error
@@ -420,5 +432,7 @@ def _delete(storage, key):
     """Remove one object, reporting a backend failure as a StorageError naming the key."""
     try:
         storage.delete(key)
+    except JobTimeoutException:
+        raise
     except Exception as error:
         raise StorageError(_('Unable to remove "{key}": {error}').format(key=key, error=error)) from error

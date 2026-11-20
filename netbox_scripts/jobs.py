@@ -9,7 +9,7 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import TemporaryUploadedFile, UploadedFile
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rq.timeouts import JobTimeoutException
@@ -1183,13 +1183,16 @@ class MigrationActivationJob(JobRunner):
                 )
             )
         keys = [result['project_key'] for result in results]
-        serving = ScriptProject.objects.filter(key__in=keys, active_revision__isnull=False).count()
+        # One read of the rows that still exist, since a Project can be deleted while the pass runs.
+        counts = ScriptProject.objects.filter(key__in=keys).aggregate(
+            total=Count('pk'), serving=Count('active_revision_id')
+        )
         published = NetBoxScript.objects.filter(project__key__in=keys).count()
         self.logger.info(
             _(
                 '{serving} of {total} Script Project(s) are serving a revision, '
                 'publishing {published} Script(s). Repoint the references next.'
-            ).format(serving=serving, total=len(results), published=published)
+            ).format(published=published, **counts)
         )
 
 

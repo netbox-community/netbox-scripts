@@ -397,6 +397,10 @@ own text, which can name server paths. The server log keeps the original error
 with its traceback under the `netbox.plugins.netbox_scripts.migration` logger.
 A missing or damaged stored revision keeps its own outcome.
 
+When the pass detects that a Project no longer exists, it records
+`no longer exists, nothing to activate` as the outcome, without logging
+an error for the deletion. The summary counts only Projects that still exist.
+
 A pass that reaches its Job timeout stops there, and its Job ends as
 **Errored**. Projects it finished before the timeout keep the changes it made,
 but the pass records no outcomes, so check the active revisions before

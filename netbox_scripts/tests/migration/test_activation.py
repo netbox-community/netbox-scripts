@@ -12,7 +12,7 @@ from netbox_scripts.jobs import MigrationActivationJob
 from netbox_scripts.migration import cutover, mapping
 from netbox_scripts.models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service
-from netbox_scripts.storage.exceptions import ActivationError
+from netbox_scripts.storage.exceptions import ActivationError, ProjectVanishedError, RevisionCorruptError
 from netbox_scripts.tests.migration.test_staging import LegacySourceMixin
 
 
@@ -150,7 +150,10 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         self.stage_and_validate()
         project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
         revision = project.revisions.get()
-        with mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError):
+        with (
+            mock.patch.object(config.get_storage(), 'open', side_effect=FileNotFoundError),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.migration', 'ERROR'),
+        ):
             results = cutover.activate_staged(self.migration)
 
         self.assertEqual(
@@ -183,6 +186,56 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         outcome = next(item for item in results if item['project_key'] == project.key)
         self.assertEqual(outcome['outcome'], 'holds no revision')
         self.assertIsNone(outcome['revision_pk'])
+
+    def test_a_deleted_project_is_reported_as_deleted_when_its_activation_raises_a_storage_error(self):
+        self.stage_and_validate()
+        revisions = dict(ScriptProjectRevision.objects.values_list('project__key', 'pk'))
+        # Without the deletion, a vanished row would read as a storage failure and a missing tree as a refusal.
+        errors = {
+            ProjectSourceTypeChoices.DATA_SOURCE: ProjectVanishedError('gone'),
+            ProjectSourceTypeChoices.UPLOAD: RevisionCorruptError('The stored revision is missing.'),
+        }
+
+        def delete_then_fail(target, **kwargs):
+            project = ScriptProject.objects.get(pk=target.project_id)
+            project.delete()
+            raise errors[project.source_type]
+
+        with (
+            mock.patch.object(activation, 'activate_revision', side_effect=delete_then_fail),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.migration', 'ERROR'),
+        ):
+            results = cutover.activate_staged(self.migration)
+
+        self.assertEqual(
+            results,
+            [
+                {'project_key': key, 'revision_pk': pk, 'outcome': 'no longer exists, nothing to activate'}
+                for key, pk in sorted(revisions.items())
+            ],
+        )
+
+    def test_a_project_deleted_before_its_turn_is_reported_as_deleted(self):
+        self.stage_and_validate()
+        first, later = ScriptProject.objects.order_by('key')
+        first_revision = first.revisions.get()
+        real_activate = activation.activate_revision
+
+        def delete_the_later_project(target, **kwargs):
+            if target.pk == first_revision.pk:
+                later.delete()
+            return real_activate(target, **kwargs)
+
+        with mock.patch.object(activation, 'activate_revision', side_effect=delete_the_later_project):
+            results = cutover.activate_staged(self.migration)
+
+        self.assertEqual(
+            results,
+            [
+                {'project_key': first.key, 'revision_pk': first_revision.pk, 'outcome': 'activated'},
+                {'project_key': later.key, 'revision_pk': None, 'outcome': 'no longer exists, nothing to activate'},
+            ],
+        )
 
     def test_a_project_an_operator_made_by_hand_is_left_alone(self):
         self.stage_and_validate()
@@ -302,6 +355,59 @@ class ActivateStagedTestCase(LegacySourceMixin, TestCase):
         outcome = f'could not be activated: The stored revision {revision.short_digest} is missing.'
         self.assertEqual(self.outcome(job.data['projects'], project), outcome)
         self.assertIn(f'Project {project.key} {outcome}', [entry['message'] for entry in job.log_entries])
+
+    def test_the_job_reports_a_project_deleted_during_the_pass_without_an_error(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        revision = project.revisions.get()
+        real_activate = activation.activate_revision
+
+        def delete_then_activate(target, **kwargs):
+            if target.pk == revision.pk:
+                project.delete()
+            return real_activate(target, **kwargs)
+
+        with (
+            mock.patch.object(activation, 'activate_revision', side_effect=delete_then_activate),
+            self.assertNoLogs('netbox.plugins.netbox_scripts.migration', 'ERROR'),
+        ):
+            job = MigrationActivationJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(self.outcome(job.data['projects'], project), 'no longer exists, nothing to activate')
+        self.assertCountEqual(
+            [result['outcome'] for result in job.data['projects']],
+            ['activated', 'no longer exists, nothing to activate'],
+        )
+        messages = [entry['message'] for entry in job.log_entries]
+        self.assertIn(f'Project {project.key} no longer exists, nothing to activate.', messages)
+        self.assertIn(
+            '1 of 1 Script Project(s) are serving a revision, publishing 1 Script(s). Repoint the references next.',
+            messages,
+        )
+
+    def test_the_job_summary_leaves_out_a_project_deleted_after_its_activation(self):
+        self.stage_and_validate()
+        project = self.project_for(ProjectSourceTypeChoices.UPLOAD)
+        revision = project.revisions.get()
+        real_activate = activation.activate_revision
+
+        def activate_then_delete(target, **kwargs):
+            result = real_activate(target, **kwargs)
+            if target.pk == revision.pk:
+                project.delete()
+            return result
+
+        with mock.patch.object(activation, 'activate_revision', side_effect=activate_then_delete):
+            job = MigrationActivationJob.enqueue(immediate=True)
+
+        job.refresh_from_db()
+        self.assertEqual([result['outcome'] for result in job.data['projects']], ['activated', 'activated'])
+        self.assertIn(
+            '1 of 1 Script Project(s) are serving a revision, publishing 1 Script(s). Repoint the references next.',
+            [entry['message'] for entry in job.log_entries],
+        )
 
     def test_the_job_fails_when_the_fence_has_not_been_crossed(self):
         MigrationRun.objects.filter(pk=self.migration.pk).update(state=MigrationStateChoices.STAGING, journal={})

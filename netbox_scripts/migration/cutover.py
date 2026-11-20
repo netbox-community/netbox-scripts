@@ -234,12 +234,15 @@ def _merged_outcomes(run, results):
 
 
 def _activate_project(project):
-    """Activate the revision one project should serve, reporting a refusal or storage failure rather than raising."""
+    """Activate the revision a project should serve, reporting a refusal, storage failure or deletion as its outcome."""
     # The outcomes below are journal identifiers, not prose: they are persisted, the tests match
     # them literally, and jobs.py substitutes one into a translated sentence. Translating them
     # would both freeze a stored value's language and compose two translated strings.
     newest = project.revisions.order_by('-created').first()
     if newest is None:
+        # A Project deleted after the pass read it has lost its revisions too.
+        if not ScriptProject.objects.filter(pk=project.pk).exists():
+            return _outcome(project, None, 'no longer exists, nothing to activate')
         return _outcome(project, None, 'holds no revision')
     # Accepted order, not creation order: staging identical content reuses an older revision.
     source = project.latest_stored_revision()
@@ -269,10 +272,13 @@ def _activate_project(project):
         revision, outcome = candidate, 'activated'
     try:
         activation.activate_revision(revision, repair=revision.pk == project.active_revision_id)
-    except (ActivationError, RevisionCorruptError) as error:
-        # The plugin words these refusals itself, and their text names no server path.
-        return _outcome(project, revision.pk, f'could not be activated: {error}')
-    except (StorageError, OSError):
+    except (StorageError, OSError) as error:
+        # A deletion shows as a vanished row, or as a missing tree once its cleanup has run.
+        if not ScriptProject.objects.filter(pk=project.pk).exists():
+            return _outcome(project, revision.pk, 'no longer exists, nothing to activate')
+        if isinstance(error, (ActivationError, RevisionCorruptError)):
+            # The plugin words these refusals itself, and their text names no server path.
+            return _outcome(project, revision.pk, f'could not be activated: {error}')
         logger.exception('Could not activate revision %s of Script Project %s.', revision.pk, project.pk)
         return _outcome(project, revision.pk, 'could not be activated: a storage error occurred')
     return _outcome(project, revision.pk, outcome)

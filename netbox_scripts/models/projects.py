@@ -326,6 +326,14 @@ class ScriptProject(PrimaryModel):
                 raise ValidationError({'active_revision': pointer_error})
         super().save(*args, **kwargs)
 
+    def delete(self, using=None, keep_parents=False):
+        """Delete under the transaction-scoped source lock, taken before the cascade is collected."""
+        using = using or router.db_for_write(type(self), instance=self)
+        # The row's key, since the instance handed to a delete can be stale or carry unsaved changes.
+        stored_key = type(self).objects.using(using).filter(pk=self.pk).values_list('storage_key', flat=True).first()
+        with project_write_lock(stored_key or self.storage_key, using=using):
+            return super().delete(using=using, keep_parents=keep_parents)
+
     def get_source_type_color(self):
         """Return the badge color configured for this project's source type."""
         return ProjectSourceTypeChoices.colors.get(self.source_type)

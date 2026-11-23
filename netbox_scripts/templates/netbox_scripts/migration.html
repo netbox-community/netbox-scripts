@@ -14,7 +14,7 @@ Context:
   - undefined_script_count: How many published Scripts their own module does not define
   - reports_excluded: Whether the last inventory reported built-in report modules it excludes
 - helper_count:   How many modules the last inventory reported would publish nothing
-  - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
+  - rows:           One {key, name, project, project_exists, revision} per Project either pass named, project if visible
   - run:            The open MigrationRun, else the most recent closed one, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
   - cutover_queued: Whether a cutover is already under way
@@ -277,6 +277,10 @@ Context:
                     <td>
                       {% if revision %}
                         <span class="badge text-bg-{{ revision.get_status_color }}">{{ revision.get_status_display }}</span>
+                      {% elif row.project %}
+                        <span class="badge text-bg-secondary">{% trans "No stored revision" %}</span>
+                      {% elif row.project_exists %}
+                        <span class="badge text-bg-secondary">{% trans "Not visible to you" %}</span>
                       {% else %}
                         <span class="badge text-bg-secondary">{% trans "Not staged" %}</span>
                       {% endif %}

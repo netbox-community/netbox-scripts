@@ -158,8 +158,11 @@ Open *Scripts > Migration*. The page shows the latest Job for each pass, the
 latest verification's result and the current state of proposed or staged
 Projects. **Revision status** is the status of the revision a Project serves,
 or of its newest stored revision while it serves none. A revision waiting for
-validation has no verdict yet. **Not staged** means inventory proposed a
-Project that staging has not created.
+validation has no verdict yet. **Not staged** means no Project currently exists
+for a key listed by inventory or staging. **Not visible to you** means a Project
+with that key exists, but you cannot view it. **No stored revision** means the
+Project exists and is visible, but has no stored revision, possibly because its
+source was rejected before storage.
 
 Buttons are numbered in workflow order. The highlighted button suggests the
 next action. If a Project stops serving a revision, activation may be suggested

@@ -75,6 +75,8 @@ def _migration_rows(request, inventory_job, staging_job):
     proposed = _proposed_projects(inventory_job)
     produced = _proposed_projects(staging_job)
     keys = list(proposed) + [key for key in produced if key not in proposed]
+    # Deliberately unrestricted: existence alone, and only for keys this page already shows.
+    existing_keys = set(ScriptProject.objects.filter(key__in=keys).values_list('key', flat=True))
     projects = {
         project.key: project
         for project in ScriptProject.objects.restrict(request.user, 'view')
@@ -87,6 +89,7 @@ def _migration_rows(request, inventory_job, staging_job):
             'key': key,
             'name': proposed.get(key, {}).get('name') or key,
             'project': (project := projects.get(key)),
+            'project_exists': key in existing_keys,
             # What the project's tree is right now: the active revision, or the newest stored
             # one for a project that has not activated anything yet.
             'revision': (project.active_revision or newest.get(project.pk)) if project is not None else None,

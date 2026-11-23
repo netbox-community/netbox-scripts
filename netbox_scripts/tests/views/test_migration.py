@@ -74,8 +74,8 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         """Stand in for an enqueue, returning a Job row the view can redirect to."""
         return Job.objects.create(name='queued', job_id=uuid.uuid4(), user=kwargs.get('user'))
 
-    def grant(self, *actions):
-        return super().grant(ScriptProject, *actions)
+    def grant(self, *actions, constraints=None):
+        return super().grant(ScriptProject, *actions, constraints=constraints)
 
     @staticmethod
     def url(name):
@@ -375,6 +375,47 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         project, _revision = self.staged(RevisionStatusChoices.INVALID)
         body = self.client.get(self.url('migration')).content.decode()
         self.assertNotIn(project.get_absolute_url(), body)
+
+    def test_a_project_the_user_cannot_view_is_not_reported_unstaged(self):
+        self.grant('add')
+        project, _revision = self.staged(RevisionStatusChoices.VALID)
+        self.inventoried('not-staged-yet')
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertEqual(
+            [(row['key'], row['project'], row['project_exists']) for row in response.context['rows']],
+            [('not-staged-yet', None, False), (project.key, None, True)],
+        )
+        self.assertEqual(body.count('Not visible to you'), 1)
+        self.assertEqual(body.count('Not staged'), 1)
+
+    def test_a_project_without_a_stored_revision_is_not_reported_unstaged(self):
+        self.grant('add', 'view')
+        project = ScriptProject.objects.create(name='Rejected Project', key='rejected-project')
+        ScriptProjectRevision.objects.create(project=project, digest=None, status=RevisionStatusChoices.INVALID)
+        self.inventoried(project.key, 'not-staged-yet')
+
+        body = self.client.get(self.url('migration')).content.decode()
+
+        self.assertIn(project.get_absolute_url(), body)
+        self.assertEqual(body.count('No stored revision'), 1)
+        self.assertEqual(body.count('Not staged'), 1)
+
+    def test_a_constrained_view_grant_hides_only_the_projects_it_excludes(self):
+        self.grant('add')
+        self.grant('view', constraints={'key': 'visible-project'})
+        visible = ScriptProject.objects.create(name='Visible Project', key='visible-project')
+        ScriptProject.objects.create(name='Hidden Project', key='hidden-project')
+        self.inventoried('visible-project', 'hidden-project')
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertEqual([row['project'] for row in response.context['rows']], [visible, None])
+        self.assertEqual(body.count('No stored revision'), 1)
+        self.assertEqual(body.count('Not visible to you'), 1)
 
     def test_running_the_inventory_queues_one_pass(self):
         self.grant('add')

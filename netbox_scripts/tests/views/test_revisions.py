@@ -6,7 +6,7 @@ from django.urls import reverse
 from core.models import ObjectType
 from netbox_scripts import activation
 from netbox_scripts.choices import RevisionStatusChoices
-from netbox_scripts.models import NetBoxScript, ScriptProject, ScriptProjectRevision
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import ActivationError, StorageError
 from netbox_scripts.tables import (
@@ -228,6 +228,8 @@ class RevisionServiceViewTestCase(ObjectPermissionTestMixin, TestCase):
         first = self.valid_revision()
         self.client.post(self.url(first, 'activate'))
         second = self.valid_revision(records=[record(class_name='Later')])
+        body = self.client.get(self.url(second, 'activate')).content.decode()
+        self.assertIn(f'Revision {first.short_digest} (ID {first.pk}), which selects 0 Script Files, is retired', body)
         self.client.post(self.url(second, 'activate'))
         first.refresh_from_db()
         second.refresh_from_db()
@@ -239,9 +241,47 @@ class RevisionServiceViewTestCase(ObjectPermissionTestMixin, TestCase):
         revision = self.valid_revision()
         response = self.client.get(self.url(revision, 'activate'))
         self.assertHttpStatus(response, 200)
-        self.assertIn(revision.short_digest, response.content.decode())
+        body = response.content.decode()
+        self.assertIn(f'Make revision {revision.short_digest} (ID {revision.pk}) the active source of Serviced?', body)
+        self.assertNotIn('is retired in the same step', body)
         revision.refresh_from_db()
         self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+
+    def test_the_confirmation_tells_apart_revisions_sharing_a_digest(self):
+        self.grant(ScriptProject, 'view', 'activate')
+        ScriptFile.objects.create(project=self.project, source_path='a.py')
+        deselected = ScriptFile.objects.create(project=self.project, source_path='b.py')
+        files = {'a.py': b'A = 1\n', 'b.py': b'B = 1\n', 'helpers.py': b'H = 1\n'}
+        both = service.stage_revision(self.project, files).revision
+        ScriptFile.objects.filter(pk=deselected.pk).update(enabled=False)
+        narrowed = service.refresh_revision_script_files(both).revision
+        ScriptProjectRevision.objects.filter(pk__in=(both.pk, narrowed.pk)).update(status=RevisionStatusChoices.VALID)
+        self.client.post(self.url(narrowed, 'activate'))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, narrowed.pk)
+
+        body = self.client.get(self.url(both, 'activate')).content.decode()
+
+        self.assertEqual((both.digest, both.file_count), (narrowed.digest, narrowed.file_count))
+        self.assertIn(f'Make revision {both.short_digest} (ID {both.pk}) the active source of Serviced?', body)
+        self.assertIn('It holds 3 files.', body)
+        self.assertIn('It selects 2 Script Files.', body)
+        self.assertIn(
+            f'Revision {narrowed.short_digest} (ID {narrowed.pk}), which selects 1 Script File, is retired in the '
+            'same step.',
+            body,
+        )
+        self.assertIn('Its Scripts are published, and any the new revision no longer publishes are retired.', body)
+
+        self.client.post(self.url(both, 'activate'))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.active_revision_id, both.pk)
+        body = self.client.get(self.url(narrowed, 'activate')).content.decode()
+        self.assertIn('It selects 1 Script File.', body)
+        self.assertIn(
+            f'Revision {both.short_digest} (ID {both.pk}), which selects 2 Script Files, is retired in the same step.',
+            body,
+        )
 
     def test_the_deactivate_confirmation_renders(self):
         self.grant(ScriptProject, 'view', 'activate')

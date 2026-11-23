@@ -60,8 +60,7 @@ class ScriptProjectRevisionTable(BaseTable):
     """
 
     created = columns.DateTimeColumn(verbose_name=_('Created'))
-    # Directly after the timestamp, because the linked column is a table's way into the detail
-    # page and a revision is identified by its digest.
+    # Keep the source digest directly after the timestamp, followed by the revision ID.
     short_digest = tables.Column(
         verbose_name=_('Digest'),
         accessor='short_digest',
@@ -70,6 +69,11 @@ class ScriptProjectRevisionTable(BaseTable):
         # A rejected staging has no digest, and its row is the one whose problems a reader most
         # wants, so the cell has to render rather than fall through to the empty default.
         empty_values=(),
+    )
+    # Beside the digest, in the order the activation confirmations name a revision.
+    id = tables.Column(
+        verbose_name=_('ID'),
+        linkify=True,
     )
     status = columns.ChoiceFieldColumn(verbose_name=_('Status'))
     script_file_count = tables.Column(
@@ -87,14 +91,22 @@ class ScriptProjectRevisionTable(BaseTable):
         extra_buttons="{% include 'netbox_scripts/inc/revision_actions.html' %}",
     )
 
-    # BaseTable hides every column a user has not selected, and column selection is not offered
-    # for a table with no list view, so the actions column has to be exempt to render at all.
-    # NetBoxTable exempts its own for the same reason.
+    # BaseTable hides every column outside the viewer's selection, Meta.default_columns unless they configured the
+    # table, so the actions column has to be exempt to render at all. NetBoxTable exempts its own for the same reason.
     exempt_columns = ('actions',)
 
     class Meta(BaseTable.Meta):
         model = ScriptProjectRevision
-        fields = ('created', 'short_digest', 'status', 'script_file_count', 'file_count', 'total_size', 'activated')
+        fields = (
+            'created',
+            'short_digest',
+            'id',
+            'status',
+            'script_file_count',
+            'file_count',
+            'total_size',
+            'activated',
+        )
         default_columns = fields
         order_by = ('-created',)
 

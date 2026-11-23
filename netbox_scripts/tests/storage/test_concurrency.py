@@ -333,17 +333,13 @@ class DeletionVersusStagingTestCase(SerializationTestCase):
 
         def write_then_delete(*args, **kwargs):
             result = real_write(*args, **kwargs)
-            # QuerySet.delete() skips the model's pointer clear, so it is done here.
-            ScriptProject.objects.filter(pk=self.project.pk).update(active_revision=None)
             ScriptProject.objects.filter(pk=self.project.pk).delete()
             return result
 
         return mock.patch.object(store, 'write_revision', side_effect=write_then_delete)
 
     def test_a_project_deleted_at_the_write_seam_reports_the_vanished_revision(self):
-        # Deletion takes no project lock, by design: the cleanup job is what decides whether
-        # content is still claimed, under the lock. So this cascade can land mid-write, and the
-        # staging call has to say so rather than return a row that no longer exists.
+        # A queryset delete bypasses the project lock, so this cascade can land mid-write.
         with (
             mock.patch.object(ProjectStorageCleanupJob, 'enqueue_cleanup', return_value=None),
             self.delete_project_after_write(),

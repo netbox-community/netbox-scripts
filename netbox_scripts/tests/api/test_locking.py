@@ -1,8 +1,9 @@
 """
-Lock ordering for the REST write paths and the Project bulk edit and import.
+Lock ordering for the REST write paths, the Project bulk edit and import, and Project deletion.
 
 Every statement that locks or writes a target row is observed from a second session, which must find the owning
-Projects' locks already taken. A probe at save() runs after NetBox's own row lock, so it cannot see the order.
+Projects' locks already taken. A probe at save() runs after NetBox's own row lock, so it cannot see the order. A
+deletion is observed where it reads the revisions it cascades to.
 
 TransactionTestCase, and not only because a second session needs committed rows. Under TestCase
 the project built in setUp would hold its pg_advisory_xact_lock until teardown, since that lock
@@ -11,6 +12,7 @@ negative control could never fail.
 """
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from unittest import mock
 
@@ -20,7 +22,9 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from netbox.choices import CSVDelimiterChoices, ImportFormatChoices
-from netbox_scripts.models import ScriptFile, ScriptProject
+from netbox_scripts.jobs import ProjectStorageCleanupJob
+from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
+from netbox_scripts.storage import service
 from netbox_scripts.storage.locks import advisory_key, project_lock
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, ObjectPermissionTestMixin, SecondSession
 from users.constants import TOKEN_PREFIX
@@ -29,7 +33,7 @@ from utilities.testing import post_data
 
 
 class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
-    """REST writes and Project bulk edits and imports lock the owning Projects before NetBox locks or writes a row."""
+    """REST writes, Project bulk edits and imports, and Project deletions take the owning Projects' locks first."""
 
     client_class = APIClient
 
@@ -90,6 +94,30 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
         self.assertTrue(observed, 'The request neither locked nor wrote a row.')
         self.assert_locks_released(projects)
 
+    @contextmanager
+    def observe_cascade_reads(self, projects):
+        """Fail unless these Projects' revisions are read in order, each under the lock of every Project read so far."""
+        lookup = f'{connection.ops.quote_name(ScriptProjectRevision._meta.db_table)}."project_id" IN'
+        observed = []
+
+        def observe(execute, sql, params, many, context):
+            if lookup in sql:
+                observed.extend(project for project in projects if project.pk in params and project not in observed)
+                with SecondSession() as other:
+                    for project in observed:
+                        self.assertFalse(
+                            other.can_lock(project.storage_key), 'A cascade read preceded its Project lock.'
+                        )
+            return execute(sql, params, many, context)
+
+        self.assert_locks_released(projects)
+        with connection.execute_wrapper(observe):
+            yield
+        self.assertEqual(
+            observed, list(projects), 'The deletion did not read the revisions of these Projects in the order given.'
+        )
+        self.assert_locks_released(projects)
+
     def bulk_import(self, *projects):
         """Post a UI CSV import that sets these Projects' description to 'edited'."""
         client = Client()
@@ -97,6 +125,20 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
         rows = ('id,description', *(f'{project.pk},edited' for project in projects))
         data = {'data': '\n'.join(rows), 'format': ImportFormatChoices.CSV, 'csv_delimiter': CSVDelimiterChoices.AUTO}
         return client.post(reverse('plugins:netbox_scripts:scriptproject_bulk_import'), data)
+
+    def bulk_delete(self, surface, *projects):
+        """Delete these Projects in one browser or REST bulk request."""
+        pks = [project.pk for project in projects]
+        if surface == 'browser':
+            client = Client()
+            client.force_login(self.user)
+            return client.post(
+                reverse('plugins:netbox_scripts:scriptproject_bulk_delete'),
+                {'pk': pks, 'confirm': True, '_confirm': True},
+            )
+        return self.client.delete(
+            self.url(projects[0], bulk=True), [{'id': pk} for pk in pks], format='json', **self.header
+        )
 
     def test_single_updates_lock_the_project_before_the_row(self):
         for instance in (self.project, self.script_file):
@@ -187,11 +229,112 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
 
     def test_a_conditional_project_delete_holds_the_project_lock_first(self):
         etag = self.etag(self.project)
-        # NetBox's conditional row lock precedes the cascade's write lock, so only the mixin's lock passes.
+        # NetBox's conditional row lock precedes the delete's write lock, so only the mixin's lock passes.
         with self.observe_row_writes(ScriptProject, (self.project,)):
             response = self.client.delete(self.url(self.project), HTTP_IF_MATCH=etag, **self.header)
 
         self.assertEqual(response.status_code, 204)
+
+    def test_a_project_delete_holds_the_project_lock_while_reading_its_cascade(self):
+        bravo = ScriptProject.objects.create(name='Bravo Devices', key='bravo-devices')
+        client = Client()
+        client.force_login(self.user)
+        self.assertEqual([project.script_files.exists() for project in (self.project, bravo)], [True, False])
+
+        for project in (self.project, bravo):
+            with self.subTest(script_files=project.script_files.exists()):
+                pk = project.pk
+                with self.observe_cascade_reads((project,)):
+                    response = client.post(
+                        reverse('plugins:netbox_scripts:scriptproject_delete', kwargs={'pk': pk}), {'confirm': True}
+                    )
+
+                self.assertEqual(response.status_code, 302)
+                self.assertFalse(ScriptProject.objects.filter(pk=pk).exists())
+
+    def test_a_project_bulk_delete_holds_each_project_lock_through_the_batch(self):
+        for surface in ('browser', 'rest'):
+            with self.subTest(surface=surface):
+                # Deleted first, and without a Script File, whose receiver would hold its lock to the commit anyway.
+                first = ScriptProject.objects.create(name=f'Bravo {surface}', key=f'bravo-{surface}')
+                second = ScriptProject.objects.create(name=f'Delta {surface}', key=f'delta-{surface}')
+                ScriptFile.objects.create(project=second, source_path='deploy.py')
+                pks = [first.pk, second.pk]
+                with self.observe_cascade_reads((first, second)):
+                    response = self.bulk_delete(surface, first, second)
+
+                self.assertEqual(response.status_code, 302 if surface == 'browser' else 204)
+                self.assertFalse(ScriptProject.objects.filter(pk__in=pks).exists())
+
+    def test_a_project_bulk_delete_locks_same_named_projects_in_pk_order(self):
+        table = connection.ops.quote_name(ScriptProject._meta.db_table)
+
+        def reverse_open_ties(execute, sql, params, many, context):
+            # Without an explicit pk tie-breaker, reverse equal-name rows to expose an unsafe lock order.
+            if sql.endswith(f'ORDER BY {table}."name" ASC'):
+                sql = f'{sql}, {table}."id" DESC'
+            return execute(sql, params, many, context)
+
+        for surface in ('browser', 'rest'):
+            with self.subTest(surface=surface):
+                lower = ScriptProject.objects.create(name='Core', key=f'core-{surface}-1')
+                higher = ScriptProject.objects.create(name='Core', key=f'core-{surface}-2')
+                pks = [lower.pk, higher.pk]
+                with connection.execute_wrapper(reverse_open_ties), self.observe_cascade_reads((lower, higher)):
+                    self.assertEqual(
+                        list(ScriptProject.objects.filter(pk__in=pks).values_list('pk', flat=True)),
+                        [higher.pk, lower.pk],
+                    )
+                    response = self.bulk_delete(surface, lower, higher)
+
+                self.assertEqual(response.status_code, 302 if surface == 'browser' else 204)
+                self.assertFalse(ScriptProject.objects.filter(pk__in=pks).exists())
+
+    def test_a_project_delete_removes_a_revision_staged_while_it_waited(self):
+        first = service.stage_revision(self.project, {'deploy.py': b'print("first")\n'}).revision
+        key = advisory_key(self.project.storage_key)
+        staged = []
+
+        def stage():
+            try:
+                return service.stage_revision(self.project, {'deploy.py': b'print("second")\n'}).revision
+            finally:
+                connection.close()
+
+        def stage_first(execute, sql, params, many, context):
+            # Committed by another session just before the deletion asks for this lock.
+            takes_lock = 'pg_advisory_lock(' in sql or 'pg_advisory_xact_lock(' in sql
+            if not staged and takes_lock and tuple(params) == key:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    staged.append(executor.submit(stage).result())
+            return execute(sql, params, many, context)
+
+        client = Client()
+        client.force_login(self.user)
+        pk = self.project.pk
+        with (
+            mock.patch.object(ProjectStorageCleanupJob, 'enqueue_cleanup', return_value=None),
+            connection.execute_wrapper(stage_first),
+        ):
+            response = client.post(
+                reverse('plugins:netbox_scripts:scriptproject_delete', kwargs={'pk': pk}), {'confirm': True}
+            )
+
+        self.assertEqual(len(staged), 1)
+        self.assertNotEqual(staged[0].pk, first.pk)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(ScriptProject.objects.filter(pk=pk).exists())
+        self.assertFalse(ScriptProjectRevision.objects.filter(project_id=pk).exists())
+
+    def test_a_project_delete_takes_the_lock_of_its_stored_storage_key(self):
+        bravo = ScriptProject.objects.create(name='Bravo Devices', key='bravo-devices')
+        tampered = ScriptProject.objects.get(pk=self.project.pk)
+        tampered.storage_key = bravo.storage_key
+
+        with self.observe_cascade_reads((self.project,)):
+            tampered.delete()
+
+        self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
 
     def test_the_probe_detects_a_row_lock_without_a_project_lock(self):
         with (

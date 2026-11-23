@@ -59,8 +59,13 @@ ROWS = (
         'netbox.api.viewsets.mixins.BulkUpdateModelMixin.get_bulk_update_queryset',
         'netbox.api.viewsets.mixins:BulkUpdateModelMixin.get_bulk_update_queryset',
     ),
+    (
+        'netbox.api.viewsets.mixins.BulkDestroyModelMixin.get_bulk_destroy_queryset',
+        'netbox.api.viewsets.mixins:BulkDestroyModelMixin.get_bulk_destroy_queryset',
+    ),
     ('utilities.exceptions.PermissionsViolation', 'utilities.exceptions:PermissionsViolation'),
     ('utilities.exceptions.AbortRequest', 'utilities.exceptions:AbortRequest'),
+    ('netbox.views.generic.BulkDeleteView.post', 'netbox.views.generic:BulkDeleteView.post'),
     (
         'netbox.views.generic.BulkEditView.pre_save_operations',
         'netbox.views.generic:BulkEditView.pre_save_operations',

@@ -251,19 +251,24 @@ and then checks whether any revision still references that content before
 removing it. A reference check made only before acquiring the lock is not
 sufficient.
 
-REST Project deletion takes the Project lock before delegating to NetBox's
-delete hook. Deleting a Project in the browser does not take it. In both cases,
-each cascaded Script File deletion takes the Project write lock, which shares
-the lock keyspace.
+Deleting a Project takes the Project write lock, which shares the Project
+lock's keyspace, before it reads the revisions, Scripts and Script Files it
+removes. It holds the lock until the deletion commits or rolls back, so a
+deletion that starts while another operation holds the Project lock waits for
+it and then removes everything that operation added. REST deletion takes the
+Project lock earlier, before NetBox's conditional row lock. Code that deletes
+Projects through `QuerySet.delete()` or raw SQL bypasses this lock.
 
 **Validation does not take the Project lock.** Claims and final transitions use
 conditional updates tied to the owning Job. Imports run under the
 [validation lease](#the-validation-lease) rather than holding the Project lock
 while arbitrary source code executes.
 
-If a concurrent deletion removes a revision during staging, staging reports the
-vanished row instead of returning it. The deletion records cleanup intent for
-the stored content. Cleanup failures still need attention as described below.
+If a deletion that does not lock the Project before reading its cascade, such as
+`QuerySet.delete()`, removes a revision during staging, staging reports the
+vanished row instead of returning it. A queryset deletion still records cleanup
+intent for the stored content. Cleanup failures still need attention as
+described below.
 
 ## Storage layout
 

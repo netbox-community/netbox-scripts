@@ -62,10 +62,11 @@ class RevisionVanishedError(StorageError):
     """
     Raised when a revision's row was deleted while its content was being written.
 
-    Deleting a project cascades its revisions away, and deletion takes no project lock, so a
-    staging call already inside its write window can finish against rows that no longer exist.
-    Its content is reclaimed by the cleanup the delete recorded, which rechecks references
-    under the same lock, so the caller has nothing to undo and nothing to retry.
+    A deletion that bypasses ScriptProject.delete(), such as a queryset delete, cascades a
+    project's revisions away without taking its lock first, so a staging call already inside
+    its write window can finish against rows that no longer exist. Its content is reclaimed by
+    the cleanup the delete recorded, which rechecks references under the same lock, so the
+    caller has nothing to undo and nothing to retry.
     """
 
 

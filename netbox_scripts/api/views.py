@@ -178,6 +178,10 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
             # of the pair for a project that already exists.
             self.queryset = type(self).queryset.restrict(request.user, 'change')
 
+    def get_bulk_destroy_queryset(self):
+        """Return Projects in the lock-order mixin's order, which a bulk delete has to share."""
+        return super().get_bulk_destroy_queryset().order_by('name', 'pk')
+
     @extend_schema(
         request={'multipart/form-data': ScriptProjectUploadSerializer},
         responses={

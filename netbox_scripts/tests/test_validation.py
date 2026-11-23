@@ -19,7 +19,12 @@ from netbox_scripts.choices import ActivationPolicyChoices, FileDiscoveryStatusC
 from netbox_scripts.constants import VALIDATION_JOB_TIMEOUT, VALIDATION_LEASE_SECONDS
 from netbox_scripts.jobs import ProjectStorageCleanupJob, RevisionValidationJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
-from netbox_scripts.runtime.exceptions import DiscoveryError, LocalCacheError, ScriptFileImportError
+from netbox_scripts.runtime.exceptions import (
+    DiscoveryError,
+    InvalidModulePathError,
+    LocalCacheError,
+    ScriptFileImportError,
+)
 from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import (
@@ -810,6 +815,7 @@ class ClassificationTestCase(TestCase):
             (PermissionError(13, 'Permission denied', '/srv/netbox/private'), IO_REASON),
             (ActivationError('refused'), None),
             (RevisionCorruptError('damaged'), None),
+            (InvalidModulePathError('invalid-name.py', 'invalid_identifier', 'not importable'), None),
             (ModuleNotFoundError("No module named 'netaddr.absent'"), None),
             (None, None),
         )

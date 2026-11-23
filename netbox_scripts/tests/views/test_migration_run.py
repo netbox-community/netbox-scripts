@@ -65,6 +65,30 @@ class MigrationRunViewTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertIn(self.url(), body)
         self.assertIn('Cutover', body)
 
+    def test_the_migration_page_links_the_most_recent_closed_run(self):
+        self.grant('add')
+        self.migration.advance(MigrationStateChoices.MIGRATED)
+        latest = MigrationRun.objects.create(state=MigrationStateChoices.CUTOVER)
+        latest.advance(MigrationStateChoices.MIGRATED)
+
+        body = self.client.get(reverse('plugins:netbox_scripts:migration')).content.decode()
+
+        self.assertInHTML(
+            f'<a href="{latest.get_absolute_url()}"><span class="badge text-bg-green">Migrated</span></a>', body
+        )
+        self.assertNotIn('Not started', body)
+
+    def test_the_migration_page_prefers_an_open_run_to_a_closed_one(self):
+        self.grant('add')
+        self.migration.advance(MigrationStateChoices.MIGRATED)
+        newer = MigrationRun.objects.create(state=MigrationStateChoices.STAGING)
+
+        body = self.client.get(reverse('plugins:netbox_scripts:migration')).content.decode()
+
+        self.assertInHTML(
+            f'<a href="{newer.get_absolute_url()}"><span class="badge text-bg-cyan">Staging</span></a>', body
+        )
+
     def test_the_migration_page_says_so_when_no_migration_has_started(self):
         self.grant('add')
         self.migration.delete()

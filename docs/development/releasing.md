@@ -34,8 +34,8 @@ the checklist below. Hotfixes use the same process.
 3. **Set the version.** Update `version = "X.Y.Z"` in `pyproject.toml` and
     `__version__ = "X.Y.Z"` in `netbox_scripts/__init__.py`. Both must match the
     version in the release tag. The workflow refuses to publish if they differ.
-    Commit the release changes on that branch as `chore(release): Release vX.Y.Z`
-    and open a pull request with the same title, targeting `main`.
+    Commit the release changes on that branch as `Release vX.Y.Z` and open a
+    pull request with the same title, targeting `main`.
 
 4. **Check the package contents.** Run:
 

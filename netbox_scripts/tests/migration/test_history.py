@@ -18,7 +18,7 @@ from extras.jobs import ScriptJob
 from extras.models import Script, ScriptModule
 from netbox_scripts.jobs import MigrationReferencesJob
 from netbox_scripts.migration import cleanup, cutover, references
-from netbox_scripts.models import NetBoxScript
+from netbox_scripts.models import NetBoxScript, ScriptProjectRevision
 from netbox_scripts.runtime.cache import local_revision_dir
 from netbox_scripts.runtime.exceptions import ScriptFileImportError
 from netbox_scripts.scripts import BaseScript
@@ -618,6 +618,24 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
             warnings,
             [f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {reason}'],
         )
+
+    def test_an_invalid_module_path_keeps_its_own_warning(self):
+        job = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        revision = self.plugin_script().project.active_revision
+        # Validation never publishes from an unimportable path, so the test changes the stored snapshot to name one.
+        records = [{**record, 'script_file_path': 'invalid-name.py'} for record in revision.discovered_scripts]
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(discovered_scripts=records)
+        reason = '"invalid-name" is not a valid Python identifier, so this path cannot be imported.'
+
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.migration', 'ERROR'):
+            counts, warnings = self.warnings_added(references.recreate_schedules, self.migration)
+
+            self.assertEqual(counts['outstanding'], 1)
+            self.assertEqual(
+                warnings,
+                [f'Schedule "Deploy" (Job {job.pk}) could not be recreated against {self.plugin_script()}: {reason}'],
+            )
 
     def test_a_repaired_script_gets_its_schedule_recreated_on_the_next_pass(self):
         self.legacy_schedule(scheduled=self.future())

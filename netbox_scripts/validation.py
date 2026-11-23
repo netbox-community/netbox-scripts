@@ -281,7 +281,7 @@ def build_error_sanitizer(storage_key, digest):
 def storage_failure_reason(error):
     """Return a fixed reason in place of a storage, cache or host I/O error's text, or None for any other error."""
     # The plugin words these itself, and their text names no server path.
-    if isinstance(error, (ActivationError, RevisionCorruptError)):
+    if isinstance(error, (ActivationError, InvalidModulePathError, RevisionCorruptError)):
         return None
     if isinstance(error, StorageError):
         return str(_('The revision source could not be accessed. Check source storage and the runtime cache.'))

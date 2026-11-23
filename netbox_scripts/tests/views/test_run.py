@@ -14,7 +14,7 @@ from extras.models import Tag
 from ipam.models import Prefix
 from netbox_scripts.activation import activate_revision, deactivate_revision
 from netbox_scripts.jobs import NetBoxScriptJob
-from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
+from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.runtime.exceptions import LocalCacheError, ScriptFileImportError
 from netbox_scripts.scripts import BaseScript
 from netbox_scripts.scripts.logging import LogLevelChoices
@@ -420,6 +420,19 @@ class RunViewTestCase(RunViewTestMixin, TestCase):
             response.context['reason'],
             'The Script could not be loaded from its source: The stored file "deploy.py" is missing.',
         )
+
+    def test_an_invalid_module_path_keeps_its_own_message(self):
+        self.grant('view', 'run')
+        # Validation never publishes from an unimportable path, so the test changes the stored snapshot to name one.
+        records = [{**record, 'script_file_path': 'invalid-name.py'} for record in self.revision.discovered_scripts]
+        ScriptProjectRevision.objects.filter(pk=self.revision.pk).update(discovered_scripts=records)
+        reason = '"invalid-name" is not a valid Python identifier, so this path cannot be imported.'
+
+        with self.assertNoLogs('netbox.plugins.netbox_scripts.views', 'ERROR'):
+            response = self.client.get(self.url())
+
+            self.assertHttpStatus(response, 200)
+            self.assertEqual(response.context['reason'], f'The Script could not be loaded from its source: {reason}')
 
     def test_an_error_raised_by_a_custom_field_escapes_unchanged(self):
         self.publish(CHECKS_A_PATH)

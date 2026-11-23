@@ -15,7 +15,7 @@ Context:
   - reports_excluded: Whether the last inventory reported built-in report modules it excludes
 - helper_count:   How many modules the last inventory reported would publish nothing
   - rows:           One {key, name, project, revision} per Project either pass named, project None until staged
-  - run:            The open MigrationRun, or None before the first staging pass
+  - run:            The open MigrationRun, else the most recent closed one, or None before the first staging pass
   - cutover_job:    The most recent cutover Job, or None
   - cutover_queued: Whether a cutover is already under way
   - cutover_running: The cutover Jobs that show Running, newest first, which hold the pass back

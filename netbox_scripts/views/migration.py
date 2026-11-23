@@ -233,7 +233,7 @@ class MigrationView(BaseMigrationView):
                 # One finding rather than one per module, so this is presence, not a tally.
                 'reports_excluded': bool(_findings(inventory_job, plan.WARNING, code='reports_excluded')),
                 'rows': _migration_rows(request, inventory_job, staging_job),
-                'run': run,
+                'run': run or closed,
                 'cutover_job': _latest(MigrationCutoverJob),
                 'cutover_queued': _queued(MigrationCutoverJob),
                 'cutover_running': _running(MigrationCutoverJob),

@@ -187,10 +187,10 @@ Projects, unresolved references or an incomplete cutover.
 
 Cutover, reference and cleanup warnings are recorded on the migration run as
 each pass raises them, so a pass that fails later keeps what it already
-reported. The run's page, which the **State** badge opens while the migration
-is open, lists every warning under **Outstanding after this migration**,
-including any since resolved. A Job log shows only the warnings its own pass
-added, so a repeated pass does not log one that is already recorded.
+reported. The run's page, which the **State** badge opens, lists every warning
+under **Outstanding after this migration**, including any since resolved. A Job
+log shows only the warnings its own pass added, so a repeated pass does not log
+one that is already recorded.
 
 Inventory, staging and verification require permission to **add** a Script
 Project. Cutover, activation, repointing and cleanup require the separate Script

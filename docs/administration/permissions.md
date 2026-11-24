@@ -96,8 +96,10 @@ can view, as described in
 ## Event Rule execution permissions
 
 An Event Rule can run a Script without checking `run_netboxscript` for either
-the rule's author or the user whose action triggered it. The run is attributed
-to the triggering user, not the rule's author.
+the rule's author or the user whose action triggered it. When the triggering
+user is available, the run is attributed to that user, not the rule's author.
+NetBox Branching lifecycle events, such as **Branch merged**, provide a username
+rather than a user object, so the Job has no associated user.
 
 **Treat `extras.add_eventrule` and `extras.change_eventrule` as permissions to
 arrange Script execution.** Creating a rule or changing its action can start

@@ -240,11 +240,20 @@ addresses.
 Webhooks use the object's REST representation. A revision's stored manifest and
 Script File snapshot are not included.
 
-Changes made through UI or REST requests can trigger matching rules. After a
-Script run commits, NetBox attempts to process its queued object-change events,
-even when a commit callback fails. Dry runs and runs that fail before their
-changes are committed do not publish those events. If event processing fails,
-Event Rules processed before the failure may already have run. See
+Changes made through UI or REST requests can trigger matching rules. Automatic
+change logging and object-change event collection require a request context.
+Scripts triggered by Event Rules for Job or NetBox Branching lifecycle events,
+such as **Job completed** or **Branch merged**, run without one. So do runs
+recreated from built-in schedules during
+[migration](migration.md#schedule-timing-and-ownership). Their changes can
+commit, but NetBox does not automatically create `ObjectChange` records or
+queue object-change events for them. Script logs and output are still recorded.
+
+After a Script run commits, NetBox attempts to process any queued events, even
+when a commit callback fails. Processing the queue is separate from automatic
+object-change collection. Dry runs and runs that fail before their changes are
+committed do not publish those events. If event processing fails, Event Rules
+processed before the failure may already have run. See
 [Commit and dry run](../user-guide/execution.md#commit-and-dry-run).
 
 Background staging, validation, migration and job-driven activation do not deliver

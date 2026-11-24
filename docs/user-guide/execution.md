@@ -34,8 +34,17 @@ you can use the same bookmark to run it again.
 
 The commit setting controls whether the run's database changes are kept.
 
-With commit enabled, changes are kept, attributed to the requesting user, and
-processed through NetBox's change logging and object-change events.
+With commit enabled, a successful run keeps its database changes. NetBox's
+automatic change logging and object-change event collection require a request
+context, which also supplies the user attribution.
+
+Scripts triggered by Event Rules for Job or NetBox Branching lifecycle events,
+such as **Job completed** or **Branch merged**, run without a request. So do
+runs recreated from built-in schedules during
+[migration](../administration/migration.md#schedule-timing-and-ownership).
+Their committed changes do not automatically create `ObjectChange` records or
+queue object-change events. Script logs and output are still recorded, and Job
+lifecycle events are separate.
 
 A run always writes to the main schema, even when a NetBox Branching branch is
 active. See [NetBox Branching](../administration/branching.md#script-execution).
@@ -75,16 +84,17 @@ def run(self, data, commit):
         self.log_warning('Tag Example already exists.')
 ```
 
-With commit enabled, NetBox processes the run's object-change events after its
-database changes are committed. If that processing fails, for example because a
+With commit enabled, NetBox attempts to process any events queued during the
+run after its database changes are committed. This processing is separate from
+automatic object-change collection. If processing fails, for example because a
 Webhook cannot be queued, the changes stay committed and the Job fails with a
 message that says so. Event Rules processed before the failure may already have
 run. Check the changes before running the Script again.
 
 Callbacks registered with `transaction.on_commit()` run after a successful
 commit. If a callback registered with the default `robust=False` raises, the
-changes stay committed and the Job fails. NetBox still attempts to process their
-queued object-change events. Django skips later callbacks for that transaction.
+changes stay committed and the Job fails. NetBox still attempts to process the
+run's queued events. Django skips later callbacks for that transaction.
 Pass `robust=True` when a callback's failure should not fail the run or stop
 later callbacks. Django then logs the error to `django.db.backends.base`,
 not the Script run log.

@@ -38,7 +38,7 @@ not a list of unsupported APIs alone.
 | `utilities.rqworker.get_queue_for_model` | `api/views.py`, `jobs.py`, `migration/cutover.py`, `migration/verification.py` | Selects queues for worker checks and enqueueing. Provides the fallback for Jobs without a recorded queue name. |
 | `rq.utils.parse_timeout` | `runtime/introspection.py` | Parses the author's `job_timeout` using RQ's own grammar, including strings such as `"30m"`. |
 | `rq.exceptions.TimeoutFormatError` | `runtime/introspection.py` | Converts an invalid RQ timeout string into a Script metadata error. |
-| `rq.timeouts.JobTimeoutException` | `jobs.py`, `storage/store.py` | Propagates the worker deadline rather than classifying it as a content or storage error. Timed-out validation releases its lease without a permanent verdict. |
+| `rq.timeouts.JobTimeoutException` | `execution.py`, `jobs.py`, `storage/store.py` | Propagates the worker deadline rather than classifying it as a content or storage error. Timed-out validation releases its lease without a permanent verdict. |
 | `utilities.rqworker.any_workers_for_queue` | `api/views.py` | Checks whether the selected queue has a worker before accepting a REST run. |
 | `utilities.rqworker.get_all_workers` | `migration/cutover.py` | Lists registered workers by name. Cutover requires acknowledgement when more than one is registered. This check does not prevent later worker startup or scheduler activity. |
 | `drf_spectacular.drainage.GENERATOR_STATS` | `tests/api/test_schema.py` | Suppresses whole-API schema warnings while tests inspect the plugin's operations. NetBox's tests use the same import. |

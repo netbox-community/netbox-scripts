@@ -1231,6 +1231,11 @@ class MigrationReferencesJob(JobRunner):
         except cutover.CutoverRefused as refusal:
             self.logger.error(str(refusal))
             raise JobFailed() from refusal
+        except JobTimeoutException:
+            logger.exception('Custom Script migration reference pass timed out.')
+            self.logger.error(_('The reference pass timed out. Run it again to complete the remaining work.'))
+            # NetBox persists unhandled tracebacks, so raise a fresh timeout without private runtime details.
+            raise JobTimeoutException('Migration reference pass timed out.') from None
 
         self.logger.info(
             _(

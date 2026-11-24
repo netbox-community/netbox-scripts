@@ -708,6 +708,37 @@ class LoadScriptClassTestCase(ScriptJobTestMixin, TestCase):
             self.assertEqual(instance.value, 42)
             self.assertIsNotNone(instance.as_form())
 
+    def test_a_job_timeout_while_importing_escapes_unwrapped(self):
+        self.publish({'deploy.py': b'import time\ntime.sleep(0)\n' + MAKES_A_TAG})
+        script = self.script()
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with (
+            patch('time.sleep', side_effect=timeout) as pause,
+            self.assertRaises(JobTimeoutException) as caught,
+            script_class_context(script),
+        ):
+            pass
+
+        pause.assert_called_once_with(0)
+        self.assertIs(caught.exception, timeout)
+
+    def test_any_other_exception_while_importing_is_still_a_load_failure(self):
+        self.publish({'deploy.py': b'import time\ntime.sleep(0)\n' + MAKES_A_TAG})
+        script = self.script()
+        error = RuntimeError('the module broke')
+
+        with (
+            patch('time.sleep', side_effect=error) as pause,
+            self.assertRaises(ScriptResolutionError) as caught,
+            script_class_context(script),
+        ):
+            pass
+
+        pause.assert_called_once_with(0)
+        self.assertEqual(caught.exception.code, 'load_failed')
+        self.assertIs(caught.exception.__cause__.__cause__, error)
+
 
 class EnqueueRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
     def test_enqueue_pins_the_active_revision_on_the_job(self):

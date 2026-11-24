@@ -21,6 +21,7 @@ from netbox_scripts.migration import cleanup, cutover, references
 from netbox_scripts.models import NetBoxScript, ScriptProjectRevision
 from netbox_scripts.runtime.cache import local_revision_dir
 from netbox_scripts.runtime.exceptions import ScriptFileImportError
+from netbox_scripts.runtime.naming import PRIVATE_ROOT, revision_module_name
 from netbox_scripts.scripts import BaseScript
 from netbox_scripts.storage import config
 from netbox_scripts.storage.exceptions import RevisionCorruptError
@@ -1144,3 +1145,79 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         self.assertEqual(sorted(replayed), sorted([str(deploy_schedule.pk), str(audit_schedule.pk)]))
         self.assertEqual(replayed[str(deploy_schedule.pk)], kept[str(deploy_schedule.pk)])
         self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_script_import_timeout_stops_the_pass_and_the_next_pass_continues(self):
+        module = self.legacy_synced_module('network/audit.py', b'import time\ntime.sleep(0)\n' + AUDIT_SCRIPT)
+        audit = Script.objects.get(module=module, name='Audit')
+        # Captured newest first, so Audit's schedule replays between Deploy's two.
+        last = self.legacy_schedule(scheduled=self.future())
+        middle = self.legacy_schedule(script=audit, scheduled=self.future())
+        first = self.legacy_schedule(scheduled=self.future())
+        self.cross_over()
+        self.assertEqual(
+            [entry['job_pk'] for entry in self.migration.journal['schedules']], [first.pk, middle.pk, last.pk]
+        )
+        timeout = JobTimeoutException('Task exceeded maximum timeout value (300 seconds)')
+
+        with patch('time.sleep', side_effect=timeout) as pause:
+            interrupted = MigrationReferencesJob.enqueue(immediate=True)
+
+        pause.assert_called_once_with(0)
+        interrupted.refresh_from_db()
+        self.assertEqual(interrupted.status, JobStatusChoices.STATUS_ERRORED)
+        self.migration.refresh_from_db()
+        kept = dict(self.migration.journal['recreated_schedules'])
+        self.assertEqual(list(kept), [str(first.pk)])
+        self.assertFalse(self.migration.step_done(references.SCHEDULES_STEP))
+
+        repeated = MigrationReferencesJob.enqueue(immediate=True)
+
+        repeated.refresh_from_db()
+        self.assertEqual(repeated.status, JobStatusChoices.STATUS_COMPLETED)
+        self.migration.refresh_from_db()
+        replayed = self.migration.journal['recreated_schedules']
+        self.assertEqual(sorted(replayed), sorted(str(job.pk) for job in (first, middle, last)))
+        self.assertEqual(replayed[str(first.pk)], kept[str(first.pk)])
+        self.assertCountEqual(
+            self.new_jobs().filter(status=JobStatusChoices.STATUS_SCHEDULED).values_list('pk', flat=True),
+            replayed.values(),
+        )
+        self.assertTrue(self.migration.step_done(references.SCHEDULES_STEP))
+
+    def test_a_script_import_timeout_keeps_runtime_identities_out_of_the_job(self):
+        module = self.legacy_synced_module('network/audit.py', b'import time\ntime.sleep(0)\n' + AUDIT_SCRIPT)
+        audit = Script.objects.get(module=module, name='Audit')
+        self.legacy_schedule(script=audit, scheduled=self.future())
+        self.cross_over()
+        project = self.plugin_script('Audit').project
+        storage_key = str(project.storage_key)
+        digest = project.active_revision.digest
+        namespace = revision_module_name(storage_key, digest)
+        runtime_path = local_revision_dir(storage_key, digest) / 'audit.py'
+        cases = (
+            ('rq', 'Task exceeded maximum timeout value (300 seconds)'),
+            ('private', f'Timeout importing {namespace} from {runtime_path}'),
+        )
+
+        for case, message in cases:
+            with self.subTest(case=case):
+                timeout = JobTimeoutException(message)
+                with (
+                    patch('time.sleep', side_effect=timeout) as pause,
+                    self.assertLogs('netbox.plugins.netbox_scripts.jobs', 'ERROR') as logged,
+                ):
+                    job = MigrationReferencesJob.enqueue(immediate=True)
+
+                pause.assert_called_once_with(0)
+                job.refresh_from_db()
+                self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+                self.assertEqual(job.error, "JobTimeoutException('Migration reference pass timed out.')")
+                job_log = '\n'.join(entry['message'] for entry in job.log_entries)
+                self.assertIn('The reference pass timed out. Run it again to complete the remaining work.', job_log)
+                self.assertIn('JobTimeoutException: Migration reference pass timed out.', job_log)
+                self.migration.refresh_from_db()
+                persisted = '\n'.join((job_log, job.error, str(job.data), *self.migration.warnings))
+                for private in (storage_key, uuid.UUID(storage_key).hex, digest, str(self.cache_root), PRIVATE_ROOT):
+                    self.assertNotIn(private, persisted)
+                self.assertIn(str(local_revision_dir(storage_key, digest)), '\n'.join(logged.output))
+                self.assertIs(logged.records[0].exc_info[1], timeout)

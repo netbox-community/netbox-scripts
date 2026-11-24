@@ -453,7 +453,10 @@ page, then select **Repoint references** again. For a recurring run, see
 stopped, see [Stale running Jobs](#stale-running-jobs).
 
 If a pass ends **Errored** at its Job timeout, the schedules it already
-recreated stay recorded, so the next pass continues with the rest.
+recreated stay recorded, so the next pass continues with the rest. The Job
+shows a fixed timeout message. The server log keeps the original timeout and
+its full traceback, which can name server paths, under the
+`netbox.plugins.netbox_scripts.jobs` logger.
 
 ### Schedule timing and ownership
 

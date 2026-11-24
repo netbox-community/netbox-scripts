@@ -8,6 +8,7 @@ __all__ = (
     'MigrationStateChoices',
     'ProjectSourceTypeChoices',
     'RevisionStatusChoices',
+    'ScriptListViewChoices',
 )
 
 
@@ -105,4 +106,16 @@ class MigrationStateChoices(ChoiceSet):
         (STAGING, _('Staging'), 'cyan'),
         (CUTOVER, _('Cutover'), 'orange'),
         (MIGRATED, _('Migrated'), 'green'),
+    )
+
+
+class ScriptListViewChoices(ChoiceSet):
+    """Choice set for how the Scripts list presents its Scripts."""
+
+    TABLE = 'table'
+    GROUPED = 'grouped'
+
+    CHOICES = (
+        (TABLE, _('Table')),
+        (GROUPED, _('Grouped by Project')),
     )

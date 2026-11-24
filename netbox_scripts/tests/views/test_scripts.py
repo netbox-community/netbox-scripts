@@ -1,21 +1,31 @@
+import csv
+import io
+from types import SimpleNamespace
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db.models.signals import post_save, pre_save
+from django.http import QueryDict
 from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
+from django.utils.html import escape
 
 from core.models import ObjectChange, ObjectType
 from core.tables import ObjectChangeTable
+from extras.models import TableConfig
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject
 from netbox_scripts.permissions import SELECTION_REFUSAL
+from netbox_scripts.preferences import SCRIPT_LIST_VIEW
+from netbox_scripts.tables import NetBoxScriptGroupedTable, NetBoxScriptTable
 from netbox_scripts.tests.plugin_testing import (
     ObjectPermissionTestMixin,
     PluginTestCases,
     create_scripts_out_of_default_order,
     refresh_count,
 )
-from users.models import ObjectPermission
+from users.models import ObjectPermission, UserConfig
 from utilities.testing import TestCase, create_tags, post_data
 
 
@@ -115,9 +125,13 @@ class NetBoxScriptViewSetTestCase(PluginTestCases.DerivedObjectViewTestCase):
 
 
 class NetBoxScriptViewTestCase(TestCase):
-    """The detail view and the change-log rendering that reverses a Script's URL."""
+    """The list and detail views, and the change-log rendering that reverses a Script's URL."""
 
     user_permissions = ('netbox_scripts.view_netboxscript',)
+    grouped_outline = [
+        ('audit-project', ['tools.deploy.AuditPrefixes']),
+        ('view-script-project', ['tools.deploy.DeployDevices', 'tools.deploy.Rollback', 'tools.naming.RenameSites']),
+    ]
 
     @classmethod
     def setUpTestData(cls):
@@ -130,6 +144,28 @@ class NetBoxScriptViewTestCase(TestCase):
             description='Deploy devices at a site.',
             metadata={'commit_default': True},
         )
+        NetBoxScript.objects.create(
+            project=cls.project, module_path='tools.deploy', class_name='Rollback', display_name='Rollback'
+        )
+        NetBoxScript.objects.create(
+            project=cls.project, module_path='tools.naming', class_name='RenameSites', display_name='Rename Sites'
+        )
+        cls.audit_project = ScriptProject.objects.create(name='Audit Project', key='audit-project')
+        NetBoxScript.objects.create(
+            project=cls.audit_project,
+            module_path='tools.deploy',
+            class_name='AuditPrefixes',
+            display_name='Audit Prefixes',
+        )
+
+    def list_page(self, **params):
+        return self.client.get(reverse('plugins:netbox_scripts:netboxscript_list'), params)
+
+    def outline(self, response):
+        """Return the grouped page's Project keys and Script full names, in page order."""
+        return [
+            (project.key, [row.record.full_name for row in rows]) for project, rows in response.context['table'].groups
+        ]
 
     def test_get_absolute_url_resolves(self):
         # The inherited implementation reverses with no fallback, so it needs the detail route.
@@ -235,6 +271,256 @@ class NetBoxScriptViewTestCase(TestCase):
         cell = next(iter(table.rows)).get_cell('object_repr')
         self.assertIn(self.script.get_absolute_url(), cell)
         self.assertIn('Deploy Devices', cell)
+
+    def test_the_grouped_view_lists_scripts_under_project_headings(self):
+        self.add_permissions('netbox_scripts.view_scriptproject')
+
+        response = self.list_page(view='grouped')
+        body = response.content.decode()
+
+        self.assertHttpStatus(response, 200)
+        self.assertIs(type(response.context['table']), NetBoxScriptGroupedTable)
+        self.assertEqual(self.outline(response), self.grouped_outline)
+        for project in (self.project, self.audit_project):
+            self.assertIn(project.get_absolute_url(), body)
+        for script in NetBoxScript.objects.all():
+            # The Changelog link starts with the Script's URL, so only the name link remains once it is removed.
+            changelog_url = reverse('plugins:netbox_scripts:netboxscript_changelog', kwargs={'pk': script.pk})
+            self.assertIn(script.get_absolute_url(), body.replace(changelog_url, ''))
+        position = 0
+        for text in (
+            'Audit Project',
+            'Audit Prefixes',
+            'tools.deploy.AuditPrefixes',
+            'View Script Project',
+            'Deploy Devices',
+            'tools.deploy.DeployDevices',
+            'Rollback',
+            'tools.deploy.Rollback',
+            'Rename Sites',
+            'tools.naming.RenameSites',
+        ):
+            position = body.find(text, position)
+            self.assertNotEqual(position, -1, text)
+            position += len(text)
+
+    def test_projects_sharing_a_name_keep_separate_groups(self):
+        lab_one = ScriptProject.objects.create(name='Lab', key='lab-one')
+        lab_two = ScriptProject.objects.create(name='Lab', key='lab-two')
+        for project, module_path, class_name in (
+            (lab_one, 'a', 'Alpha'),
+            (lab_one, 'c', 'Gamma'),
+            (lab_two, 'b', 'Beta'),
+        ):
+            NetBoxScript.objects.create(
+                project=project, module_path=module_path, class_name=class_name, display_name=class_name
+            )
+
+        response = self.list_page(view='grouped', project_id=[lab_one.pk, lab_two.pk])
+
+        self.assertEqual(
+            self.outline(response),
+            [('lab-one', ['a.Alpha', 'c.Gamma']), ('lab-two', ['b.Beta'])],
+        )
+
+    def test_a_sort_does_not_reorder_the_grouped_view(self):
+        response = self.list_page(view='grouped', sort='-class_name')
+
+        self.assertEqual(self.outline(response), self.grouped_outline)
+
+    def test_the_grouped_view_applies_search_and_filters(self):
+        response = self.list_page(view='grouped', project_id=self.audit_project.pk, q='Audit')
+
+        self.assertEqual(self.outline(response), self.grouped_outline[:1])
+
+    def test_the_grouped_view_lists_only_viewable_scripts(self):
+        user = get_user_model().objects.create_user(username='audit-viewer')
+        permission = ObjectPermission.objects.create(
+            name='Audit Scripts', actions=['view'], constraints={'project__key': 'audit-project'}
+        )
+        permission.users.add(user)
+        permission.object_types.add(ObjectType.objects.get_for_model(NetBoxScript))
+        client = Client()
+        client.force_login(user)
+
+        response = client.get(reverse('plugins:netbox_scripts:netboxscript_list'), {'view': 'grouped'})
+
+        self.assertEqual(self.outline(response), self.grouped_outline[:1])
+        self.assertNotIn('View Script Project', response.content.decode())
+
+    def test_a_project_continuing_on_the_next_page_repeats_its_heading(self):
+        # Project view covers the off-page Audit Project too, so the lookup must stay on the page.
+        self.add_permissions('netbox_scripts.view_scriptproject')
+        # NetBox's paginator folds up to five trailing rows into the previous page, so page 2 needs eight rows.
+        for class_name in ('Renumber', 'Reorder', 'Replace', 'Reroute'):
+            NetBoxScript.objects.create(
+                project=self.project, module_path='tools.naming', class_name=class_name, display_name=class_name
+            )
+
+        response = self.list_page(view='grouped', per_page=2, page=2)
+
+        self.assertEqual(
+            self.outline(response),
+            [
+                (
+                    'view-script-project',
+                    [
+                        'tools.deploy.Rollback',
+                        'tools.naming.RenameSites',
+                        'tools.naming.Renumber',
+                        'tools.naming.Reorder',
+                        'tools.naming.Replace',
+                        'tools.naming.Reroute',
+                    ],
+                )
+            ],
+        )
+        self.assertEqual(response.context['table'].viewable_project_ids, {self.project.pk})
+
+    def test_the_chosen_view_is_saved_for_the_user(self):
+        self.list_page(view='grouped')
+        self.assertEqual(UserConfig.objects.get(user=self.user).get(SCRIPT_LIST_VIEW), 'grouped')
+
+        # The Filters form and "Clear all" both drop the view parameter.
+        response = self.list_page(project_id=self.audit_project.pk)
+        self.assertIs(type(response.context['table']), NetBoxScriptGroupedTable)
+        response = self.list_page()
+        self.assertIs(type(response.context['table']), NetBoxScriptGroupedTable)
+
+        form = self.client.get(reverse('account:preferences')).context['form']
+        self.assertIn(SCRIPT_LIST_VIEW, form.fields)
+        self.assertEqual(form[SCRIPT_LIST_VIEW].value(), 'grouped')
+
+        response = self.list_page(view='table')
+        self.assertEqual(UserConfig.objects.get(user=self.user).get(SCRIPT_LIST_VIEW), 'table')
+        self.assertIs(type(response.context['table']), NetBoxScriptTable)
+
+    def test_an_unknown_view_is_ignored_and_not_saved(self):
+        response = self.list_page(view='bogus')
+        self.assertIs(type(response.context['table']), NetBoxScriptTable)
+        self.assertIsNone(UserConfig.objects.get(user=self.user).get(SCRIPT_LIST_VIEW))
+
+        self.list_page(view='grouped')
+        response = self.list_page(view='bogus')
+        self.assertIs(type(response.context['table']), NetBoxScriptGroupedTable)
+        self.assertEqual(UserConfig.objects.get(user=self.user).get(SCRIPT_LIST_VIEW), 'grouped')
+
+    def test_a_view_switch_in_maintenance_mode_is_not_saved(self):
+        self.user.config.set(SCRIPT_LIST_VIEW, 'table', commit=True)
+
+        maintenance = SimpleNamespace(MAINTENANCE_MODE=True)
+        with mock.patch('netbox_scripts.views.scripts.get_config', return_value=maintenance):
+            response = self.list_page(view='grouped')
+
+        self.assertIs(type(response.context['table']), NetBoxScriptGroupedTable)
+        self.assertEqual(UserConfig.objects.get(user=self.user).get(SCRIPT_LIST_VIEW), 'table')
+
+    @override_settings(LOGIN_REQUIRED=False, EXEMPT_VIEW_PERMISSIONS=['*'])
+    def test_an_anonymous_viewer_can_switch_views(self):
+        client = Client()
+        url = reverse('plugins:netbox_scripts:netboxscript_list')
+
+        response = client.get(url, {'view': 'grouped'})
+        self.assertHttpStatus(response, 200)
+        self.assertIs(type(response.context['table']), NetBoxScriptGroupedTable)
+        # Exempt view permissions cover Projects too, so both cards offer View Project.
+        for project in (self.project, self.audit_project):
+            self.assertIn(project.get_absolute_url(), response.content.decode())
+
+        response = client.get(url)
+        self.assertHttpStatus(response, 200)
+        self.assertIs(type(response.context['table']), NetBoxScriptTable)
+
+    def test_an_export_keeps_the_table_columns(self):
+        self.user.config.set('tables.NetBoxScriptTable.columns', ['display_name', 'description'])
+        self.user.config.set(SCRIPT_LIST_VIEW, 'grouped', commit=True)
+
+        response = self.list_page(export='table')
+
+        table = NetBoxScriptTable(NetBoxScript.objects.none())
+        self.assertEqual(
+            next(csv.reader(io.StringIO(response.content.decode()))),
+            [str(table.columns[name].header) for name in ('display_name', 'description')],
+        )
+
+    def test_a_partial_update_keeps_the_table(self):
+        self.user.config.set(SCRIPT_LIST_VIEW, 'grouped', commit=True)
+
+        response = self.client.get(reverse('plugins:netbox_scripts:netboxscript_list'), headers={'hx-request': 'true'})
+
+        self.assertTemplateUsed(response, 'htmx/table.html')
+        self.assertTemplateNotUsed(response, 'netbox_scripts/netboxscript_list.html')
+        self.assertIs(type(response.context['table']), NetBoxScriptTable)
+
+    def test_the_view_switch_keeps_filters_and_drops_page_sort_and_table_config(self):
+        projects = [self.project.pk, self.audit_project.pk]
+        config = TableConfig.objects.create(
+            name='Script names',
+            object_type=ObjectType.objects.get_for_model(NetBoxScript),
+            table='NetBoxScriptTable',
+            columns=['display_name', 'project'],
+        )
+
+        response = self.list_page(
+            project_id=projects, q='dep', per_page=25, page=2, sort='class_name', tableconfig_id=config.pk
+        )
+
+        body = response.content.decode()
+        for name, view in (('table_view_url', 'table'), ('grouped_view_url', 'grouped')):
+            with self.subTest(url=name):
+                url = response.context[name]
+                params = QueryDict(url[1:])
+                self.assertEqual(params.getlist('project_id'), [str(pk) for pk in projects])
+                self.assertEqual((params['q'], params['per_page'], params['view']), ('dep', '25', view))
+                self.assertNotIn('page', params)
+                self.assertNotIn('sort', params)
+                self.assertNotIn('tableconfig_id', params)
+                self.assertIn(escape(url), body)
+
+    def test_the_grouped_view_adds_no_query_per_script(self):
+        # With Project view, every grouped page also runs the View Project lookup.
+        self.add_permissions('netbox_scripts.view_scriptproject')
+        self.list_page(view='grouped')
+        with CaptureQueriesContext(connection) as before:
+            self.list_page(view='grouped')
+        for key in ('extra-one', 'extra-two'):
+            project = ScriptProject.objects.create(name=key, key=key)
+            NetBoxScript.objects.create(project=project, module_path='extra', class_name='Extra', display_name=key)
+
+        with CaptureQueriesContext(connection) as after:
+            self.list_page(view='grouped')
+
+        self.assertEqual(len(after), len(before))
+
+    def test_view_project_is_offered_only_for_viewable_projects(self):
+        body = self.list_page(view='grouped').content.decode()
+        for project in (self.project, self.audit_project):
+            self.assertIn(project.name, body)
+            self.assertNotIn(project.get_absolute_url(), body)
+
+        permission = ObjectPermission.objects.create(
+            name='Audit Project', actions=['view'], constraints={'key': 'audit-project'}
+        )
+        permission.users.add(self.user)
+        permission.object_types.add(ObjectType.objects.get_for_model(ScriptProject))
+
+        body = self.list_page(view='grouped').content.decode()
+        self.assertIn(self.audit_project.get_absolute_url(), body)
+        self.assertNotIn(self.project.get_absolute_url(), body)
+
+    def test_both_views_offer_the_tables_row_actions(self):
+        edit_url = reverse('plugins:netbox_scripts:netboxscript_edit', kwargs={'pk': self.script.pk})
+        changelog_url = reverse('plugins:netbox_scripts:netboxscript_changelog', kwargs={'pk': self.script.pk})
+        for view in ('table', 'grouped'):
+            with self.subTest(view=view):
+                body = self.list_page(view=view).content.decode()
+                self.assertIn(changelog_url, body)
+                self.assertNotIn(edit_url, body)
+
+        self.add_permissions('netbox_scripts.change_netboxscript')
+        for view in ('table', 'grouped'):
+            with self.subTest(view=view, change=True):
+                self.assertIn(edit_url, self.list_page(view=view).content.decode())
 
 
 class ScriptFileTestCase(PluginTestCases.NestedObjectViewTestCase):

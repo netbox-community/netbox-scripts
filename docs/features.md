@@ -21,10 +21,10 @@ sandbox. Source runs with the permissions of the process loading it.
 
 ## Run and monitor Scripts
 
-Browse, search and filter published Scripts, complete their forms, and run them
-now or on a schedule. Choose whether to keep database changes or use a dry run.
-A dry run does not undo external actions. See
-[Running Scripts](user-guide/execution.md).
+Browse published Scripts as a table or grouped by Project, search and filter
+them, complete their forms, and run them now or on a schedule.
+Choose whether to keep database changes or use a dry run. A dry run does not
+undo external actions. See [Running Scripts](user-guide/execution.md).
 
 One-shot runs use the revision pinned when requested. Recurring runs use the
 active revision at each occurrence. Each run records its status, revision, log
@@ -95,6 +95,5 @@ explain which operations produce those events.
 | Revision source in the UI | Revision Files lists paths, sizes and checksums but does not display source. |
 | Downloading run output | The run result shows the output but offers no download. |
 | A Data Source root as Project directory | A Data Source Project needs a directory below the Data Source root. |
-| Scripts grouped by Project and module | The Scripts list shows one row per Script, without grouping. |
 | Script results from the Jobs tab on NetBox v4.7 | A Job opens NetBox's Job page rather than the Script result page. NetBox v4.8 adds the interface this needs. |
 | A Last Run column | The Scripts list has no Last Run column. |

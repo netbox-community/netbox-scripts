@@ -21,6 +21,23 @@ Running requires `run` permission, separately from `change`. Permission to edit
 a Script does not grant permission to run it, or vice versa. Scheduling also
 requires `schedule`. See [Permissions](../administration/permissions.md).
 
+### Group the Scripts list
+
+Choose **Grouped** above the Scripts list to show Scripts in a table for each
+Project, with each Script's module path and class name below its name. A Project
+you can view offers **View Project** beside its heading. Choose **Table** to
+return to the table. Search, filters and permissions apply to both views, and
+switching keeps the active filters. A Project that continues on the next page
+repeats its heading there.
+
+The grouped view has no row selection or column settings. Use the table for
+bulk edits, and the **Filters** tab to search. Export works the same in both
+views.
+
+Your choice is saved to your user preferences, so the Scripts list opens in the
+same view next time. You can also change it on the **Preferences** page under
+**Scripts list view**.
+
 ### Bookmark a Script
 
 Bookmark frequently used Scripts to find them on your NetBox dashboard. You

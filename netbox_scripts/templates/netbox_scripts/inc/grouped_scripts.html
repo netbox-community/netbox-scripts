@@ -1,0 +1,52 @@
+{% load helpers %}
+{% load i18n %}
+{% for project, rows in table.groups %}
+  <div class="card">
+    <h2 class="card-header">
+      {{ project }}
+      {% if project.pk in table.viewable_project_ids %}
+        <div class="card-actions">
+          <a href="{{ project.get_absolute_url }}"
+             class="btn btn-ghost-primary btn-sm">{% trans "View Project" %}</a>
+        </div>
+      {% endif %}
+    </h2>
+    <div class="table-responsive">
+      <table class="{{ table.attrs.class }} align-middle">
+        <thead>
+          <tr>
+            <th scope="col">{% trans "Name" %}</th>
+            <th scope="col">{% trans "Description" %}</th>
+            <th scope="col">
+              <span class="visually-hidden">{% trans "Actions" %}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            {% with script=row.record %}
+              <tr>
+                <td>
+                  {{ script|linkify }}
+                  {% if not script.enabled %}
+                    <span class="badge text-bg-secondary">{% trans "Disabled" %}</span>
+                  {% endif %}
+                  {% if script.is_retired %}
+                    <span class="badge text-bg-secondary">{% trans "Retired" %}</span>
+                  {% endif %}
+                  <div class="small text-muted text-break">{{ script.full_name }}</div>
+                </td>
+                <td>{{ script.description|placeholder }}</td>
+                <td class="text-end text-nowrap noprint p-1">{{ row.cells.actions }}</td>
+              </tr>
+            {% endwith %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% empty %}
+  <div class="card">
+    <div class="card-body text-center text-muted">{{ table.empty_text }}</div>
+  </div>
+{% endfor %}

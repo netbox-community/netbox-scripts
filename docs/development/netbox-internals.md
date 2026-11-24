@@ -23,6 +23,10 @@ not a list of unsupported APIs alone.
 | `utilities.request.copy_safe_request` | `views/scripts.py`, `api/views.py` | Copies the request for a worker and strips sensitive headers. The copy must be picklable. |
 | `utilities.querydict.normalize_querydict` | `views/scripts.py` | Preserves repeated query parameters when prefilling the Script run form, while keeping single values as scalars. |
 | `utilities.forms.restrict_form_fields` | `views/scripts.py`, `api/views.py`, `migration/references.py` | Limits a run form's object variables to objects the requesting user, or a replayed schedule's owner, can view, constraints included, before it renders or validates. |
+| `utilities.htmx.htmx_partial` | `views/scripts.py` | Applies the test `ObjectListView` uses to render only its table, so partial updates such as a dashboard widget's keep the table for a user who prefers the grouped Scripts list. |
+| `users.models.UserConfig.set` | `views/scripts.py` | Saves the Scripts list view a request asks for, as NetBox saves a table's sort. NetBox documents reading a plugin preference with `get()`, not writing one. In maintenance mode the change is not committed, so the choice applies to that request only. NetBox v4.7.6 and later skip such a save themselves. |
+| `netbox.config.get_config` | `views/scripts.py` | Reads `MAINTENANCE_MODE`, so switching the Scripts list view writes nothing while the database is read-only, which NetBox v4.7.5 would otherwise attempt and refuse. |
+| `netbox.tables.columns.ActionsColumn.render` | `templates/netbox_scripts/inc/grouped_scripts.html` | Renders the grouped Scripts list's row actions. It reads the request, and with it the user and the return URL, from the context `render_table` attaches to the table, so the grouped rows are rendered through that tag. The Run button also uses that context for its permission check. |
 | `netbox.api.viewsets.mixins.discard_events_on_rollback` | `api/views.py` | Discards request events when a declaration-writing API action rolls back. Never used for disposable-write permission probes. |
 | `netbox.api.viewsets.NetBoxModelViewSet.update`, `perform_bulk_update`, `perform_update` and `perform_destroy` | `api/views.py` | The lock-order mixin wraps `update()` and `perform_bulk_update()`, which contain the write transaction and its row locks on every supported release, so every affected Project lock is taken first and held until that transaction has ended. A single update finds its Project with the lookup NetBox's `lock_object()` makes. A delete takes the lock in `perform_destroy()`, before its conditional row lock, and a bulk delete calls that hook once per object inside its batch transaction. A Script File update gates and queues its Project's refresh in `perform_update()`, which bulk updates call once per object. The canary checks that the hooks exist, and `tests/api/test_locking.py` checks the order. |
 | `netbox.api.viewsets.mixins.BulkUpdateModelMixin.get_bulk_update_queryset` | `api/views.py` | Orders Script bulk updates by primary key to match synchronization. NetBox v4.7.4 and later also lock the whole batch in that order before saving. |
@@ -111,6 +115,12 @@ undocumented behaviors: a blank CSV cell preserves the stored value, and NetBox
 removes fields absent from the record before constructing the instance. A change
 to either could cause unchanged imports to require `activate`, refusing updates
 rather than bypassing authorization.
+
+**Grouped Scripts list.** In the grouped view, `netboxscript_list.html` replaces
+the `content` block of NetBox's `generic/object_list.html`. Its two panes reuse
+the `object-list` and `filters-form` ids that the inherited `tabs` block
+targets, which NetBox does not document. After a NetBox upgrade, check that
+both tabs of the grouped view still switch.
 
 ## Why they are not avoidable
 

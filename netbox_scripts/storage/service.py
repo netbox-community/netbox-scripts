@@ -409,10 +409,10 @@ def _refresh_surviving(revision, using):
     """
     Re-read a revision's row, reporting a concurrent deletion as such.
 
-    Deleting a project cascades its revisions away and takes no project lock, so a staging
-    call inside its write window can reach here with no row left to read. Django would raise a
-    bare DoesNotExist naming nothing a caller can act on, so it becomes the typed error
-    instead.
+    A deletion that bypasses ScriptProject.delete(), such as a queryset delete, cascades a
+    project's revisions away without taking its lock first, so a staging call inside its write
+    window can reach here with no row left to read. Django would raise a bare DoesNotExist
+    naming nothing a caller can act on, so it becomes the typed error instead.
     """
     try:
         revision.refresh_from_db(using=using)

@@ -444,7 +444,8 @@ class ScriptProjectBulkEditView(generic.BulkEditView):
 class ScriptProjectBulkDeleteView(generic.BulkDeleteView):
     """Bulk delete view for Script Projects."""
 
-    queryset = ScriptProject.objects.select_related('data_source')
+    # The REST lock-order mixin's order, which a bulk delete has to share.
+    queryset = ScriptProject.objects.select_related('data_source').order_by('name', 'pk')
     filterset = ScriptProjectFilterSet
     table = ScriptProjectTable
 

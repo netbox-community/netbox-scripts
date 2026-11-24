@@ -2,6 +2,8 @@
 {% load i18n %}
 {% comment %}
 The page every migration pass is started from.
+Job details and results come only from Jobs the user may view.
+Workflow state, including next_action and staging_blocked, is independent of Job visibility.
 
 Context:
   - inventory_job:  The most recent inventory Job, or None
@@ -9,6 +11,7 @@ Context:
   - staging_queued: Whether a staging pass is already under way
   - staging_running: The staging Jobs that show Running, newest first, which hold the pass back
   - blocking_findings: The blocking findings the last inventory recorded, each {path, code, message}
+  - staging_blocked: Whether the last inventory recorded a blocking finding, whether or not the user may view it
   - warning_count:  How many modules the last inventory reported a warning for
   - branch_import_count: How many modules import something absent, but only inside a branch
   - undefined_script_count: How many published Scripts their own module does not define
@@ -37,6 +40,7 @@ Context:
   - can_clean_up:   Whether every reference step is done and every mapped Project serves, which is what deletion waits for
   - verification_job: The most recent verification Job, or None
   - verification_status: Its report's status, or None unless it completed, queued after the newest run began or closed
+  - hidden_jobs:    Per pass, whether its most recent Job exists but the user may not view it
   - guide_url:      The published migration guide, which the notes beside the passes link to
   - next_action:  Which pass to run next, or None when the next move is not a button here
 {% endcomment %}
@@ -68,7 +72,7 @@ Context:
             <tr>
               <th scope="row">{% trans "Last inventory" %}</th>
               <td>
-                {% include "netbox_scripts/inc/migration_job.html" with job=inventory_job %}
+                {% include "netbox_scripts/inc/migration_job.html" with job=inventory_job hidden=hidden_jobs.inventory %}
                 <div class="small text-secondary">
                   {% blocktrans trimmed %}
                     Keep scripts in a Data Source subdirectory, such as <code>scripts/</code>. Scripts at the root prevent staging.
@@ -80,20 +84,26 @@ Context:
             </tr>
             <tr>
               <th scope="row">{% trans "Last staging" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=staging_job running=staging_running %}</td>
+              <td>
+                {% include "netbox_scripts/inc/migration_job.html" with job=staging_job running=staging_running queued=staging_queued hidden=hidden_jobs.staging %}
+              </td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last cutover" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cutover_job running=cutover_running %}</td>
+              <td>
+                {% include "netbox_scripts/inc/migration_job.html" with job=cutover_job running=cutover_running queued=cutover_queued hidden=hidden_jobs.cutover %}
+              </td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last activation" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=activation_job running=activation_running %}</td>
+              <td>
+                {% include "netbox_scripts/inc/migration_job.html" with job=activation_job running=activation_running queued=activation_queued hidden=hidden_jobs.activation %}
+              </td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last reference pass" %}</th>
               <td>
-                {% include "netbox_scripts/inc/migration_job.html" with job=references_job running=references_running %}
+                {% include "netbox_scripts/inc/migration_job.html" with job=references_job running=references_running queued=references_queued hidden=hidden_jobs.references %}
                 <div class="small text-secondary">
                   {% trans "Moves supported Event Rules, permissions and Job history onto the plugin, then recreates eligible runs. Source files are not changed." %}
                   <a href="{{ guide_url }}#repoint-references" target="_blank">{% trans "Migration guide" %}</a>
@@ -102,12 +112,14 @@ Context:
             </tr>
             <tr>
               <th scope="row">{% trans "Last cleanup" %}</th>
-              <td>{% include "netbox_scripts/inc/migration_job.html" with job=cleanup_job running=cleanup_running %}</td>
+              <td>
+                {% include "netbox_scripts/inc/migration_job.html" with job=cleanup_job running=cleanup_running queued=cleanup_queued hidden=hidden_jobs.cleanup %}
+              </td>
             </tr>
             <tr>
               <th scope="row">{% trans "Last verification" %}</th>
               <td>
-                {% include "netbox_scripts/inc/migration_job.html" with job=verification_job %}
+                {% include "netbox_scripts/inc/migration_job.html" with job=verification_job hidden=hidden_jobs.verification %}
                 <div class="small text-secondary">
                   {% trans "Checks migration records, references and queued work. It does not run Scripts or check stored source files. A completed Job can still report warnings or blockers." %}
                   <a href="{{ guide_url }}#verify-the-migration" target="_blank">{% trans "Migration guide" %}</a>
@@ -152,6 +164,13 @@ Context:
                   </tr>
                 {% endfor %}
               </table>
+            </div>
+          {% elif staging_blocked %}
+            <div class="alert alert-danger mt-3" role="alert">
+              <h3 class="alert-heading fs-5">{% trans "Staging will refuse" %}</h3>
+              <p class="mb-0">
+                {% trans "The last inventory recorded blocking findings, which must be resolved before staging. Its Job is not visible to you." %}
+              </p>
             </div>
           {% endif %}
           {% if unservable_projects and perms.netbox_scripts.migrate_scriptproject %}

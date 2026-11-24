@@ -77,6 +77,9 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def grant(self, *actions, constraints=None):
         return super().grant(ScriptProject, *actions, constraints=constraints)
 
+    def grant_job_view(self, constraints=None):
+        return super().grant(Job, 'view', constraints=constraints)
+
     @staticmethod
     def url(name):
         return reverse(f'plugins:netbox_scripts:{name}')
@@ -101,6 +104,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_the_latest_run_of_each(self):
         self.grant('add')
+        self.grant_job_view()
         inventory = self.record(MigrationInventoryJob)
         response = self.client.get(self.url('migration'))
         body = response.content.decode()
@@ -110,6 +114,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_pass_left_running_points_at_the_recovery_on_the_page(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.record(MigrationStagingJob)
         self.assertNotIn('Stale running Jobs', self.client.get(self.url('migration')).content.decode())
 
@@ -121,6 +126,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_an_older_job_that_still_holds_a_pass(self):
         self.grant('add')
+        self.grant_job_view()
         stale = self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_RUNNING)
         Job.objects.filter(pk=stale.pk).update(created=timezone.now() - timedelta(hours=1))
         finished = self.record(MigrationStagingJob)
@@ -135,6 +141,108 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         # The Running inventory Job holds nothing back, so only the staging row points at the guide.
         self.assertEqual(body.count('Stale running Jobs'), 1)
 
+    def test_a_pass_whose_newest_job_is_hidden_reads_not_visible_to_you(self):
+        self.grant('add')
+        jobs = {
+            'inventory': self.record(MigrationInventoryJob),
+            'staging': self.record(MigrationStagingJob),
+            'cutover': self.record(MigrationCutoverJob),
+            'activation': self.record(MigrationActivationJob),
+            'references': self.record(MigrationReferencesJob),
+            'cleanup': self.record(MigrationCleanupJob),
+            'verification': self.record(MigrationVerificationJob),
+        }
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertEqual(response.context['hidden_jobs'], dict.fromkeys(jobs, True))
+        for name, job in jobs.items():
+            with self.subTest(name=name):
+                self.assertIsNone(response.context[f'{name}_job'])
+                self.assertNotIn(job.get_absolute_url(), body)
+        self.assertEqual(body.count('Not visible to you'), len(jobs))
+        self.assertIsNone(response.context['next_action'])
+
+    def test_a_job_view_grant_that_excludes_migration_jobs_shows_none_of_them(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'name': 'not-a-migration-job'})
+        job = self.with_findings(self.finding('blocking', 'report_style', 'audit/legacy_report.py'))
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertTrue(response.context['hidden_jobs']['inventory'])
+        self.assertNotIn(job.get_absolute_url(), body)
+        self.assertNotIn('audit/legacy_report.py', body)
+        self.assertIn('The last inventory recorded blocking findings, which must be resolved before staging.', body)
+        self.assertIsNone(response.context['next_action'])
+
+    def test_a_job_view_grant_shows_only_the_passes_it_covers(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'name': MigrationInventoryJob.name})
+        inventory = self.with_findings(self.finding('blocking', 'report_style', 'audit/legacy_report.py'))
+        staging = self.record(MigrationStagingJob)
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertEqual(response.context['inventory_job'], inventory)
+        self.assertIsNone(response.context['staging_job'])
+        self.assertIn(inventory.get_absolute_url(), body)
+        self.assertIn('audit/legacy_report.py', body)
+        self.assertNotIn(staging.get_absolute_url(), body)
+        self.assertEqual(body.count('Not visible to you'), 1)
+
+    def test_an_older_job_the_user_may_view_does_not_stand_in_for_a_hidden_newer_one(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'user': '$user'})
+        older = self.with_findings(self.finding('blocking', 'report_style', 'audit/legacy_report.py'))
+        Job.objects.filter(pk=older.pk).update(user=self.user, created=timezone.now() - timedelta(hours=1))
+        self.record(MigrationInventoryJob)
+        self.assertHttpStatus(self.client.get(older.get_absolute_url()), 200)
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertIsNone(response.context['inventory_job'])
+        self.assertTrue(response.context['hidden_jobs']['inventory'])
+        self.assertNotIn(older.get_absolute_url(), body)
+        self.assertNotIn('Staging will refuse', body)
+        self.assertEqual(response.context['next_action'], 'stage')
+
+    def test_a_running_job_the_user_cannot_view_is_not_named_on_the_page(self):
+        self.grant('add')
+        stale = self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_RUNNING)
+        Job.objects.filter(pk=stale.pk).update(created=timezone.now() - timedelta(hours=1))
+        self.record(MigrationStagingJob)
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertTrue(response.context['staging_queued'])
+        self.assertEqual(response.context['staging_running'], [])
+        self.assertNotIn(stale.get_absolute_url(), body)
+        self.assertNotIn('Stale running Jobs', body)
+        self.assertEqual(body.count('A Job for this pass is still queued or running.'), 1)
+
+    def test_a_hidden_running_job_behind_a_visible_newer_one_still_explains_the_wait(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'user': '$user'})
+        stale = self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_RUNNING)
+        Job.objects.filter(pk=stale.pk).update(created=timezone.now() - timedelta(hours=1))
+        finished = self.record(MigrationStagingJob)
+        Job.objects.filter(pk=finished.pk).update(user=self.user)
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertEqual(response.context['staging_job'], finished)
+        self.assertTrue(response.context['staging_queued'])
+        self.assertEqual(response.context['staging_running'], [])
+        self.assertNotIn(stale.get_absolute_url(), body)
+        self.assertEqual(body.count('A Job for this pass is still queued or running.'), 1)
+
     def with_findings(self, *findings):
         """Record an inventory Job carrying the supplied findings."""
         job = self.record(MigrationInventoryJob)
@@ -148,15 +256,19 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_blocking_finding_is_named_on_the_page(self):
         self.grant('add')
+        self.grant_job_view()
         self.with_findings(self.finding('blocking', 'report_style', 'audit/legacy_report.py'))
         body = self.client.get(self.url('migration')).content.decode()
         self.assertIn('Staging will refuse', body)
         self.assertIn('audit/legacy_report.py', body)
         self.assertIn('report_style', body)
         self.assertIn('audit/legacy_report.py is report_style.', body)
+        # The explanation for a hidden inventory Job never joins the list a viewer gets.
+        self.assertNotIn('The last inventory recorded blocking findings, which must be resolved before staging.', body)
 
     def test_every_blocking_finding_is_listed(self):
         self.grant('add')
+        self.grant_job_view()
         self.with_findings(
             self.finding('blocking', 'report_style', 'one.py'),
             self.finding('blocking', 'not_importable', 'two-hyphen.py'),
@@ -167,6 +279,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_warning_is_counted_rather_than_listed(self):
         self.grant('add')
+        self.grant_job_view()
         self.with_findings(
             self.finding('warning', 'legacy_import', 'first.py'),
             self.finding('warning', 'legacy_import', 'second.py'),
@@ -181,6 +294,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         # It was downgraded from blocking so one uncertain branch could not stop every other
         # Project. A warning the page never renders would be the same as dropping it.
         self.grant('add')
+        self.grant_job_view()
         self.with_findings(self.finding('warning', 'import_unresolvable_in_branch', 'optional.py'))
         body = self.client.get(self.url('migration')).content.decode()
         self.assertNotIn('Staging will refuse', body)
@@ -188,6 +302,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_branch_import_warning_is_not_counted_as_a_legacy_import(self):
         self.grant('add')
+        self.grant_job_view()
         self.with_findings(
             self.finding('warning', 'import_unresolvable_in_branch', 'optional.py'),
             self.finding('warning', 'legacy_import', 'old.py'),
@@ -198,6 +313,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_an_undefined_script_warning_reaches_the_page(self):
         self.grant('add')
+        self.grant_job_view()
         self.with_findings(self.finding('warning', 'script_not_defined_here', 'deploy.py'))
         body = self.client.get(self.url('migration')).content.decode()
         self.assertNotIn('Staging will refuse', body)
@@ -255,6 +371,38 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         job.save()
         self.assertHttpStatus(self.client.get(self.url('migration')), 200)
 
+    def test_a_hidden_inventory_still_says_staging_will_refuse(self):
+        self.grant('add')
+        job = self.with_findings(
+            self.finding('blocking', 'report_style', 'audit/legacy_report.py'),
+            self.finding('warning', 'legacy_import', 'old.py'),
+            self.finding('warning', 'publishes_nothing', 'helpers.py'),
+            self.finding('warning', 'import_unresolvable_in_branch', 'optional.py'),
+            self.finding('warning', 'script_not_defined_here', 'deploy.py'),
+            self.finding('warning', 'reports_excluded', 'reports.py'),
+        )
+        job.data['projects'] = [{'key': 'audit', 'name': 'Audit'}]
+        job.save()
+
+        response = self.client.get(self.url('migration'))
+        context = response.context
+
+        self.assertTrue(context['staging_blocked'])
+        self.assertEqual(context['blocking_findings'], [])
+        self.assertEqual(context['rows'], [])
+        self.assertEqual(
+            [
+                context[key]
+                for key in ('warning_count', 'helper_count', 'branch_import_count', 'undefined_script_count')
+            ],
+            [0, 0, 0, 0],
+        )
+        self.assertFalse(context['reports_excluded'])
+        self.assertIsNone(context['next_action'])
+        body = response.content.decode()
+        self.assertIn('The last inventory recorded blocking findings, which must be resolved before staging.', body)
+        self.assertNotIn('audit/legacy_report.py', body)
+
     def inventoried(self, *keys):
         """Record an inventory Job proposing the named Projects, creating none of them."""
         job = self.record(MigrationInventoryJob)
@@ -283,6 +431,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_the_page_does_not_query_once_per_project_row(self):
         # view as well: a row whose Project restrict() filters out never reaches the join at all.
         self.grant('add', 'view')
+        self.grant_job_view()
         first = [f'project-{index}' for index in range(2)]
         self.serving(*first)
         self.inventoried(*first)
@@ -298,6 +447,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         # Between staging and activation every Project has a null pointer, which is the state the
         # page spends most of its life in, and current_revision then falls back to a query.
         self.grant('add', 'view')
+        self.grant_job_view()
         first = [f'pending-{index}' for index in range(2)]
         self.serving(*first, activate=False)
         self.inventoried(*first)
@@ -332,6 +482,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_staged_project_shows_its_revision_status_and_script_count(self):
         self.grant('add', 'view')
+        self.grant_job_view()
         project, revision = self.staged(RevisionStatusChoices.ACTIVE, scripts=[{'class_name': 'NewIP'}])
         body = self.client.get(self.url('migration')).content.decode()
         self.assertIn(project.get_absolute_url(), body)
@@ -342,6 +493,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_the_status_shown_is_the_verdict_not_what_staging_recorded(self):
         # The whole reason this reads live: staging records a status before validation runs.
         self.grant('add', 'view')
+        self.grant_job_view()
         self.staged(RevisionStatusChoices.INVALID, recorded_status=RevisionStatusChoices.MATERIALIZED)
         body = self.client.get(self.url('migration')).content.decode()
         self.assertIn('Invalid', body)
@@ -350,6 +502,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_a_project_the_inventory_proposed_but_staging_has_not_made_is_listed(self):
         # Running the inventory without staging, or staging an older plan, both look like this.
         self.grant('add', 'view')
+        self.grant_job_view()
         self.inventoried('not-staged-yet')
         response = self.client.get(self.url('migration'))
         self.assertEqual([row['key'] for row in response.context['rows']], ['not-staged-yet'])
@@ -358,6 +511,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_both_passes_contribute_rows_without_duplicating_one(self):
         self.grant('add', 'view')
+        self.grant_job_view()
         project, _revision = self.staged(RevisionStatusChoices.VALID)
         self.inventoried(project.key, 'not-staged-yet')
         rows = self.client.get(self.url('migration')).context['rows']
@@ -372,12 +526,14 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_a_project_the_user_cannot_view_is_not_linked(self):
         # Gated by the project's own view permission, like every other revision surface.
         self.grant('add')
+        self.grant_job_view()
         project, _revision = self.staged(RevisionStatusChoices.INVALID)
         body = self.client.get(self.url('migration')).content.decode()
         self.assertNotIn(project.get_absolute_url(), body)
 
     def test_a_project_the_user_cannot_view_is_not_reported_unstaged(self):
         self.grant('add')
+        self.grant_job_view()
         project, _revision = self.staged(RevisionStatusChoices.VALID)
         self.inventoried('not-staged-yet')
 
@@ -393,6 +549,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_project_without_a_stored_revision_is_not_reported_unstaged(self):
         self.grant('add', 'view')
+        self.grant_job_view()
         project = ScriptProject.objects.create(name='Rejected Project', key='rejected-project')
         ScriptProjectRevision.objects.create(project=project, digest=None, status=RevisionStatusChoices.INVALID)
         self.inventoried(project.key, 'not-staged-yet')
@@ -406,6 +563,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_a_constrained_view_grant_hides_only_the_projects_it_excludes(self):
         self.grant('add')
         self.grant('view', constraints={'key': 'visible-project'})
+        self.grant_job_view()
         visible = ScriptProject.objects.create(name='Visible Project', key='visible-project')
         ScriptProject.objects.create(name='Hidden Project', key='hidden-project')
         self.inventoried('visible-project', 'hidden-project')
@@ -416,6 +574,41 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertEqual([row['project'] for row in response.context['rows']], [visible, None])
         self.assertEqual(body.count('No stored revision'), 1)
         self.assertEqual(body.count('Not visible to you'), 1)
+
+    def test_hidden_staging_and_verification_jobs_contribute_no_rows_or_result(self):
+        self.grant('add')
+        self.staged(RevisionStatusChoices.VALID)
+        self.verified({'status': 'blocking', 'checks': []})
+
+        response = self.client.get(self.url('migration'))
+
+        self.assertEqual(response.context['rows'], [])
+        self.assertIsNone(response.context['verification_status'])
+        self.assertNotIn('Verification result', response.content.decode())
+
+    def test_a_visible_inventory_contributes_rows_while_hidden_staging_contributes_none(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'name': MigrationInventoryJob.name})
+        self.inventoried('proposed-project')
+        staging = self.record(MigrationStagingJob)
+        staging.data = {'projects': [{'key': 'staged-project'}]}
+        staging.save()
+
+        rows = self.client.get(self.url('migration')).context['rows']
+
+        self.assertEqual([row['key'] for row in rows], ['proposed-project'])
+
+    def test_visible_staging_contributes_rows_while_a_hidden_inventory_contributes_none(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'name': MigrationStagingJob.name})
+        self.inventoried('proposed-project')
+        staging = self.record(MigrationStagingJob)
+        staging.data = {'projects': [{'key': 'staged-project'}]}
+        staging.save()
+
+        rows = self.client.get(self.url('migration')).context['rows']
+
+        self.assertEqual([row['key'] for row in rows], ['staged-project'])
 
     def test_running_the_inventory_queues_one_pass(self):
         self.grant('add')
@@ -717,6 +910,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_the_latest_cutover(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.record(MigrationCutoverJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
@@ -784,6 +978,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_the_latest_activation(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.record(MigrationActivationJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
@@ -821,6 +1016,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_the_latest_reference_pass(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.record(MigrationReferencesJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
@@ -880,6 +1076,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_pass_left_running_names_its_job_until_the_job_is_deleted(self):
         self.grant('add', 'migrate')
+        self.grant_job_view()
         passes = (
             ('migration_stage', MigrationStagingJob, self.staging, {}),
             ('migration_cutover', MigrationCutoverJob, self.cutover, {'confirm': 'true', 'backup_taken': 'on'}),
@@ -904,6 +1101,15 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_a_pass_still_waiting_keeps_the_queued_warning(self):
         self.grant('add')
         self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_PENDING)
+        response = self.client.post(self.url('migration_stage'), follow=True)
+        self.assertEqual(
+            str(list(response.context['messages'])[0]), 'A Custom Script migration staging pass is already queued.'
+        )
+        self.staging.assert_not_called()
+
+    def test_a_running_job_the_user_cannot_view_keeps_the_queued_warning(self):
+        self.grant('add')
+        self.record(MigrationStagingJob, status=JobStatusChoices.STATUS_RUNNING)
         response = self.client.post(self.url('migration_stage'), follow=True)
         self.assertEqual(
             str(list(response.context['messages'])[0]), 'A Custom Script migration staging pass is already queued.'
@@ -940,6 +1146,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_the_latest_cleanup(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.record(MigrationCleanupJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
@@ -1120,6 +1327,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_page_names_the_latest_verification(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.record(MigrationVerificationJob)
         self.assertIn(job.get_absolute_url(), self.client.get(self.url('migration')).content.decode())
 
@@ -1132,6 +1340,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_verification_result_is_shown_apart_from_the_job_status(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.verified(None)
 
         for status, badge in (('ready', READY_BADGE), ('warning', WARNING_BADGE), ('blocking', BLOCKING_BADGE)):
@@ -1147,6 +1356,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_verification_without_a_report_shows_no_result(self):
         self.grant('add')
+        self.grant_job_view()
         job = self.verified(None)
         cases = (
             (JobStatusChoices.STATUS_COMPLETED, None),
@@ -1171,6 +1381,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def test_an_unfinished_verification_shows_no_result_from_its_data(self):
         # A requeued Job keeps its last report until the new run ends.
         self.grant('add')
+        self.grant_job_view()
         job = self.verified({'status': 'ready', 'checks': []})
         statuses = (
             JobStatusChoices.STATUS_PENDING,
@@ -1197,6 +1408,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_result_follows_the_newest_verification(self):
         self.grant('add')
+        self.grant_job_view()
         older = self.verified({'status': 'ready', 'checks': []})
         Job.objects.filter(pk=older.pk).update(created=timezone.now() - timedelta(hours=1))
         self.verified(None, status=JobStatusChoices.STATUS_FAILED)
@@ -1212,6 +1424,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_a_new_run_withholds_the_result_of_an_earlier_verification(self):
         self.grant('add')
+        self.grant_job_view()
         self.closed_run()
         job = self.verified({'status': 'ready', 'checks': []})
         self.assertEqual(self.verification_status(), 'ready')
@@ -1227,6 +1440,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
     def test_the_close_withholds_a_result_from_before_the_cleanup(self):
         self.grant('add', 'migrate')
+        self.grant_job_view()
         self.record_early_passes()
         run = self.open_run(MigrationStateChoices.STAGING)
         self.verified({'status': 'ready', 'checks': []})
@@ -1249,6 +1463,7 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def guide_pages(self):
         """Return the Migration page, the staging confirmation and both renders of the cutover confirmation."""
         self.grant('add', 'migrate')
+        self.grant_job_view()
         # A row and a verification, so the Projects paragraph and the result row render.
         self.inventoried('guided')
         self.verified({'status': 'ready', 'checks': []})

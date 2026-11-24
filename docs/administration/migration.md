@@ -156,11 +156,13 @@ preparation before selecting **Enter cutover**.
 
 Open *Scripts > Migration*. The page shows the latest Job for each pass, the
 latest verification's result and the current state of proposed or staged
-Projects. **Revision status** is the status of the revision a Project serves,
-or of its newest stored revision while it serves none. A revision waiting for
-validation has no verdict yet. **Not staged** means no Project currently exists
-for a key listed by inventory or staging. **Not visible to you** means a Project
-with that key exists, but you cannot view it. **No stored revision** means the
+Projects, each only where you can view the Job it comes from. **Revision
+status** is the status of the revision a Project serves, or of its newest
+stored revision while it serves none. A revision waiting for validation has no
+verdict yet. **Not staged** means no Project currently exists for a key listed
+by inventory or staging. In a Project's row, **Not visible to you** means a
+Project with that key exists, but you cannot view it. In a pass's row, it means
+the pass has a latest Job you cannot view. **No stored revision** means the
 Project exists and is visible, but has no stored revision, possibly because its
 source was rejected before storage.
 
@@ -171,8 +173,9 @@ action. Every button except **Run inventory** and **Verify** stays disabled
 while a Job of its pass is queued or running. If a stopped worker left one
 **Running**, see [Stale running Jobs](#stale-running-jobs).
 
-**Run inventory** is safe to repeat. The page lists blockers and summarizes
-warnings. Open its Job for the complete report.
+**Run inventory** is safe to repeat. If you can view its latest Job, the page
+lists blockers and summarizes warnings, and the Job holds the complete report.
+Otherwise the page only says when blockers will stop staging.
 
 **Stage Projects** asks for confirmation and refuses a second queued staging
 pass. The worker runs a fresh inventory check. **Any blocking finding stops the
@@ -184,9 +187,9 @@ Projects** and **Repoint references** become available after their prerequisites
 are met and do not ask for a second confirmation. **Clean up** confirms before
 removing built-in modules and their stored source.
 
-Each action returns to the Migration page with a link to its Job. Read the log
-and results even when the Job finishes successfully. It may report skipped
-Projects, unresolved references or an incomplete cutover.
+Each action returns to the Migration page, which links to its Job if you can
+view it. Read the log and results even when the Job finishes successfully. It
+may report skipped Projects, unresolved references or an incomplete cutover.
 
 Cutover, reference and cleanup warnings are recorded on the migration run as
 each pass raises them, so a pass that fails later keeps what it already
@@ -197,9 +200,13 @@ one that is already recorded.
 
 Inventory, staging and verification require permission to **add** a Script
 Project. Cutover, activation, repointing and cleanup require the separate Script
-Project **`migrate`** action. The page itself requires `add`. It summarizes
-each pass's latest Job, including inventory blockers and the verification
-result. Opening a Job's full results requires *Core > Jobs* view permission.
+Project **`migrate`** action. The page itself requires `add`. It shows a pass's
+latest Job, and what it reads from that Job, only if your *Core > Jobs* view
+permission covers that Job, including its constraints. That covers inventory
+blockers and warnings, the Projects listed by inventory or staging, and the
+verification result. Otherwise the pass shows **Not visible to you**, and the
+page still says when staging will refuse. The highlighted next action and the
+disabled buttons do not depend on which Jobs you can view.
 See [Permissions](permissions.md#migration-permissions).
 
 ## Reports are not covered
@@ -646,12 +653,14 @@ Job keeps showing **Running**.
 
 **A migration pass Job** that shows **Running** keeps its pass from starting
 again, except for **Run inventory** and **Verify**, which can be run again
-regardless. The Migration page names each such Job in that pass's row. Confirm
-that execution has stopped as in step 1 below, then delete each Job the row
-names on the **Jobs** page. Deleting needs permission to delete Jobs and does
-not stop execution. Start the pass again as you would after a failed pass. A
-stopped pass saves no log on its Job, and the new pass can show **Running**
-while it waits for the database to end the stopped worker's session.
+regardless. The Migration page names each such Job you can view. Running Jobs
+you cannot view hold the pass back too, and clearing them needs someone who can
+view and delete them. Confirm that execution has stopped as in step 1 below,
+then delete each Job it names on the **Jobs** page. Deleting needs permission
+to delete Jobs and does not stop execution. Start the pass again as you would
+after a failed pass. A stopped pass saves no log on its Job, and the new pass
+can show **Running** while it waits for the database to end the stopped
+worker's session.
 
 **A built-in Custom Script Job** blocks cutover. Select **Enter cutover**
 first, so that the refusal names the affected Jobs and records any that the
@@ -724,7 +733,8 @@ shows **No result available**. A verification queued before the open
 migration run started also shows **No result available**. Once the latest
 run reaches `migrated`, the same applies to one queued before then. Such a
 report may describe an earlier state, so run **Verify** again for a current
-result.
+result. If you cannot view the latest verification Job, its row reads
+**Not visible to you** and no **Verification result** row appears.
 
 | Check | What it examines |
 |---|---|

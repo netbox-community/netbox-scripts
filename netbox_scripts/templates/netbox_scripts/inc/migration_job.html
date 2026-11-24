@@ -4,13 +4,17 @@
 One pass's most recent run, and the Jobs that hold the pass back.
 
 Context:
-  - job: The Job, or None
-  - running: The Jobs that show Running and hold the pass back, newest first, or absent
+  - job: The Job if the user may view it, or None
+  - hidden: Whether the pass has a most recent Job the user may not view
+  - running: The Jobs the user may view that show Running and hold the pass back, newest first, or absent
+  - queued: Whether a Job of the pass is pending, scheduled or running, which holds it back, or absent
 {% endcomment %}
 {% if job %}
   <a href="{{ job.get_absolute_url }}">{% trans "Job" %} #{{ job.pk }}</a>
   {% badge job.get_status_display bg_color=job.get_status_color %}
   <span class="text-secondary">{{ job.created|date:"SHORT_DATETIME_FORMAT" }}</span>
+{% elif hidden %}
+  <span class="text-secondary">{% trans "Not visible to you" %}</span>
 {% else %}
   <span class="text-secondary">{% trans "Never run" %}</span>
 {% endif %}
@@ -22,4 +26,8 @@ Context:
     {% endif %}
     <span class="text-secondary">{% trans "If it still shows Running after its execution stops, see Stale running Jobs in the migration guide." %}</span>
   </div>
+{% empty %}
+  {% if queued %}
+    <div class="small text-secondary">{% trans "A Job for this pass is still queued or running." %}</div>
+  {% endif %}
 {% endfor %}

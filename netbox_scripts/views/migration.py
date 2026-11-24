@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import View
 
 from core.choices import JobStatusChoices
+from core.models import Job
 from netbox.ui import layout
 from netbox.views import generic
 from utilities.permissions import get_permission_for_model
@@ -116,15 +117,15 @@ def _queued(job_class):
     return job_class.get_jobs().filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).exists()
 
 
-def _running(job_class):
-    """Return the Jobs of one pass that show Running, newest first."""
-    return list(job_class.get_jobs().filter(status=JobStatusChoices.STATUS_RUNNING))
+def _visible_running_jobs(job_class, user):
+    """Return the Jobs of one pass that show Running and the user may view, newest first."""
+    return list(job_class.get_jobs().restrict(user, 'view').filter(status=JobStatusChoices.STATUS_RUNNING))
 
 
 def _warn_queued(request, job_class, message):
-    """Warn that a pass of one class is already under way, naming the Job when one shows Running."""
+    """Warn that a pass of one class is already under way, naming a Running Job the user may view."""
     # NetBox never ends a Job whose worker stopped, so a running one may be stale.
-    if running := _running(job_class):
+    if running := _visible_running_jobs(job_class, request.user):
         message = _(
             'Job {pk} ("{name}") still shows Running. If its execution has stopped, '
             'see "Stale running Jobs" in the migration guide.'
@@ -162,8 +163,23 @@ class MigrationView(BaseMigrationView):
         """Show what each pass does, when each last ran, and where every Project it names stands."""
         inventory_job = _latest(MigrationInventoryJob)
         staging_job = _latest(MigrationStagingJob)
-        cleanup_job = _latest(MigrationCleanupJob)
         verification_job = _latest(MigrationVerificationJob)
+        latest_jobs = {
+            'inventory': inventory_job,
+            'staging': staging_job,
+            'cutover': _latest(MigrationCutoverJob),
+            'activation': _latest(MigrationActivationJob),
+            'references': _latest(MigrationReferencesJob),
+            'cleanup': _latest(MigrationCleanupJob),
+            'verification': verification_job,
+        }
+        viewable_job_ids = set(
+            Job.objects.restrict(request.user, 'view')
+            .filter(pk__in=[job.pk for job in latest_jobs.values() if job])
+            .values_list('pk', flat=True)
+        )
+        # The newest Job or none, never an older one the user may view, which would misreport its pass.
+        visible_jobs = {name: job if job and job.pk in viewable_job_ids else None for name, job in latest_jobs.items()}
         run = MigrationRun.current()
         closed = MigrationRun.objects.filter(state=MigrationStateChoices.MIGRATED).order_by('-created').first()
         # Mirrors what enter_cutover accepts. Keying this off the state alone would withhold the
@@ -198,7 +214,7 @@ class MigrationView(BaseMigrationView):
         current = _completed(verification_job) and (since is None or verification_job.created > since)
         # Offered at every state, so a verification from before the run closed leaves this step outstanding.
         verified = migrated and current
-        report = verification_job.data if current else None
+        report = visible_jobs['verification'].data if current and visible_jobs['verification'] else None
         # The passes in the order they run, each paired with the button's own render condition and
         # with what would make that pass complete. Two of the refusals the page reports need a
         # clause: a blocking finding withholds staging, and a Project that stopped serving reopens
@@ -219,39 +235,46 @@ class MigrationView(BaseMigrationView):
             request,
             self.template_name,
             {
-                'inventory_job': inventory_job,
-                'staging_job': staging_job,
+                'inventory_job': visible_jobs['inventory'],
+                'staging_job': visible_jobs['staging'],
                 'staging_queued': _queued(MigrationStagingJob),
-                'staging_running': _running(MigrationStagingJob),
-                'blocking_findings': blocking_findings,
+                'staging_running': _visible_running_jobs(MigrationStagingJob, request.user),
+                'blocking_findings': blocking_findings if visible_jobs['inventory'] else [],
+                # Staging refuses on hidden findings too, so the page says so without naming them.
+                'staging_blocked': bool(blocking_findings),
                 # Counted rather than listed, because an installation holds hundreds of entries.
                 # One entry per code, because each renders its own sentence and they say very
                 # different things. A code counted nowhere here is a finding no operator ever sees.
-                'warning_count': len(_findings(inventory_job, plan.WARNING, code='legacy_import')),
-                'helper_count': len(_findings(inventory_job, plan.WARNING, code='publishes_nothing')),
+                'warning_count': len(_findings(visible_jobs['inventory'], plan.WARNING, code='legacy_import')),
+                'helper_count': len(_findings(visible_jobs['inventory'], plan.WARNING, code='publishes_nothing')),
                 'branch_import_count': len(
-                    _findings(inventory_job, plan.WARNING, code='import_unresolvable_in_branch')
+                    _findings(visible_jobs['inventory'], plan.WARNING, code='import_unresolvable_in_branch')
                 ),
-                'undefined_script_count': len(_findings(inventory_job, plan.WARNING, code='script_not_defined_here')),
+                'undefined_script_count': len(
+                    _findings(visible_jobs['inventory'], plan.WARNING, code='script_not_defined_here')
+                ),
                 # One finding rather than one per module, so this is presence, not a tally.
-                'reports_excluded': bool(_findings(inventory_job, plan.WARNING, code='reports_excluded')),
-                'rows': _migration_rows(request, inventory_job, staging_job),
+                'reports_excluded': bool(_findings(visible_jobs['inventory'], plan.WARNING, code='reports_excluded')),
+                'rows': _migration_rows(request, visible_jobs['inventory'], visible_jobs['staging']),
                 'run': run or closed,
-                'cutover_job': _latest(MigrationCutoverJob),
+                'cutover_job': visible_jobs['cutover'],
                 'cutover_queued': _queued(MigrationCutoverJob),
-                'cutover_running': _running(MigrationCutoverJob),
-                'activation_job': _latest(MigrationActivationJob),
+                'cutover_running': _visible_running_jobs(MigrationCutoverJob, request.user),
+                'activation_job': visible_jobs['activation'],
                 'activation_queued': _queued(MigrationActivationJob),
-                'activation_running': _running(MigrationActivationJob),
-                'references_job': _latest(MigrationReferencesJob),
+                'activation_running': _visible_running_jobs(MigrationActivationJob, request.user),
+                'references_job': visible_jobs['references'],
                 'references_queued': _queued(MigrationReferencesJob),
-                'references_running': _running(MigrationReferencesJob),
-                'cleanup_job': cleanup_job,
+                'references_running': _visible_running_jobs(MigrationReferencesJob, request.user),
+                'cleanup_job': visible_jobs['cleanup'],
                 'cleanup_queued': _queued(MigrationCleanupJob),
-                'cleanup_running': _running(MigrationCleanupJob),
-                'verification_job': verification_job,
+                'cleanup_running': _visible_running_jobs(MigrationCleanupJob, request.user),
+                'verification_job': visible_jobs['verification'],
                 # The report's own verdict, which a completed Job does not imply.
                 'verification_status': report.get('status') if isinstance(report, dict) else None,
+                'hidden_jobs': {
+                    name: job is not None and visible_jobs[name] is None for name, job in latest_jobs.items()
+                },
                 'guide_url': MIGRATION_GUIDE_URL,
                 'can_activate': can_activate,
                 'can_repoint': can_repoint,

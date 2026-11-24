@@ -166,10 +166,10 @@ rather than selecting their versions independently.
 
 ## Pull request guidelines
 
-A pull request should link its accepted, assigned issue using `Fixes #NNN` and
-explain the change and how it was tested. Include relevant tests and update the
-documentation when behavior changes. Run `pre-commit run --all-files` before
-submitting.
+Reference the accepted, assigned issue in the pull request template, even if
+the title already includes it. Explain the change and how it was tested.
+Include relevant tests and update the documentation when behavior changes. Run
+`pre-commit run --all-files` before submitting.
 
 Keep changes focused. Discuss large refactors in the issue first. Tests and the
 implementation they cover belong in the same commit. Maintainers handle version
@@ -177,18 +177,48 @@ bumps and release notes, so do not include those in an ordinary contribution.
 
 ### Branching and commits
 
-Use a descriptive branch name such as `fix-upload-validation` or
-`feat-script-filter`. Pull request titles and commits must follow
-[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), for example:
+These conventions cover issue-linked changes. Release branches, commits and
+pull requests follow the
+[release checklist](https://netbox-community.github.io/netbox-scripts/development/releasing/).
+
+Name a branch after its issue as `<issue-number>-<description>`, for example
+`1234-upload-validation`.
+
+Pull request titles and commit messages follow
+[NetBox's conventions](https://github.com/netbox-community/netbox/blob/main/docs/development/getting-started.md#commit-messages-and-pr-titles).
+Start the title and the final commit subject with the issue reference, and use
+the same wording for both:
+
+- `Fixes #<issue-id>: <summary>` for a bug fix.
+- `Closes #<issue-id>: <summary>` for any other change, such as a feature,
+  housekeeping or documentation.
+
+GitHub closes the referenced issue once the commit is merged into the default
+branch.
+
+Write the summary in the imperative, starting with a capital letter and without
+a trailing period. It should describe the change clearly enough to serve as a
+release note entry. Aim for about 50 characters for the whole subject,
+including the issue reference, while keeping the meaning clear.
+
+When a commit needs a body, separate it from the subject with a blank line.
+Briefly explain what changes and why rather than walking through the
+implementation, and wrap prose at 72 characters. For example:
 
 ```text
-fix(api): Preserve validated Script inputs
-docs: Clarify source storage setup
-feat(filters): Add a Script status filter
+Fixes #1234: Preserve validated Script inputs
+
+The REST API ran a Script with the raw request data instead of the
+values its form had validated. Runs now receive the validated inputs.
 ```
 
-Add a commit body when it helps explain the change. Use a `BREAKING CHANGE:`
-footer for an approved incompatible change.
+The subject's issue reference is enough, so do not repeat it in a `Fixes` or
+`Closes` footer. When applicable, add a `Co-authored-by: Name <email>` trailer
+for each co-author, using their preferred attribution details, and separate the
+trailer block from the body with a blank line.
+
+Explain an approved incompatible change in the commit body and the pull request
+description, not in a footer.
 
 ### Target branch
 

@@ -890,29 +890,35 @@ class RunButtonTestCase(RunViewTestMixin, TestCase):
     def test_the_list_offers_a_run_button_to_a_permitted_user(self):
         self.grant('view', 'run')
 
-        response = self.client.get(self.list_url())
+        for view in ('table', 'grouped'):
+            with self.subTest(view=view):
+                response = self.client.get(self.list_url(), {'view': view})
 
-        self.assertHttpStatus(response, 200)
-        self.assertIn(self.url('run'), response.content.decode())
+                self.assertHttpStatus(response, 200)
+                self.assertIn(self.url('run'), response.content.decode())
 
     def test_the_list_offers_no_run_button_without_the_run_action(self):
         self.grant('view', 'change')
 
-        response = self.client.get(self.list_url())
+        for view in ('table', 'grouped'):
+            with self.subTest(view=view):
+                response = self.client.get(self.list_url(), {'view': view})
 
-        self.assertHttpStatus(response, 200)
-        self.assertNotIn(self.url('run'), response.content.decode())
+                self.assertHttpStatus(response, 200)
+                self.assertNotIn(self.url('run'), response.content.decode())
 
     def test_the_button_is_inert_for_a_script_that_cannot_run(self):
         self.grant('view', 'run')
         deactivate_revision(self.revision)
 
-        content = self.client.get(self.list_url()).content.decode()
+        for view in ('table', 'grouped'):
+            with self.subTest(view=view):
+                content = self.client.get(self.list_url(), {'view': view}).content.decode()
 
-        self.assertNotIn(self.url('run'), content)
-        # Specific to our own button, so a stray "disabled" elsewhere on the page cannot pass it.
-        self.assertIn('This Script cannot be run right now.', content)
-        self.assertIn('It is retired', content)
+                self.assertNotIn(self.url('run'), content)
+                # Specific to our own button, so a stray "disabled" elsewhere on the page cannot pass it.
+                self.assertIn('This Script cannot be run right now.', content)
+                self.assertIn('It is retired', content)
 
     def test_the_detail_page_offers_the_run_button_too(self):
         self.grant('view', 'run')

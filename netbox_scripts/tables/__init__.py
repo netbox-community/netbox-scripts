@@ -5,9 +5,10 @@ from .projects import (
     ScriptProjectRevisionTable,
     ScriptProjectTable,
 )
-from .scripts import NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
+from .scripts import NetBoxScriptGroupedTable, NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
 
 __all__ = (
+    'NetBoxScriptGroupedTable',
     'NetBoxScriptLogTable',
     'NetBoxScriptTable',
     'ScriptFileTable',

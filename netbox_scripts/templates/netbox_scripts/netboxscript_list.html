@@ -1,0 +1,54 @@
+{% extends "generic/object_list.html" %}
+{% load helpers %}
+{% load i18n %}
+{% load render_table from django_tables2 %}
+{% comment %}
+The Scripts list as NetBox's table, or grouped by Project.
+The grouped content replaces the content block, so its panes keep the ids the tabs block targets.
+{% endcomment %}
+{% block extra_controls %}
+  <div class="btn-group"
+       role="group"
+       aria-label="{% trans "Scripts list view" %}">
+    <a href="{{ table_view_url }}"
+       class="btn btn-outline-secondary{% if not grouped %} active{% endif %}"
+       {% if not grouped %}aria-current="true"{% endif %}>
+      <i class="mdi mdi-table" aria-hidden="true"></i> {% trans "Table" %}
+    </a>
+    <a href="{{ grouped_view_url }}"
+       class="btn btn-outline-secondary{% if grouped %} active{% endif %}"
+       {% if grouped %}aria-current="true"{% endif %}>
+      <i class="mdi mdi-format-list-group" aria-hidden="true"></i> {% trans "Grouped" %}
+    </a>
+  </div>
+{% endblock extra_controls %}
+{% block content %}
+  {% if grouped %}
+    <div class="tab-pane show active"
+         id="object-list"
+         role="tabpanel"
+         aria-labelledby="object-list-tab">
+      {% if filter_form %}
+        {% applied_filters model filter_form request.GET %}
+      {% endif %}
+      {% with preferences|get_key:"pagination.placement" as paginator_placement %}
+        {% if paginator_placement == "top" or paginator_placement == "both" %}
+          {% include "inc/paginator.html" with paginator=table.paginator page=table.page placement="top" %}
+        {% endif %}
+        {# render_table gives the row actions the request they read permissions from. #}
+        {% render_table table "netbox_scripts/inc/grouped_scripts.html" %}
+        {% if paginator_placement != "top" %}
+          {% include "inc/paginator.html" with paginator=table.paginator page=table.page %}
+        {% endif %}
+      {% endwith %}
+    </div>
+    {% if filter_form %}
+      <div class="tab-pane show"
+           id="filters-form"
+           role="tabpanel"
+           aria-labelledby="filters-form-tab">{% include "inc/filter_list.html" %}</div>
+    {% endif %}
+  {% else %}
+    {{ block.super }}
+  {% endif %}
+{% endblock content %}

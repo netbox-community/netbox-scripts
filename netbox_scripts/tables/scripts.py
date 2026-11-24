@@ -1,3 +1,6 @@
+from itertools import groupby
+from operator import attrgetter
+
 import django_tables2 as tables
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
@@ -5,7 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from netbox.tables import BaseTable, PrimaryModelTable, columns
 from utilities.validators import url_scheme_is_allowed
 
-from ..models import NetBoxScript, ScriptFile
+from ..models import NetBoxScript, ScriptFile, ScriptProject
 from ..scripts.logging import LogLevelChoices
 
 
@@ -55,6 +58,30 @@ class NetBoxScriptTable(PrimaryModelTable):
             'last_updated',
         )
         default_columns = ('display_name', 'project', 'module_path', 'class_name', 'enabled', 'is_retired')
+
+
+class NetBoxScriptGroupedTable(NetBoxScriptTable):
+    """Scripts grouped by Project in a fixed order."""
+
+    class Meta(NetBoxScriptTable.Meta):
+        orderable = False
+
+    def configure(self, request):
+        """Configure the table, then record which of the page's Projects the user can view."""
+        super().configure(request)
+        project_ids = {row.record.project_id for row in self.page.object_list}
+        self.viewable_project_ids = set(
+            ScriptProject.objects.restrict(request.user, 'view').filter(pk__in=project_ids).values_list('pk', flat=True)
+        )
+
+    @property
+    def groups(self):
+        """The current page's rows as (Project, [row, ...]) pairs, in page order."""
+        groups = []
+        for _project_id, project_rows in groupby(self.page.object_list, key=attrgetter('record.project_id')):
+            rows = list(project_rows)
+            groups.append((rows[0].record.project, rows))
+        return groups
 
 
 class NetBoxScriptLogTable(BaseTable):

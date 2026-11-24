@@ -44,6 +44,10 @@ ROWS = (
     ('utilities.request.copy_safe_request', 'utilities.request:copy_safe_request'),
     ('utilities.querydict.normalize_querydict', 'utilities.querydict:normalize_querydict'),
     ('utilities.forms.restrict_form_fields', 'utilities.forms:restrict_form_fields'),
+    ('utilities.htmx.htmx_partial', 'utilities.htmx:htmx_partial'),
+    ('users.models.UserConfig.set', 'users.models:UserConfig.set'),
+    ('netbox.config.get_config', 'netbox.config:get_config'),
+    ('netbox.tables.columns.ActionsColumn.render', 'netbox.tables.columns:ActionsColumn.render'),
     (
         'netbox.api.viewsets.mixins.discard_events_on_rollback',
         'netbox.api.viewsets.mixins:discard_events_on_rollback',

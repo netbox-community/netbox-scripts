@@ -10,16 +10,19 @@ from django.utils.translation import gettext_lazy as _
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
+from netbox.config import get_config
 from netbox.object_actions import BulkEdit, BulkExport, EditObject
 from netbox.ui import layout
 from netbox.ui.panels import CommentsPanel
 from netbox.views import generic
 from utilities.forms import restrict_form_fields
+from utilities.htmx import htmx_partial
 from utilities.permissions import get_permission_for_model
 from utilities.querydict import normalize_querydict
 from utilities.request import copy_safe_request
 from utilities.views import ViewTab, register_model_view
 
+from ..choices import ScriptListViewChoices
 from ..execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
 from ..filtersets import NetBoxScriptFilterSet, ScriptFileFilterSet
 from ..forms import (
@@ -32,8 +35,9 @@ from ..forms import (
 from ..jobs import NetBoxScriptJob
 from ..models import NetBoxScript, ScriptFile
 from ..object_actions import RunScript
+from ..preferences import SCRIPT_LIST_VIEW
 from ..scripts.logging import LogLevelChoices
-from ..tables import NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
+from ..tables import NetBoxScriptGroupedTable, NetBoxScriptLogTable, NetBoxScriptTable, ScriptFileTable
 from ..ui import NetBoxScriptPanel, NetBoxScriptStatePanel, ScriptFileDiscoveryPanel, ScriptFilePanel
 from ..validation import storage_failure_reason
 
@@ -43,10 +47,13 @@ logger = logging.getLogger('netbox.plugins.netbox_scripts.views')
 DEFAULT_POLL_INTERVAL = '5s'
 POLL_INTERVALS = {JobStatusChoices.STATUS_SCHEDULED: '60s'}
 
+# Project names can repeat, so the Project ID keeps each Project's rows together.
+GROUPED_ORDERING = ('project__name', 'project_id', 'module_path', 'class_name')
+
 
 @register_model_view(NetBoxScript, 'list', path='', detail=False)
 class NetBoxScriptListView(generic.ObjectListView):
-    """List view for Scripts, retired ones included."""
+    """List view for Scripts, retired ones included, as a table or grouped by Project."""
 
     # ObjectListView defaults to add, import, export, bulk edit, rename, and delete, and
     # ActionsMixin filters those by permission alone, never by whether the route exists. Rows
@@ -58,6 +65,35 @@ class NetBoxScriptListView(generic.ObjectListView):
     table = NetBoxScriptTable
     filterset = NetBoxScriptFilterSet
     filterset_form = NetBoxScriptFilterForm
+    template_name = 'netbox_scripts/netboxscript_list.html'
+
+    def get(self, request):
+        """Select the list view and save explicit choices for signed-in users."""
+        view = request.GET.get('view')
+        if view in ScriptListViewChoices.values():
+            if request.user.is_authenticated and request.user.config.get(SCRIPT_LIST_VIEW) != view:
+                request.user.config.set(SCRIPT_LIST_VIEW, view, commit=not get_config().MAINTENANCE_MODE)
+        else:
+            view = request.user.config.get(SCRIPT_LIST_VIEW) if request.user.is_authenticated else None
+        # Exports and partial updates keep the table.
+        if view == ScriptListViewChoices.GROUPED and 'export' not in request.GET and not htmx_partial(request):
+            self.table = NetBoxScriptGroupedTable
+            self.queryset = self.queryset.order_by(*GROUPED_ORDERING)
+        return super().get(request)
+
+    def get_extra_context(self, request):
+        """Build view links, preserving filters and resetting page, sort and table configuration."""
+        params = request.GET.copy()
+        for name in ('page', 'sort', 'tableconfig_id'):
+            params.pop(name, None)
+        params['view'] = ScriptListViewChoices.TABLE
+        table_view_url = f'?{params.urlencode()}'
+        params['view'] = ScriptListViewChoices.GROUPED
+        return {
+            'grouped': self.table is NetBoxScriptGroupedTable,
+            'table_view_url': table_view_url,
+            'grouped_view_url': f'?{params.urlencode()}',
+        }
 
 
 @register_model_view(NetBoxScript)

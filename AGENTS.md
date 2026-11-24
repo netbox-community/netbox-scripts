@@ -71,6 +71,7 @@ netbox_scripts/
   templates/              Model pages, action buttons and confirmations
   urls.py                 Registered model routes and migration routes
   navigation.py           Plugin menu
+  preferences.py          Scripts list view preference
   search.py               Search registrations
   graphql/                Schema, types, filters and enums
   storage/                Backends, manifests, paths, snapshots, locks and promotion

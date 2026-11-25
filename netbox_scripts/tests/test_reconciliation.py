@@ -180,7 +180,7 @@ class ProjectReconciliationJobTestCase(TestCase):
             validation_started=timezone.now() - timedelta(seconds=2 * VALIDATION_LEASE_SECONDS),
         )
         self.validated.reset_mock()
-        self.validated.return_value = mock.sentinel.processing_job
+        self.validated.return_value = Job.objects.create(name='Revision validation', job_id=uuid.uuid4())
 
         job = self.run_job()
 
@@ -371,6 +371,26 @@ class ProjectReconciliationJobTestCase(TestCase):
         revision = ScriptProjectRevision.objects.get(project=project)
         self.assertEqual([entry['path'] for entry in revision.manifest], ['a.py'])
 
+    def test_the_job_data_names_the_staged_revision_and_its_validation_job(self):
+        validation = Job.objects.create(name='Revision validation', job_id=uuid.uuid4())
+        self.validated.return_value = validation
+        job = ProjectReconciliationJob.enqueue_reconciliation(self.project)
+
+        ProjectReconciliationJob.handle(job, **job.data)
+
+        job.refresh_from_db()
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        self.assertEqual(
+            job.data, {'project_id': self.project.pk, 'revision_id': revision.pk, 'validation_job_id': validation.pk}
+        )
+
+    def test_the_job_data_records_no_validation_job_when_none_was_queued(self):
+        job = self.run_job()
+
+        revision = ScriptProjectRevision.objects.get(project=self.project)
+        self.assertEqual(job.data['revision_id'], revision.pk)
+        self.assertIsNone(job.data['validation_job_id'])
+
 
 @override_settings(STORAGES=IN_MEMORY_STORAGES)
 class ReconciliationPolicyTestCase(TestCase):
@@ -471,7 +491,8 @@ class ReconciliationPolicyTestCase(TestCase):
         with_helper = self.reconcile()
 
         DataFile.objects.filter(path='scripts/helper.py').delete()
-        with mock.patch.object(RevisionValidationJob, 'enqueue_validation') as enqueue:
+        queued = Job.objects.create(name='Revision validation', job_id=uuid.uuid4())
+        with mock.patch.object(RevisionValidationJob, 'enqueue_validation', return_value=queued) as enqueue:
             job = self.run_reconciliation()
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)

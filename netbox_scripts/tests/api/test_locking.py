@@ -3,7 +3,8 @@ Lock ordering for the REST write paths, the Project bulk edit and import, and Pr
 
 Every statement that locks or writes a target row is observed from a second session, which must find the owning
 Projects' locks already taken. A probe at save() runs after NetBox's own row lock, so it cannot see the order. A
-deletion is observed where it reads the revisions it cascades to.
+deletion is observed where it reads the revisions it cascades to. An activation is observed where the view calls the
+activation service, since the service takes the same lock again around its own writes.
 
 TransactionTestCase, and not only because a second session needs committed rows. Under TestCase
 the project built in setUp would hold its pg_advisory_xact_lock until teardown, since that lock
@@ -22,11 +23,14 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from netbox.choices import CSVDelimiterChoices, ImportFormatChoices
+from netbox_scripts.activation import activate_revision
+from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.jobs import ProjectStorageCleanupJob
 from netbox_scripts.models import ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import service
 from netbox_scripts.storage.locks import advisory_key, project_lock
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, ObjectPermissionTestMixin, SecondSession
+from netbox_scripts.tests.test_activation import record
 from users.constants import TOKEN_PREFIX
 from users.models import Token, User
 from utilities.testing import post_data
@@ -335,6 +339,32 @@ class WriteLockOrderTestCase(ObjectPermissionTestMixin, TransactionTestCase):
             tampered.delete()
 
         self.assertFalse(ScriptProject.objects.filter(pk=self.project.pk).exists())
+
+    def test_an_activation_holds_the_project_lock_through_its_service_call(self):
+        self.grant(ScriptProject, 'activate')
+        revision = service.stage_revision(self.project, {'deploy.py': b'print("deploy")\n'}).revision
+        ScriptProjectRevision.objects.filter(pk=revision.pk).update(
+            status=RevisionStatusChoices.VALID, discovered_scripts=[record()]
+        )
+        observed = []
+
+        def handoff(candidate):
+            with SecondSession() as other:
+                observed.append(other.can_lock(self.project.storage_key))
+            return activate_revision(candidate)
+
+        self.assert_locks_released((self.project,))
+        with mock.patch('netbox_scripts.api.views.activate_revision', handoff):
+            response = self.client.post(
+                reverse('plugins-api:netbox_scripts-api:scriptproject-activate', kwargs={'pk': self.project.pk}),
+                {'revision': revision.pk},
+                format='json',
+                **self.header,
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(observed, [False])
+        self.assert_locks_released((self.project,))
 
     def test_the_probe_detects_a_row_lock_without_a_project_lock(self):
         with (

@@ -87,6 +87,31 @@ Synchronization Job to complete successfully before reconciling.
 This action requires the Project's `reconcile` permission, separately from
 `change`. See [Permissions](permissions.md).
 
+Over REST, `POST /api/plugins/netbox-scripts/projects/<id>/reconcile/` queues
+the same Job and returns it. The plugin schedules no synchronization of its
+own. Use the Data Source's sync interval, its page or NetBox's REST API.
+
+A pipeline deploying a Data Source Project:
+
+1. Pushes to the repository behind the Data Source.
+2. Synchronizes it with `POST /api/core/data-sources/<id>/sync/`, which
+   requires NetBox's `core.sync_datasource`. The response is the Data Source
+   rather than its Job, so the pipeline finds its Synchronization Job at
+   `/api/core/jobs/?object_type=core.datasource&object_id=<id>`, narrowed with
+   `user=<token user>&created__after=<request time>`. Overlapping
+   synchronizations by the same user match the same query, so pipeline runs
+   that share a user take turns synchronizing the Data Source, and a run stops
+   unless exactly one Job matches. It polls that Job at `/api/core/jobs/<id>/`
+   until its `status` is `completed`, and stops on `failed` or `errored`. The
+   Data Source's own `status` returns to `queued` when a recurring
+   synchronization schedules its next run, so it is no signal to wait for. A
+   successful synchronization queues each Project's reconciliation.
+3. Reconciles the Project over REST, which returns a Job to follow. Poll it
+   at `/api/core/jobs/<id>/` until it completes, then read its
+   `data.revision_id`, the revision it staged.
+4. Polls that revision for its verdict and activates it, as described for
+   [uploads](uploading.md#over-rest).
+
 ## When a selected script file disappears
 
 Deleting a selected Script File from the source makes the next revision invalid.

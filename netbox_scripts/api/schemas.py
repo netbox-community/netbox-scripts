@@ -5,7 +5,7 @@ from drf_spectacular.extensions import OpenApiSerializerExtension
 from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 
-from .serializers import NetBoxScriptRunInputSerializer
+from .serializers import NetBoxScriptRunInputSerializer, ScriptProjectRevisionSerializer
 
 # The action builds this mapping by hand, so there is no serializer for the schema to point at.
 SCRIPT_FILE_STATE = inline_serializer(
@@ -29,6 +29,21 @@ SCRIPT_FILE_STATE = inline_serializer(
 SCRIPT_FILE_SELECTION = inline_serializer(
     name='ScriptProjectScriptFileSelection',
     fields={'paths': serializers.ListField(child=serializers.CharField())},
+)
+
+# The action builds this mapping around the revision serializer's representation.
+PROJECT_ACTIVATION = inline_serializer(
+    name='ScriptProjectActivation',
+    fields={
+        'revision': ScriptProjectRevisionSerializer(),
+        'scripts': inline_serializer(
+            name='ScriptProjectActivationScripts',
+            fields={
+                'published': serializers.IntegerField(help_text=_('Scripts the revision publishes.')),
+                'retired': serializers.IntegerField(help_text=_('Scripts of the previous revision it retired.')),
+            },
+        ),
+    },
 )
 
 

@@ -1,3 +1,5 @@
+from rest_framework import serializers
+
 from netbox.api.fields import ChoiceField
 from netbox.api.serializers import ValidatedModelSerializer
 
@@ -39,3 +41,15 @@ class ScriptProjectRevisionSerializer(ValidatedModelSerializer):
             'last_updated',
         )
         brief_fields = ('id', 'url', 'display', 'digest', 'status')
+
+
+class ScriptProjectRevisionInputSerializer(serializers.Serializer):
+    """One revision of the Project passed as the context's project."""
+
+    revision = serializers.PrimaryKeyRelatedField(queryset=ScriptProjectRevision.objects.none())
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The schema generator builds this without a Project, and the field then only declares its type.
+        if (project := self.context.get('project')) is not None:
+            self.fields['revision'].queryset = project.revisions.all()

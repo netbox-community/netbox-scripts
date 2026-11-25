@@ -62,10 +62,10 @@ cascade through its own revisions without a protected-reference cycle.
 | REST | `/api/plugins/netbox-scripts/project-revisions/` |
 | GraphQL | `netbox_script_project_revision` / `netbox_script_project_revision_list` |
 
-REST and GraphQL are read-only. Use source and activation actions to change a
-revision's lifecycle, not writes to its status field. Filter revisions by
-`project_id`, `project` (the Project key), `status`, `digest` or
-`script_file_digest`.
+REST and GraphQL are read-only. Use source and activation actions, including
+the Project's [REST actions](scriptproject.md#api), to change a revision's
+lifecycle, not writes to its status field. Filter revisions by `project_id`,
+`project` (the Project key), `status`, `digest` or `script_file_digest`.
 
 Neither interface exposes `manifest` or `script_file_snapshot`. These are full
 stored documents, not lookup fields. The validation lease fields,
@@ -227,9 +227,9 @@ regardless of the old Job's status. This handles workers that disappear without
 updating their Job row. The configured Job timeout is shorter than the lease.
 
 Lease expiry permits a new claim. It does not itself submit another validation
-Job. Once the lease has expired, the next reconciliation, upload or script file
-refresh of the project that resolves to the revision queues a new validation,
-which claims it.
+Job. Once the lease has expired, a [validation request](scriptproject.md#api)
+for the revision, or the next reconciliation, upload or script file refresh of
+the project that resolves to it, queues a new validation, which claims it.
 
 Transitions to `valid`, `invalid` or back to `materialized` check both
 `validating` status and the owning Job. A worker whose lease was reclaimed

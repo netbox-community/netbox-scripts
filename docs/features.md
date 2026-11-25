@@ -57,6 +57,10 @@ File's **View file** and **View source** buttons also open. **Repair Scripts** r
 rows from the serving revision and reports how many changed. See [Review source and revision status](administration/uploading.md#review-source-and-revision-status)
 and [activation](reference/runtime.md#what-activation-does).
 
+Over REST, a pipeline can also reconcile a Project, queue a revision's
+validation and activate a revision, as the
+[Script Project reference](reference/models/scriptproject.md#api) describes.
+
 For existing built-in Custom Scripts, the [migration workflow](administration/migration.md)
 starts with inventory and staging without activation, followed by cutover.
 Read its beta warnings and recovery requirements before beginning.

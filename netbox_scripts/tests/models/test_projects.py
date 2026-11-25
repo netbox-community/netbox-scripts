@@ -1,13 +1,15 @@
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import timedelta
 from unittest import mock
 
 from django.core.exceptions import ValidationError
-from django.db import DEFAULT_DB_ALIAS, IntegrityError, connections, transaction
+from django.db import DEFAULT_DB_ALIAS, IntegrityError, connection, connections, transaction
 from django.db.models.deletion import Collector
 from django.db.utils import ConnectionDoesNotExist
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -29,6 +31,18 @@ MANIFEST_A = [{'path': 'hello.py', 'size': 3, 'sha256': 'c' * 64}]
 
 
 class ScriptProjectTestCase(TestCase):
+    @staticmethod
+    def unvalidated_project(data_source, data_path):
+        """Create a Data Source Project through objects.create(), which skips clean()."""
+        key = f'unvalidated-{uuid.uuid4().hex[:8]}'
+        return ScriptProject.objects.create(
+            name=key,
+            key=key,
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path=data_path,
+        )
+
     def test_create_scriptproject(self):
         instance = ScriptProject.objects.create(
             name='Sample Project 1',
@@ -139,7 +153,7 @@ class ScriptProjectTestCase(TestCase):
                     instance.full_clean()
                 self.assertIn('data_path', cm.exception.message_dict)
 
-    def test_data_source_project_refuses_the_data_source_root(self):
+    def test_data_source_project_accepts_the_data_source_root(self):
         data_source = DataSource.objects.create(
             name='Data Source 4',
             type='local',
@@ -152,9 +166,34 @@ class ScriptProjectTestCase(TestCase):
             data_source=data_source,
             data_path='',
         )
+        instance.full_clean()
+        instance.save()
+        instance.refresh_from_db()
+        self.assertEqual(instance.data_path, '')
+
+    def test_a_second_root_project_on_one_data_source_is_refused(self):
+        data_source = DataSource.objects.create(
+            name='Second Root Source', type='local', source_url='file:///tmp/second-root/'
+        )
+        ScriptProject.objects.create(
+            name='First Root',
+            key='first-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
+        second = ScriptProject(
+            name='Second Root',
+            key='second-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
         with self.assertRaises(ValidationError) as cm:
-            instance.full_clean()
-        self.assertIn('data_path', cm.exception.message_dict)
+            second.full_clean()
+        self.assertIn('First Root', str(cm.exception.message_dict['data_path']))
+        with self.assertRaisesMessage(IntegrityError, 'unique_data_source_path'), transaction.atomic():
+            second.save()
 
     def test_key_and_source_type_immutable(self):
         instance = ScriptProject.objects.create(name='Sample Project 11', key='sample-project-11')
@@ -324,7 +363,7 @@ class ScriptProjectTestCase(TestCase):
         other.full_clean()
         other.save()
 
-    def test_an_ancestor_project_overlaps_a_subdirectory_project(self):
+    def test_a_root_project_overlaps_a_subdirectory_project(self):
         data_source = DataSource.objects.create(
             name='Root Overlap Source', type='local', source_url='file:///tmp/root-overlap/'
         )
@@ -333,22 +372,22 @@ class ScriptProjectTestCase(TestCase):
             key='scripts-directory',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
-            data_path='automation/scripts',
+            data_path='scripts',
         )
-        ancestor = ScriptProject(
-            name='Automation Directory',
-            key='automation-directory',
+        root = ScriptProject(
+            name='Source Root',
+            key='source-root',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
-            data_path='automation',
+            data_path='',
         )
         with self.assertRaises(ValidationError) as cm:
-            ancestor.full_clean()
+            root.full_clean()
         self.assertIn('data_path', cm.exception.message_dict)
         # Named, so this cannot pass on some other data_path error.
         self.assertIn('Scripts Directory', str(cm.exception.message_dict['data_path']))
 
-    def test_a_subdirectory_project_overlaps_an_existing_ancestor_project(self):
+    def test_a_subdirectory_project_overlaps_an_existing_root_project(self):
         data_source = DataSource.objects.create(
             name='Root First Source', type='local', source_url='file:///tmp/root-first/'
         )
@@ -357,21 +396,22 @@ class ScriptProjectTestCase(TestCase):
             key='whole-repository',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
-            data_path='automation',
+            data_path='',
         )
         child = ScriptProject(
             name='Scripts Subdirectory',
             key='scripts-subdirectory',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source,
-            data_path='automation/scripts',
+            data_path='scripts',
         )
         with self.assertRaises(ValidationError) as cm:
             child.full_clean()
         self.assertIn('data_path', cm.exception.message_dict)
         self.assertIn('Whole Repository', str(cm.exception.message_dict['data_path']))
+        self.assertIn('(the data source root)', str(cm.exception.message_dict['data_path']))
 
-    def test_the_same_path_is_allowed_on_another_data_source(self):
+    def test_a_root_project_allows_a_root_project_on_another_data_source(self):
         data_source_one = DataSource.objects.create(
             name='First Root Source', type='local', source_url='file:///tmp/root-source-one/'
         )
@@ -383,31 +423,62 @@ class ScriptProjectTestCase(TestCase):
             key='root-on-first-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source_one,
-            data_path='automation',
+            data_path='',
         )
         other = ScriptProject(
             name='Root On Second Source',
             key='root-on-second-source',
             source_type=ProjectSourceTypeChoices.DATA_SOURCE,
             data_source=data_source_two,
-            data_path='automation',
+            data_path='',
         )
         other.full_clean()
         other.save()
 
-    def test_the_database_constraint_refuses_a_root_data_source_project(self):
+    def test_the_database_constraint_permits_a_root_data_source_project(self):
         """objects.create() skips clean(), so this reaches enforce_source_ownership directly."""
         data_source = DataSource.objects.create(
             name='Constraint Check Source', type='local', source_url='file:///tmp/constraint-check/'
         )
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            ScriptProject.objects.create(
-                name='Unvalidated Root',
-                key='unvalidated-root',
-                source_type=ProjectSourceTypeChoices.DATA_SOURCE,
-                data_source=data_source,
-                data_path='',
-            )
+        project = ScriptProject.objects.create(
+            name='Unvalidated Root',
+            key='unvalidated-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
+        self.assertIsNotNone(project.pk)
+
+    def test_the_database_refuses_a_root_beside_a_directory(self):
+        rooted = DataSource.objects.create(name='Root Insert Source', type='local', source_url='file:///tmp/ri/')
+        divided = DataSource.objects.create(name='Directory Insert Source', type='local', source_url='file:///tmp/di/')
+        self.unvalidated_project(rooted, '')
+        self.unvalidated_project(divided, 'scripts')
+        for case, data_source, data_path in (('root first', rooted, 'scripts'), ('root second', divided, '')):
+            with (
+                self.subTest(case=case),
+                self.assertRaisesMessage(IntegrityError, 'exclude_root_beside_directory'),
+                transaction.atomic(),
+            ):
+                self.unvalidated_project(data_source, data_path)
+
+    def test_the_database_refuses_a_root_or_directory_moved_beside_the_other(self):
+        rooted = DataSource.objects.create(name='Root Move Source', type='local', source_url='file:///tmp/rm/')
+        divided = DataSource.objects.create(name='Directory Move Source', type='local', source_url='file:///tmp/dm/')
+        root = self.unvalidated_project(rooted, '')
+        directory = self.unvalidated_project(divided, 'scripts')
+        self.unvalidated_project(divided, 'tools')
+        for case, project, change in (
+            ('path', directory, {'data_path': ''}),
+            ('directory moved', directory, {'data_source': rooted}),
+            ('root moved', root, {'data_source': divided}),
+        ):
+            with (
+                self.subTest(case=case),
+                self.assertRaisesMessage(IntegrityError, 'exclude_root_beside_directory'),
+                transaction.atomic(),
+            ):
+                ScriptProject.objects.filter(pk=project.pk).update(**change)
 
     def test_upload_projects_unaffected_by_data_path_overlap_check(self):
         first = ScriptProject.objects.create(name='Overlap Exempt Upload A', key='overlap-exempt-upload-a')
@@ -1127,3 +1198,67 @@ class ScriptProjectSourceStateTestCase(TestCase):
     def test_a_rejected_revision_has_no_short_digest(self):
         revision = self.revision(RevisionStatusChoices.INVALID, digest=None)
         self.assertEqual(revision.short_digest, '')
+
+
+class ScriptProjectConcurrentWriteTestCase(TransactionTestCase):
+    """Script Project writes from two database sessions, which need real commits."""
+
+    def test_a_concurrent_directory_create_fails_once_the_root_commits(self):
+        data_source = DataSource.objects.create(name='Race Source', type='local', source_url='file:///tmp/race/')
+        root = ScriptProject(
+            name='Race Root',
+            key='race-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='',
+        )
+        directory = ScriptProject(
+            name='Race Directory',
+            key='race-directory',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='scripts',
+        )
+        inserted = threading.Event()
+        blocked = threading.Event()
+        released = threading.Event()
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_backend_pid()')
+            pid = cursor.fetchone()[0]
+
+        def insert_the_root():
+            try:
+                with transaction.atomic():
+                    root.full_clean()
+                    root.save()
+                    inserted.set()
+                    # Holds the commit until the other session waits on it, so the order is fixed.
+                    for _poll in range(200):
+                        with connection.cursor() as cursor:
+                            cursor.execute('SELECT 1 FROM pg_locks WHERE pid = %s AND NOT granted', [pid])
+                            if cursor.fetchone():
+                                blocked.set()
+                                break
+                        if released.wait(0.05):
+                            break
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            committed = executor.submit(insert_the_root)
+            self.assertTrue(inserted.wait(10))
+            # Passes, because validation cannot see the uncommitted root.
+            directory.full_clean()
+            try:
+                with self.assertRaisesMessage(IntegrityError, 'exclude_root_beside_directory'), transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '10s'")
+                    directory.save()
+            finally:
+                released.set()
+            committed.result(timeout=10)
+
+        self.assertTrue(blocked.is_set())
+        self.assertEqual(
+            list(ScriptProject.objects.filter(data_source=data_source).values_list('data_path', flat=True)), ['']
+        )

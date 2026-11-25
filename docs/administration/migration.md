@@ -144,8 +144,8 @@ preparation before selecting **Enter cutover**.
    further synchronization while staging and reviewing its revisions. On a
    first migration, staging creates the Projects. Afterwards, check each
    Project's revision list. Use **Reconcile Source** to restage a directory that
-   changed, then wait for validation again. On each Data Source, keep scripts in
-   a directory below the root, such as `scripts/`. See
+   changed, then wait for validation again. A script at a Data Source's root
+   makes the whole source one Project. See
    [How modules become Projects](#how-modules-become-projects).
 5. **Resolve inventory blockers and review warnings.** Check existing Project
    conflicts, Reports, constrained permissions and scheduled inputs. Confirm
@@ -260,7 +260,7 @@ conditional branch. Inventory cannot determine whether an arbitrary branch runs
 in your deployment. Review it, then use the revision's validation result to
 check the staged source.
 
-The eight blocking codes are:
+The seven blocking codes are:
 
 | Code | What to check |
 |---|---|
@@ -269,7 +269,6 @@ The eight blocking codes are:
 | `unparsable` | The stored source is not valid Python. Correct the syntax. |
 | `source_unreadable` | Inventory could not read the stored source. Restore access or the missing file. |
 | `import_unresolvable` | Inventory cannot resolve an unconditional external import on this host. Check the dependency or use a relative import for a Project-local helper. |
-| `data_source_root` | Grouping would create a Project at the Data Source root. Move the scripts into a directory within the source. |
 | `project_not_manual` | A Project that staging would reuse has a non-manual activation policy. Set it to Manual before staging. |
 | `project_conflict` | An existing Project overlaps the proposed directory within the same Data Source. Resolve the overlap. |
 
@@ -296,8 +295,11 @@ already includes its subdirectories, so migration does not create overlapping
 Projects.
 
 A script at the Data Source root therefore pulls every script on that source
-into one Project at the root. Inventory reports this as `data_source_root`,
-which blocks staging, so keep scripts in a directory such as `scripts/`.
+into one Project at the root, named after the Data Source. Staging reuses a
+Project that already holds that root if its policy is Manual, and keeps its
+name. Any other Project on the source blocks staging as `project_conflict`. A
+root Project also stages files such as a README, as
+[Data Source Projects](data-sources.md#what-a-synchronization-does) describes.
 
 For a Data Source Project, staging copies the whole directory, not only the
 files the built-in feature registered as scripts. Helpers and resources in that

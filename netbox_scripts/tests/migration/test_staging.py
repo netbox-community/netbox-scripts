@@ -162,6 +162,30 @@ class ExistingProjectStagingTestCase(LegacySourceMixin, TestCase):
                 )
         self.assertIsNone(ScriptProject.objects.get(data_path='automation').active_revision_id)
 
+    def test_a_reused_root_project_keeps_its_name(self):
+        existing = ScriptProject.objects.create(
+            name='Operator Root',
+            key='operator-root',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=self.data_source,
+            data_path='',
+            activation_policy=ActivationPolicyChoices.MANUAL,
+        )
+        self.legacy_synced_module('top.py', LEGACY_SCRIPT)
+
+        self.stage_all()
+
+        self.assertEqual(
+            list(
+                ScriptProject.objects.filter(source_type=ProjectSourceTypeChoices.DATA_SOURCE).values_list('pk', 'name')
+            ),
+            [(existing.pk, 'Operator Root')],
+        )
+        self.assertEqual(
+            set(ScriptFile.objects.filter(project=existing).values_list('source_path', flat=True)),
+            {'top.py', 'automation/deploy.py'},
+        )
+
     def test_the_job_reports_a_refusal_and_still_stages_the_rest(self):
         # Reachable only when the Project appears after the inventory, so the gate is stubbed out.
         self.existing('automation/deploy', ActivationPolicyChoices.MANUAL)
@@ -190,6 +214,25 @@ class StageTestCase(LegacySourceMixin, TestCase):
         declared = ScriptFile.objects.get(project=project)
         self.assertEqual(declared.source_path, 'deploy.py')
         self.assertTrue(declared.enabled)
+
+    def test_a_root_level_script_stages_the_whole_source_as_one_project(self):
+        self.legacy_synced_module('top.py', LEGACY_SCRIPT)
+        self.data_file('README.md', b'Migration notes\n')
+
+        self.stage_all()
+
+        project = self.project_for(ProjectSourceTypeChoices.DATA_SOURCE)
+        self.assertEqual((project.data_path, project.name), ('', 'Automation'))
+        self.assertTrue(project.key.startswith('data-source-root-'))
+        self.assertEqual(
+            set(ScriptFile.objects.filter(project=project).values_list('source_path', flat=True)),
+            {'top.py', 'automation/deploy.py'},
+        )
+        revision = ScriptProjectRevision.objects.get(project=project)
+        self.assertEqual(
+            sorted(entry['path'] for entry in revision.manifest),
+            ['README.md', 'automation/deploy.py', 'automation/helpers.py', 'top.py'],
+        )
 
     def test_an_uploaded_module_becomes_its_own_project(self):
         self.stage_all()

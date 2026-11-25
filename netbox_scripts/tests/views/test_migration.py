@@ -107,6 +107,8 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertIn(inventory.get_absolute_url(), body)
         # Staging has never run, so its row says so rather than linking anywhere.
         self.assertIn('Never run', body)
+        self.assertIn("A script at a Data Source's root makes the whole source one Project.", body)
+        self.assertNotIn('prevent staging', body)
 
     def test_a_pass_left_running_points_at_the_recovery_on_the_page(self):
         self.grant('add')

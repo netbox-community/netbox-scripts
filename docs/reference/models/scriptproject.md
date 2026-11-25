@@ -16,7 +16,7 @@ plugin rather than supplied as editable configuration.
 | `storage_key` | UUID | auto | Internal storage and runtime identity, assigned on creation and immutable |
 | `source_type` | choice | yes | `upload` (default) or `data_source`. Cannot change after creation |
 | `data_source` | FK | conditional | Required for a Data Source Project. Not allowed for uploads |
-| `data_path` | string | conditional | Required for a Data Source Project. Names a directory within the Data Source, not its root. Not allowed for uploads |
+| `data_path` | string | no | A directory within the Data Source, or empty for the whole source. Must be empty for uploads |
 | `activation_policy` | choice | yes | `manual` (default) or `automatic_if_valid` |
 | `active_revision` | FK | auto | Revision currently served by the Project. Managed by activation and deactivation |
 | `enabled` | boolean | yes | Whether Scripts in this Project may run. Defaults to `true` |
@@ -94,8 +94,9 @@ source. Automatic activation also checks the accepted source and selection, as
 | `source_type` cannot change after creation | `clean()`, disabled edit-form field, HTTP 400 on REST changes. No source-transition workflow is provided |
 | `storage_key` never changes | `save()` guard, excluded from forms and read-only in REST |
 | `data_path` is canonical: POSIX-style, relative, single separators, no leading `./` or trailing `/` | `clean()` and the REST serializer normalize it. Absolute paths, `..` traversal and backslashes are rejected |
-| `data_source` Projects require a `data_source` and non-empty `data_path` | `clean()` and the `enforce_source_ownership` database constraint |
+| `data_source` Projects require a `data_source`. An empty `data_path` selects the whole source | `clean()` and the `enforce_source_ownership` database constraint |
 | `upload` Projects have no `data_source` or `data_path` | `clean()` and the `enforce_source_ownership` database constraint |
+| Projects on one Data Source never overlap, so a root Project is the only one on its source | `clean()` compares every path on the source. In the database, `exclude_root_beside_directory` refuses a root beside a directory and `unique_data_source_path` refuses identical paths, a second root included. A directory beside its own subdirectory is refused by `clean()` alone |
 | Changing `activation_policy`, `data_source` or `data_path` requires both `activate` and `change` | Object-scoped authorization against the stored Project, followed by the locked `save()` guard. See the write rules below |
 | `active_revision` belongs to this Project | `clean()` |
 | Only activation and deactivation write `active_revision` | A full `save()` restores the stored pointer. The services include it explicitly in `update_fields` |

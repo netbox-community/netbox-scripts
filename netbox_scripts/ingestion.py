@@ -231,8 +231,10 @@ def _data_source_tree(project):
     it rather than this function hiding it. Keys need no canonicalization of their own, because
     the store canonicalizes on the way in.
     """
-    # Keeps other projects' bytes on the same source out of memory.
-    rows = project.data_source.datafiles.filter(path__startswith=f'{project.data_path}/')
+    rows = project.data_source.datafiles.all()
+    if project.data_path:
+        # Keeps other projects' bytes on the same source out of memory.
+        rows = rows.filter(path__startswith=f'{project.data_path}/')
     tree = {}
     for path, content in rows.values_list('path', 'data'):
         relative = data_source_relative_path(path, project.data_path)

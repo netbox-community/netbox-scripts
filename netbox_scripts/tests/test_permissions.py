@@ -179,14 +179,14 @@ class SourceFieldGateTestCase(ObjectPermissionTestMixin, TestCase):
         self.assertEqual(self.project.data_path, 'scripts')
 
     def test_a_nullify_tick_with_activate_reaches_the_model_instead(self):
-        """The model refuses an empty data path here, so the point is whose refusal it is."""
+        """With activate, the tick reaches the model, which moves the Project to its source root."""
         self.grant('view', 'change', 'activate')
 
         response = self.bulk_edit_post(_nullify=['data_path'])
 
         self.assertNotIn('requires the Script Project activate permission', response.content.decode())
         self.project.refresh_from_db()
-        self.assertEqual(self.project.data_path, 'scripts')
+        self.assertEqual(self.project.data_path, '')
 
     def test_a_nullify_tick_outside_nullable_fields_is_not_a_move(self):
         """A Set null tick on a field outside nullable_fields is neither saved by core nor a move."""

@@ -94,6 +94,32 @@ class LegacyModulesTestCase(TestCase):
         self.assertEqual(entry.data_path, 'automation/netbox/deploy.py')
         self.assertEqual(entry.file_path, 'deploy.py')
         self.assertEqual(entry.data_source_id, self.data_source.pk)
+        self.assertEqual(entry.data_source_name, 'Automation')
+
+    def test_each_module_carries_its_data_source_name_without_a_query_each(self):
+        self.synced_module()
+        provisioning = DataSource.objects.create(
+            name='Provisioning', type='local', source_url='file:///tmp/provisioning'
+        )
+        data_file = DataFile.objects.create(
+            source=provisioning,
+            path='provision/setup.py',
+            size=len(LEGACY_SCRIPT),
+            hash=hashlib.sha256(LEGACY_SCRIPT).hexdigest(),
+            data=LEGACY_SCRIPT,
+            last_updated=timezone.now(),
+        )
+        module = ScriptModule(file_root=ManagedFileRootPathChoices.SCRIPTS, data_file=data_file)
+        module.full_clean()
+        module.save()
+
+        with self.assertNumQueries(2):
+            entries = source.legacy_modules()
+
+        self.assertEqual(
+            {entry.data_path: entry.data_source_name for entry in entries},
+            {'automation/netbox/deploy.py': 'Automation', 'provision/setup.py': 'Provisioning'},
+        )
 
     def test_a_module_reports_the_scripts_it_published_with_their_keys(self):
         module = self.synced_module()

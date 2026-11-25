@@ -334,7 +334,7 @@ class ScriptProjectFilesView(generic.ObjectChildrenView):
     )
 
     def get_children(self, request, parent):
-        """Return one row per manifest entry, plus one per declared path absent from it."""
+        """Return a numbered row per manifest entry naming its revision, plus one per declared path absent from it."""
         revision = parent.current_revision
         # Rows are manifest dictionaries rather than a queryset, so the whole tab is gated on the
         # revision they came from instead of restricting what get_children returns.
@@ -346,7 +346,15 @@ class ScriptProjectFilesView(generic.ObjectChildrenView):
         declared = {script_file.source_path: script_file.enabled for script_file in parent.script_files.all()}
         present = {entry['path'] for entry in revision.manifest}
         awaiting = parent.paths_awaiting_activation()
-        rows = [{**entry, 'script_file': declared.get(entry['path'], False)} for entry in revision.manifest]
+        rows = [
+            {
+                **entry,
+                'script_file': declared.get(entry['path'], False),
+                'revision_id': revision.pk,
+                'file_index': index,
+            }
+            for index, entry in enumerate(revision.manifest)
+        ]
         rows += [
             {
                 'path': path,

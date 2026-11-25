@@ -797,6 +797,16 @@ class ScriptProjectRevision(ChangeLoggedModel):
         """Whether this revision's status allows it to be put into service."""
         return self.status in ACTIVATABLE_REVISION_STATUSES
 
+    @property
+    def has_stored_source(self):
+        """Whether this revision's source tree finished writing to the store, whatever its verdict."""
+        return bool(self.digest) and self.status not in UNSTORED_REVISION_STATUSES
+
+    @property
+    def script_file_count(self):
+        """The number of Script File declarations frozen into this revision at staging."""
+        return len(self.script_file_snapshot)
+
     def get_status_color(self):
         """Return the badge color configured for this revision's status."""
         return RevisionStatusChoices.colors.get(self.status)

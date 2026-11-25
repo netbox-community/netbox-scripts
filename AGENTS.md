@@ -68,6 +68,7 @@ netbox_scripts/
     plugin_testing.py     Shared test composites
   views/                  Project, Script, Revision and migration views
   ui/panels.py            Detail-view panels
+  ui/actions.py           Panel header actions
   templates/              Model pages, action buttons and confirmations
   urls.py                 Registered model routes and migration routes
   navigation.py           Plugin menu

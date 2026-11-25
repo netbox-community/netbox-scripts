@@ -102,6 +102,40 @@ Automatic activation in the validation Job does not use that change-logging
 context. See [Event Rules](../../administration/event-rules.md#scripts-as-event-sources) for the
 separate event-delivery rules.
 
+## Source files
+
+A revision's **Files** tab lists every file in its manifest, with its size,
+short checksum and whether the revision selected it as a Script File. A
+selected Script File that the source does not hold is listed as missing from
+the source, without a link, and the revision's page shows how many Script Files
+it selected. Each path opens a read-only page for that file, for the active
+revision and for every retained one, including one that failed validation. A
+revision whose write did not finish, or whose content was rejected before
+storage, lists its files without links. The Project's **Revision Files** tab
+links its stored files to the same page.
+
+The page is titled with the file's path and names the revision by digest and
+ID. Its **File** tab shows the Script Project, the source path, the size and
+SHA256 hash, and the Script File declared for that path, with that Script
+File's discovery when its last discovery read this revision. Its **Source** tab
+shows the text. Its URL names the revision's ID and the file's position in the
+manifest, never the file's path. The **Source** tab reads only that file from
+the revision's stored tree, checks its size and checksum against the manifest
+first, and never imports or runs it. The text is shown escaped, without a byte
+order mark or syntax highlighting, and the tab tells the browser not to cache
+it. In these cases it explains why instead of showing the source:
+
+| Case | What the **Source** tab shows |
+|---|---|
+| The file is larger than 256 KiB (262,144 bytes) | Its path, its size and the limit. The file is not read |
+| The file is binary or not UTF-8 encoded | That it cannot be displayed |
+| The stored file is missing, or it or the manifest fails verification | The verification error |
+| The storage backend cannot be read | A general error. The cause is logged |
+
+Viewing source requires `netbox_scripts.view_scriptprojectrevision` on the
+revision, including its constraints. Permission to view or run a Script does
+not grant it.
+
 ## Recorded Scripts
 
 `discovered_scripts` records what validation found when importing the source.
@@ -322,6 +356,6 @@ source.
 | Limitation | Impact |
 |---|---|
 | No standalone list page or global search | Use the Project's Revisions tab, or filter REST and GraphQL results by Project |
-| Complete manifest and Script File snapshot documents are absent from REST and GraphQL | Reading those stored JSON documents requires database access. The Project's Revision Files tab displays the current revision's files |
+| Complete manifest and Script File snapshot documents are absent from REST and GraphQL | Reading the complete documents requires database access. A revision's **Files** tab lists its manifest entries and marks the Script Files its snapshot selected |
 | No user-facing revision-delete route | Revisions are removed when their Project is deleted |
 | Only the active revision can be deactivated | `deactivate_revision()` checks the locked Project row and refuses other revisions |

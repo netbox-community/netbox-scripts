@@ -1,0 +1,19 @@
+{% extends "ui/panels/_base.html" %}
+{% load i18n %}
+{% comment %}
+The Source panel of a Source tab: the file's text, or why it is withheld.
+
+Context:
+  - object: The file's manifest entry, with its text and why the text is withheld
+{% endcomment %}
+{% block panel_content %}
+  <div class="card-body">
+    {% if object.unavailable %}
+      <span class="text-muted">{{ object.unavailable }}</span>
+    {% elif object.text %}
+      <pre>{{ object.text }}</pre>
+    {% else %}
+      <span class="text-muted">{% trans "This file is empty." %}</span>
+    {% endif %}
+  </div>
+{% endblock panel_content %}

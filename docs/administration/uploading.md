@@ -141,8 +141,13 @@ is not active yet.
 The **Revisions** tab lists revision history. Rows can share a content digest but
 have different Script File selections. The **Script Files** column shows how many
 Script Files each revision selects, and the **ID** column gives the ID that the
-activation confirmations name. Each revision's page lists its selected paths. The
-Project's **Script Files** tab shows declarations and their discovery results.
+activation confirmations name. Each revision's page shows how many Script Files
+it selected. Its **Files** tab lists every file and marks the selected ones, and
+each file opens a read-only
+[page](../reference/models/scriptprojectrevision.md#source-files) with its source
+on a **Source** tab. To read the source an earlier run used, find the digest its result names on the
+**Revisions** tab. The Project's **Script Files** tab shows declarations and
+their discovery results.
 
 ### Select Script Files
 

@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models, router, transaction
+from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 
@@ -332,6 +333,16 @@ class ScriptFile(PrimaryModel):
 
     def __str__(self):
         return f'{self.project}: {self.source_path}'
+
+    @cached_property
+    def served_position(self):
+        """The Project's current revision and this file's index in its manifest, each None when absent."""
+        revision = self.project.current_revision
+        if revision is None:
+            return None, None
+        return revision, next(
+            (index for index, entry in enumerate(revision.manifest) if entry['path'] == self.source_path), None
+        )
 
     def clean(self):
         """Canonicalize the source path, validate it declares an importable script file, and freeze identity."""

@@ -244,10 +244,12 @@ Changes made through UI or REST requests can trigger matching rules. Automatic
 change logging and object-change event collection require a request context.
 Scripts triggered by Event Rules for Job or NetBox Branching lifecycle events,
 such as **Job completed** or **Branch merged**, run without one. So do runs
-recreated from built-in schedules during
+of ownerless schedules recreated during
 [migration](migration.md#schedule-timing-and-ownership). Their changes can
 commit, but NetBox does not automatically create `ObjectChange` records or
 queue object-change events for them. Script logs and output are still recorded.
+Runs of a recreated schedule that has an owner are attributed to that owner,
+so their changes can trigger matching rules.
 
 After a Script run commits, NetBox attempts to process any queued events, even
 when a commit callback fails. Processing the queue is separate from automatic

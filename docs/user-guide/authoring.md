@@ -265,7 +265,7 @@ before using context that may not be available.
 
 | Attribute | Set when | Holds |
 |---|---|---|
-| `self.request` | UI, REST or `runcustomscript` runs, or an Event Rule carrying a request. | The request used to attribute changes to its user. Event Rules pass a stripped copy without uploaded files. |
+| `self.request` | UI, REST or `runcustomscript` runs, schedules recreated by the migration that have an owner, or an Event Rule carrying a request. | The request used to attribute changes to its user. Event Rules pass a stripped copy without uploaded files. |
 | `self.event` | An Event Rule started the run. | JSON-safe event context, including the type, object and rule. See [Event Rules](../administration/event-rules.md). |
 
 A manually requested run has no event context:

@@ -6,6 +6,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import TemporaryUploadedFile, UploadedFile
 from django.db import transaction
@@ -28,7 +29,13 @@ from .constants import (
     STALLED_CLEANUP_GRACE_SECONDS,
     VALIDATION_JOB_TIMEOUT,
 )
-from .execution import RESOLUTION_FAILURES, PostCommitError, ScriptNotExecutableError, run_script
+from .execution import (
+    RESOLUTION_FAILURES,
+    PostCommitError,
+    ScriptNotExecutableError,
+    build_attribution_request,
+    run_script,
+)
 from .models import MigrationRun, NetBoxScript, ScriptProject, ScriptProjectRevision
 from .models.migration import migration_lock
 from .runtime.exceptions import ScriptFileImportError
@@ -901,6 +908,14 @@ class NetBoxScriptJob(JobRunner):
 
     def _run_class(self, script_class, *, data, commit, request, revision, sanitize, event=None):
         """Run one resolved class, recording its log and output on the Job either way."""
+        # Migrated schedules retain their owner but not the original request.
+        # Leave the request context of Event Rule runs unchanged, as in NetBox.
+        if request is None and event is None and self.job.user_id is not None:
+            # Reload the owner to discard cached permissions and detect deleted accounts.
+            # NetBox also uses the Job's owner for rescheduling, notifications and saves.
+            self.job.user = get_user_model().objects.filter(pk=self.job.user_id).first()
+            if self.job.user is not None:
+                request = build_attribution_request(self.job.user)
         instance = script_class()
         instance.request = request  # cloud-compat: ok, the run's copy of the request, and a Script is never queued
         instance.event = event

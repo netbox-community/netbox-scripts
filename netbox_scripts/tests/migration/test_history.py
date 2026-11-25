@@ -12,10 +12,12 @@ from rq.job import Job as RQJob
 from rq.timeouts import JobTimeoutException
 
 from core.choices import JobStatusChoices
-from core.models import Job, ObjectType
+from core.events import OBJECT_CREATED
+from core.models import Job, ObjectChange, ObjectType
 from dcim.models import Site
+from extras.choices import EventRuleActionChoices
 from extras.jobs import ScriptJob
-from extras.models import Script, ScriptModule
+from extras.models import EventRule, Script, ScriptModule, Tag, Webhook
 from netbox_scripts.jobs import MigrationReferencesJob
 from netbox_scripts.migration import cleanup, cutover, references
 from netbox_scripts.models import NetBoxScript, ScriptProjectRevision
@@ -65,6 +67,20 @@ AUDIT_SCRIPT = b"""from extras.scripts import Script
 class Audit(Script):
     def run(self, data, commit):
         return 'audited'
+"""
+
+# Adds a Tag only when the run's user holds the permission, and reports that user.
+LABEL_SCRIPT = b"""from extras.models import Tag
+from extras.scripts import Script
+
+
+class Label(Script):
+    def run(self, data, commit):
+        if self.request is None:
+            return 'no request'
+        if self.request.user.has_perm('extras.add_tag'):
+            Tag.objects.create(name='Label', slug='label')
+        return self.request.user.username
 """
 
 
@@ -322,6 +338,25 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
         """Return the runtime cache directory of the revision the migrated Project serves."""
         project = self.plugin_script().project
         return local_revision_dir(project.storage_key, project.active_revision.digest)
+
+    def label_script(self):
+        """Return the built-in Label script, from a module of its own."""
+        module = self.legacy_synced_module('automation/label.py', LABEL_SCRIPT)
+        return Script.objects.get(module=module, name='Label')
+
+    def grant_tag_add(self, user):
+        """Give one account permission to add Tags, and return the grant."""
+        permission = ObjectPermission(name='add tags', actions=['add'])
+        permission.save()
+        permission.users.add(user)
+        permission.object_types.add(ObjectType.objects.get_for_model(Tag))
+        return permission
+
+    def run_recreated(self):
+        """Run the one task the pass queued, as a worker would, and return its Job."""
+        task = self.queue.jobs[0]
+        task.func(*task.args, **task.kwargs)
+        return self.new_jobs().get()
 
     def test_a_pending_schedule_comes_back_with_its_input_resolved(self):
         # The captured value is a key, and a form is what turns it back into the instance an
@@ -1072,6 +1107,59 @@ class RecreateSchedulesTestCase(LegacyJobMixin, TestCase):
 
         self.assertEqual(counts['recreated'], 1)
         self.assertIsNone(self.new_jobs().get().user)
+
+    def test_a_recreated_schedule_records_its_changes_against_its_owner(self):
+        user = self.owned_schedule(script=self.label_script())
+        self.grant_run(user)
+        self.grant_tag_add(user)
+        self.cross_over()
+        with self.captureOnCommitCallbacks(execute=True):
+            references.recreate_schedules(self.migration)
+        webhook = Webhook.objects.create(name='Tag hook', payload_url='http://localhost:9/hook')
+        rule = EventRule.objects.create(
+            name='On a new tag',
+            event_types=[OBJECT_CREATED],
+            action_type=EventRuleActionChoices.WEBHOOK,
+            action_object=webhook,
+        )
+        rule.object_types.set([ObjectType.objects.get_for_model(Tag)])
+        # Queued without a request, as v0.1.0 queued every replay, so the run itself attributes it.
+        self.assertIsNone(self.queue.jobs[0].kwargs['request'])
+
+        with patch('extras.event_rules.get_queue') as get_queue:
+            job = self.run_recreated()
+
+        self.assertEqual(job.data['output'], 'scheduler')
+        self.assertEqual(ObjectChange.objects.get(changed_object_type=ObjectType.objects.get_for_model(Tag)).user, user)
+        get_queue.return_value.enqueue.assert_called_once()
+        self.assertEqual(get_queue.return_value.enqueue.call_args.kwargs['event_rule'], rule)
+
+    def test_a_recreated_schedule_reads_its_owners_permissions_when_it_runs(self):
+        user = self.owned_schedule(script=self.label_script())
+        self.grant_run(user)
+        grant = self.grant_tag_add(user)
+        self.cross_over()
+        with self.captureOnCommitCallbacks(execute=True):
+            references.recreate_schedules(self.migration)
+        # The pass checked the owner's run grant, which cached every grant on its copy of the user.
+        grant.delete()
+
+        job = self.run_recreated()
+
+        self.assertEqual(job.data['output'], 'scheduler')
+        self.assertFalse(Tag.objects.filter(slug='label').exists())
+
+    def test_a_recreated_schedule_without_an_owner_stays_unattributed(self):
+        self.legacy_schedule(script=self.label_script())
+        # Present, so a stand-in owner would show.
+        get_user_model().objects.create_user(username='admin', is_superuser=True)
+        self.cross_over()
+        with self.captureOnCommitCallbacks(execute=True):
+            references.recreate_schedules(self.migration)
+
+        job = self.run_recreated()
+
+        self.assertEqual(job.data['output'], 'no request')
 
     def test_a_second_pass_creates_no_duplicate(self):
         # The one step in the phase that is not naturally idempotent, so the journal is the guard.

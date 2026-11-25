@@ -597,6 +597,19 @@ REPORTS_ITS_EVENT = (
     b"        return '{} {}'.format(self.event['event_type'], self.event['object_id'])\n"
 )
 
+# One Tag per run, so each run leaves a change to attribute.
+REPORTS_ITS_USER = (
+    b'from extras.models import Tag\n'
+    b'from netbox_scripts.scripts import Script\n\n\n'
+    b'class ReportUser(Script):\n'
+    b'    def run(self, data, commit):\n'
+    b'        count = Tag.objects.count()\n'
+    b"        Tag.objects.create(name=f'Run {count}', slug=f'run-{count}')\n"
+    b'        if self.request is None:\n'
+    b"            return 'no request'\n"
+    b'        return self.request.user.username\n'
+)
+
 CHANGES_ITS_INPUTS = (
     b'from netbox_scripts.scripts import Script\n\n\n'
     b'class ChangesInputs(Script):\n'
@@ -1443,6 +1456,37 @@ class ScheduledRunTestCase(RQQueueTestMixin, ScriptJobTestMixin, TestCase):
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertEqual(job.data['output'], 'queued')
 
+    def test_each_occurrence_queued_without_a_request_is_attributed_to_its_owner(self):
+        self.publish({'deploy.py': REPORTS_ITS_USER})
+        # Queued as the migration recreates a schedule, with an owner and no request.
+        with self.captureOnCommitCallbacks(execute=True):
+            job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=self.user, interval=60)
+        outputs = []
+        for _occurrence in range(2):
+            job = self.run_queued(job)
+            outputs.append(job.data['output'])
+            job = NetBoxScriptJob.get_jobs(self.script()).get(status=JobStatusChoices.STATUS_SCHEDULED)
+        changes = ObjectChange.objects.filter(changed_object_type=ObjectType.objects.get_for_model(Tag))
+
+        self.assertEqual(outputs, ['runner', 'runner'])
+        self.assertEqual([change.user for change in changes], [self.user, self.user])
+        self.assertEqual(len({change.request_id for change in changes}), 2)
+
+    def test_a_deleted_owner_is_neither_attributed_nor_carried_to_the_next_occurrence(self):
+        self.publish({'deploy.py': REPORTS_ITS_USER})
+        owner = get_user_model().objects.create_user(username='departed')
+        with self.captureOnCommitCallbacks(execute=True):
+            job = NetBoxScriptJob.enqueue_run(self.script(), data={}, commit=True, user=owner, interval=60)
+        owner.delete()
+
+        job = self.run_queued(job)
+
+        self.assertEqual(job.data['output'], 'no request')
+        self.assertFalse(ObjectChange.objects.filter(changed_object_id=Tag.objects.get(slug='run-0').pk).exists())
+        self.assertIsNone(job.user_id)
+        successor = NetBoxScriptJob.get_jobs(self.script()).get(status=JobStatusChoices.STATUS_SCHEDULED)
+        self.assertIsNone(successor.user_id)
+
 
 class RunJobTestCase(ScriptJobTestMixin, TestCase):
     def test_a_run_executes_the_script_and_records_its_log(self):
@@ -1480,6 +1524,15 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
 
         self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
         self.assertEqual(job.data['output'], 'no event')
+
+    def test_an_event_driven_run_without_a_request_stays_unattributed(self):
+        self.publish({'deploy.py': REPORTS_ITS_USER})
+
+        # Arrives as a Job lifecycle Event Rule's run does, with the Job's user and no request.
+        job = self.run_job(event={'event_type': 'job_completed', 'object_id': 3})
+
+        self.assertEqual(job.data['output'], 'no request')
+        self.assertFalse(ObjectChange.objects.filter(changed_object_id=Tag.objects.get(slug='run-0').pk).exists())
 
     def test_the_pinned_revision_runs_even_when_a_newer_one_is_active(self):
         first = self.publish({'deploy.py': MAKES_A_TAG})

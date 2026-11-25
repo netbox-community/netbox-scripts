@@ -42,6 +42,7 @@ ROWS = (
     ),
     ('utilities.exceptions.AbortScript', 'utilities.exceptions:AbortScript'),
     ('utilities.request.copy_safe_request', 'utilities.request:copy_safe_request'),
+    ('utilities.request.NetBoxFakeRequest', 'utilities.request:NetBoxFakeRequest'),
     ('utilities.querydict.normalize_querydict', 'utilities.querydict:normalize_querydict'),
     ('utilities.forms.restrict_form_fields', 'utilities.forms:restrict_form_fields'),
     ('utilities.htmx.htmx_partial', 'utilities.htmx:htmx_partial'),

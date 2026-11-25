@@ -1,7 +1,6 @@
 """The shell route to one run, for a self-hosted operator who has a shell."""
 
 import json
-import uuid
 from contextlib import ExitStack
 
 from django.contrib.auth import get_user_model
@@ -10,9 +9,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils.translation import gettext_lazy as _
 
 from core.choices import JobNotificationChoices, JobStatusChoices
-from utilities.request import NetBoxFakeRequest
 
-from ...execution import LOAD_FAILURES, ScriptNotExecutableError, script_class_context
+from ...execution import LOAD_FAILURES, ScriptNotExecutableError, build_attribution_request, script_class_context
 from ...jobs import NetBoxScriptJob
 from ...models import NetBoxScript
 from ...scripts.logging import LogLevelChoices
@@ -81,7 +79,7 @@ class Command(BaseCommand):
                 data=values,
                 commit=options['commit'],
                 user=user,
-                request=self.request(user),
+                request=build_attribution_request(user),
                 notifications=options['notifications'],
                 immediate=True,
             )
@@ -148,25 +146,6 @@ class Command(BaseCommand):
         for name in EXECUTION_PARAMETERS:
             values.pop(name, None)
         return values
-
-    def request(self, user):
-        """Return the request a run needs, which is what change logging reads the user off."""
-        # Without one, event tracking makes the current request None and NetBox writes no
-        # ObjectChange and dispatches no Event Rule, so a committed run leaves no trace.
-        return NetBoxFakeRequest(
-            {
-                'META': {},
-                'COOKIES': {},
-                'POST': {},
-                'GET': {},
-                'FILES': {},
-                'user': user,
-                'method': 'POST',
-                'path': '',
-                'path_info': '',
-                'id': uuid.uuid4(),
-            }
-        )
 
     def user(self, username):
         """Return the user a run is recorded against, refusing a name that does not exist."""

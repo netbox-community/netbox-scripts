@@ -566,6 +566,7 @@ class MigrationReferencesJobTestCase(ReferenceMigrationMixin, TestCase):
 
         job.refresh_from_db()
         self.assertEqual(job.status, JobStatusChoices.STATUS_ERRORED)
+        self.assertEqual(job.error, "RuntimeError('database unavailable')")
         warnings = [entry['message'] for entry in job.log_entries if entry['level'] == 'warning']
         self.assertTrue(any(f'(ID {permission.pk}) carries constraints' in warning for warning in warnings))
 

@@ -25,6 +25,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import DEFAULT_DB_ALIAS, connections, router, transaction
 from django.utils.translation import gettext as _
 from psycopg.pq import TransactionStatus
+from rq.timeouts import JobTimeoutException
 
 from core.signals import clear_events
 from netbox.context import current_request
@@ -168,8 +169,8 @@ def script_class_context(script):
     Construction, form validation and rendering must finish before leaving this context.
     The namespace is unloaded on both success and failure. Raises
     ScriptResolutionError when the project serves no revision, when the active revision does not
-    publish the row's identity, and for any load failure, whose message is sanitized. Exceptions
-    raised inside the context propagate unchanged.
+    publish the row's identity, and for any load failure, whose message is sanitized. Worker
+    timeouts and exceptions raised inside the context propagate unchanged.
     """
     identity = f'{script.module_path}.{script.class_name}'
     revision = script.project.active_revision
@@ -193,6 +194,7 @@ def script_class_context(script):
                 class_name=script.class_name,
                 storage=config.get_storage(),
                 manifest=revision.manifest,
+                passthrough=(JobTimeoutException,),
             )
         except LOAD_FAILURES as error:
             # Cache errors carry paths built from the storage key and digest, and this is the

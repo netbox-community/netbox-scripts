@@ -67,6 +67,9 @@ Grant `migrate` only to the people responsible for the migration. These passes
 make changes that have no automatic rollback. A user with only `add` can use
 the page, inventory, staging and verification, but not the other four passes.
 
+The Migration page shows each pass's latest Job, and the results it reads from
+that Job, only to users whose `core.view_job` permission covers that Job.
+
 See [Migration](migration.md) for the maintenance requirements, retained modules
 and Report-access implications. These permissions do not provide a complete
 barrier against new built-in Script runs.

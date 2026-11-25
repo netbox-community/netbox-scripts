@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-scripts"
-version = "0.1.0"
+version = "0.2.0"
 description = "Custom Scripts for NetBox"
 readme = { file = "README.md", content-type = "text/markdown" }
 license = "Apache-2.0"

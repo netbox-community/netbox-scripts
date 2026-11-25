@@ -1,5 +1,66 @@
 # Change Log
 
+## v0.2.0 (2026-11-25)
+
+!!! warning "Beta release"
+
+    NetBox Scripts v0.2.0 is a beta for testing and is not recommended for
+    production use. Behavior, defaults and APIs can change before a stable
+    release. It requires NetBox v4.7.5 or a later v4.7 release. Read the
+    Upgrading from v0.1.0 section below before upgrading. Known bugs are
+    tracked as
+    [open bug reports](https://github.com/netbox-community/netbox-scripts/issues?q=is%3Aissue+is%3Aopen+label%3A%22type%3A+bug%22).
+
+### Enhancements
+
+* [#24](https://github.com/netbox-community/netbox-scripts/issues/24) - Add a read-only page for each stored revision file, with a preview of its source
+* [#31](https://github.com/netbox-community/netbox-scripts/issues/31) - Add REST actions to reconcile a Project and to validate and activate its revisions
+* [#33](https://github.com/netbox-community/netbox-scripts/issues/33) - Allow a Data Source Project to use the whole Data Source as its root, and migrate built-in Custom Scripts at a source's root into one such Project
+* [#80](https://github.com/netbox-community/netbox-scripts/issues/80) - Document when NetBox records object changes and queues object-change events for committed Script runs
+* [#81](https://github.com/netbox-community/netbox-scripts/issues/81) - Add an optional Scripts list view grouped by Project, saved for each user
+* [#84](https://github.com/netbox-community/netbox-scripts/issues/84) - Explain the migration steps and their results on the migration pages, and show a completed verification's result apart from its Job status
+
+### Bug Fixes
+
+* [#130](https://github.com/netbox-community/netbox-scripts/issues/130) - Prevent Project bulk imports from overwriting changes made while waiting for a lock
+* [#135](https://github.com/netbox-community/netbox-scripts/issues/135) - Distinguish source rejected before storage from failed validation in Source state
+* [#136](https://github.com/netbox-community/netbox-scripts/issues/136) - Correct the Source state shown for reused source awaiting activation, and offer its revision first under Activate
+* [#147](https://github.com/netbox-community/netbox-scripts/issues/147) - Stop a Job that times out during a stored-file read and report the timeout, rather than a storage failure
+* [#151](https://github.com/netbox-community/netbox-scripts/issues/151) - Prevent unnecessary Job failures when a Project or revision is deleted during reconciliation, Script File refresh or validation
+* [#159](https://github.com/netbox-community/netbox-scripts/issues/159) - Fail a run whose transaction can no longer commit, rather than completing it and queuing its events
+* [#164](https://github.com/netbox-community/netbox-scripts/issues/164) - Remove duplicate periods from Project outcomes in the activation Job log
+* [#165](https://github.com/netbox-community/netbox-scripts/issues/165) - Keep runtime cache and storage paths out of Repoint references warnings for schedules it cannot recreate
+* [#177](https://github.com/netbox-community/netbox-scripts/issues/177) - Show a migration pass's Job, inventory findings and verification result only to users who can view that Job
+* [#178](https://github.com/netbox-community/netbox-scripts/issues/178) - Show Not staged on the Migration page only for keys no Project uses
+* [#179](https://github.com/netbox-community/netbox-scripts/issues/179) - Identify revisions by digest and ID, with their Script File count, on activation confirmations
+* [#183](https://github.com/netbox-community/netbox-scripts/issues/183) - Stop the Repoint references pass when a Script import times out, rather than continuing schedule replay
+* [#187](https://github.com/netbox-community/netbox-scripts/issues/187) - Stop reporting invalid module paths as storage failures on the Run page and in Repoint references
+* [#189](https://github.com/netbox-community/netbox-scripts/issues/189) - Show and link the most recent closed migration run on the Migration page once cleanup closes the migration
+* [#190](https://github.com/netbox-community/netbox-scripts/issues/190) - Report a Project deleted during Activate Projects as no longer existing rather than as a storage error
+* [#191](https://github.com/netbox-community/netbox-scripts/issues/191) - Prevent a Project deletion from failing when a revision is staged while it waits for the Project lock
+* [#201](https://github.com/netbox-community/netbox-scripts/issues/201) - Restore change logging and object-change events for migrated schedules that have an owner, including those recreated by v0.1.0
+
+### Other Changes
+
+* [#63](https://github.com/netbox-community/netbox-scripts/issues/63) - Preserve migration warnings when a migration pass later fails
+* [#192](https://github.com/netbox-community/netbox-scripts/issues/192) - Align commit, pull request title and branch conventions with NetBox
+
+### Upgrading from v0.1.0
+
+Upgrading from v0.1.0 is supported. Follow the normal
+[upgrade procedure](https://github.com/netbox-community/netbox-scripts/blob/main/COMPATIBILITY.md#upgrading).
+
+### Known Issues
+
+* Known bugs are listed as [open bug reports](https://github.com/netbox-community/netbox-scripts/issues?q=is%3Aissue+is%3Aopen+label%3A%22type%3A+bug%22) on GitHub.
+* With NetBox Branching earlier than v1.2.3, a Script run requested over REST logs "Running without the request processor ActiveBranchContextManager, it could not start". Upgrade NetBox Branching to v1.2.3 or later.
+* The migration workflow has not yet been run on a live installation whose workers share queues with other work. Rehearse it on a copy first.
+
+Compared with NetBox's built-in Custom Scripts, some functions are not available
+yet. See [Limitations](features.md#limitations).
+
+---
+
 ## v0.1.0 (2026-11-12)
 
 !!! warning "Beta release"
@@ -139,18 +200,7 @@ source storage before upgrading.
 
 ### Known Issues
 
-* [#111](https://github.com/netbox-community/netbox-scripts/issues/111) - Concurrent bulk writes can deadlock when acquiring Project locks
-* [#130](https://github.com/netbox-community/netbox-scripts/issues/130) - Bulk import overwrites Project changes made while waiting for a lock
-* [#135](https://github.com/netbox-community/netbox-scripts/issues/135) - Source state reports source rejected before storage as failed validation
-* [#136](https://github.com/netbox-community/netbox-scripts/issues/136) - Source state reports the active revision as newest while reused source waits for activation
-* [#139](https://github.com/netbox-community/netbox-scripts/issues/139) - Invalid revision errors expose server installation paths
-* [#146](https://github.com/netbox-community/netbox-scripts/issues/146) - Data Source revisions can import native extensions instead of reviewed Python source
-* [#147](https://github.com/netbox-community/netbox-scripts/issues/147) - Job timeouts during stored-file reads are treated as storage failures
-* [#151](https://github.com/netbox-community/netbox-scripts/issues/151) - Deleting a Project or revision while a Job runs causes an unnecessary failure
-* [#153](https://github.com/netbox-community/netbox-scripts/issues/153) - Script result page omits Job-level failure reasons
-* [#159](https://github.com/netbox-community/netbox-scripts/issues/159) - A rolled-back Script run is marked Completed and queues its events
-* [#164](https://github.com/netbox-community/netbox-scripts/issues/164) - Migration activation Job log ends some outcomes with two periods
-* [#165](https://github.com/netbox-community/netbox-scripts/issues/165) - Repoint references warnings expose runtime cache and storage paths
+* Known bugs are listed as [open bug reports](https://github.com/netbox-community/netbox-scripts/issues?q=is%3Aissue+is%3Aopen+label%3A%22type%3A+bug%22) on GitHub.
 * With NetBox Branching earlier than v1.2.3, a Script run requested over REST logs "Running without the request processor ActiveBranchContextManager, it could not start". Upgrade NetBox Branching to v1.2.3 or later.
 * The migration workflow has not yet been run on a live installation whose workers share queues with other work. Rehearse it on a copy first.
 

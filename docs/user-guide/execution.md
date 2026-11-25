@@ -57,11 +57,12 @@ context, which also supplies the user attribution.
 
 Scripts triggered by Event Rules for Job or NetBox Branching lifecycle events,
 such as **Job completed** or **Branch merged**, run without a request. So do
-runs recreated from built-in schedules during
+runs of ownerless schedules recreated during
 [migration](../administration/migration.md#schedule-timing-and-ownership).
 Their committed changes do not automatically create `ObjectChange` records or
 queue object-change events. Script logs and output are still recorded, and Job
-lifecycle events are separate.
+lifecycle events are separate. Runs of a recreated schedule that has an owner
+are attributed to that owner.
 
 A run always writes to the main schema, even when a NetBox Branching branch is
 active. See [NetBox Branching](../administration/branching.md#script-execution).

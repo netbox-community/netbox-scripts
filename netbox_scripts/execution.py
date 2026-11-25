@@ -7,17 +7,18 @@ as they do for a request, and anything the script raises has to reach the run lo
 reaches the Job. This module owns all of that, so the Job layer decides only what to run and
 what to record.
 
-NetBox exposes none of it to plugins as a documented API. Six symbols here are internal:
-registry['request_processors'], event_tracking, current_request, clear_events, the router
-probe that finds the database change-logged writes go to, and the abort a script carried over
-from the built-in feature raises. They are confined to this module on purpose, so the generic
-execution context requested from NetBox replaces one file rather than a scattering, and the
-last of them belongs to the feature NetBox retires at v5.0.
+NetBox exposes none of it to plugins as a documented API. Seven symbols here are internal:
+registry['request_processors'], event_tracking, current_request, clear_events,
+NetBoxFakeRequest, the router probe that finds the database change-logged writes go to, and
+the abort a script carried over from the built-in feature raises. They are confined to this
+module on purpose, so the generic execution context requested from NetBox replaces one file
+rather than a scattering, and the last of them belongs to the feature NetBox retires at v5.0.
 """
 
 import logging
 import threading
 import traceback
+import uuid
 from contextlib import ExitStack, contextmanager
 
 from django.apps import apps
@@ -32,6 +33,7 @@ from netbox.context import current_request
 from netbox.context_managers import event_tracking
 from netbox.registry import registry
 from utilities.exceptions import AbortScript as LegacyAbortScript
+from utilities.request import NetBoxFakeRequest
 
 from . import branching
 from .runtime.exceptions import (
@@ -53,6 +55,7 @@ __all__ = (
     'RESOLUTION_FAILURES',
     'PostCommitError',
     'ScriptNotExecutableError',
+    'build_attribution_request',
     'run_script',
     'script_class_context',
 )
@@ -97,6 +100,24 @@ logger = logging.getLogger('netbox.plugins.netbox_scripts.execution')
 
 class _DryRunRollback(Exception):
     """Raised at the end of a dry run to roll its transaction back."""
+
+
+def build_attribution_request(user):
+    """Build a request to attribute changes to the given user outside an HTTP request."""
+    return NetBoxFakeRequest(
+        {
+            'META': {},
+            'COOKIES': {},
+            'POST': {},
+            'GET': {},
+            'FILES': {},
+            'user': user,
+            'method': 'POST',
+            'path': '',
+            'path_info': '',
+            'id': uuid.uuid4(),
+        }
+    )
 
 
 def run_script(instance, *, data, commit, request=None):

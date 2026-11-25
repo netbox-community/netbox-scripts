@@ -1,8 +1,8 @@
 # Data Source Projects
 
-Connect a Project to one directory in a NetBox Data Source. Synchronization
-copies that directory into revisions. You choose which Python files are selected
-for Script discovery.
+Connect a Project to one directory in a NetBox Data Source, or to the whole
+source. Synchronization copies that tree into revisions. You choose which Python
+files are selected for Script discovery.
 
 ## Connect a Data Source directory
 
@@ -12,15 +12,18 @@ type. This reveals the source and path fields.
 | Field | Meaning |
 |---|---|
 | Data source | The NetBox Data Source holding the files. |
-| Data path | The directory whose contents form the Project's source. |
+| Data path | The directory whose contents form the Project's source. Leave it empty for the whole Data Source. |
 | Activation policy | Whether valid revisions activate automatically or wait for an operator. |
 
-Use a non-empty directory path relative to the Data Source root, without a leading
-slash or traversal segments. The Data Source root itself cannot be used. Paths are
-matched by segment, so `automation/netbox` does not include `automation/netbox-old`.
+Use a directory path relative to the Data Source root, without a leading slash
+or traversal segments, or leave it empty to use the whole source. Paths are
+matched by segment, so `automation/netbox` does not include
+`automation/netbox-old`.
 
-Projects on the same Data Source must have separate, non-overlapping directories.
-They cannot use the same directory or contain one another's directories.
+Projects on the same Data Source must have separate, non-overlapping
+directories. They cannot use the same directory or contain one another's
+directories. A Project at the Data Source root contains every other path, so it
+must be the only Project on that source.
 
 Before its first synchronization, a new Project has no source. Its Script Files
 tab is still available because candidates come from the Data Source's file inventory.
@@ -34,6 +37,12 @@ affect the other Projects or the Data Source.
 Reconciliation stages the complete directory, not just changed files. Deleted
 files are absent from the next snapshot. Templates, data and other non-Python
 files are included alongside source modules.
+
+A Project at the Data Source root includes files such as a README and
+documentation. Changes to included files can create a revision and queue
+validation. Add patterns to the Data Source's ignore rules to leave such files
+out. The whole tree counts toward the
+[size and file count limits](configuration.md#settings).
 
 When the directory and Script File selection are unchanged, the existing revision
 is reused. It may still be validated or activated, depending on its status and the

@@ -100,7 +100,6 @@ def build_report(modules=None, read=None):
             }
         )
         findings.extend(module_findings)
-    findings.extend(_root_findings(proposed))
     if live:
         findings.extend(_existing_project_findings(proposed))
     reports = legacy_source.legacy_report_count() if live else 0
@@ -134,29 +133,6 @@ def build_report(modules=None, read=None):
 def _path(module):
     """Return the path to name a module by, preferring where it came from."""
     return module.data_path or module.file_path
-
-
-def _root_findings(proposed):
-    """Return a blocking finding for each proposal that resolves to a data source root."""
-    # The model refuses an empty data path, so staging one would raise rather than report.
-    findings = []
-    for proposal in proposed:
-        if proposal.source_type != ProjectSourceTypeChoices.DATA_SOURCE or proposal.data_path:
-            continue
-        findings.append(
-            {
-                'level': BLOCKING,
-                'code': 'data_source_root',
-                'pk': None,
-                'path': '',
-                'message': _(
-                    '{count} module(s) collapse to the root of a data source, so '
-                    'project "{key}" would take the whole source as its tree. Move those '
-                    'scripts under a directory on the source, then run the inventory again.'
-                ).format(count=len(proposal.module_pks), key=proposal.key),
-            }
-        )
-    return findings
 
 
 def _existing_project_findings(proposed):
@@ -208,7 +184,7 @@ def _conflict_finding(proposal, project):
         'path': proposal.data_path,
         'message': _(
             'Script Project "{name}" holds {existing_path}, which overlaps '
-            'the {proposed_path} this migration proposes. One data source cannot carry '
+            '{proposed_path}, the path this migration proposes. One data source cannot carry '
             'two projects whose paths contain one another. Move or remove one of them, then run this again.'
         ).format(
             name=project.name,
@@ -281,7 +257,7 @@ def _propose(identity, members):
     _source_type, data_source_id, folder = identity
     return ProposedProject(
         key=_key(folder or _ROOT_STEM, identity),
-        name=folder or _ROOT_NAME,
+        name=folder or members[0].data_source_name,
         source_type=ProjectSourceTypeChoices.DATA_SOURCE,
         data_source_id=data_source_id,
         data_path=folder,

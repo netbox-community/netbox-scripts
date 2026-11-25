@@ -441,6 +441,12 @@ class IngestDataSourceTestCase(TestCase):
     def staged_paths(self, staged):
         return sorted(entry['path'] for entry in staged.revision.manifest)
 
+    def move_to_the_root(self):
+        """Point the project at the whole source, as an edit would."""
+        self.project.data_path = ''
+        self.project.full_clean()
+        self.project.save()
+
     def test_the_directory_is_staged_with_its_prefix_stripped(self):
         self.populate()
         staged = ingest_data_source(self.project)
@@ -463,6 +469,43 @@ class IngestDataSourceTestCase(TestCase):
         # Segment-wise, so "automation/netbox" does not claim "automation/netbox-old".
         self.populate()
         self.assertNotIn('legacy.py', self.staged_paths(ingest_data_source(self.project)))
+
+    def test_a_root_project_stages_the_whole_source(self):
+        self.move_to_the_root()
+        self.populate()
+        data_file(self.source, 'deploy.py', SCRIPT)
+        data_file(self.source, 'README.md')
+
+        staged = ingest_data_source(self.project)
+
+        self.assertEqual(staged.revision.status, RevisionStatusChoices.MATERIALIZED)
+        self.assertEqual(
+            self.staged_paths(staged),
+            [
+                'README.md',
+                'automation/netbox-old/legacy.py',
+                'automation/netbox/README.md',
+                'automation/netbox/deploy.py',
+                'automation/netbox/lib/shared.py',
+                'deploy.py',
+                'unrelated/other.py',
+            ],
+        )
+
+    def test_a_documentation_change_stages_a_new_root_revision(self):
+        self.move_to_the_root()
+        data_file(self.source, 'deploy.py', SCRIPT)
+        readme = data_file(self.source, 'README.md', b'old notes\n')
+        first = ingest_data_source(self.project)
+        DataFile.objects.filter(pk=readme.pk).update(
+            data=b'new notes\n', size=10, hash=hashlib.sha256(b'new notes\n').hexdigest()
+        )
+
+        second = ingest_data_source(self.project)
+
+        self.assertTrue(second.created)
+        self.assertNotEqual(second.revision.pk, first.revision.pk)
+        self.assertEqual(self.staged_paths(second), ['README.md', 'deploy.py'])
 
     def test_a_non_python_file_is_stored(self):
         # A directory legitimately holds helper data a script reads. The Python-only rule binds

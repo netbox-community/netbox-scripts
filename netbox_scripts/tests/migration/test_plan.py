@@ -45,7 +45,7 @@ class A(Script):
 """
 
 
-def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts', scripts=()):
+def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts', scripts=(), data_source_name=''):
     return LegacyModule(
         pk=pk,
         file_root=file_root,
@@ -57,6 +57,7 @@ def legacy(pk, file_path, data_source_id=None, data_path='', file_root='scripts'
             LegacyScript(pk=script_pk, name=name, is_executable=(rest[0] if rest else True))
             for script_pk, name, *rest in scripts
         ),
+        data_source_name=data_source_name,
     )
 
 
@@ -168,6 +169,24 @@ class GroupTestCase(SimpleTestCase):
         self.assertEqual(proposed[0].data_path, '')
         self.assertEqual(proposed[0].module_pks, (1, 2))
 
+    def test_a_root_proposal_is_named_after_its_data_source(self):
+        modules = [
+            legacy(1, 'a.py', data_source_id=7, data_path='a.py', data_source_name='Alpha Repo'),
+            legacy(2, 'b.py', data_source_id=8, data_path='b.py', data_source_name='Beta Repo'),
+            legacy(3, 'c.py', data_source_id=9, data_path='scripts/c.py', data_source_name='Gamma Repo'),
+            legacy(4, 'd.py'),
+        ]
+        names = {(item.data_source_id, item.data_path): item.name for item in plan.group(modules)}
+        self.assertEqual(
+            names, {(7, ''): 'Alpha Repo', (8, ''): 'Beta Repo', (9, 'scripts'): 'scripts', (None, ''): 'd'}
+        )
+
+    def test_a_root_key_survives_a_data_source_rename(self):
+        before = plan.group([legacy(1, 'a.py', data_source_id=7, data_path='a.py', data_source_name='Alpha Repo')])
+        after = plan.group([legacy(1, 'a.py', data_source_id=7, data_path='a.py', data_source_name='Renamed Repo')])
+        self.assertEqual(after[0].key, before[0].key)
+        self.assertEqual(after[0].name, 'Renamed Repo')
+
     def test_sibling_folders_do_not_merge(self):
         modules = [
             legacy(1, 'a.py', data_source_id=7, data_path='automation/a.py'),
@@ -235,22 +254,18 @@ class FindingsTestCase(SimpleTestCase):
 
         self.assertEqual([f['code'] for f in report['findings']], [])
 
-    def test_a_module_at_the_data_source_root_blocks(self):
-        # Grouping still collapses to the root, and the model refuses to stage it, so the
-        # inventory has to say so rather than let staging raise.
+    def test_a_module_at_the_data_source_root_proposes_one_root_project(self):
         modules = [
-            legacy(1, 'top.py', data_source_id=7, data_path='top.py'),
-            legacy(2, 'deploy.py', data_source_id=7, data_path='automation/deploy.py'),
+            legacy(1, 'top.py', data_source_id=7, data_path='top.py', scripts=[(11, 'A')]),
+            legacy(2, 'deploy.py', data_source_id=7, data_path='automation/deploy.py', scripts=[(12, 'B')]),
         ]
+        bodies = {1: NATIVE_A, 2: NATIVE_A.replace(b'class A', b'class B')}
 
-        report = plan.build_report(modules=modules, read=lambda module: b'')
+        report = plan.build_report(modules=modules, read=lambda module: bodies[module.pk])
 
-        self.assertEqual(report['status'], plan.BLOCKING)
-        blocking = [f for f in report['findings'] if f['code'] == 'data_source_root']
-        self.assertEqual(len(blocking), 1)
-        self.assertIsNone(blocking[0]['pk'])
-        self.assertIn('2 module(s)', blocking[0]['message'])
-        self.assertIn(report['projects'][0]['key'], blocking[0]['message'])
+        self.assertEqual(report['status'], plan.READY)
+        self.assertEqual(report['findings'], [])
+        self.assertEqual([(item['data_path'], item['module_pks']) for item in report['projects']], [('', (1, 2))])
 
     def test_an_import_nothing_provides_blocks(self):
         modules = [legacy(1, 'a.py', scripts=[(11, 'A')])]
@@ -672,6 +687,25 @@ class MigrationInventoryJobTestCase(TestCase):
 class ExistingProjectTestCase(TestCase):
     """The inventory reads the Script Projects an operator already made, which staging reuses."""
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        scripts_root = tempfile.mkdtemp(prefix='legacy-scripts-')
+        cls.addClassCleanup(shutil.rmtree, scripts_root, ignore_errors=True)
+        cls.enterClassContext(
+            override_settings(
+                STORAGES={
+                    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+                    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+                    'scripts': {
+                        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+                        'OPTIONS': {'location': scripts_root, 'allow_overwrite': True},
+                    },
+                    'netbox_scripts': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+                }
+            )
+        )
+
     def setUp(self):
         self.source = DataSource.objects.create(name='Repo', type='local', source_url='file:///tmp/repo')
 
@@ -724,6 +758,27 @@ class ExistingProjectTestCase(TestCase):
 
         self.assertIn('project_conflict', self.codes(report))
         self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_a_proposed_root_conflicts_with_an_existing_directory(self):
+        self.legacy_module('top.py')
+        self.project('scripts', ActivationPolicyChoices.MANUAL)
+
+        report = plan.build_report()
+
+        conflicts = [finding for finding in report['findings'] if finding['code'] == 'project_conflict']
+        self.assertEqual(len(conflicts), 1)
+        self.assertIn('overlaps the data source root, the path this migration proposes', conflicts[0]['message'])
+        self.assertEqual(report['status'], plan.BLOCKING)
+
+    def test_an_existing_manual_root_is_reused_for_a_root_proposal(self):
+        self.legacy_module('top.py')
+        self.project('', ActivationPolicyChoices.MANUAL)
+
+        report = plan.build_report()
+
+        self.assertNotIn('project_conflict', self.codes(report))
+        self.assertNotIn('project_not_manual', self.codes(report))
+        self.assertNotEqual(report['status'], plan.BLOCKING)
 
     def test_a_reused_project_on_the_manual_policy_is_the_supported_case(self):
         self.legacy_module('scripts/deploy.py')

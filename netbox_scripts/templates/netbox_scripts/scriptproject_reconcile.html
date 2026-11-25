@@ -15,9 +15,15 @@ Context:
 {% endblock confirmation_title %}
 {% block message %}
   <p>
-    {% blocktrans with project=object source=object.data_source path=object.data_path %}
-      Rebuild the source of {{ project }} from "{{ path }}" in {{ source }}?
-    {% endblocktrans %}
+    {% if object.data_path %}
+      {% blocktrans with project=object source=object.data_source path=object.data_path %}
+        Rebuild the source of {{ project }} from "{{ path }}" in {{ source }}?
+      {% endblocktrans %}
+    {% else %}
+      {% blocktrans with project=object source=object.data_source %}
+        Rebuild the source of {{ project }} from the root of {{ source }}?
+      {% endblocktrans %}
+    {% endif %}
   </p>
   <p class="text-secondary">
     {% trans "The directory as it stands now is staged as a revision and validated. An unchanged directory resolves to the revision that already holds it." %}

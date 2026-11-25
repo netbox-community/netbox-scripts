@@ -71,7 +71,7 @@ Context:
                 {% include "netbox_scripts/inc/migration_job.html" with job=inventory_job %}
                 <div class="small text-secondary">
                   {% blocktrans trimmed %}
-                    Keep scripts in a Data Source subdirectory, such as <code>scripts/</code>. Scripts at the root prevent staging.
+                    A script at a Data Source's root makes the whole source one Project.
                   {% endblocktrans %}
                   <a href="{{ guide_url }}#how-modules-become-projects"
                      target="_blank">{% trans "Migration guide" %}</a>

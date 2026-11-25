@@ -43,8 +43,19 @@ class ReconcileSourceViewTestCase(ObjectPermissionTestMixin, TestCase):
         body = response.content.decode()
         self.assertIn('Reconcile source', body)
         # The confirmation names the directory the source would be rebuilt from.
-        self.assertIn('scripts', body)
+        self.assertIn('from "scripts" in Scripts Repo?', body)
         self.enqueued.assert_not_called()
+
+    def test_a_root_project_is_confirmed_from_the_source_root(self):
+        self.grant('view', 'reconcile')
+        ScriptProject.objects.filter(pk=self.project.pk).update(data_path='')
+
+        response = self.client.get(self.url(self.project))
+
+        self.assertHttpStatus(response, 200)
+        body = response.content.decode()
+        self.assertIn('from the root of Scripts Repo?', body)
+        self.assertNotIn('from ""', body)
 
     def test_a_post_enqueues_one_reconciliation_and_redirects(self):
         self.grant('view', 'reconcile')

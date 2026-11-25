@@ -244,6 +244,25 @@ class ScriptProjectAPIViewTestCase(PluginAPIViewTestCases.APIViewTestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_a_data_source_project_created_without_a_path_takes_the_root(self):
+        self.add_permissions('netbox_scripts.view_scriptproject', 'netbox_scripts.add_scriptproject')
+        source = DataSource.objects.create(name='Root Repo', type='local', source_url='file:///tmp/root/')
+
+        response = self.client.post(
+            self._get_list_url(),
+            {
+                'name': 'Whole Repo',
+                'key': 'whole-repo',
+                'source_type': ProjectSourceTypeChoices.DATA_SOURCE,
+                'data_source': source.pk,
+            },
+            format='json',
+            **self.header,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ScriptProject.objects.get(key='whole-repo').data_path, '')
+
     def test_key_is_immutable(self):
         self.add_permissions('netbox_scripts.change_scriptproject')
         project = ScriptProject.objects.create(name='API Project 1', key='api-project-1')

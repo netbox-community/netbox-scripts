@@ -54,6 +54,7 @@ class LegacyModule:
     data_source_id: int | None
     data_path: str
     scripts: tuple[LegacyScript, ...]
+    data_source_name: str = ''
 
 
 def legacy_modules():
@@ -74,8 +75,10 @@ def legacy_modules():
                 LegacyScript(pk=script.pk, name=script.name, is_executable=script.is_executable)
                 for script in module.scripts.all()
             ),
+            data_source_name=module.data_source.name if module.data_source_id else '',
         )
         for module in ScriptModule.objects.filter(file_root=ManagedFileRootPathChoices.SCRIPTS)
+        .select_related('data_source')
         .prefetch_related('scripts')
         .order_by('file_path')
     ]

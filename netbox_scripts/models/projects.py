@@ -1,9 +1,11 @@
 import uuid
 
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import BigIntegerRangeField, RangeOperators
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models, router
-from django.db.models import Q
+from django.db.models import Case, F, Func, Q, Value, When
 from django.urls import reverse
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
@@ -90,7 +92,10 @@ class ScriptProject(PrimaryModel):
         verbose_name=_('data path'),
         max_length=1000,
         blank=True,
-        help_text=_('POSIX-style relative directory path to the project root within the data source.'),
+        help_text=_(
+            'POSIX-style relative directory path to the project root within the data source. '
+            'Leave it empty to use the whole data source.'
+        ),
     )
     activation_policy = models.CharField(
         verbose_name=_('activation policy'),
@@ -154,12 +159,9 @@ class ScriptProject(PrimaryModel):
                         data_source__isnull=True,
                         data_path='',
                     )
-                    | (
-                        Q(
-                            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
-                            data_source__isnull=False,
-                        )
-                        & ~Q(data_path='')
+                    | Q(
+                        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+                        data_source__isnull=False,
                     )
                 ),
             ),
@@ -167,6 +169,31 @@ class ScriptProject(PrimaryModel):
                 fields=('data_source', 'data_path'),
                 condition=Q(source_type=ProjectSourceTypeChoices.DATA_SOURCE),
                 name='unique_data_source_path',
+            ),
+            # One-point ranges overlap only on one source, and only a root's [0,1) is adjacent to a directory's [1,2).
+            ExclusionConstraint(
+                name='exclude_root_beside_directory',
+                expressions=[
+                    (
+                        Func(
+                            F('data_source'),
+                            F('data_source'),
+                            Value('[]'),
+                            function='int8range',
+                            output_field=BigIntegerRangeField(),
+                        ),
+                        RangeOperators.OVERLAPS,
+                    ),
+                    (
+                        Case(
+                            When(data_path='', then=Func(Value(0), Value(1), function='int8range')),
+                            default=Func(Value(1), Value(2), function='int8range'),
+                            output_field=BigIntegerRangeField(),
+                        ),
+                        RangeOperators.ADJACENT_TO,
+                    ),
+                ],
+                condition=Q(source_type=ProjectSourceTypeChoices.DATA_SOURCE),
             ),
         ]
 
@@ -186,11 +213,6 @@ class ScriptProject(PrimaryModel):
         if self.source_type == ProjectSourceTypeChoices.DATA_SOURCE:
             if not self.data_source:
                 errors['data_source'] = _('A data source is required for data source-backed projects.')
-            if not self.data_path and 'data_path' not in errors:
-                errors['data_path'] = _(
-                    'A data path is required for data source-backed projects. Name the directory that '
-                    'holds the scripts rather than the data source root.'
-                )
         else:
             if self.data_source:
                 errors['data_source'] = _('A data source applies only to data source-backed projects.')

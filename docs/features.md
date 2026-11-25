@@ -94,6 +94,5 @@ explain which operations produce those events.
 | Failed and errored runs | A run whose Script raises an exception ends as Failed. Built-in Custom Scripts report it as Errored. |
 | Revision source in the UI | Revision Files lists paths, sizes and checksums but does not display source. |
 | Downloading run output | The run result shows the output but offers no download. |
-| A Data Source root as Project directory | A Data Source Project needs a directory below the Data Source root. |
 | Script results from the Jobs tab on NetBox v4.7 | A Job opens NetBox's Job page rather than the Script result page. NetBox v4.8 adds the interface this needs. |
 | A Last Run column | The Scripts list has no Last Run column. |

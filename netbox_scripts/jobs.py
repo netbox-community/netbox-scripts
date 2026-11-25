@@ -28,6 +28,7 @@ from .constants import (
     PENDING_VERDICT_REVISION_STATUSES,
     STALLED_CLEANUP_GRACE_SECONDS,
     VALIDATION_JOB_TIMEOUT,
+    VERDICT_REVISION_STATUSES,
 )
 from .execution import (
     RESOLUTION_FAILURES,
@@ -244,11 +245,14 @@ class ProjectReconciliationJob(JobRunner):
 
     The directory is read when this runs rather than when it was enqueued, and unchanged content
     resolves to the revision an earlier run created. Queueing is not deduplicated, so the revision
-    can carry a second validation Job. The lease settles ownership, and the run that loses the
-    claim ends as a failed Job rather than validating the revision twice.
+    can carry a second validation Job. The lease lets only one of them validate it. The run that
+    loses the claim reports the verdict the other run recorded, or fails while none is recorded yet.
 
     Per project rather than per Data Source, so one project's failure leaves its siblings to
     reconcile on their own.
+
+    Once the directory is staged, the Job's data names the revision as revision_id and the validation Job it queued,
+    if any, as validation_job_id.
     """
 
     class Meta:
@@ -304,6 +308,11 @@ class ProjectReconciliationJob(JobRunner):
             raise JobFailed() from error
 
         revision = staged.revision
+        self.job.data = {
+            **(self.job.data or {}),
+            'revision_id': revision.pk,
+            'validation_job_id': staged.processing_job.pk if staged.processing_job else None,
+        }
         # Only a rejected staging attempt lacks a digest, so any other INVALID revision failed validation.
         if revision.status == RevisionStatusChoices.INVALID and not revision.digest:
             self.logger.warning(
@@ -356,7 +365,8 @@ class ProjectScriptFileRefreshJob(JobRunner):
     The content is read when this runs rather than when it was enqueued, so two saves in
     quick succession are not a correctness problem: the second resolves to the revision the
     first created. Queueing is not deduplicated, so the lease settles which run validates that
-    revision, and the run that loses the claim ends as a failed Job.
+    revision. The run that loses the claim reports the verdict the other run recorded, or fails
+    while none is recorded yet.
     """
 
     class Meta:
@@ -484,7 +494,7 @@ class RevisionValidationJob(JobRunner):
             revision = ScriptProjectRevision.objects.select_related('project').get(pk=revision_pk)
             # Kept for the error handlers, which must not re-read a project deleted in the meantime.
             storage_key = str(revision.project.storage_key)
-            if revision.status not in (*ACTIVATABLE_REVISION_STATUSES, RevisionStatusChoices.ACTIVE):
+            if revision.status not in VERDICT_REVISION_STATUSES:
                 revision = validate_revision(revision, job=self.job, passthrough=(JobTimeoutException,))
         except VANISHED_EXCEPTIONS:
             if ScriptProjectRevision.objects.filter(pk=revision_pk).exists():
@@ -494,14 +504,16 @@ class RevisionValidationJob(JobRunner):
             )
             return
         except ValidationStateError as error:
-            # A revision deleted after the read above fails its claim too.
-            if not ScriptProjectRevision.objects.filter(pk=revision_pk).exists():
+            # A verdict another Job recorded since the read above refuses the claim, as a deletion does.
+            revision = ScriptProjectRevision.objects.filter(pk=revision_pk).first()
+            if revision is None:
                 self.logger.info(
                     _('Revision {revision_pk} no longer exists, nothing to validate.').format(revision_pk=revision_pk)
                 )
                 return
-            self.logger.error(str(error))
-            raise JobFailed() from error
+            if revision.status not in VERDICT_REVISION_STATUSES:
+                self.logger.error(str(error))
+                raise JobFailed() from error
         except (ScriptFileImportError, StorageError, OSError) as error:
             # A deleted project's cleanup job can reclaim the stored tree before this run reads it.
             if not ScriptProjectRevision.objects.filter(pk=revision_pk).exists():

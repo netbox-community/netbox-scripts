@@ -890,6 +890,7 @@ class ScriptProjectRevisionTestCase(TestCase):
             constants.STORED_REVISION_STATUSES,
             constants.RETRYABLE_REVISION_STATUSES,
             constants.PENDING_VERDICT_REVISION_STATUSES,
+            constants.VERDICT_REVISION_STATUSES,
         )
         for group in groups:
             with self.subTest(group=group):

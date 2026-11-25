@@ -108,6 +108,29 @@ This action requires `change` permission on the Project and `add` permission on
 Script Files, like the **Add Script** page. Project `add` permission does not
 authorize uploads to an existing Project.
 
+To deploy from a pipeline, poll the returned revision at
+`/api/plugins/netbox-scripts/project-revisions/<id>/` until its `status` is no
+longer `staging`, `materialized` or `validating`. A `valid` or `retired`
+revision can be activated, an `active` one is already serving, and an
+`invalid` one lists its problems in `validation_errors`. A `storage_failed`
+one was not stored, so upload the file again with `-F confirm_replace=true`.
+Under the Manual policy, activate it:
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Token $NETBOX_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"revision": 123}' \
+  https://netbox.example.com/api/plugins/netbox-scripts/projects/42/activate/
+```
+
+The same request with an earlier `retired` revision returns the Project to it.
+A revision that stays `materialized` with a `last_validation_failure` met a
+problem outside its source, such as an unavailable storage backend. Once that
+is fixed, send the same body to `validate/` to queue its validation again.
+See the [Script Project reference](../reference/models/scriptproject.md#api)
+for each action's permissions and responses.
+
 ## Activate a revision
 
 A valid revision is activated according to the Project's policy:

@@ -6,6 +6,9 @@ from drf_spectacular.drainage import GENERATOR_STATS
 RUN = '/api/plugins/netbox-scripts/scripts/{id}/run/'
 UPLOAD = '/api/plugins/netbox-scripts/projects/{id}/upload/'
 SCRIPT_FILES = '/api/plugins/netbox-scripts/projects/{id}/script-files/'
+RECONCILE = '/api/plugins/netbox-scripts/projects/{id}/reconcile/'
+VALIDATE = '/api/plugins/netbox-scripts/projects/{id}/validate/'
+ACTIVATE = '/api/plugins/netbox-scripts/projects/{id}/activate/'
 
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.dummy.DummyCache'}})
@@ -103,3 +106,23 @@ class OpenAPISchemaTestCase(TestCase):
             sorted(candidate['properties']),
             ['available', 'discovery_status', 'path', 'selected'],
         )
+
+    def test_reconcile_takes_no_body_and_returns_a_job(self):
+        self.assertNotIn('requestBody', self.schema['paths'][RECONCILE]['post'])
+        self.assertEqual(self.response_ref(RECONCILE, 'post', '201'), '#/components/schemas/Job')
+        self.assertIsNone(self.response_ref(RECONCILE, 'post', '200'))
+
+    def test_validate_takes_a_revision_and_returns_a_job(self):
+        self.assertEqual(set(self.schema['paths'][VALIDATE]['post']['requestBody']['content']), {'application/json'})
+        self.assertEqual(self.request_ref(VALIDATE, 'post'), '#/components/schemas/ScriptProjectRevisionInputRequest')
+        component = self.schema['components']['schemas']['ScriptProjectRevisionInputRequest']
+        self.assertEqual((sorted(component['properties']), component['required']), (['revision'], ['revision']))
+        self.assertEqual(self.response_ref(VALIDATE, 'post', '201'), '#/components/schemas/Job')
+        self.assertIsNone(self.response_ref(VALIDATE, 'post', '200'))
+
+    def test_activate_takes_a_revision_and_returns_the_activation(self):
+        self.assertEqual(self.request_ref(ACTIVATE, 'post'), '#/components/schemas/ScriptProjectRevisionInputRequest')
+        self.assertEqual(self.response_ref(ACTIVATE, 'post', '200'), '#/components/schemas/ScriptProjectActivation')
+        components = self.schema['components']['schemas']
+        self.assertEqual(sorted(components['ScriptProjectActivation']['properties']), ['revision', 'scripts'])
+        self.assertEqual(sorted(components['ScriptProjectActivationScripts']['properties']), ['published', 'retired'])

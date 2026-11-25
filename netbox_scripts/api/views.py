@@ -25,6 +25,9 @@ from utilities.permissions import get_permission_for_model
 from utilities.request import copy_safe_request
 from utilities.rqworker import any_workers_for_queue, get_queue_for_model
 
+from ..activation import activate_revision
+from ..choices import ProjectSourceTypeChoices, RevisionStatusChoices
+from ..constants import PENDING_VERDICT_REVISION_STATUSES
 from ..execution import LOAD_FAILURES, script_class_context
 from ..filtersets import (
     NetBoxScriptFilterSet,
@@ -36,20 +39,27 @@ from ..ingestion import (
     check_upload_preconditions,
     ingest_upload,
     prepare_upload,
+    queue_revision_processing,
     script_file_edit,
     uploaded_source_path,
 )
-from ..jobs import NetBoxScriptJob, ProjectScriptFileRefreshJob
+from ..jobs import NetBoxScriptJob, ProjectReconciliationJob, ProjectScriptFileRefreshJob
 from ..models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from ..storage import config
-from ..storage.exceptions import StorageError
+from ..storage.exceptions import ActivationError, RevisionCorruptError, StorageError
 from ..storage.locks import project_lock
 from ..storage.service import require_default_database
-from .schemas import SCRIPT_FILE_SELECTION, SCRIPT_FILE_STATE, NetBoxScriptRunMultipartInputSerializer
+from .schemas import (
+    PROJECT_ACTIVATION,
+    SCRIPT_FILE_SELECTION,
+    SCRIPT_FILE_STATE,
+    NetBoxScriptRunMultipartInputSerializer,
+)
 from .serializers import (
     NetBoxScriptRunInputSerializer,
     NetBoxScriptSerializer,
     ScriptFileSerializer,
+    ScriptProjectRevisionInputSerializer,
     ScriptProjectRevisionSerializer,
     ScriptProjectSerializer,
     ScriptProjectUploadSerializer,
@@ -62,6 +72,18 @@ logger = logging.getLogger('netbox.plugins.netbox_scripts.api')
 #
 
 
+class ActivateRevisionPermissions(TokenPermissions):
+    """Resolve a POST to the activate permission, which the method-derived default spells as add."""
+
+    perms_map = {**TokenPermissions.perms_map, 'POST': ['%(app_label)s.activate_%(model_name)s']}
+
+
+class ReconcileSourcePermissions(TokenPermissions):
+    """Resolve a POST to the reconcile permission, which the method-derived default spells as add."""
+
+    perms_map = {**TokenPermissions.perms_map, 'POST': ['%(app_label)s.reconcile_%(model_name)s']}
+
+
 class RunScriptPermissions(TokenPermissions):
     """Resolve a POST to the run permission, which the method-derived default spells as add."""
 
@@ -70,6 +92,12 @@ class RunScriptPermissions(TokenPermissions):
 
 class UploadSourcePermissions(TokenPermissions):
     """Resolve a POST to the change permission, since the project exists and its source moves."""
+
+    perms_map = {**TokenPermissions.perms_map, 'POST': ['%(app_label)s.change_%(model_name)s']}
+
+
+class ValidateRevisionPermissions(TokenPermissions):
+    """Resolve a POST to the change permission, which the method-derived default spells as add."""
 
     perms_map = {**TokenPermissions.perms_map, 'POST': ['%(app_label)s.change_%(model_name)s']}
 
@@ -168,15 +196,17 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
     queryset = ScriptProject.objects.all()
     serializer_class = ScriptProjectSerializer
     filterset_class = ScriptProjectFilterSet
+    # What each POST action is narrowed by, in place of the add permission NetBox reads from the method.
+    action_permissions = {'activate': 'activate', 'reconcile': 'reconcile', 'upload': 'change', 'validate': 'change'}
 
     def initial(self, request, *args, **kwargs):
-        """Narrow the upload action by the change permission rather than by its HTTP method."""
+        """Narrow each Project action by its own permission rather than by its HTTP method."""
         super().initial(request, *args, **kwargs)
-        if self.action == 'upload' and request.user.is_authenticated:
+        if (permission := self.action_permissions.get(self.action)) and request.user.is_authenticated:
             # Re-derived from the class attribute, since the method-derived narrowing the base
             # class already applied restricts to what the user may add, which is the wrong side
             # of the pair for a project that already exists.
-            self.queryset = type(self).queryset.restrict(request.user, 'change')
+            self.queryset = type(self).queryset.restrict(request.user, permission)
 
     def get_bulk_destroy_queryset(self):
         """Return Projects in the lock-order mixin's order, which a bulk delete has to share."""
@@ -297,6 +327,108 @@ class ScriptProjectViewSet(ProjectLockOrderMixin, NetBoxModelViewSet):
                 for path in project.declarable_script_files()
             ],
         }
+
+    @extend_schema(
+        request=None,
+        responses={
+            201: OpenApiResponse(
+                response=JobSerializer,
+                description=gettext_lazy(
+                    'The reconciliation has been queued. Once it has staged the source, its data names the revision.'
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='reconcile', permission_classes=[ReconcileSourcePermissions])
+    def reconcile(self, request, pk=None):
+        """Queue a rebuild of this Project's source from its Data Source directory and return the Job."""
+        project = self.get_object()
+        # The browser route excludes these by its queryset, which over REST would hide why.
+        if project.source_type != ProjectSourceTypeChoices.DATA_SOURCE:
+            raise APIValidationError(
+                {
+                    'detail': _(
+                        'Only projects backed by a Data Source can be reconciled. "{project}" holds uploaded files.'
+                    ).format(project=project)
+                }
+            )
+        job = ProjectReconciliationJob.enqueue_reconciliation(project)
+        return Response(JobSerializer(job, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request={'application/json': ScriptProjectRevisionInputSerializer},
+        responses={
+            201: OpenApiResponse(
+                response=JobSerializer,
+                description=gettext_lazy('The revision has been queued for validation.'),
+            ),
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='validate', permission_classes=[ValidateRevisionPermissions])
+    def validate(self, request, pk=None):
+        """Queue validation of one revision of this Project that awaits a verdict and return the Job."""
+        project = self.get_object()
+        input_serializer = ScriptProjectRevisionInputSerializer(data=request.data, context={'project': project})
+        input_serializer.is_valid(raise_exception=True)
+        revision = input_serializer.validated_data['revision']
+        # For a revision holding a verdict, the same call queues automatic activation instead.
+        job = queue_revision_processing(revision) if revision.status in PENDING_VERDICT_REVISION_STATUSES else None
+        if job is None:
+            message = _('Revision {revision} has status "{status}" and cannot be queued for validation.')
+            return Response(
+                {'detail': message.format(revision=revision.pk, status=revision.status)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(JobSerializer(job, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request={'application/json': ScriptProjectRevisionInputSerializer},
+        responses={
+            200: OpenApiResponse(
+                response=PROJECT_ACTIVATION,
+                description=gettext_lazy('The revision is now the active revision of the Project.'),
+            ),
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='activate', permission_classes=[ActivateRevisionPermissions])
+    def activate(self, request, pk=None):
+        """Make one valid or retired revision of this Project the active one and report its Scripts."""
+        project = self.get_object()
+        input_serializer = ScriptProjectRevisionInputSerializer(data=request.data, context={'project': project})
+        input_serializer.is_valid(raise_exception=True)
+        revision = input_serializer.validated_data['revision']
+        using = require_default_database(project)
+        with project_lock(project.storage_key, using=using):
+            # Read under the lock, or a revision activated meanwhile takes the service's repair path.
+            active_revision_id = (
+                ScriptProject.objects.using(using)
+                .filter(pk=project.pk)
+                .values_list('active_revision_id', flat=True)
+                .first()
+            )
+            if revision.pk == active_revision_id:
+                message = _('Revision {revision} has status "{status}" and cannot be activated.')
+                return Response(
+                    {'detail': message.format(revision=revision.pk, status=RevisionStatusChoices.ACTIVE)},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            try:
+                result = activate_revision(revision)
+            except (ActivationError, RevisionCorruptError) as error:
+                # Expected refusals: the revision cannot be activated, or its stored tree no longer matches.
+                logger.warning(
+                    'Revision %s of Script Project %s cannot be activated: %s', revision.pk, project.pk, error
+                )
+                return Response({'detail': _('The revision cannot be activated.')}, status=status.HTTP_409_CONFLICT)
+            except (StorageError, OSError) as error:
+                logger.exception('Could not activate revision %s of Script Project %s.', revision.pk, project.pk)
+                raise APIValidationError({'detail': _('The revision could not be activated.')}) from error
+        return Response(
+            {
+                'revision': ScriptProjectRevisionSerializer(result.revision, context={'request': request}).data,
+                'scripts': {'published': result.scripts.published, 'retired': result.scripts.retired},
+            }
+        )
 
 
 class ScriptProjectRevisionViewSet(NetBoxReadOnlyModelViewSet):

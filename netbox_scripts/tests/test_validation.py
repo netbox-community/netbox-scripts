@@ -967,6 +967,60 @@ class RevisionValidationJobTestCase(ValidationTestMixin, TestCase):
             ],
         )
 
+    def test_a_recorded_invalid_verdict_completes_without_a_claim(self):
+        self.declare('deploy.py')
+        other = self.make_job()
+        revision = validate_revision(self.stage({'deploy.py': b'def broken(:\n'}), job=other)
+
+        with mock.patch.object(jobs, 'validate_revision', wraps=validate_revision) as validate:
+            job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+        job.refresh_from_db()
+
+        validate.assert_not_called()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+        self.assertEqual(
+            [entry['message'] for entry in job.log_entries], ['The revision is invalid, 1 problem(s) recorded.']
+        )
+        recorded = revision.validation_errors
+        revision.refresh_from_db()
+        self.assertEqual(revision.validation_job, other)
+        self.assertEqual(revision.validation_errors, recorded)
+
+    def test_a_verdict_recorded_between_the_read_and_the_claim_completes_the_job(self):
+        self.declare('deploy.py')
+        other = self.make_job()
+
+        def validated_elsewhere(target, **kwargs):
+            validate_revision(ScriptProjectRevision.objects.get(pk=target.pk), job=other)
+            return validate_revision(target, **kwargs)
+
+        for files, verdict, messages in (
+            (
+                SCRIPT_FILES,
+                RevisionStatusChoices.VALID,
+                [
+                    'The revision validated as valid.',
+                    'Leaving the active revision unchanged. This source is superseded or needs manual approval.',
+                ],
+            ),
+            (
+                {'deploy.py': b'def broken(:\n'},
+                RevisionStatusChoices.INVALID,
+                ['The revision is invalid, 1 problem(s) recorded.'],
+            ),
+        ):
+            with self.subTest(verdict=verdict):
+                revision = self.stage(files)
+                with mock.patch.object(jobs, 'validate_revision', validated_elsewhere):
+                    job = RevisionValidationJob.enqueue(immediate=True, revision_pk=revision.pk)
+                job.refresh_from_db()
+                revision.refresh_from_db()
+
+                self.assertEqual(job.status, JobStatusChoices.STATUS_COMPLETED)
+                self.assertEqual([entry['message'] for entry in job.log_entries], messages)
+                self.assertEqual(revision.status, verdict)
+                self.assertEqual(revision.validation_job, other)
+
     def test_a_project_deleted_during_validation_completes_with_nothing_to_do(self):
         self.declare('deploy.py')
         revision = self.stage(SCRIPT_FILES)

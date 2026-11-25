@@ -13,15 +13,15 @@ object-level constraints to limit access to particular Projects or Scripts.
 |---|---|
 | `view` | View Projects, their Script Files and current state, including the active revision. |
 | `add` | Create a Project. Creating one through **Upload Script** also requires Script File `add`. |
-| `change` | Edit Project fields, subject to the activation requirements below, select its Script Files and upload more scripts. Selecting also requires Script File `change`. Uploads also require Script File `add`. |
+| `change` | Edit Project fields, subject to the activation requirements below, select its Script Files and upload more scripts. Selecting also requires Script File `change`. Uploads also require Script File `add`. Over REST, it also queues a revision's validation. |
 | `delete` | Delete a Project and its associated revisions and Scripts. |
 | `activate` | Activate or deactivate a revision, repair published Scripts, and change `activation_policy`, `data_source` or `data_path`. |
 | `migrate` | Migrate the installation from NetBox's built-in Custom Scripts. |
-| `reconcile` | Rebuild a Project's source from its Data Source directory on demand. |
+| `reconcile` | Rebuild a Project's source from its Data Source directory on demand, in the UI or over REST. |
 
 **Activation and source settings.** The Project's **Activate** and **Repair
 Scripts** actions, and the revision-level **Activate** and **Deactivate**
-actions, all require `activate`.
+actions, all require `activate`. So does the REST `activate/` action.
 
 Changing `activation_policy`, `data_source` or `data_path` on an existing
 Project requires both `change` and `activate`. This applies to the edit form,
@@ -36,6 +36,13 @@ If a source setting changes between authorization and saving, the edit is
 refused without writing anything. This can also affect a description-only edit.
 The form shows an error, and REST returns `400`. Reload the Project and submit
 again.
+
+**REST lifecycle actions.** The Project's `reconcile/`, `validate/` and
+`activate/` REST actions each require the permission listed in the
+[Script Project reference](../reference/models/scriptproject.md#api), never
+`add`, and a token with write access. A pipeline that follows the queued Jobs
+also needs NetBox's `core.view_job`, and one that reads revisions needs
+`netbox_scripts.view_scriptprojectrevision`.
 
 **Revision history.** The Project's `view` permission lets you see its active
 revision on the Project page. Browsing the **Revisions** and **Revision Files**

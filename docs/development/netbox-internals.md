@@ -48,7 +48,7 @@ not a list of unsupported APIs alone.
 | `utilities.rqworker.get_all_workers` | `migration/cutover.py` | Lists registered workers by name. Cutover requires acknowledgement when more than one is registered. This check does not prevent later worker startup or scheduler activity. |
 | `drf_spectacular.drainage.GENERATOR_STATS` | `tests/api/test_schema.py` | Suppresses whole-API schema warnings while tests inspect the plugin's operations. NetBox's tests use the same import. |
 | `utilities.exceptions.RQWorkerNotRunningException` | `api/views.py` | Returns 503 when no worker is available, matching NetBox's run endpoint. |
-| `netbox.api.authentication.TokenPermissions` | `api/views.py` | Provides the base permission class for the REST run action, where POST requires `run` rather than `add`. |
+| `netbox.api.authentication.TokenPermissions` | `api/views.py` | Provides the base permission class for the REST run, upload, reconcile, validate and activate actions, where POST requires each action's own permission rather than `add`. |
 | `core.models.DataSource.sync` | `ingestion.py` | Applies each synchronization in one transaction, under a per-source advisory lock taken before the existing files are read, from NetBox v4.7.4. Reconciliation reads a directory's paths and contents in one query, so each reconciled revision holds one complete synchronization. |
 | `extras.models.ScriptModule` and its manager | `migration/source.py` | Reads built-in modules through a `ManagedFile` proxy whose manager includes both `scripts` and `reports` roots. |
 | `extras.models.Script` through `module.scripts` and its manager | `migration/source.py` | Reads the classes published by built-in modules and distinguishes Report-owned classes by the module file root. |

@@ -51,6 +51,38 @@ Project's detail page lists its declarations. REST provides the same selection
 operation at `projects/<id>/script-files/`. See [Script File](scriptfile.md#api)
 for its request format and permissions.
 
+REST also offers the Project's lifecycle actions. Each is a `POST` to
+`projects/<id>/<action>/` and requires the Project permission shown, including
+its object constraints, rather than `add`:
+
+| Action | Request body | Permission | Success |
+|---|---|---|---|
+| `reconcile/` | None | `reconcile` | `201` with the queued reconciliation Job |
+| `validate/` | `{"revision": <id>}` | `change` | `201` with the queued validation Job |
+| `activate/` | `{"revision": <id>}` | `activate` | `200` with the active revision and its Script counts |
+
+A `revision` that is not one of this Project's revisions returns `400`. A
+revision whose status does not allow the action returns `409` and changes
+nothing. Reconciliation applies to Data Source Projects and returns `400` for
+an uploaded one.
+
+`validate/` accepts a `materialized` revision, or a `validating` one whose
+[validation lease](scriptprojectrevision.md#the-validation-lease) has expired.
+The Job it queues follows the activation policy like any other validation.
+Poll the revision for its verdict, since a Job that starts while another Job
+is still validating the revision can fail without reaching one.
+Choose `manual` when a pipeline approves each activation itself. `activate/`
+accepts a `valid` or `retired` revision other than the active one, so it also
+returns the Project to earlier source. It verifies the stored source first,
+and a refused activation leaves the active revision in service. Its response
+counts the Scripts the revision publishes and the ones it retired.
+
+Once a reconciliation Job has staged the directory, its `data` holds
+`revision_id` and `validation_job_id`, which is `null` when this reconciliation
+queued no validation Job. [Data Source Projects](../../administration/data-sources.md#reconciling-on-demand)
+and [Uploading scripts](../../administration/uploading.md#over-rest) show the
+sequence a pipeline follows.
+
 The **Revision Files** tab lists each file in the current revision, with its
 size, short checksum and enabled Script File status. It identifies the revision
 being displayed and links to the selection tab. A missing declared path is

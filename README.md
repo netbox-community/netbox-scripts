@@ -34,6 +34,7 @@ for supported functionality and current limitations.
 
 | Plugin version | Minimum NetBox | Maximum NetBox | Minimum Python |
 |----------------|----------------|----------------|----------------|
+| 0.2.0 | 4.7.5 | 4.7.99 | 3.12 |
 | 0.1.0 | 4.7.5 | 4.7.99 | 3.12 |
 
 See [COMPATIBILITY.md](https://github.com/netbox-community/netbox-scripts/blob/main/COMPATIBILITY.md)

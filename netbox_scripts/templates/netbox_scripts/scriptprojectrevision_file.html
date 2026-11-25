@@ -1,0 +1,41 @@
+{% extends "generic/object.html" %}
+{% load i18n %}
+{% comment %}
+One file of a revision, titled with its path and naming the revision it was read from.
+
+Context:
+  - object: The revision
+  - source_file: The file's manifest entry, with what the active tab shows of it
+  - file_index: The file's position in the manifest
+  - file_tab: The active tab, "file" or "source"
+{% endcomment %}
+{% block breadcrumbs %}
+  {{ block.super }}
+  <li class="breadcrumb-item">
+    <a href="{{ object.get_absolute_url }}">{{ object }}</a>
+  </li>
+  <li class="breadcrumb-item">
+    <a href="{% url 'plugins:netbox_scripts:scriptprojectrevision_files' pk=object.pk %}">{% trans "Files" %}</a>
+  </li>
+{% endblock breadcrumbs %}
+{% block title %}{{ source_file.path|default:_("Source") }}{% endblock title %}
+{% block subtitle %}
+  <div class="text-secondary">
+    {% blocktrans trimmed with revision=object.short_digest revision_id=object.pk project=object.project %}
+      Revision {{ revision }} (ID {{ revision_id }}) of {{ project }}
+    {% endblocktrans %}
+  </div>
+{% endblock subtitle %}
+{% block tabs %}
+  {# A file's page carries its own tabs, not the revision's. #}
+  <ul class="nav nav-tabs" role="presentation">
+    <li class="nav-item">
+      <a class="nav-link{% if file_tab == 'file' %} active{% endif %}"
+         href="{% url 'plugins:netbox_scripts:scriptprojectrevision_file' pk=object.pk file_index=file_index %}">{% trans "File" %}</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link{% if file_tab == 'source' %} active{% endif %}"
+         href="{% url 'plugins:netbox_scripts:scriptprojectrevision_source' pk=object.pk file_index=file_index %}">{% trans "Source" %}</a>
+    </li>
+  </ul>
+{% endblock tabs %}

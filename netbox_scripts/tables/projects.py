@@ -1,4 +1,5 @@
 import django_tables2 as tables
+from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 
 from netbox.tables import BaseTable, PrimaryModelTable, columns
@@ -124,11 +125,21 @@ class ScriptProjectFileTable(BaseTable):
     The files of a project's current revision, for the project's Revision Files tab.
 
     Rows are the manifest's plain dictionaries plus one row per declared path the served
-    revision does not hold, so this table is fed a list and has no queryset behind it.
+    revision does not hold, so this table is fed a list and has no queryset behind it. A
+    manifest row carries its revision_id and file_index, which link its path to that file's
+    page.
     """
 
     path = tables.Column(
         verbose_name=_('Path'),
+        linkify=lambda record: (
+            reverse(
+                'plugins:netbox_scripts:scriptprojectrevision_file',
+                kwargs={'pk': record['revision_id'], 'file_index': record['file_index']},
+            )
+            if record.get('revision_id')
+            else None
+        ),
     )
     size = tables.Column(
         verbose_name=_('Size'),
@@ -163,23 +174,11 @@ class ScriptProjectFileTable(BaseTable):
         return value[:12]
 
 
-class ScriptProjectRevisionScriptFileTable(BaseTable):
-    """
-    The script files one revision froze, for its detail view.
+class ScriptProjectRevisionFileTable(ScriptProjectFileTable):
+    """The files one revision holds and any frozen Script File it lacks, for that revision's Files tab."""
 
-    Rows are the script file snapshot's own dictionaries, so this table is fed a list and has no
-    queryset behind it. It is where the Revisions tab's script file count resolves.
-    """
-
-    source_path = tables.Column(
-        verbose_name=_('Source path'),
-    )
-
-    class Meta(BaseTable.Meta):
-        # Required rather than decorative: a table with no model derives no default empty text.
-        empty_text = _('This revision froze no script files, so it publishes nothing.')
-        fields = ('source_path',)
-        default_columns = fields
+    class Meta(ScriptProjectFileTable.Meta):
+        empty_text = _('This revision holds no files.')
 
 
 class ScriptProjectRevisionProblemTable(BaseTable):

@@ -18,6 +18,7 @@ in the issue before starting.
 | Serializers | `api/serializers/<topic>.py` |
 | UI views and templates | `views/<topic>.py` and `templates/netbox_scripts/` |
 | Detail panels | `ui/panels.py` |
+| Panel actions | `ui/actions.py` |
 | Object actions | `object_actions.py`, with templates in `templates/netbox_scripts/buttons/` |
 | Cross-model signal handlers | `signals.py`, registered during startup |
 | Search registrations | `search.py` |

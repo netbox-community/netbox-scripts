@@ -1,7 +1,9 @@
 from django.utils.translation import gettext_lazy as _
 
 from netbox.ui import attrs
-from netbox.ui.panels import ObjectAttributesPanel
+from netbox.ui.panels import ObjectAttributesPanel, ObjectPanel
+
+from .actions import ServedFileAction
 
 
 class NetBoxScriptPanel(ObjectAttributesPanel):
@@ -41,6 +43,7 @@ class ScriptProjectRevisionPanel(ObjectAttributesPanel):
     digest = attrs.TextAttr('digest', label=_('Digest'))
     script_file_digest = attrs.TextAttr('script_file_digest', label=_('Script file digest'))
     file_count = attrs.NumericAttr('file_count', label=_('Files'))
+    script_file_count = attrs.NumericAttr('script_file_count', label=_('Script files'))
     total_size = attrs.NumericAttr('total_size', label=_('Size'))
 
 
@@ -55,10 +58,41 @@ class ScriptProjectRevisionStatePanel(ObjectAttributesPanel):
     activated = attrs.DateTimeAttr('activated', label=_('Activated'))
 
 
+class ScriptProjectRevisionFilePanel(ObjectAttributesPanel):
+    """One file of a revision as its manifest records it, with its Project and Script File (file view)."""
+
+    title = _('File')
+
+    project = attrs.RelatedObjectAttr('project', label=_('Script Project'), linkify=True)
+    path = attrs.TextAttr('path', label=_('Source path'), style='font-monospace', copy_button=True)
+    size = attrs.TextAttr('size', label=_('Size'), format_string=_('{} bytes'))
+    sha256 = attrs.TextAttr('sha256', label=_('SHA256 hash'), style='font-monospace', copy_button=True)
+    script_file = attrs.RelatedObjectAttr('script_file', label=_('Script File'), linkify=True)
+
+
+class ScriptProjectRevisionSourcePanel(ObjectPanel):
+    """A revision file's text, or why it is withheld (file view)."""
+
+    template_name = 'netbox_scripts/panels/revision_source.html'
+    title = _('Source')
+
+
 class ScriptFilePanel(ObjectAttributesPanel):
     """Declaration attributes of a Script File (detail view, left column)."""
 
     title = _('Script File')
+    actions = (
+        ServedFileAction(
+            'plugins:netbox_scripts:scriptprojectrevision_file',
+            label=_('View file'),
+            button_icon='file-document-outline',
+        ),
+        ServedFileAction(
+            'plugins:netbox_scripts:scriptprojectrevision_source',
+            label=_('View source'),
+            button_icon='code-tags',
+        ),
+    )
 
     project = attrs.RelatedObjectAttr('project', label=_('Script Project'))
     source_path = attrs.TextAttr('source_path', label=_('Source path'))
@@ -72,8 +106,18 @@ class ScriptFileDiscoveryPanel(ObjectAttributesPanel):
     title = _('Discovery')
 
     discovery_status = attrs.ChoiceAttr('discovery_status', label=_('Status'))
-    last_discovered_revision = attrs.RelatedObjectAttr('last_discovered_revision', label=_('Last discovered revision'))
+    last_discovered_revision = attrs.RelatedObjectAttr(
+        'last_discovered_revision', label=_('Last discovered revision'), linkify=True
+    )
     discovery_error = attrs.TextAttr('discovery_error', label=_('Detail'))
+
+
+class ScriptProjectRevisionDiscoveryPanel(ScriptFileDiscoveryPanel):
+    """A revision file's discovery, shown only when its Script File last discovered this revision (file view)."""
+
+    def should_render(self, context):
+        """Render only when the view supplies a discovery of this revision."""
+        return context['object'] is not None
 
 
 class MigrationRunPanel(ObjectAttributesPanel):

@@ -39,8 +39,12 @@ again.
 
 **Revision history.** The Project's `view` permission lets you see its active
 revision on the Project page. Browsing the **Revisions** and **Revision Files**
-tabs, or opening a revision's page, also requires
-`netbox_scripts.view_scriptprojectrevision`. The tabs are hidden without it.
+tabs, or opening a revision's page, its **Files** tab or a file's
+[source](../reference/models/scriptprojectrevision.md#source-files), also
+requires `netbox_scripts.view_scriptprojectrevision`, including its constraints
+on that revision. The tabs, and a Script File's **View file** and **View
+source** buttons, are hidden without it. Permission to view or run a Script does
+not grant it.
 
 The UI's **Deactivate** action is on the **Revisions** tab. To reach it, grant
 Project `view` and `activate` along with Revision `view`. Activation permission

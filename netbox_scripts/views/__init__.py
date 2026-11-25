@@ -29,6 +29,9 @@ from .projects import (
 from .revisions import (
     ScriptProjectRevisionActivateView,
     ScriptProjectRevisionDeactivateView,
+    ScriptProjectRevisionFilesView,
+    ScriptProjectRevisionFileView,
+    ScriptProjectRevisionSourceView,
     ScriptProjectRevisionView,
 )
 from .scripts import (
@@ -75,6 +78,9 @@ __all__ = (
     'ScriptProjectRepairView',
     'ScriptProjectRevisionActivateView',
     'ScriptProjectRevisionDeactivateView',
+    'ScriptProjectRevisionFileView',
+    'ScriptProjectRevisionFilesView',
+    'ScriptProjectRevisionSourceView',
     'ScriptProjectRevisionView',
     'ScriptProjectRevisionsView',
     'ScriptProjectScriptFilesView',

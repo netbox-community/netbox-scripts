@@ -914,6 +914,22 @@ class ScriptProjectRevisionTestCase(TestCase):
         # Without this the validator's own transition would be reversible by a re-stage.
         self.assertNotIn(RevisionStatusChoices.VALIDATING, stored | retryable)
 
+    def test_stored_source_needs_a_digest_and_a_finished_write(self):
+        for status, digest, expected in (
+            (RevisionStatusChoices.INVALID, None, False),
+            (RevisionStatusChoices.STAGING, DIGEST_A, False),
+            (RevisionStatusChoices.STORAGE_FAILED, DIGEST_A, False),
+            (RevisionStatusChoices.MATERIALIZED, DIGEST_A, True),
+            (RevisionStatusChoices.VALIDATING, DIGEST_A, True),
+            (RevisionStatusChoices.VALID, DIGEST_A, True),
+            (RevisionStatusChoices.INVALID, DIGEST_A, True),
+            (RevisionStatusChoices.ACTIVE, DIGEST_A, True),
+            (RevisionStatusChoices.RETIRED, DIGEST_A, True),
+        ):
+            with self.subTest(status=status, digest=digest):
+                revision = ScriptProjectRevision(project=self.project, digest=digest, status=status)
+                self.assertIs(revision.has_stored_source, expected)
+
 
 class ScriptProjectSourceLockTestCase(TestCase):
     """The stored state an ordinary save must not write back."""

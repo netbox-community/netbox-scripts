@@ -6,7 +6,8 @@ hands out, keyed by the project's immutable storage_key. Staging, script file re
 activation and physical cleanup therefore observe one another's writes in a defined order
 instead of interleaving inside a store the database cannot see. Validation is not among them.
 It reads one revision through the digest-addressed runtime cache and serializes on that
-revision row's own lease instead.
+revision row's own lease instead. Nor is the revision source page, whose verified read
+proves the one file it shows.
 
 The lock is a PostgreSQL session-level advisory lock rather than a row lock or a lease. A row
 lock would hold a transaction open across a remote conversation with the object store, which

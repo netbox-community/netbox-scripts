@@ -56,7 +56,9 @@ size, short checksum and enabled Script File status. It identifies the revision
 being displayed and links to the selection tab. A missing declared path is
 labelled to distinguish a file absent from the source from one waiting in the
 accepted source, which is not active yet. The tab is empty until a revision
-contains stored source.
+contains stored source. Each stored file's path opens its
+[page](scriptprojectrevision.md#source-files), where the **Source** tab shows
+the text.
 
 ## Activation policy
 

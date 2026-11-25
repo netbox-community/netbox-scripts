@@ -47,6 +47,16 @@ Only enabled declarations enter new revision snapshots. Disabling a declaration
 does not change existing snapshots. There is no standalone delete route for a
 Script File.
 
+## Source
+
+The **Script File** panel's **View file** and **View source** buttons open the
+file's [page](scriptprojectrevision.md#source-files) and its **Source** tab in
+the revision its Project serves now. That is the active revision or, when none
+is active, the stored revision holding the Project's accepted source, or the
+newest stored revision when no accepted source is stored. They are shown only
+when that revision holds the path and you have
+`netbox_scripts.view_scriptprojectrevision` on it, including its constraints.
+
 ## Relationships
 
 | Relationship | Target | Required | Notes |

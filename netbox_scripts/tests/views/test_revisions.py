@@ -9,11 +9,10 @@ from netbox_scripts.choices import RevisionStatusChoices
 from netbox_scripts.models import NetBoxScript, ScriptFile, ScriptProject, ScriptProjectRevision
 from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import ActivationError, StorageError
-from netbox_scripts.tables import (
-    ScriptProjectRevisionProblemTable,
-    ScriptProjectRevisionScriptFileTable,
-)
+from netbox_scripts.tables import ScriptProjectRevisionProblemTable
 from netbox_scripts.tests.plugin_testing import ObjectPermissionTestMixin
+from netbox_scripts.ui import ScriptProjectRevisionPanel
+from netbox_scripts.views import ScriptProjectRevisionView
 from users.models import ObjectPermission
 from utilities.testing import TestCase, create_test_user
 
@@ -512,8 +511,8 @@ class RevisionValidationErrorPanelTestCase(TestCase):
         self.assertIn('deploy.py', body)
 
 
-class RevisionScriptFilePanelTestCase(TestCase):
-    """A revision's page lists the script files it froze, which is where the tab's count resolves."""
+class RevisionScriptFileCountTestCase(TestCase):
+    """A revision's page counts the Script Files it froze, zero included."""
 
     @classmethod
     def setUpTestData(cls):
@@ -537,39 +536,31 @@ class RevisionScriptFilePanelTestCase(TestCase):
         )
         cls.empty = ScriptProjectRevision.objects.create(project=cls.project, digest='d' * 64, script_file_snapshot=[])
 
-    def setUp(self):
-        self.user = create_test_user()
-        self.client.force_login(self.user)
-        obj_perm = ObjectPermission(name='revision view', actions=['view'])
-        obj_perm.save()
-        obj_perm.users.add(self.user)
-        obj_perm.object_types.add(ObjectType.objects.get_for_model(ScriptProjectRevision))
+    def test_the_revision_panel_counts_the_frozen_selection(self):
+        attr = ScriptProjectRevisionPanel._attrs['script_file_count']
 
-    def body(self, revision):
-        url = reverse('plugins:netbox_scripts:scriptprojectrevision', args=[revision.pk])
-        response = self.client.get(url)
-        self.assertHttpStatus(response, 200)
-        return response.content.decode()
+        counts = [attr.get_value(revision) for revision in (self.declared, self.narrowed, self.empty)]
 
-    def test_the_panel_lists_every_frozen_path(self):
-        body = self.body(self.declared)
+        self.assertEqual(counts, [2, 1, 0])
 
-        self.assertIn('Script Files', body)
-        self.assertIn('audit.py', body)
-        self.assertIn('tools/deploy.py', body)
 
-    def test_two_revisions_on_one_digest_list_different_paths(self):
-        self.assertEqual(self.declared.short_digest, self.narrowed.short_digest)
-        self.assertIn('tools/deploy.py', self.body(self.declared))
-        self.assertNotIn('tools/deploy.py', self.body(self.narrowed))
+class RevisionPageTrailTestCase(TestCase):
+    """A revision's pages lead back through its Project, since revisions have no list of their own."""
 
-    def test_a_revision_freezing_none_says_so_rather_than_rendering_no_panel(self):
-        body = self.body(self.empty)
+    def test_the_trail_leads_through_the_project_and_its_revisions_tab(self):
+        project = ScriptProject.objects.create(name='Trail Project', key='trail-project')
+        revision = ScriptProjectRevision.objects.create(project=project, digest='a' * 64)
+        page = ScriptProjectRevisionView.layout
 
-        self.assertIn('Script Files', body)
-        self.assertIn('publishes nothing', body)
+        crumbs = [(crumb, crumb.resolve(revision) if crumb.accessor else revision) for crumb in page.breadcrumbs]
+        trail = [(str(crumb.get_label(obj)), str(crumb.get_url(obj))) for crumb, obj in crumbs]
 
-    def test_the_panel_offers_no_column_but_the_path(self):
-        # The snapshot also carries Script File primary keys, which are provenance rather than
-        # something an operator reads, and the row they name may since have been deleted.
-        self.assertEqual(ScriptProjectRevisionScriptFileTable.Meta.fields, ('source_path',))
+        self.assertFalse(page.root_breadcrumb)
+        self.assertEqual(
+            trail,
+            [
+                ('Script Projects', reverse('plugins:netbox_scripts:scriptproject_list')),
+                (str(project), project.get_absolute_url()),
+                ('Revisions', reverse('plugins:netbox_scripts:scriptproject_revisions', kwargs={'pk': project.pk})),
+            ],
+        )

@@ -53,6 +53,9 @@ UNSTORED_REVISION_STATUSES = ('staging', 'storage_failed')
 # through a refusal rendered on a page, so it is bounded rather than allowed to hold a traceback.
 MAX_VALIDATION_FAILURE_LENGTH = 500
 
+# The largest stored file the source page displays, in bytes.
+MAX_SOURCE_DISPLAY_SIZE = 256 * 1024
+
 # Persisted bounds on a published Script. The model fields the discovery snapshot
 # feeds declare these lengths, and validation enforces them while it still owns a verdict,
 # so an over-long name is a content failure rather than a database error at activation.

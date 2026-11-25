@@ -51,9 +51,10 @@ file inventory.
 Select Script Files in the UI or over REST. Inspect validation results and errors,
 then activate an eligible revision manually or let the Project's policy activate
 it. **Source state** explains the latest progress. The **Revisions** and
-**Revision Files** tabs show history, file sizes, checksums and missing or newer
-paths. **Repair Scripts** republishes rows from the serving revision and reports
-how many changed. See [Review source and revision status](administration/uploading.md#review-source-and-revision-status)
+**Revision Files** tabs show history, file sizes, checksums, missing or newer
+paths. Each stored file opens a read-only page with its source, which a Script
+File's **View file** and **View source** buttons also open. **Repair Scripts** republishes
+rows from the serving revision and reports how many changed. See [Review source and revision status](administration/uploading.md#review-source-and-revision-status)
 and [activation](reference/runtime.md#what-activation-does).
 
 For existing built-in Custom Scripts, the [migration workflow](administration/migration.md)
@@ -92,7 +93,6 @@ explain which operations produce those events.
 | Legacy Reports | Classes with `test_*` methods and no `run()` are rejected. Rewrite them as Scripts with a `run()` method. |
 | A permanent `extras.scripts` layer | Legacy imports are transitional and are expected to stop working with NetBox v5.0. Move to the plugin's authoring API before that upgrade. |
 | Failed and errored runs | A run whose Script raises an exception ends as Failed. Built-in Custom Scripts report it as Errored. |
-| Revision source in the UI | Revision Files lists paths, sizes and checksums but does not display source. |
 | Downloading run output | The run result shows the output but offers no download. |
 | Script results from the Jobs tab on NetBox v4.7 | A Job opens NetBox's Job page rather than the Script result page. NetBox v4.8 adds the interface this needs. |
 | A Last Run column | The Scripts list has no Last Run column. |

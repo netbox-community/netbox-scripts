@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
+import netaddr
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -218,6 +219,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(record['source_path'], 'broken.py')
         self.assertEqual(record['code'], 'script_file_import_failed')
         self.assertEqual(record['exception_type'], 'SyntaxError')
+        self.assertIsNone(record['traceback'])
         good.refresh_from_db()
         bad.refresh_from_db()
         self.assertEqual(good.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
@@ -231,6 +233,7 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         result = validate_revision(revision, job=self.job)
         self.assertEqual(result.status, RevisionStatusChoices.INVALID)
         self.assertEqual(result.validation_errors[0]['exception_type'], 'RuntimeError')
+        self.assertIn('File "deploy.py", line 1, in <module>', result.validation_errors[0]['traceback'])
 
     def test_a_typo_in_a_legacy_extras_import_is_an_invalid_verdict(self):
         # Classified environment this would re-raise and record nothing, and every rerun would
@@ -438,6 +441,24 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         ):
             self.assertNotIn(private, serialized)
         self.assertIn('deploy.py', serialized)
+
+    def test_stored_import_errors_omit_external_module_locations(self):
+        script_file = self.declare('deploy.py')
+        revision = self.stage({'deploy.py': b'from netaddr import nonexistent_name\n'})
+        result = validate_revision(revision, job=self.job)
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        (record,) = result.validation_errors
+        self.assertEqual(record['message'], "cannot import name 'nonexistent_name' from 'netaddr'")
+        self.assertNotIn(str(Path(netaddr.__file__).parent), json.dumps(result.validation_errors))
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_error, record['message'])
+
+    def test_stored_errors_keep_a_project_module_location_relative(self):
+        self.declare('deploy.py')
+        files = {'deploy.py': b'from .helpers import missing\n', 'helpers.py': b'VALUE = 1\n'}
+        result = validate_revision(self.stage(files), job=self.job)
+        (record,) = result.validation_errors
+        self.assertEqual(record['message'], "cannot import name 'missing' from 'helpers' (helpers.py)")
 
     def test_timeouts_during_construction_or_form_building_release_the_claim(self):
         self.declare('deploy.py')

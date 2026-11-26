@@ -39,9 +39,15 @@ human-readable `message`. The path is null for Project-wide limits such as
 `too_many_files` or `project_too_large`.
 
 Validation-time entries contain `source_path`, `code` and `message`, plus
-`exception_type` and `traceback` when an exception was involved. Recorded errors
-are sanitized to remove runtime namespaces, storage identities and cache paths.
-Module references use Project-relative paths.
+`exception_type` and `traceback` when an exception was involved.
+
+Tracebacks from failed Script File imports contain only Project-local frames
+and are null when none exist. Recorded errors are sanitized to remove runtime
+namespaces, storage identities and cache paths.
+
+Module references use Project-relative paths. External absolute module
+locations supplied by `ImportError` are omitted. Other exception text may
+still contain paths provided by Project code or its dependencies.
 
 ## Relationships
 

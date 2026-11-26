@@ -28,6 +28,7 @@ import sys
 import threading
 import traceback
 from contextlib import contextmanager
+from pathlib import Path
 
 from django.utils.translation import gettext_lazy as _
 
@@ -228,17 +229,22 @@ def _failure_detail(script_file_path, error, revision_dir):
     """
     Build the structured record describing one failed script file import.
 
-    The traceback keeps only frames inside the revision tree when any exist, so the
-    record centers on project code rather than import machinery. Raw runtime paths may
-    remain in the text, storing user-facing copies is the validation layer's job and it
-    sanitizes first.
+    The traceback keeps only revision-local frames, or is None if there are none. The message
+    omits external module locations supplied by ImportError. The validation layer sanitizes
+    revision runtime identities before persisting the record.
     """
     frames = traceback.extract_tb(error.__traceback__)
-    local = [frame for frame in frames if frame.filename.startswith(str(revision_dir))]
+    local = [frame for frame in frames if Path(frame.filename).is_relative_to(revision_dir)]
+    message = str(error)
+    if isinstance(error, ImportError) and isinstance(error.path, str):
+        origin = Path(error.path)
+        if origin.is_absolute() and not origin.is_relative_to(revision_dir):
+            # Python appends the location, and a failed extension load puts it at the start.
+            message = message.removesuffix(f' ({error.path})').replace(error.path, '<module path>')
     return {
         'path': script_file_path,
         'code': 'script_file_import_failed',
-        'message': str(error),
+        'message': message,
         'exception_type': type(error).__name__,
-        'traceback': ''.join(traceback.format_list(local or frames)),
+        'traceback': ''.join(traceback.format_list(local)) or None,
     }

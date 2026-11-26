@@ -289,6 +289,34 @@ class FailureBoundaryTestCase(LoaderTestCase):
         self.assertIn('boom', detail['message'])
         self.assertIn('probe.py', detail['traceback'])
 
+    def test_the_traceback_keeps_only_frames_inside_the_revision_tree(self):
+        # A sibling named like the cache's set-aside trees, whose name starts with the revision directory's.
+        source = (
+            b'import os\n'
+            b'exec(compile("raise RuntimeError(1)", os.path.dirname(__file__) + ".corrupt.0/helper.py", "exec"))\n'
+        )
+        manifest, digest = seed_revision(self.storage, STORAGE_KEY, {'probe.py': source})
+        with self.assertRaises(ScriptFileImportError) as caught:
+            self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
+        recorded = caught.exception.detail['traceback']
+        self.assertIn('probe.py", line 2', recorded)
+        self.assertNotIn('helper.py", line 1', recorded)
+        self.assertNotIn('runtime/loader.py', recorded)
+
+    def test_an_import_error_drops_a_module_location_outside_the_revision(self):
+        cases = (
+            ('extension', '/srv/x.so: undefined symbol: probe', '/srv/x.so', '<module path>: undefined symbol: probe'),
+            ('empty', 'refused', '', 'refused'),
+            ('none', 'Cannot read /srv/config.yaml', None, 'Cannot read /srv/config.yaml'),
+        )
+        for case, message, path, expected in cases:
+            with self.subTest(case=case):
+                source = f'raise ImportError({message!r}, path={path!r})\n'.encode()
+                manifest, digest = seed_revision(self.storage, STORAGE_KEY, {'probe.py': source})
+                with self.assertRaises(ScriptFileImportError) as caught:
+                    self.load_again(STORAGE_KEY, digest, 'probe.py', manifest)
+                self.assertEqual(caught.exception.detail['message'], expected)
+
 
 class FastFailTestCase(LoaderTestCase):
     def test_an_unimportable_path_fails_before_any_io(self):

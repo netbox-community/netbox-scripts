@@ -159,12 +159,13 @@ latest verification's result and the current state of proposed or staged
 Projects, each only where you can view the Job it comes from. **Revision
 status** is the status of the revision a Project serves, or of its newest
 stored revision while it serves none. A revision waiting for validation has no
-verdict yet. **Not staged** means no Project currently exists for a key listed
-by inventory or staging. In a Project's row, **Not visible to you** means a
-Project with that key exists, but you cannot view it. In a pass's row, it means
-the pass has a latest Job you cannot view. **No stored revision** means the
-Project exists and is visible, but has no stored revision, possibly because its
-source was rejected before storage.
+verdict yet. A Data Source proposal's row shows the Project holding its
+directory, even under another key. **Not staged** means no Project currently
+matches the row. In a Project's row, **Not visible to you** means the matching
+Project exists, but you cannot view it. In a pass's row, it means the pass has
+a latest Job you cannot view. **No stored revision** means the Project exists
+and is visible, but has no stored revision, possibly because its source was
+rejected before storage.
 
 Buttons are numbered in workflow order. The highlighted button suggests the
 next action. If a Project stops serving a revision, activation may be suggested

@@ -48,9 +48,14 @@ When the directory and Script File selection are unchanged, the existing revisio
 is reused. It may still be validated or activated, depending on its status and the
 Project's activation settings.
 
-Compiled Python files and `__pycache__` directories are skipped. Other violations
-of the [source path policy](configuration.md#source-path-policy) produce an
-`invalid` revision naming the affected paths. The active revision stays in service.
+Compiled Python files, native extension modules and `__pycache__` directories
+are skipped. Other violations of the
+[source path policy](configuration.md#source-path-policy) produce an `invalid`
+revision naming the affected paths. The active revision stays in service.
+
+Scripts in an active revision containing native extensions cannot run until a
+compliant revision is activated. Synchronize the Data Source or select
+**Reconcile Source** to stage a new revision.
 
 ## Select Script Files
 

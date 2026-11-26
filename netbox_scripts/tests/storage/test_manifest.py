@@ -6,7 +6,11 @@ from django.test import TestCase
 from netbox_scripts import constants
 from netbox_scripts.storage import manifest
 from netbox_scripts.storage.config import StorageLimits
-from netbox_scripts.storage.exceptions import RevisionCorruptError
+from netbox_scripts.storage.exceptions import RevisionCorruptError, SourcePolicyError
+
+NATIVE_EXTENSION_REFUSAL = (
+    'The revision contains unsupported native extension modules. Reconcile the Project and activate a new revision.'
+)
 
 
 def limits(**overrides):
@@ -105,6 +109,11 @@ class ManifestTestCase(TestCase):
         entries, errors = manifest.build_manifest({'pkg/__init__.py': b'', 'pkg/module.py': b'x'}, limits())
         self.assertEqual(errors, [])
         self.assertEqual([entry['path'] for entry in entries], ['pkg/__init__.py', 'pkg/module.py'])
+
+    def test_build_manifest_rejects_a_native_extension_module(self):
+        entries, errors = manifest.build_manifest({'deploy.py': b'x', 'helper.so': b'\x7fELF'}, limits())
+        self.assertEqual([entry['path'] for entry in entries], ['deploy.py'])
+        self.assertEqual([(error['path'], error['code']) for error in errors], [('helper.so', 'compiled_artifact')])
 
 
 class NormalizationCollisionTestCase(TestCase):
@@ -304,3 +313,54 @@ class ValidateManifestTestCase(TestCase):
         with self.assertRaises(RevisionCorruptError) as ctx:
             manifest.validate_manifest([{'size': 1, 'sha256': 'a' * 64}], 'b' * 64)
         self.assertNotIn('digest_mismatch', ctx.exception.reasons)
+
+    def test_refuses_a_stored_native_extension_module_by_policy(self):
+        entries = [entry_for('deploy.py', b'x'), entry_for('helper.so', b'\x7fELF')]
+        with self.assertRaises(SourcePolicyError) as ctx:
+            manifest.validate_manifest(entries, manifest.compute_digest(entries))
+        self.assertEqual(str(ctx.exception), NATIVE_EXTENSION_REFUSAL)
+        self.assertEqual(ctx.exception.reasons, ('compiled_artifact:helper.so',))
+
+    def test_names_every_stored_native_extension_module(self):
+        entries = [entry_for('helper.so', b'\x7fELF'), entry_for('lib/native.pyd', b'MZ')]
+        with self.assertRaises(SourcePolicyError) as ctx:
+            manifest.validate_manifest(entries, manifest.compute_digest(entries))
+        self.assertEqual(ctx.exception.reasons, ('compiled_artifact:helper.so', 'compiled_artifact:lib/native.pyd'))
+
+    def test_reports_corruption_before_the_source_policy(self):
+        native = entry_for('helper.so', b'\x7fELF')
+        cases = {
+            'digest': ([native], 'b' * 64, ('digest_mismatch',)),
+            'entry': ([native, {'path': 'a.py', 'size': -1, 'sha256': 'a' * 64}], None, ('malformed_size:a.py',)),
+        }
+        for case, (entries, digest, reasons) in cases.items():
+            with self.subTest(case=case):
+                with self.assertRaises(RevisionCorruptError) as ctx:
+                    manifest.validate_manifest(entries, digest)
+                self.assertIs(type(ctx.exception), RevisionCorruptError)
+                self.assertEqual(ctx.exception.reasons, reasons)
+
+    def test_admits_a_stored_native_extension_module_when_allowed(self):
+        entries = [entry_for('deploy.py', b'x'), entry_for('helper.so', b'\x7fELF')]
+        self.assertIsNone(
+            manifest.validate_manifest(entries, manifest.compute_digest(entries), allow_native_extensions=True)
+        )
+
+    def test_admitting_native_extension_modules_keeps_the_structural_checks(self):
+        native = entry_for('helper.so', b'\x7fELF')
+        cases = {
+            'path': ([native, entry_for('../outside.py', b'x')], None, ('path_traversal:../outside.py',)),
+            'digest': ([native], 'b' * 64, ('digest_mismatch',)),
+        }
+        for case, (entries, digest, reasons) in cases.items():
+            with self.subTest(case=case):
+                with self.assertRaises(RevisionCorruptError) as ctx:
+                    manifest.validate_manifest(entries, digest, allow_native_extensions=True)
+                self.assertIs(type(ctx.exception), RevisionCorruptError)
+                self.assertEqual(ctx.exception.reasons, reasons)
+
+    def test_reports_stored_bytecode_as_untrusted(self):
+        with self.assertRaises(RevisionCorruptError) as ctx:
+            manifest.validate_manifest([entry_for('deploy.pyc', b'x')], allow_native_extensions=True)
+        self.assertIs(type(ctx.exception), RevisionCorruptError)
+        self.assertEqual(ctx.exception.reasons, ('compiled_artifact:deploy.pyc',))

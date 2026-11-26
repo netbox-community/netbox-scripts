@@ -118,8 +118,9 @@ an environment failure prevents a verdict.
 
 **Content errors produce an `invalid` verdict.** These include syntax errors,
 missing revision modules, exceptions raised by Project code during import,
-unimportable declared paths, publication conflicts and declared files absent
-from the manifest.
+unimportable declared paths, publication conflicts, declared files absent from
+the manifest and native extension modules a revision holds from an earlier
+release.
 
 **Environment failures leave the revision retryable.** Storage, cache, host
 I/O and recoverable import failures return it to `materialized` and fail the

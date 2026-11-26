@@ -88,7 +88,8 @@ def cleanup_revision_storage(sender, instance, using, **kwargs):
     # the stored keys. One this receiver cannot trust aborts the delete, keeping the row and
     # its inventory, the same fail-closed side a cleanup Job that cannot be recorded lands on.
     try:
-        validate_manifest(manifest, digest)
+        # Keep historical revisions containing native extensions deletable.
+        validate_manifest(manifest, digest, allow_native_extensions=True)
     except RevisionCorruptError as error:
         raise RevisionCorruptError(
             _(

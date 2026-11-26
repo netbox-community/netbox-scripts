@@ -806,3 +806,13 @@ class RevisionRemovalTestCase(TestCase):
         storage = RefusingStorage(failing={'exists'}, error=RuntimeError('the sdk gave up'))
         with self.assertRaises(StorageError):
             store.present_keys(storage, STORAGE_KEY, self.first, self.manifest_paths[self.first])
+
+    def test_a_stored_native_extension_module_is_reported_and_removed(self):
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            digest = self.stage({'deploy.py': b'x', 'lib/helper.so': b'\x7fELF'})
+        self.assertEqual(
+            store.present_keys(self.storage, STORAGE_KEY, digest, self.manifest_paths[digest]),
+            ['deploy.py', 'lib/helper.so'],
+        )
+        self.delete(digest)
+        self.assertEqual(self.paths(digest), set())

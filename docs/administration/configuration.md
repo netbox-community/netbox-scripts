@@ -180,9 +180,12 @@ applies at every directory level, so `Lib/deploy.py` and `lib/audit.py` cannot s
 one tree. Simple case mapping follows APFS, NTFS and HFS+ behavior without rejecting
 names those filesystems distinguish.
 
-Compiled Python files and `__pycache__` directories are rejected with
-`compiled_artifact`. Project source must remain available for review rather than
-being supplied only as executable bytecode.
+Compiled Python files, native extension modules (`.so` and `.pyd`) and
+`__pycache__` directories are rejected with `compiled_artifact`. Project source
+must remain available for review rather than being supplied only as compiled
+code. Revisions containing native extensions stored by earlier releases cannot
+be validated, activated, refreshed or run. Their revision details and readable
+source files remain accessible, and the revisions can still be deleted.
 
 Project revisions store relative paths and file contents, not filesystem
 entries. Symbolic links, device files and other special files are therefore not

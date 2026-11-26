@@ -115,6 +115,18 @@ class CleanupSignalsTestCase(CleanupFixtureMixin, TestCase):
         enqueue.assert_not_called()
         self.assertTrue(ScriptProjectRevision.objects.filter(pk=revision.pk).exists())
 
+    def test_deleting_a_revision_holding_a_native_extension_module_enqueues_its_cleanup(self):
+        manifest = manifest_for({'hello.py': b'x', 'helper.so': b'\x7fELF'})
+        digest = compute_digest(manifest)
+        revision = ScriptProjectRevision.objects.create(
+            project=self.project, digest=digest, status=RevisionStatusChoices.VALID, manifest=manifest
+        )
+        with self.capture_enqueues() as enqueue:
+            revision.delete()
+        enqueue.assert_called_once_with(
+            storage_key=self.project.storage_key, digest=digest, paths=['hello.py', 'helper.so']
+        )
+
     def test_unsafe_branching_routing_leaves_the_source_in_the_store(self):
         # The row deleted here may not be the only row naming this source, so removing it could
         # take content away from a schema that still serves it. Leaking content is recoverable,

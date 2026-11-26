@@ -190,7 +190,8 @@ class ScriptProjectRevisionSourceView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         """Supply the indexed manifest entry with its text, or why the text is withheld."""
         try:
-            validate_manifest(instance.manifest, instance.digest)
+            # Allow inspection of historical revisions containing native extensions.
+            validate_manifest(instance.manifest, instance.digest, allow_native_extensions=True)
         except RevisionCorruptError as error:
             return {
                 'source_file': {'text': None, 'unavailable': str(error)},

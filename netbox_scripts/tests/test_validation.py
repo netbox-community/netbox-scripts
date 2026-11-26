@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from django.core.files.base import ContentFile
+from django.db import OperationalError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rq.timeouts import JobTimeoutException
@@ -31,11 +32,13 @@ from netbox_scripts.storage.exceptions import (
     ActivationError,
     RevisionCorruptError,
     RevisionVanishedError,
+    SourcePolicyError,
     StorageConfigurationError,
     StorageError,
 )
 from netbox_scripts.storage.paths import revision_key, revision_prefix
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
+from netbox_scripts.tests.storage.test_manifest import NATIVE_EXTENSION_REFUSAL
 from netbox_scripts.validation import (
     ValidationStateError,
     _top_level_module_names,
@@ -165,6 +168,56 @@ class ClaimTestCase(ValidationTestMixin, TestCase):
         self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
         self.assertEqual(script_file.discovery_error, '')
 
+    def test_a_stale_policy_verdict_after_a_reclaim_commits_nothing(self):
+        script_file = self.declare('deploy.py')
+        revision = self.stage(SCRIPT_FILES)
+        old_job = self.make_job()
+        new_job = self.make_job()
+        real_validate_manifest = validation.validate_manifest
+        state = {'interleaved': False}
+
+        def interleave(manifest, digest=None, **kwargs):
+            if state['interleaved']:
+                return real_validate_manifest(manifest, digest, **kwargs)
+            state['interleaved'] = True
+            self.backdate_lease(revision)
+            validate_revision(ScriptProjectRevision.objects.get(pk=revision.pk), job=new_job)
+            raise SourcePolicyError('planted refusal for the stale run', ['compiled_artifact:planted.so'])
+
+        with mock.patch.object(validation, 'validate_manifest', side_effect=interleave):
+            stale_result = validate_revision(revision, job=old_job)
+
+        self.assertEqual(stale_result.status, RevisionStatusChoices.VALID)
+        self.assertEqual(stale_result.validation_errors, [])
+        self.assertEqual(stale_result.validation_job, new_job)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.DISCOVERED)
+        self.assertEqual(script_file.discovery_error, '')
+
+    def test_a_failure_finalizing_a_policy_verdict_leaves_the_claim_to_expire(self):
+        script_file = self.declare('deploy.py')
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            revision = self.stage({'deploy.py': script_source('Deploy'), 'lib/native.so': b'\x7fELF'})
+
+        with (
+            mock.patch.object(validation, '_finalize', side_effect=OperationalError('connection lost')),
+            self.assertRaises(OperationalError),
+        ):
+            validate_revision(revision, job=self.job)
+
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALIDATING)
+        self.assertEqual(revision.validation_job, self.job)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.PENDING)
+
+        self.backdate_lease(revision)
+        result = validate_revision(revision, job=self.make_job())
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.FAILED)
+
 
 class SnapshotTestCase(ValidationTestMixin, TestCase):
     def test_a_tampered_snapshot_fails_closed_and_releases_the_claim(self):
@@ -268,6 +321,35 @@ class VerdictTestCase(ValidationTestMixin, TestCase):
         script_file.refresh_from_db()
         self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.FAILED)
         self.assertIn('package_that_is_not_installed_anywhere', script_file.discovery_error)
+
+    def test_a_stored_native_extension_module_is_an_invalid_verdict(self):
+        script_file = self.declare('deploy.py')
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            revision = self.stage({'deploy.py': script_source('Deploy'), 'lib/native.so': b'\x7fELF'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(
+            result.validation_errors,
+            [{'path': 'lib/native.so', 'code': 'compiled_artifact', 'message': NATIVE_EXTENSION_REFUSAL}],
+        )
+        self.assertEqual(result.discovered_scripts, [])
+        script_file.refresh_from_db()
+        self.assertEqual(script_file.discovery_status, FileDiscoveryStatusChoices.FAILED)
+        self.assertEqual(script_file.discovery_error, NATIVE_EXTENSION_REFUSAL)
+
+    def test_a_stored_native_extension_module_invalidates_a_revision_without_script_files(self):
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            revision = self.stage({'deploy.py': script_source('Deploy'), 'lib/native.so': b'\x7fELF'})
+
+        result = validate_revision(revision, job=self.job)
+
+        self.assertEqual(result.status, RevisionStatusChoices.INVALID)
+        self.assertEqual(
+            result.validation_errors,
+            [{'path': 'lib/native.so', 'code': 'compiled_artifact', 'message': NATIVE_EXTENSION_REFUSAL}],
+        )
 
     def test_a_broken_import_of_an_installed_distribution_reverts_and_reraises(self):
         # The host has netaddr, so repairing or upgrading it could change the answer. That is

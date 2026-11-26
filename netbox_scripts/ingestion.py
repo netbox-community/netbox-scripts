@@ -240,9 +240,7 @@ def _data_source_tree(project):
         relative = data_source_relative_path(path, project.data_path)
         if relative is None:
             continue
-        # Called for its refusal rather than its result. Bytecode is not source, and a
-        # __pycache__ directory can sit at any depth below the configured one, so the check runs
-        # per path rather than against the prefix.
+        # Skip compiled artifacts at any depth within the Project directory.
         try:
             normalize_source_path(relative)
         except UnsafePathError as error:

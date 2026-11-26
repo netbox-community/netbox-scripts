@@ -71,20 +71,53 @@ class PathSafetyTestCase(TestCase):
                     paths.normalize_source_path(raw)
                 self.assertEqual(ctx.exception.code, 'compiled_artifact')
 
+    def test_rejects_native_extension_modules(self):
+        for raw in (
+            'helper.so',
+            'lib/helper.pyd',
+            'lib/helper.abi3.so',
+            'lib/helper.cpython-312-x86_64-linux-gnu.so',
+            'lib/helper.cp312-win_amd64.pyd',
+            'pkg/__init__.so',
+        ):
+            with self.subTest(raw=raw):
+                with self.assertRaises(UnsafePathError) as ctx:
+                    paths.normalize_source_path(raw)
+                self.assertEqual(ctx.exception.code, 'compiled_artifact')
+
     def test_rejects_a_pycache_directory_holding_no_compiled_name(self):
         with self.assertRaises(UnsafePathError) as ctx:
             paths.normalize_source_path('__pycache__/notes.py')
         self.assertEqual(ctx.exception.code, 'compiled_artifact')
 
     def test_rejects_compiled_artifacts_whatever_their_letter_case(self):
-        for raw in ('deploy.PYC', 'lib/deploy.Pyo', 'lib/__PyCache__/notes.py', '__PYCACHE__/notes.py'):
+        for raw in (
+            'deploy.PYC',
+            'lib/deploy.Pyo',
+            'lib/__PyCache__/notes.py',
+            '__PYCACHE__/notes.py',
+            'lib/HELPER.SO',
+            'lib/helper.PyD',
+        ):
             with self.subTest(raw=raw):
                 with self.assertRaises(UnsafePathError) as ctx:
                     paths.normalize_source_path(raw)
                 self.assertEqual(ctx.exception.code, 'compiled_artifact')
 
     def test_accepts_a_name_merely_containing_a_compiled_suffix(self):
-        self.assertEqual(paths.normalize_source_path('lib/pycvalues.py'), 'lib/pycvalues.py')
+        for raw in ('lib/pycvalues.py', 'lib/helper.so.py', 'lib/libssl.so.3'):
+            with self.subTest(raw=raw):
+                self.assertEqual(paths.normalize_source_path(raw), raw)
+
+    def test_admits_stored_native_extension_modules_only(self):
+        for raw in ('lib/helper.so', 'lib/HELPER.PYD'):
+            with self.subTest(raw=raw):
+                self.assertEqual(paths.normalize_source_path(raw, allow_native_extensions=True), raw)
+        for raw in ('deploy.pyc', 'lib/__pycache__/notes.py'):
+            with self.subTest(raw=raw):
+                with self.assertRaises(UnsafePathError) as ctx:
+                    paths.normalize_source_path(raw, allow_native_extensions=True)
+                self.assertEqual(ctx.exception.code, 'compiled_artifact')
 
 
 class CaseInsensitiveComparisonTestCase(TestCase):
@@ -180,6 +213,15 @@ class StorageKeyTestCase(TestCase):
         for raw in ('../escape.py', '/etc/passwd', 'scripts/../../escape.py'):
             with self.subTest(raw=raw), self.assertRaises(UnsafePathError):
                 paths.revision_key(self.storage_key, self.digest, raw)
+
+    def test_a_stored_native_extension_module_keeps_its_key(self):
+        self.assertEqual(
+            paths.revision_key(self.storage_key, self.digest, 'lib/helper.so'),
+            f'{paths.revision_prefix(self.storage_key, self.digest)}lib/helper.so',
+        )
+        with self.assertRaises(UnsafePathError) as ctx:
+            paths.revision_key(self.storage_key, self.digest, 'deploy.pyc')
+        self.assertEqual(ctx.exception.code, 'compiled_artifact')
 
     def test_the_key_builders_refuse_unsafe_identifiers(self):
         # The code is read programmatically, so it is pinned alongside the refusal itself.

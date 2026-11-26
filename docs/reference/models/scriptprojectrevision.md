@@ -36,7 +36,9 @@ All are managed by the plugin, including those not marked `system`.
 
 Storage-time `validation_errors` entries contain `path`, a fixed `code` and a
 human-readable `message`. The path is null for Project-wide limits such as
-`too_many_files` or `project_too_large`.
+`too_many_files` or `project_too_large`. Validation records the same entries,
+under `compiled_artifact`, for native extension modules a revision holds from an
+earlier release.
 
 Validation-time entries contain `source_path`, `code` and `message`, plus
 `exception_type` and `traceback` when an exception was involved. Recorded errors

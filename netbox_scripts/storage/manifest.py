@@ -14,8 +14,8 @@ import re
 
 from django.utils.translation import gettext_lazy as _
 
-from .exceptions import LimitExceededError, RevisionCorruptError, UnsafePathError
-from .paths import case_insensitive_collisions, normalize_source_path
+from .exceptions import LimitExceededError, RevisionCorruptError, SourcePolicyError, UnsafePathError
+from .paths import case_insensitive_collisions, is_native_extension, normalize_source_path
 
 __all__ = (
     'build_manifest',
@@ -178,7 +178,7 @@ def compute_digest(entries):
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
-def validate_manifest(manifest, digest=None):
+def validate_manifest(manifest, digest=None, *, allow_native_extensions=False):
     """
     Check a persisted manifest before any path from it reaches an open call.
 
@@ -187,7 +187,8 @@ def validate_manifest(manifest, digest=None):
     so every entry is confirmed to carry a canonical path with a plausible size and checksum
     before the storage layer walks it. Passing the revision digest also confirms the manifest
     is the one that digest addresses. Raises RevisionCorruptError listing every problem
-    found.
+    found. Raises SourcePolicyError if an otherwise valid manifest contains native extensions,
+    unless allow_native_extensions is True.
     """
     if not isinstance(manifest, list):
         raise RevisionCorruptError(_('The stored manifest is not a list.'), ['manifest_not_a_list'])
@@ -204,6 +205,18 @@ def validate_manifest(manifest, digest=None):
 
     if reasons:
         raise RevisionCorruptError(_('The stored manifest cannot be trusted.'), reasons)
+    if allow_native_extensions:
+        return
+
+    refused = [entry['path'] for entry in manifest if is_native_extension(entry['path'])]
+    if refused:
+        raise SourcePolicyError(
+            _(
+                'The revision contains unsupported native extension modules. '
+                'Reconcile the Project and activate a new revision.'
+            ),
+            [f'compiled_artifact:{path}' for path in refused],
+        )
 
 
 def _validate_entry(index, entry, paths):
@@ -217,8 +230,9 @@ def _validate_entry(index, entry, paths):
     path = entry['path']
     if not isinstance(path, str):
         return [f'malformed_path:{index}']
+    # Validate stored paths independently of the native extension policy.
     try:
-        canonical = normalize_source_path(path)
+        canonical = normalize_source_path(path, allow_native_extensions=True)
     except UnsafePathError as error:
         # This is what stops a stored "../outside.py" walking out of the revision directory:
         # ".." is a real directory entry, so opening it with O_NOFOLLOW succeeds. The

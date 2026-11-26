@@ -83,9 +83,13 @@ Snapshots describe the event, not the object's current state. They use model
 values: `status` is a string such as `active`, and `tags` is a list of tag
 **names**. A create event normally has no `prechange` snapshot, and a delete
 event has no `postchange` snapshot. An update needs both snapshots to compare
-values. An update has no `prechange` snapshot if the code that saved it did not
-call `snapshot()` before saving. This can happen in Scripts or when NetBox saves
-devices installed in a parent device's bays.
+values. On NetBox v4.7.5, an update has no `prechange` snapshot if the code that
+saved it did not call `snapshot()` before saving. This can happen in Scripts or
+when NetBox saves devices installed in a parent device's bays. NetBox v4.7.6 and
+later read the original values from the database when an existing object is
+saved with a request context but without a snapshot. An update can still lack a
+`prechange` snapshot, for example when a Script adds or removes tags without
+calling `snapshot()` first, so keep the examples' checks.
 
 ### Report device status changes
 
@@ -213,13 +217,15 @@ understand the original change. Do not reconstruct it from a current database
 query.
 
 Return without saving when the intended state is already present. Otherwise,
-call the object's `snapshot()` method before changing any fields, so change
-logging and subsequent events include the original values. Committed Scripts can
-trigger further Event Rules, so ensure any update you make no longer matches the
-same transition check. Comparing snapshots alone does not prevent duplicate
-actions: the same event still contains the same change on a repeat run. For
-external actions, use an idempotent operation or the service's supported
-deduplication mechanism.
+call the object's `snapshot()` method before changing it, so change logging and
+subsequent events include the original values on every supported NetBox version,
+also when only tags change. On NetBox v4.7.6 and later, the database read that
+replaces a missing snapshot costs extra queries and writes a warning to the
+server log. Committed Scripts can trigger further Event Rules, so ensure any
+update you make no longer matches the same transition check. Comparing snapshots
+alone does not prevent duplicate actions: the same event still contains the same
+change on a repeat run. For external actions, use an idempotent operation or the
+service's supported deduplication mechanism.
 
 Log only the identifiers and selected values needed to explain the action.
 Anyone who can view the Job can read its logs, so do not log complete snapshots,

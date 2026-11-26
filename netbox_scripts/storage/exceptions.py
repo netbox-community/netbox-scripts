@@ -10,6 +10,7 @@ __all__ = (
     'ProjectVanishedError',
     'RevisionCorruptError',
     'RevisionVanishedError',
+    'SourcePolicyError',
     'StorageConfigurationError',
     'StorageError',
     'UnsafePathError',
@@ -90,3 +91,7 @@ class RevisionCorruptError(StorageError):
     def __init__(self, message, reasons=None):
         super().__init__(message)
         self.reasons = tuple(reasons or ())
+
+
+class SourcePolicyError(RevisionCorruptError):
+    """Raised when an intact revision manifest violates the current source policy."""

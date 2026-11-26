@@ -41,6 +41,7 @@ from netbox_scripts.scripts import AbortScript, Script
 from netbox_scripts.storage import config, service
 from netbox_scripts.storage.exceptions import RevisionCorruptError, StorageConfigurationError, StorageError
 from netbox_scripts.tests.plugin_testing import IN_MEMORY_STORAGES, discard_tree, purge_namespace
+from netbox_scripts.tests.storage.test_manifest import NATIVE_EXTENSION_REFUSAL
 from netbox_scripts.tests.test_branching import branching_installed, fake_branching, fake_contextvars
 from netbox_scripts.tests.test_validation import IO_REASON, STORAGE_REASON
 from netbox_scripts.validation import validate_revision
@@ -1731,6 +1732,19 @@ class RunJobTestCase(ScriptJobTestMixin, TestCase):
         logged = '\n'.join(entry['message'] for entry in job.log_entries)
         self.assertIn('cannot supply deploy.MakeTag: the tree is damaged', logged)
         self.assertNotIn('could not reach the source', logged)
+
+    def test_a_revision_holding_a_native_extension_module_no_longer_runs(self):
+        with patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            self.publish({'deploy.py': MAKES_A_TAG, 'helper.so': b'\x7fELF'})
+
+        job = self.run_job()
+        job.refresh_from_db()
+
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        logged = '\n'.join(entry['message'] for entry in job.log_entries)
+        self.assertIn(f'cannot supply deploy.MakeTag: {NATIVE_EXTENSION_REFUSAL}', logged)
+        self.assertNotIn('could not reach the source', logged)
+        self.assertFalse(Tag.objects.filter(slug='from-revision').exists())
 
     def test_the_job_log_carries_no_storage_identities(self):
         # An unhandled exception records its traceback, and the frame is a file in the runtime

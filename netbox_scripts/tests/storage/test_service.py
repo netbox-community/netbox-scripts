@@ -15,6 +15,7 @@ from netbox_scripts.storage.exceptions import (
     ActivationError,
     ProjectVanishedError,
     RevisionCorruptError,
+    SourcePolicyError,
     StorageError,
 )
 from netbox_scripts.storage.paths import STORAGE_PREFIX, project_prefix, revision_prefix
@@ -511,6 +512,26 @@ class ActivateRevisionTestCase(StorageServiceMixin, TestCase):
             any(reason.startswith(('size_mismatch', 'checksum_mismatch')) for reason in ctx.exception.reasons)
         )
 
+    def test_promote_revision_refuses_a_stored_native_extension_module(self):
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            revision = self.validated({**GOOD_FILES, 'pkg/native.so': b'\x7fELF'})
+        with self.assertRaises(SourcePolicyError):
+            service.promote_revision(revision, on_promote=promote_without_synchronizing)
+        revision.refresh_from_db()
+        self.assertEqual(revision.status, RevisionStatusChoices.VALID)
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.active_revision_id)
+
+    def test_a_compliant_revision_replaces_one_holding_a_native_extension_module(self):
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            first = service.promote_revision(
+                self.validated({**GOOD_FILES, 'pkg/native.so': b'\x7fELF'}), on_promote=promote_without_synchronizing
+            )
+        second = service.promote_revision(self.validated(GOOD_FILES), on_promote=promote_without_synchronizing)
+        first.refresh_from_db()
+        self.assertEqual(first.status, RevisionStatusChoices.RETIRED)
+        self.assertEqual(second.status, RevisionStatusChoices.ACTIVE)
+
     def test_promote_revision_ignores_a_mutated_in_memory_project(self):
         # The owning project is read from the database, so pointing the in-memory instance at
         # another project cannot create a cross-project active revision.
@@ -708,6 +729,14 @@ class RefreshScriptFilesTestCase(StorageServiceMixin, TestCase):
         self.overwrite(first.digest, 'hello.py', b'tampered')
         with self.assertRaises(RevisionCorruptError):
             service.refresh_revision_script_files(first)
+
+    def test_refresh_refuses_a_stored_native_extension_module(self):
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            first = self.materialize({**GOOD_FILES, 'pkg/native.so': b'\x7fELF'})
+        ScriptFile.objects.create(project=self.project, source_path='hello.py')
+        with self.assertRaises(SourcePolicyError):
+            service.refresh_revision_script_files(first)
+        self.assertEqual(ScriptProjectRevision.objects.filter(project=self.project).count(), 1)
 
     def test_refresh_leaves_the_source_verdict_untouched(self):
         # An INVALID verdict binds to the old configuration. The fix-a-typo path creates a

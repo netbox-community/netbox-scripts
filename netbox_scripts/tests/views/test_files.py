@@ -676,6 +676,15 @@ class ScriptProjectRevisionSourceViewTestCase(ObjectPermissionTestMixin, TestCas
                 opened.assert_not_called()
                 self.assertEqual(response.context['source_file'], {'text': None, 'unavailable': message})
 
+    def test_a_revision_holding_a_native_extension_module_shows_its_source(self):
+        self.grant(ScriptProjectRevision, 'view')
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            revision = self.stored_revision({'deploy.py': b'V = 1\n', 'helper.so': b'\x7fELF'})
+
+        response = self.source(revision)
+
+        self.assertEqual(response.context['source_file']['text'], 'V = 1\n')
+
     def test_a_backend_failure_reports_a_fixed_message_and_logs_its_cause(self):
         self.grant(ScriptProjectRevision, 'view')
         revision = self.stored_revision({'deploy.py': b'V = 1\n'})

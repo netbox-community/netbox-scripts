@@ -16,7 +16,7 @@ from netbox_scripts.runtime import loader
 from netbox_scripts.runtime.cache import local_revision_dir
 from netbox_scripts.runtime.exceptions import InvalidModulePathError, ScriptFileImportError
 from netbox_scripts.runtime.naming import project_module_name, revision_module_name
-from netbox_scripts.storage.exceptions import RevisionCorruptError
+from netbox_scripts.storage.exceptions import RevisionCorruptError, SourcePolicyError
 from netbox_scripts.storage.manifest import compute_digest
 from netbox_scripts.storage.paths import revision_key
 from netbox_scripts.tests.plugin_testing import discard_tree, purge_namespace
@@ -319,6 +319,25 @@ class FastFailTestCase(LoaderTestCase):
                 self.load_again(STORAGE_KEY, digest, 'probe.py', manifest, storage=storage)
         self.assertEqual(storage.opened, [])
         self.assertEqual(list(self.cache_root.iterdir()), [])
+
+    def test_a_revision_holding_a_native_extension_module_fails_before_any_io(self):
+        storage = OpenRecordingStorage()
+        files = {'deploy.py': b'from . import helper\n', 'helper.py': b'VALUE = 1\n', 'helper.so': b'\x7fELF'}
+        manifest, digest = seed_revision(storage, STORAGE_KEY, files)
+        with self.assertRaises(SourcePolicyError) as caught:
+            self.load_again(STORAGE_KEY, digest, 'deploy.py', manifest, storage=storage)
+        self.assertEqual(caught.exception.reasons, ('compiled_artifact:helper.so',))
+        self.assertEqual(storage.opened, [])
+        self.assertEqual(list(self.cache_root.iterdir()), [])
+
+    def test_a_revision_materialized_before_the_policy_is_still_refused(self):
+        files = {'deploy.py': b'VALUE = 1\n', 'helper.so': b'\x7fELF'}
+        with mock.patch('netbox_scripts.storage.paths._NATIVE_EXTENSION_SUFFIXES', ()):
+            module, manifest, digest = self.load(STORAGE_KEY, files, 'deploy.py')
+        self.assertEqual(module.VALUE, 1)
+        self.assertTrue((local_revision_dir(STORAGE_KEY, digest, self.cache_root) / 'helper.so').is_file())
+        with self.assertRaises(SourcePolicyError):
+            self.load_again(STORAGE_KEY, digest, 'deploy.py', manifest)
 
 
 class ConcurrencyTestCase(LoaderTestCase):

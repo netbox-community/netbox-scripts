@@ -42,7 +42,7 @@ from .runtime.introspection import describe_script
 from .runtime.loader import import_script_file, revision_import_session, unload_revision
 from .runtime.naming import PRIVATE_ROOT, project_module_name, revision_module_name
 from .storage import config
-from .storage.exceptions import ActivationError, RevisionCorruptError, StorageError
+from .storage.exceptions import ActivationError, RevisionCorruptError, SourcePolicyError, StorageError
 from .storage.manifest import validate_manifest
 from .storage.script_files import validate_script_file_snapshot
 from .storage.service import require_default_database
@@ -70,10 +70,12 @@ def validate_revision(revision, *, job, passthrough=()):
     The claim moves MATERIALIZED to VALIDATING recording the owning job and the start
     time, and can take over an expired lease regardless of what the previous owner's Job
     row says. The verdict input is the validated script file snapshot exclusively, never
-    live Script File rows, and an empty snapshot is vacuously VALID. Content problems across
-    all entries collect into one INVALID verdict with sanitized validation_errors, as does
-    a snapshot whose script files all import cleanly and publish nothing between them, under
-    the code no_scripts_published. Script File rows named by the snapshot receive their discovery
+    live Script File rows. An empty Script File snapshot is valid if the manifest satisfies the
+    source policy. Content problems across all entries collect into one INVALID verdict with
+    sanitized validation_errors, as does a snapshot whose script files all import cleanly and
+    publish nothing between them, under the code no_scripts_published. A manifest containing
+    native extension modules produces an INVALID verdict and fails discovery for every snapshot
+    entry. Script File rows named by the snapshot receive their discovery
     outcomes only after the verdict commits under the ownership fence. A VALID verdict carries the described
     publication set, an INVALID one carries an empty set. passthrough lists exception types that
     must escape unwrapped, they roll the claim back and re-raise, as does every
@@ -105,6 +107,22 @@ def validate_revision(revision, *, job, passthrough=()):
     try:
         entries = validate_script_file_snapshot(revision.script_file_snapshot, revision.script_file_digest)
         validate_manifest(revision.manifest, revision.digest)
+    except SourcePolicyError as error:
+        message = str(error)
+        failures = [
+            {'path': path, 'code': code, 'message': message}
+            for code, _separator, path in (reason.partition(':') for reason in error.reasons)
+        ]
+        if _finalize(revision, job, RevisionStatusChoices.INVALID, failures, []):
+            _persist_script_file_results(
+                revision,
+                entries,
+                dict.fromkeys((entry['source_path'] for entry in entries), FileDiscoveryStatusChoices.FAILED),
+                [{'source_path': entry['source_path'], 'message': message} for entry in entries],
+                {},
+            )
+        revision.refresh_from_db()
+        return revision
     except RevisionCorruptError:
         _revert_to_materialized(revision, job)
         raise

@@ -21,6 +21,7 @@ __all__ = (
     'STORAGE_PREFIX',
     'case_insensitive_collisions',
     'case_insensitive_nodes',
+    'is_native_extension',
     'normalize_source_path',
     'project_prefix',
     'revision_key',
@@ -42,8 +43,9 @@ MAX_PATH_COMPONENT_BYTES = 255
 MAX_PATH_BYTES = 768
 MAX_PATH_DEPTH = 64
 
-# Refused as source: a compiled file imports without the source anyone would review.
+# Compiled artifacts cannot be reviewed as source.
 _COMPILED_SUFFIXES = ('.pyc', '.pyo')
+_NATIVE_EXTENSION_SUFFIXES = ('.so', '.pyd')
 _BYTECODE_DIRECTORY = '__pycache__'
 
 # Every key this plugin stores sits under one prefix, so project source stays apart from
@@ -52,7 +54,7 @@ _BYTECODE_DIRECTORY = '__pycache__'
 STORAGE_PREFIX = 'netbox-scripts'
 
 
-def normalize_source_path(path):
+def normalize_source_path(path, *, allow_native_extensions=False):
     """
     Return the canonical form of a source file path.
 
@@ -63,8 +65,8 @@ def normalize_source_path(path):
     absolute or drive-qualified paths, traversal segments, backslashes, and control
     characters.
 
-    Compiled Python artifacts are rejected under compiled_artifact, because they are not
-    source and cannot be reviewed as source.
+    Compiled artifacts are rejected under compiled_artifact. allow_native_extensions permits access
+    to native extensions stored by earlier releases.
 
     A path that no host can materialize is rejected here too, under
     path_component_too_long, path_too_long, and path_too_deep. Those are content problems
@@ -110,16 +112,20 @@ def normalize_source_path(path):
             code='path_traversal',
             message=_('Source paths must reference a file within the project.'),
         )
-    # Refusing only the lower-case spelling stores opaque bytecode as reviewable source.
-    # Import never reaches it here, so this bounds what the tree holds, not what runs.
+    # Reject compiled artifacts regardless of filename case.
     folded = [segment.lower() for segment in segments]
-    if folded[-1].endswith(_COMPILED_SUFFIXES) or _BYTECODE_DIRECTORY in folded:
+    if (
+        folded[-1].endswith(_COMPILED_SUFFIXES)
+        or _BYTECODE_DIRECTORY in folded
+        or (not allow_native_extensions and is_native_extension(segments[-1]))
+    ):
         raise UnsafePathError(
             path=path,
             code='compiled_artifact',
-            message=_('Compiled Python files and "{directory}" directories are not stored as project source.').format(
-                directory=_BYTECODE_DIRECTORY
-            ),
+            message=_(
+                'Compiled Python files, native extension modules and "{directory}" directories are not stored as '
+                'project source.'
+            ).format(directory=_BYTECODE_DIRECTORY),
         )
 
     canonical = '/'.join(segments)
@@ -151,6 +157,11 @@ def normalize_source_path(path):
             ),
         )
     return canonical
+
+
+def is_native_extension(path):
+    """Return whether a source path names a native extension module, whatever its letter case."""
+    return path.rsplit('/', 1)[-1].lower().endswith(_NATIVE_EXTENSION_SUFFIXES)
 
 
 def case_insensitive_nodes(path):
@@ -225,7 +236,8 @@ def revision_key(storage_key, digest, path):
     Return the storage key of one file inside a stored revision.
 
     The path is canonicalized here rather than taken on trust, so one key names one object
-    however the caller spelled the path, and every rule normalize_source_path enforces applies
-    to a key handed to a backend this plugin does not control.
+    however the caller spelled the path, and normalize_source_path's rules apply to a key handed
+    to a backend this plugin does not control. Native extension modules stay addressable for
+    revisions stored by earlier releases.
     """
-    return f'{revision_prefix(storage_key, digest)}{normalize_source_path(path)}'
+    return f'{revision_prefix(storage_key, digest)}{normalize_source_path(path, allow_native_extensions=True)}'

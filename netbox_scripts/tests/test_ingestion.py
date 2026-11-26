@@ -426,13 +426,15 @@ class IngestDataSourceTestCase(TestCase):
         )
 
     def populate(self):
-        """Synchronize a repository holding the project's directory, a sibling, and bytecode."""
+        """Populate the Data Source with Project files, siblings and compiled artifacts."""
         for path in (
             'automation/netbox/deploy.py',
             'automation/netbox/lib/shared.py',
             'automation/netbox/README.md',
             'automation/netbox/__pycache__/deploy.cpython-312.pyc',
             'automation/netbox/lib/stale.pyc',
+            'automation/netbox/lib/shared.cpython-312-x86_64-linux-gnu.so',
+            'automation/netbox/native.pyd',
             'automation/netbox-old/legacy.py',
             'unrelated/other.py',
         ):
@@ -520,9 +522,10 @@ class IngestDataSourceTestCase(TestCase):
         self.assertEqual(staged.revision.validation_errors, [])
         self.assertEqual([path for path in self.staged_paths(staged) if path.endswith('.pyc')], [])
         self.assertEqual([path for path in self.staged_paths(staged) if '__pycache__' in path], [])
+        self.assertEqual([path for path in self.staged_paths(staged) if path.endswith(('.so', '.pyd'))], [])
 
     def test_any_other_refused_path_invalidates_the_revision(self):
-        # Only bytecode is skipped. Everything else the path policy refuses falls through to
+        # Only compiled artifacts are skipped. Everything else the path policy refuses falls through to
         # staging, which records it as an invalid revision naming the path.
         data_file(self.source, 'automation/netbox/{}.py'.format('x' * 300))
         staged = ingest_data_source(self.project)

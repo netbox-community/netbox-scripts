@@ -11,7 +11,7 @@ from netbox.views import generic
 from utilities.permissions import get_permission_for_model
 from utilities.views import ContentTypePermissionRequiredMixin, register_model_view
 
-from ..choices import MigrationStateChoices
+from ..choices import MigrationStateChoices, ProjectSourceTypeChoices
 from ..constants import MIGRATION_GUIDE_URL
 from ..forms import MigrationCutoverForm
 from ..jobs import (
@@ -67,7 +67,7 @@ def _findings(job, level, code=None):
 
 def _migration_rows(request, inventory_job, staging_job):
     """
-    Return one row per Project a migration proposes or has produced, with where it stands now.
+    Return one row per proposal and per staging result outside them, with where each stands now.
 
     Covers both passes, including a Project the inventory proposed that staging has not created yet.
     """
@@ -75,27 +75,55 @@ def _migration_rows(request, inventory_job, staging_job):
     # status before validation runs. So state is read live here rather than out of either Job.
     proposed = _proposed_projects(inventory_job)
     produced = _proposed_projects(staging_job)
-    keys = list(proposed) + [key for key in produced if key not in proposed]
-    # Deliberately unrestricted: existence alone, and only for keys this page already shows.
-    existing_keys = set(ScriptProject.objects.filter(key__in=keys).values_list('key', flat=True))
+    # Staging and the cutover map take the Project already holding a proposed Data Source directory,
+    # whatever its key, as plan.existing_project() decides. Unrestricted like the existence read below.
+    directories = {
+        (entry.get('data_source_id'), entry.get('data_path')): key
+        for key, entry in proposed.items()
+        if entry.get('source_type') == ProjectSourceTypeChoices.DATA_SOURCE
+    }
+    holders = ScriptProject.objects.filter(
+        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+        data_source_id__in={data_source_id for data_source_id, _data_path in directories},
+        data_path__in={data_path for _data_source_id, data_path in directories},
+    ).values_list('data_source_id', 'data_path', 'key')
+    held = {
+        directories[(data_source_id, data_path)]: project_key
+        for data_source_id, data_path, project_key in holders
+        if (data_source_id, data_path) in directories
+    }
+    rows = []
+    for key, entry in proposed.items():
+        # A Data Source proposal no Project holds stands for no Project, not one elsewhere carrying its key.
+        project_key = held.get(key) if entry.get('source_type') == ProjectSourceTypeChoices.DATA_SOURCE else key
+        rows.append((project_key or key, entry.get('name') or key, project_key))
+    shown = {project_key for _key, _name, project_key in rows if project_key is not None}
+    # Deliberately unrestricted: existence alone, so a Project the user cannot view is not reported missing.
+    existing_keys = set(ScriptProject.objects.filter(key__in=shown | set(produced)).values_list('key', flat=True))
+    for key, entry in produced.items():
+        # Under a proposal's key, only a staged Project that still exists needs a row of its own.
+        if key in shown or (key in proposed and (entry.get('refused') or key not in existing_keys)):
+            continue
+        rows.append((key, key, key))
+        shown.add(key)
     projects = {
         project.key: project
         for project in ScriptProject.objects.restrict(request.user, 'view')
         .select_related('active_revision')
-        .filter(key__in=keys)
+        .filter(key__in=shown)
     }
     newest = _newest_stored_revisions(projects.values())
     return [
         {
             'key': key,
-            'name': proposed.get(key, {}).get('name') or key,
-            'project': (project := projects.get(key)),
-            'project_exists': key in existing_keys,
+            'name': name,
+            'project': (project := projects.get(project_key)),
+            'project_exists': project_key in existing_keys,
             # What the project's tree is right now: the active revision, or the newest stored
             # one for a project that has not activated anything yet.
             'revision': (project.active_revision or newest.get(project.pk)) if project is not None else None,
         }
-        for key in keys
+        for key, name, project_key in rows
     ]
 
 

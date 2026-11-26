@@ -3,6 +3,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
 from unittest import mock
@@ -17,7 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.choices import JobStatusChoices, ManagedFileRootPathChoices
-from core.models import Job
+from core.models import DataSource, Job
 from extras.models import ScriptModule
 from netbox_scripts.choices import (
     MigrationStateChoices,
@@ -90,6 +91,56 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
     def closed_run(self):
         """A run the cleanup pass closed, whatever its Job went on to record."""
         return MigrationRun.objects.create(state=MigrationStateChoices.MIGRATED, completed=timezone.now())
+
+    def proposed_directories(self, *directories):
+        """Record an inventory Job proposing one Project per (Data Source, path) pair, keyed '<path>-proposed'."""
+        job = self.record(MigrationInventoryJob)
+        job.data = {
+            'projects': [
+                asdict(
+                    plan.ProposedProject(
+                        key=f'{data_path}-proposed',
+                        name=data_path,
+                        source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+                        data_source_id=data_source.pk,
+                        data_path=data_path,
+                        module_pks=(index,),
+                    )
+                )
+                for index, (data_source, data_path) in enumerate(directories, start=1)
+            ]
+        }
+        job.save()
+
+    def reused(self):
+        """Record both passes for a directory an operator's Project already held, so staging reused that Project."""
+        data_source = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/automation')
+        project = ScriptProject.objects.create(
+            name='Existing automation',
+            key='custom-project-key',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='automation',
+        )
+        revision = ScriptProjectRevision.objects.create(
+            project=project, digest='e' * 64, status=RevisionStatusChoices.VALID
+        )
+        self.proposed_directories((data_source, 'automation'))
+        staging = self.record(MigrationStagingJob)
+        staging.data = {
+            'projects': [
+                {
+                    'key': project.key,
+                    'created': False,
+                    'revision_pk': revision.pk,
+                    'revision_created': True,
+                    'revision_status': RevisionStatusChoices.MATERIALIZED,
+                    'processing_queued': True,
+                }
+            ]
+        }
+        staging.save()
+        return project, revision
 
     def test_the_page_needs_the_project_add_permission(self):
         self.assertHttpStatus(self.client.get(self.url('migration')), 403)
@@ -461,6 +512,27 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
 
         self.assertEqual(self.page_query_count(), two)
 
+    def test_the_page_does_not_query_once_per_proposed_directory(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        data_source = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/automation')
+        directories = [f'directory-{index}' for index in range(10)]
+        for data_path in directories:
+            ScriptProject.objects.create(
+                name=data_path,
+                key=f'{data_path}-project',
+                source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+                data_source=data_source,
+                data_path=data_path,
+            )
+        pairs = [(data_source, data_path) for data_path in directories]
+        self.proposed_directories(*pairs[:2])
+        two = self.page_query_count()
+
+        self.proposed_directories(*pairs)
+
+        self.assertEqual(self.page_query_count(), two)
+
     def staged(self, status, recorded_status=None, scripts=()):
         """Create a Project with a revision, and the staging Job that reports having made it."""
         project = ScriptProject.objects.create(name='Staged Project', key='staged-project')
@@ -611,6 +683,180 @@ class MigrationTriggerTestCase(ObjectPermissionTestMixin, TestCase):
         rows = self.client.get(self.url('migration')).context['rows']
 
         self.assertEqual([row['key'] for row in rows], ['staged-project'])
+
+    def test_a_project_staging_reused_is_listed_once_in_its_proposal_row(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        project, revision = self.reused()
+
+        response = self.client.get(self.url('migration'))
+        body = response.content.decode()
+
+        self.assertEqual(
+            [(row['key'], row['name'], row['project'], row['revision']) for row in response.context['rows']],
+            [(project.key, 'automation', project, revision)],
+        )
+        self.assertIn(project.get_absolute_url(), body)
+        self.assertIn(revision.get_absolute_url(), body)
+        self.assertNotIn('Not staged', body)
+
+    def test_a_proposal_shows_the_project_holding_its_directory_without_the_staging_job(self):
+        self.grant('add', 'view')
+        self.grant_job_view(constraints={'name': MigrationInventoryJob.name})
+        project, _revision = self.reused()
+
+        rows = self.client.get(self.url('migration')).context['rows']
+
+        self.assertEqual(
+            [(row['key'], row['name'], row['project']) for row in rows], [(project.key, 'automation', project)]
+        )
+
+    def test_a_reused_project_the_user_cannot_view_is_not_reported_unstaged(self):
+        self.grant('add')
+        self.grant_job_view(constraints={'name': MigrationInventoryJob.name})
+        project, _revision = self.reused()
+
+        response = self.client.get(self.url('migration'))
+
+        self.assertEqual(
+            [(row['key'], row['name'], row['project'], row['project_exists']) for row in response.context['rows']],
+            [(project.key, 'automation', None, True)],
+        )
+        self.assertNotIn('Not staged', response.content.decode())
+
+    def test_a_proposal_takes_only_the_project_holding_its_exact_directory(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        automation = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/automation')
+        other = DataSource.objects.create(name='Other', type='local', source_url='file:///tmp/other')
+        # Staging reused this Project before an operator moved it to another directory.
+        moved = ScriptProject.objects.create(
+            name='Moved automation',
+            key='custom-project-key',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=automation,
+            data_path='elsewhere',
+        )
+        ScriptProject.objects.create(
+            name='Other automation',
+            key='other-automation',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=other,
+            data_path='automation',
+        )
+        # A proposal on each source lets both Projects past the two __in filters, so only the exact pair excludes them.
+        self.proposed_directories((automation, 'automation'), (other, 'elsewhere'))
+        staging = self.record(MigrationStagingJob)
+        staging.data = {'projects': [{'key': moved.key}]}
+        staging.save()
+
+        response = self.client.get(self.url('migration'))
+
+        self.assertEqual(
+            [(row['key'], row['project'], row['project_exists']) for row in response.context['rows']],
+            [('automation-proposed', None, False), ('elsewhere-proposed', None, False), (moved.key, moved, True)],
+        )
+        self.assertEqual(response.content.decode().count('Not staged'), 2)
+
+    def test_a_refusal_stays_in_the_row_of_the_project_holding_its_directory(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        project, _revision = self.reused()
+        other = DataSource.objects.create(name='Other', type='local', source_url='file:///tmp/other')
+        # An earlier pass staged this Project under the proposal's key before an operator moved it away.
+        ScriptProject.objects.create(
+            name='Moved automation',
+            key='automation-proposed',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=other,
+            data_path='elsewhere',
+        )
+        Job.objects.filter(name=MigrationStagingJob.name).update(created=timezone.now() - timedelta(hours=1))
+        # A later pass refused the proposal, and staging records a refusal under the proposal's key.
+        refusal = self.record(MigrationStagingJob)
+        refusal.data = {
+            'projects': [
+                {'key': 'automation-proposed', 'created': False, 'refused': 'This path collides with a script file.'}
+            ]
+        }
+        refusal.save()
+
+        response = self.client.get(self.url('migration'))
+
+        self.assertEqual([(row['key'], row['project']) for row in response.context['rows']], [(project.key, project)])
+        self.assertNotIn('Not staged', response.content.decode())
+
+    def test_a_project_staged_under_the_proposal_key_keeps_its_row_after_moving_away(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        automation = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/automation')
+        other = DataSource.objects.create(name='Other', type='local', source_url='file:///tmp/other')
+        # Staging created this Project for the proposal before an operator moved it to another Data Source.
+        moved = ScriptProject.objects.create(
+            name='Moved automation',
+            key='automation-proposed',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=other,
+            data_path='elsewhere',
+        )
+        holder = ScriptProject.objects.create(
+            name='New automation',
+            key='new-automation',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=automation,
+            data_path='automation',
+        )
+        self.proposed_directories((automation, 'automation'))
+        staging = self.record(MigrationStagingJob)
+        staging.data = {'projects': [{'key': moved.key, 'created': True}]}
+        staging.save()
+
+        rows = self.client.get(self.url('migration')).context['rows']
+
+        self.assertEqual(
+            [(row['key'], row['name'], row['project']) for row in rows],
+            [(holder.key, 'automation', holder), (moved.key, moved.key, moved)],
+        )
+
+    def test_a_proposal_no_project_holds_is_listed_beside_the_project_carrying_its_key(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        data_source = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/automation')
+        # Staging created this Project for the automation proposal before an operator moved it to provision.
+        moved = ScriptProject.objects.create(
+            name='Moved automation',
+            key='automation-proposed',
+            source_type=ProjectSourceTypeChoices.DATA_SOURCE,
+            data_source=data_source,
+            data_path='provision',
+        )
+        self.proposed_directories((data_source, 'automation'), (data_source, 'provision'))
+
+        response = self.client.get(self.url('migration'))
+
+        self.assertEqual(
+            [(row['key'], row['name'], row['project'], row['project_exists']) for row in response.context['rows']],
+            [('automation-proposed', 'automation', None, False), (moved.key, 'provision', moved, True)],
+        )
+        self.assertEqual(response.content.decode().count('Not staged'), 1)
+
+    def test_a_deleted_project_staged_under_the_proposal_key_adds_no_row(self):
+        self.grant('add', 'view')
+        self.grant_job_view()
+        data_source = DataSource.objects.create(name='Automation', type='local', source_url='file:///tmp/automation')
+        self.proposed_directories((data_source, 'automation'))
+        staging = self.record(MigrationStagingJob)
+        # Staging created a Project under the proposal's key, and it has been deleted since.
+        staging.data = {'projects': [{'key': 'automation-proposed', 'created': True}]}
+        staging.save()
+
+        response = self.client.get(self.url('migration'))
+
+        self.assertEqual(
+            [(row['key'], row['project'], row['project_exists']) for row in response.context['rows']],
+            [('automation-proposed', None, False)],
+        )
+        self.assertEqual(response.content.decode().count('Not staged'), 1)
 
     def test_running_the_inventory_queues_one_pass(self):
         self.grant('add')

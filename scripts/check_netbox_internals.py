@@ -49,6 +49,7 @@ ROWS = (
     ('users.models.UserConfig.set', 'users.models:UserConfig.set'),
     ('netbox.config.get_config', 'netbox.config:get_config'),
     ('netbox.tables.columns.ActionsColumn.render', 'netbox.tables.columns:ActionsColumn.render'),
+    ('core.tables.JobLogEntryTable', 'core.tables:JobLogEntryTable'),
     (
         'netbox.api.viewsets.mixins.discard_events_on_rollback',
         'netbox.api.viewsets.mixins:discard_events_on_rollback',

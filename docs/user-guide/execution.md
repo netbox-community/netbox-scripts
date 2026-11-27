@@ -145,10 +145,13 @@ have `schedule` permission.
 
 ## Read results
 
-The result page shows the Job's status, requesting user, revision, log and output.
-The log shows info and higher levels by default. Add `?log_threshold=debug` to
-include debug records, or `?log_threshold=warning` to show warning and failure
-records.
+The result page shows the Job's status, requesting user, revision, logs and
+output. The **Job Log** holds what the Job itself recorded: the revision it ran,
+and why a run was refused or failed, even when the Script never started. The
+**Script Log** holds what the Script logged, at info and higher levels by
+default. Add `?log_threshold=debug` to include debug records, or
+`?log_threshold=warning` to show warning and failure records. The threshold does
+not filter the Job Log.
 
 The Script's **Jobs** tab shows its history for as long as NetBox retains those
 Job records. Retiring a Script does not delete it or its history. A later

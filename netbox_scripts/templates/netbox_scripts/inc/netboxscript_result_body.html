@@ -57,7 +57,11 @@ Context: see NetBoxScriptResultView.
     </table>
   </div>
   <div class="card mb-3">
-    <h2 class="card-header">{% trans "Log" %}</h2>
+    <h2 class="card-header">{% trans "Job Log" %}</h2>
+    {% render_table job_log_table 'inc/table.html' %}
+  </div>
+  <div class="card mb-3">
+    <h2 class="card-header">{% trans "Script Log" %}</h2>
     {% render_table table 'inc/table.html' %}
   </div>
   {% if output %}

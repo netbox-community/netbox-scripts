@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
+from django.utils.html import escape
 
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
@@ -711,6 +712,49 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
         self.assertNotIn('a debug line', default)
         self.assertIn('a debug line', verbose)
 
+    def test_the_job_log_ignores_the_script_log_controls(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        # Seven, so per_page=1 would cut the log despite the paginator's five orphans.
+        messages = [f'Job line {number}' for number in range(1, 8)]
+        job.log_entries = [
+            {'timestamp': local_now(), 'level': 'debug' if number == 1 else 'error', 'message': message}
+            for number, message in enumerate(messages, 1)
+        ]
+        job.save(update_fields=['log_entries'])
+
+        response = self.client.get(
+            self.url('result', job_pk=job.pk), {'log_threshold': 'failure', 'per_page': 1, 'sort': 'time'}
+        )
+
+        content = response.content.decode()
+        self.assertIn('Script log threshold', content)
+        self.assertNotIn('a success line', content)
+        positions = [content.find(message) for message in messages]
+        self.assertGreater(positions[0], -1)
+        self.assertEqual(positions, sorted(positions))
+        self.assertFalse(any(column.orderable for column in response.context['job_log_table'].columns))
+        self.user.config.refresh_from_db()
+        self.assertEqual(self.user.config.get('tables.NetBoxScriptLogTable.ordering'), ['time'])
+        self.assertIsNone(self.user.config.get('tables.JobLogEntryTable.ordering'))
+
+    def test_the_poll_that_sees_the_run_fail_carries_the_reason(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = self.finished_job()
+        job.status = JobStatusChoices.STATUS_FAILED
+        job.log_entries = [
+            {'timestamp': local_now(), 'level': 'error', 'message': 'Loading went wrong\n<script>alert(1)</script>'},
+        ]
+        job.save()
+
+        content = self.client.get(self.url('result', job_pk=job.pk), headers={'hx-request': 'true'}).content.decode()
+
+        self.assertIn('Loading went wrong', content)
+        self.assertIn(escape('<script>alert(1)</script>'), content)
+        self.assertNotIn('<script>alert(1)</script>', content)
+
     def test_no_template_syntax_reaches_the_browser(self):
         self.grant('view', 'run')
         self.grant('view', model=Job)
@@ -818,7 +862,7 @@ class ResultViewTestCase(RunViewTestMixin, TestCase):
         self.assertIn('id="run-result"', content)
         # No page furniture, which is the point of serving the partial
         self.assertNotIn('breadcrumb', content)
-        self.assertNotIn('Log threshold', content)
+        self.assertNotIn('Script log threshold', content)
 
     def test_a_scheduled_run_says_when_and_how_often(self):
         self.grant('view', 'run')
@@ -874,6 +918,26 @@ class RunEndToEndTestCase(RunViewTestMixin, TestCase):
         self.assertTrue(Tag.objects.filter(slug='made-by-run').exists())
         self.assertEqual(job.data['output'], 'Queued Tag')
         self.assertIn('Created Queued Tag', [entry['message'] for entry in job.data['log']])
+
+    def test_a_run_refused_by_the_worker_says_why_on_its_result_page(self):
+        self.grant('view', 'run')
+        self.grant('view', model=Job)
+        job = NetBoxScriptJob.enqueue_run(self.script, data={}, commit=True, user=self.user)
+        NetBoxScript.objects.filter(pk=self.script.pk).update(enabled=False)
+        NetBoxScriptJob.handle(job, **job.data, data={}, request=None)
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobStatusChoices.STATUS_FAILED)
+        self.assertFalse((job.data or {}).get('log'))
+        reason = f'"{self.script}" was disabled after this run was requested, so it was not run.'
+
+        response = self.client.get(self.url('result', job_pk=job.pk))
+
+        content = response.content.decode()
+        self.assertIn(escape(reason), content)
+        self.assertIn('No Script log entries to display.', content)
+        self.assertGreater(content.find('Job Log'), -1)
+        self.assertGreater(content.find('Script Log'), content.find('Job Log'))
+        self.assertIn(reason, [row.get_cell_value('message') for row in response.context['job_log_table'].rows])
 
 
 class RunButtonTestCase(RunViewTestMixin, TestCase):

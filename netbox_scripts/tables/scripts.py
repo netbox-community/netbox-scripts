@@ -86,7 +86,7 @@ class NetBoxScriptGroupedTable(NetBoxScriptTable):
 
 class NetBoxScriptLogTable(BaseTable):
     """
-    The log one run recorded, read back out of the Job rather than out of a model.
+    The Script log one run recorded, read back out of the Job rather than out of a model.
 
     Rows are the plain dictionaries the authoring API's logging helpers build, so this table is
     fed a list and has no queryset behind it.
@@ -110,7 +110,7 @@ class NetBoxScriptLogTable(BaseTable):
     )
 
     class Meta(BaseTable.Meta):
-        empty_text = _('This run recorded no log entries.')
+        empty_text = _('No Script log entries to display.')
         fields = ('index', 'time', 'status', 'object', 'message')
         default_columns = ('index', 'time', 'status', 'object', 'message')
 

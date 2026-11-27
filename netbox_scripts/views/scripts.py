@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 
 from core.choices import JobStatusChoices
 from core.models import Job, ObjectType
+from core.tables import JobLogEntryTable
 from extras.ui.panels import CustomFieldsPanel, TagsPanel
 from netbox.config import get_config
 from netbox.object_actions import BulkEdit, BulkExport, EditObject
@@ -275,14 +276,11 @@ class NetBoxScriptRunView(generic.ObjectView):
 @register_model_view(NetBoxScript, 'result', path='results/<int:job_pk>')
 class NetBoxScriptResultView(generic.ObjectView):
     """
-    Show what one run of a Script recorded.
+    Display the results of a Script run.
 
-    The log lives in the Job's data rather than in a model of ours, so the table is fed the
-    entries the run wrote. Anything below the requested level is left out, which is how a
-    debug-heavy run stays readable.
+    The Script log is filtered by the requested threshold, while the Job log is displayed in its entirety.
 
-    A run that has not reached a terminal state refreshes itself, and the poll asks for the
-    result body alone rather than re-rendering the page around it.
+    The result body is refreshed while the Job has not finished.
     """
 
     actions = (RunScript, EditObject)
@@ -292,7 +290,7 @@ class NetBoxScriptResultView(generic.ObjectView):
     partial_template_name = 'netbox_scripts/inc/netboxscript_result_body.html'
 
     def get(self, request, pk, job_pk, **kwargs):
-        """Render one run's log, or the body alone when the page is polling itself."""
+        """Render one run's logs, or the body alone when the page is polling itself."""
         script = self.get_object(pk=pk)
         job = get_object_or_404(
             Job.objects.restrict(request.user, 'view'),
@@ -309,6 +307,8 @@ class NetBoxScriptResultView(generic.ObjectView):
         context = {
             'object': script,
             'job': job,
+            # Keep the Job log independent of Script log pagination and sorting.
+            'job_log_table': JobLogEntryTable(job.log_entries, orderable=False),
             'table': table,
             'output': (job.data or {}).get('output') or '',
             'log_threshold': threshold,
@@ -325,7 +325,7 @@ class NetBoxScriptResultView(generic.ObjectView):
 
 def log_rows(job, threshold):
     """
-    Return one run's log entries as table rows, dropping anything below the given level.
+    Return one run's Script log entries as table rows, dropping anything below the given level.
 
     Severity comes from the logging vocabulary's own mapping to stdlib levels, so a level added
     there is ranked without anything here changing. An unrecognised threshold falls back to
